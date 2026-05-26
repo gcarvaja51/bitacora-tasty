@@ -4,6 +4,19 @@ const fs   = require('fs');
 const path = require('path');
 const ENV_PATH = path.join(__dirname, '..', '.env');
 
+// ── Black-Scholes helpers ─────────────────────────────────────
+function bsN(x) {
+  // Aproximación de la CDF normal estándar
+  const a1= 0.254829592, a2=-0.284496736, a3= 1.421413741,
+        a4=-1.453152027, a5= 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x) / Math.sqrt(2);
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t) * Math.exp(-x*x);
+  return 0.5 * (1 + sign * y);
+}
+function bsPDF(x) { return Math.exp(-0.5*x*x) / Math.sqrt(2*Math.PI); }
+
 const BASE = 'https://api.tastytrade.com';
 const HEADERS_BASE = {
   'Content-Type': 'application/json',
@@ -104,25 +117,120 @@ class TastytradeClient {
 
   async getGreeks(symbols = []) {
     if (!symbols.length) return {};
-    // TastyTrade market data endpoint para Greeks
+
+    // Intento 1: TastyTrade REST (solo mercado abierto)
     const params = symbols.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
     try {
-      const d = await this._req(`/market-data/options?${params}`);
+      const d     = await this._req(`/market-data/options?${params}`);
       const items = d.data?.items ?? [];
+      if (items.length > 0) {
+        const map = {};
+        items.forEach(item => {
+          map[item.symbol] = {
+            delta: parseFloat(item.delta || 0),
+            theta: parseFloat(item.theta || 0),
+            gamma: parseFloat(item.gamma || 0),
+            vega:  parseFloat(item.vega  || 0),
+            iv:    parseFloat(item['implied-volatility'] || item.iv || 0),
+            mark:  parseFloat(item.mark  || item['mid-price'] || 0),
+            src:   'tt',
+          };
+        });
+        console.log(`[Greeks] TastyTrade: ${items.length} opciones`);
+        return map;
+      }
+    } catch(e) {}
+
+    // Intento 2: Black-Scholes con IV de Yahoo Finance (funciona 24/7)
+    console.log('[Greeks] Usando Black-Scholes + Yahoo Finance...');
+    try {
+      // Extraer subyacentes únicos
+      const underlyings = [...new Set(symbols.map(s => {
+        const m = s.match(/^([A-Z]+)\s/);
+        return m ? m[1] : s.replace(/\s.*/,'').replace(/\d.*/,'');
+      }))];
+
+      // Obtener precio actual + IV de Yahoo Finance
+      const priceMap = {};
+      const ivMap    = {};
+      for (const und of underlyings) {
+        try {
+          // Precio actual
+          const qR = await fetch(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${und}?interval=1d&range=1d`,
+            { headers: { 'User-Agent': 'Mozilla/5.0' } }
+          );
+          const qJ  = await qR.json();
+          const cls = qJ.chart?.result?.[0]?.meta?.regularMarketPrice;
+          if (cls) priceMap[und] = cls;
+
+          // IV de la cadena de opciones (primer vencimiento disponible)
+          const oR = await fetch(
+            `https://query1.finance.yahoo.com/v7/finance/options/${und}`,
+            { headers: { 'User-Agent': 'Mozilla/5.0' } }
+          );
+          const oJ  = await oR.json();
+          const opts = [
+            ...(oJ.optionChain?.result?.[0]?.options?.[0]?.calls || []),
+            ...(oJ.optionChain?.result?.[0]?.options?.[0]?.puts  || []),
+          ];
+          // Promedio IV de opciones ATM
+          if (opts.length > 0) {
+            const ivs = opts.map(o => o.impliedVolatility).filter(v => v > 0 && v < 5);
+            ivMap[und] = ivs.length > 0 ? ivs.reduce((a,b)=>a+b,0)/ivs.length : 0.4;
+          }
+        } catch(e) {}
+      }
+
+      // Calcular Greeks con Black-Scholes para cada símbolo
       const map = {};
-      items.forEach(item => {
-        map[item.symbol] = {
-          delta:       parseFloat(item.delta      || 0),
-          theta:       parseFloat(item.theta      || 0),
-          gamma:       parseFloat(item.gamma      || 0),
-          vega:        parseFloat(item.vega       || 0),
-          iv:          parseFloat(item['implied-volatility'] || item.iv || 0),
-          mark:        parseFloat(item.mark       || item['mid-price'] || 0),
+      const R   = 0.0525; // tasa libre de riesgo ~5.25%
+
+      for (const sym of symbols) {
+        // Parsear símbolo TastyTrade: "HOOD  260618C00076000"
+        const m = sym.match(/^([A-Z]+)\s+(\d{2})(\d{2})(\d{2})([CP])(\d+)/);
+        if (!m) continue;
+        const und    = m[1];
+        const yr     = parseInt('20' + m[2]);
+        const mo     = parseInt(m[3]) - 1;
+        const dy     = parseInt(m[4]);
+        const isCall = m[5] === 'C';
+        const K      = parseInt(m[6]) / 1000;
+
+        const S  = priceMap[und];
+        if (!S) continue;
+
+        const T  = Math.max((new Date(yr, mo, dy) - Date.now()) / (365.25 * 86400000), 0.001);
+        const σ  = ivMap[und] || 0.35;
+
+        // Black-Scholes
+        const d1  = (Math.log(S/K) + (R + σ*σ/2) * T) / (σ * Math.sqrt(T));
+        const d2  = d1 - σ * Math.sqrt(T);
+        const Nd1 = bsN(d1);
+        const Nd2 = bsN(d2);
+        const nd1 = bsPDF(d1);
+
+        const delta = isCall ? Nd1 : Nd1 - 1;
+        const gamma = nd1 / (S * σ * Math.sqrt(T));
+        const vega  = S * nd1 * Math.sqrt(T) / 100;
+        const theta = isCall
+          ? (-(S * nd1 * σ) / (2 * Math.sqrt(T)) - R * K * Math.exp(-R*T) * Nd2) / 365
+          : (-(S * nd1 * σ) / (2 * Math.sqrt(T)) + R * K * Math.exp(-R*T) * bsN(-d2)) / 365;
+
+        map[sym] = {
+          delta: Math.round(delta * 1000) / 1000,
+          theta: Math.round(theta * 10000) / 10000,
+          gamma: Math.round(gamma * 10000) / 10000,
+          vega:  Math.round(vega  * 1000) / 1000,
+          iv:    Math.round(σ * 100 * 10) / 10,
+          mark:  0,
+          src:   'bs',
         };
-      });
+      }
+      console.log(`[Greeks] Black-Scholes: ${Object.keys(map).length}/${symbols.length} opciones`);
       return map;
     } catch(e) {
-      console.log('[TT] Greeks no disponibles:', e.message);
+      console.log('[Greeks] Error Black-Scholes:', e.message);
       return {};
     }
   }

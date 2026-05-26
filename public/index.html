@@ -234,6 +234,42 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 }
 .card-body { padding: 16px; }
 
+/* ══ PLAYBOOKS ══════════════════════════ */
+.pb-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; margin-bottom:24px; }
+.pb-card { background:var(--card); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+.pb-card-header { padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+.pb-card-emoji  { font-size:24px; }
+.pb-card-title  { font-size:16px; font-weight:700; color:var(--bright); }
+.pb-card-desc   { font-size:11px; color:var(--muted); margin-top:2px; }
+.pb-criteria    { padding:12px 16px; }
+.pb-criterion   { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+.pb-criterion:last-child { border-bottom:none; }
+.pb-crit-name   { font-size:11px; color:var(--muted); width:120px; flex-shrink:0; }
+.pb-crit-range  { font-family:var(--mono); font-size:12px; color:var(--bright); }
+.pb-crit-hint   { font-size:10px; color:var(--muted); margin-left:auto; text-align:right; max-width:160px; }
+.pb-critical-dot { width:6px; height:6px; border-radius:50%; background:var(--gold); flex-shrink:0; }
+
+/* Validador Pre-Trade */
+.validator-wrap { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:24px; }
+.validator-title { font-size:15px; font-weight:700; color:var(--bright); margin-bottom:16px; }
+.validator-grid  { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; margin-bottom:16px; }
+.validator-field { display:flex; flex-direction:column; gap:4px; }
+.validator-label { font-size:10px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase; }
+.validator-input { background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:8px; padding:8px 12px; color:var(--bright); font-family:var(--mono); font-size:13px; width:100%; }
+.validator-input:focus { outline:none; border-color:rgba(91,130,230,.5); }
+.validator-results { margin-top:16px; }
+.vr-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; margin-bottom:6px; }
+.vr-ok   { background:rgba(19,214,143,.1);  border:1px solid rgba(19,214,143,.2); }
+.vr-warn { background:rgba(245,200,66,.1);  border:1px solid rgba(245,200,66,.2); }
+.vr-fail { background:rgba(240,79,90,.1);   border:1px solid rgba(240,79,90,.2); }
+.vr-icon { font-size:16px; min-width:20px; }
+.vr-name { font-size:12px; color:var(--bright); min-width:140px; }
+.vr-val  { font-family:var(--mono); font-size:12px; }
+.vr-hint { font-size:10px; color:var(--muted); margin-left:auto; font-style:italic; }
+.verdict-ok   { background:rgba(19,214,143,.15); border:2px solid var(--green); border-radius:10px; padding:14px 20px; text-align:center; }
+.verdict-warn { background:rgba(245,200,66,.1);  border:2px solid var(--gold);  border-radius:10px; padding:14px 20px; text-align:center; }
+.verdict-fail { background:rgba(240,79,90,.1);   border:2px solid var(--red);   border-radius:10px; padding:14px 20px; text-align:center; }
+
 /* ══ IA CHAT ════════════════════════════ */
 .ai-msg { display:flex; gap:10px; align-items:flex-start; animation:fadeIn .3s ease; }
 .ai-msg.user { flex-direction:row-reverse; }
@@ -531,6 +567,9 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     </div>
     <div class="nav-item" onclick="nav('reports',this)">
       <span class="icon">◑</span> Reportes
+    </div>
+    <div class="nav-item" onclick="nav('playbooks',this)">
+      <span class="icon">📋</span> Playbooks
     </div>
     <div class="nav-item" onclick="nav('ai',this)">
       <span class="icon">🤖</span> IA Análisis
@@ -843,6 +882,11 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       </div>
     </div>
 
+    <!-- ══ PLAYBOOKS ════════════════════════ -->
+    <div id="panel-playbooks" class="panel">
+      <div id="playbooks-content"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
     <!-- ══ IA ANÁLISIS ══════════════════════ -->
     <div id="panel-ai" class="panel">
       <!-- Header con filtro de fechas -->
@@ -976,6 +1020,7 @@ function nav(tab, el) {
   else if (tab==='positions') loadPositions();
   else if (tab==='history') loadHistory();
   else if (tab==='reports') loadReports();
+  else if (tab==='playbooks') loadPlaybooks();
   else if (tab==='ai')      loadAI();
   else if (tab==='wheel')   loadWheel();
   else if (tab==='today') loadToday();
@@ -1028,7 +1073,7 @@ async function loadDashboard() {
 
     renderTopBar(ov.balances, ov.positions);
     renderDashKPIs(ov.balances, curveData.curve, txData.metrics);
-    renderEquityChart(curveData.curve);
+    renderEquityChart(curveData.curve, curveData.nlvSnapshots);
     renderMonthlyChart(curveData.nlvByMonth || txData.metrics.strategyByMonth || curveData.byMonth || calendarToMonthly(curveData.calendar));
     renderDashPositions(ov.positions);
     renderDashRecent(txData.items);
@@ -1147,7 +1192,7 @@ function renderDashRecent(items=[]) {
 // ══════════════════════════════════════════
 //  CHARTS
 // ══════════════════════════════════════════
-function renderEquityChart(curve) {
+function renderEquityChart(curve, nlvSnapshots) {
   if (!curve?.values?.length) return;
   const ctx = $('equityChart').getContext('2d');
   const grad = ctx.createLinearGradient(0,0,0,280);
@@ -1158,24 +1203,42 @@ function renderEquityChart(curve) {
   const initial = curve.initial;
   $('curve-period').textContent = `${curve.labels[0]} → ${curve.labels[curve.labels.length-1]}`;
 
+  // Mapear snapshots NLV a índices de la curva
+  const snapshotData = Array(curve.labels.length).fill(null);
+  if (nlvSnapshots?.length) {
+    nlvSnapshots.forEach(([date, val]) => {
+      // Encontrar el índice más cercano en las labels
+      let idx = curve.labels.indexOf(date);
+      if (idx === -1) {
+        // Buscar el índice más cercano
+        const closest = curve.labels.reduce((best, l, i) => {
+          return Math.abs(new Date(l) - new Date(date)) < Math.abs(new Date(curve.labels[best]) - new Date(date)) ? i : best;
+        }, 0);
+        idx = closest;
+      }
+      snapshotData[idx] = +val.toFixed(2);
+    });
+  }
+
   S.charts.equity = new Chart(ctx, {
     type: 'line',
     data: {
       labels: curve.labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});}),
       datasets: [
-        { label:'Net Liq', data:curve.values, borderColor:'#13d68f', borderWidth:2, backgroundColor:grad, fill:true, tension:.3, pointRadius:0, pointHoverRadius:5 },
-        { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.5)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
+        { label:'P&L Realizado', data:curve.values, borderColor:'#13d68f', borderWidth:2, backgroundColor:grad, fill:true, tension:.3, pointRadius:0, pointHoverRadius:5 },
+        { label:'Net Liq Real', data:snapshotData, borderColor:'#f5c842', borderWidth:0, backgroundColor:'#f5c842', fill:false, tension:0, pointRadius:6, pointHoverRadius:8, showLine:false, pointStyle:'circle' },
+        { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
       ]
     },
     options: {
       responsive:true, maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
       plugins:{
-        legend:{display:false},
+        legend:{display:true, position:'top', labels:{color:'#4e5a70', font:{size:10}, boxWidth:10}},
         tooltip:{
           backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
           titleColor:'#4e5a70', bodyColor:'#c9d3e0',
-          callbacks:{ label: c=>' '+c.dataset.label+': '+fa$(c.parsed.y) }
+          callbacks:{ label: c=>c.parsed.y!=null?' '+c.dataset.label+': '+fa$(c.parsed.y):'' }
         }
       },
       scales:{
@@ -1591,8 +1654,219 @@ async function loadReports(forceRefresh) {
 }
 
 // ══════════════════════════════════════════
-//  IA CHAT
+//  PLAYBOOKS
 // ══════════════════════════════════════════
+let pbData = null;
+
+async function loadPlaybooks() {
+  try {
+    if (!pbData) pbData = await api('/api/playbooks');
+    const pbs = pbData.playbooks || [];
+
+  const pbCardsHtml = pbs.map(pb => {
+    const criteriaHtml = pb.entry.map(c => {
+      const rangeStr = c.id === 'earnings'
+        ? `${c.min}+ días`
+        : c.max >= 999 ? `≥ ${c.min}${c.unit}`
+        : `${c.min}–${c.max}${c.unit}`;
+      return `<div class="pb-criterion">
+        ${c.critical ? '<div class="pb-critical-dot" title="Criterio crítico"></div>' : '<div style="width:6px"></div>'}
+        <span class="pb-crit-name">${c.name}</span>
+        <span class="pb-crit-range">${rangeStr}</span>
+        <span class="pb-crit-hint">${c.hint}</span>
+      </div>`;
+    }).join('');
+
+    const defenseHtml = pb.defense.map(d =>
+      `<div style="padding:6px 0;border-bottom:1px solid var(--border2);">
+        <div style="font-size:11px;font-weight:600;color:var(--bright);">${d.name}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${d.detail}</div>
+      </div>`).join('');
+
+    return `<div class="pb-card">
+      <div class="pb-card-header" style="border-left:4px solid ${pb.color};">
+        <div class="pb-card-emoji">${pb.emoji}</div>
+        <div>
+          <div class="pb-card-title">${pb.name}</div>
+          <div class="pb-card-desc">${pb.description}</div>
+        </div>
+      </div>
+      <div class="pb-criteria">
+        <div style="font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">
+          🟡 = criterio crítico
+        </div>
+        ${criteriaHtml}
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">Gestión</div>
+          <div style="font-size:11px;color:var(--text);">
+            Cerrar al <strong style="color:var(--green);">${pb.management.takeProfitPct}%</strong> de la prima · ${pb.management.notes}
+          </div>
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">Defensa</div>
+          ${defenseHtml}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Selector de playbook para el validador
+  const pbOptions = pbs.map(pb => `<option value="${pb.id}">${pb.emoji} ${pb.name}</option>`).join('');
+
+  $('playbooks-content').innerHTML = `
+    <!-- Validador Pre-Trade -->
+    <div class="validator-wrap">
+      <div class="validator-title">⚡ Validador Pre-Trade — ¿Cumple el playbook?</div>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+        <select id="val-pb" onchange="renderValidatorFields()"
+          style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-size:13px;">
+          ${pbOptions}
+        </select>
+        <input id="val-symbol" type="text" placeholder="Símbolo (ej: SPY)"
+          style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--bright);font-family:var(--mono);font-size:13px;width:120px;text-transform:uppercase;"
+          oninput="this.value=this.value.toUpperCase()">
+        <button onclick="autoLoadMarketData()" id="btn-autoload" class="btn btn-primary" style="padding:8px 16px;font-size:12px;">
+          📡 Auto-cargar datos
+        </button>
+        <span id="autoload-status" style="font-size:11px;color:var(--muted);"></span>
+      </div>
+      </div>
+      <div id="val-fields" class="validator-grid"></div>
+      <button onclick="validateTrade()" class="btn btn-primary" style="margin-top:12px;">✅ Validar Trade</button>
+      <div id="val-results" style="margin-top:16px;"></div>
+    </div>
+
+    <!-- Playbooks -->
+    <div style="font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Tus Playbooks</div>
+    <div class="pb-grid">${pbCardsHtml}</div>
+  `;
+
+  renderValidatorFields();
+  } catch(e) {
+    $('playbooks-content').innerHTML = `<div class="error-box" style="padding:20px;">Error cargando playbooks: ${e.message}<br><br>
+    Verifica que el archivo playbooks.json esté en la carpeta del proyecto.</div>`;
+  }
+}
+
+async function autoLoadMarketData() {
+  const symbol = ($('val-symbol')?.value || 'SPX').toUpperCase() || 'SPX';
+  const btn    = $('btn-autoload');
+  const status = $('autoload-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ Cargando...';
+  status.textContent = '';
+  try {
+    const data = await api(`/api/market-data/${symbol}`);
+    if (data.error) throw new Error(data.error);
+
+    // Mapeo: id del criterio → valor del endpoint
+    const map = {
+      ivrank:   data.ivRank,
+      rsi:      data.rsi,
+      vix:      data.vix,
+      earnings: data.earningsDays === 999 ? null : data.earningsDays,
+    };
+
+    let filled = 0;
+    Object.entries(map).forEach(([id, val]) => {
+      const el = $(`val-${id}`);
+      if (el && val !== null && val !== undefined) {
+        el.value = val;
+        el.style.borderColor = 'rgba(19,214,143,.5)';
+        filled++;
+      }
+    });
+
+    status.textContent = `✅ ${symbol} — Precio: $${data.price} | VIX: ${data.vix} | RSI: ${data.rsi} | IV Rank: ${data.ivRank}% | ${data.earningsDays === 999 ? 'Sin earnings próximos' : `Earnings en ${data.earningsDays}d`}`;
+    status.style.color = 'var(--green)';
+  } catch(e) {
+    status.textContent = `❌ ${e.message}`;
+    status.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📡 Auto-cargar datos';
+  }
+}
+
+function renderValidatorFields() {
+  if (!pbData) return;
+  const pbId = $('val-pb')?.value;
+  const pb = pbData.playbooks?.find(p => p.id === pbId);
+  if (!pb) return;
+
+  $('val-fields').innerHTML = pb.entry.map(c => `
+    <div class="validator-field">
+      <label class="validator-label">${c.name} ${c.critical ? '⭐' : ''}</label>
+      <input class="validator-input" id="val-${c.id}" type="number" step="0.01"
+        placeholder="${c.id==='earnings'?'días hasta earnings':c.min+' – '+c.max}">
+    </div>`).join('');
+  $('val-results').innerHTML = '';
+}
+
+function validateTrade() {
+  if (!pbData) return;
+  const pbId = $('val-pb')?.value;
+  const pb = pbData.playbooks?.find(p => p.id === pbId);
+  if (!pb) return;
+
+  const symbol = ($('val-symbol')?.value || '').toUpperCase();
+  let passed = 0, warned = 0, failed = 0;
+  const rows = pb.entry.map(c => {
+    const inputEl = $(`val-${c.id}`);
+    const val = parseFloat(inputEl?.value);
+    if (isNaN(val)) return `<div class="vr-row" style="background:rgba(78,90,112,.1);border:1px solid var(--border);">
+      <span class="vr-icon">⬜</span>
+      <span class="vr-name">${c.name}</span>
+      <span class="vr-val dim">Sin dato</span>
+    </div>`;
+
+    const ok = val >= c.min && val <= c.max;
+    const close = !ok && (val >= c.min * 0.85 && val <= c.max * 1.15);
+    const status = ok ? 'ok' : close ? 'warn' : 'fail';
+    const icon = ok ? '✅' : close ? '⚠️' : '❌';
+    const rangeStr = c.max >= 999 ? `≥${c.min}${c.unit}` : `${c.min}–${c.max}${c.unit}`;
+
+    if (ok) passed++;
+    else if (close && !c.critical) warned++;
+    else failed++;
+
+    return `<div class="vr-row vr-${status}">
+      <span class="vr-icon">${icon}</span>
+      <span class="vr-name">${c.name}${c.critical?' ⭐':''}</span>
+      <span class="vr-val">${val}${c.unit} <span class="dim" style="font-size:10px;">(rango: ${rangeStr})</span></span>
+      <span class="vr-hint">${!ok ? c.hint : ''}</span>
+    </div>`;
+  });
+
+  const total = pb.entry.length;
+  const critFailed = pb.entry.filter(c => c.critical).some(c => {
+    const v = parseFloat($(`val-${c.id}`)?.value);
+    return !isNaN(v) && (v < c.min || v > c.max);
+  });
+
+  let verdictHtml;
+  if (failed === 0 && warned === 0) {
+    verdictHtml = `<div class="verdict-ok">
+      <div style="font-size:20px;">✅</div>
+      <div style="font-size:15px;font-weight:700;color:var(--green);margin-top:4px;">TRADE VÁLIDO</div>
+      <div style="font-size:12px;color:var(--muted);">${symbol ? symbol+' — ' : ''}${passed}/${total} criterios cumplidos</div>
+    </div>`;
+  } else if (critFailed) {
+    verdictHtml = `<div class="verdict-fail">
+      <div style="font-size:20px;">🚫</div>
+      <div style="font-size:15px;font-weight:700;color:var(--red);margin-top:4px;">NO HACER EL TRADE</div>
+      <div style="font-size:12px;color:var(--muted);">Criterio crítico ⭐ no cumplido. Sin estos, no hay trade.</div>
+    </div>`;
+  } else {
+    verdictHtml = `<div class="verdict-warn">
+      <div style="font-size:20px;">⚠️</div>
+      <div style="font-size:15px;font-weight:700;color:var(--gold);margin-top:4px;">PROCEDER CON PRECAUCIÓN</div>
+      <div style="font-size:12px;color:var(--muted);">${passed}/${total} criterios — ${failed + warned} fuera de rango. Evalúa si vale el riesgo.</div>
+    </div>`;
+  }
+
+  $('val-results').innerHTML = rows.join('') + verdictHtml;
+}
 const aiHistory = []; // historial de conversación
 
 function loadAI() {

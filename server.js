@@ -134,7 +134,8 @@ app.get('/api/curve', async (req, res) => {
       // Curva mensual: Trade + Receive Deliver (incluye liquidaciones de asignaciones)
       const curveItems = allItems.filter(tx =>
         tx['transaction-type'] === 'Trade' ||
-        tx['transaction-type'] === 'Receive Deliver'
+        tx['transaction-type'] === 'Receive Deliver' ||
+        tx['transaction-type'] === 'Fee'
       );
       // Calendario diario: solo Trade (evita ruido de settlements en días sueltos)
       const calItems = allItems.filter(tx => tx['transaction-type'] === 'Trade');
@@ -156,6 +157,10 @@ app.get('/api/curve', async (req, res) => {
         calByDay[d] = (calByDay[d] || 0) + v;
       });
 
+      // NLV real (fuente de verdad) — obtener primero
+      const currentNlv = await tt.getBalances().then(b => parseFloat(b?.['net-liquidating-value']||0)).catch(()=>0);
+      const nlvHistory = loadNlvHistory();
+
       const initial = 10644;
       const labels  = Object.keys(byDay).sort();
       let running   = initial;
@@ -163,6 +168,9 @@ app.get('/api/curve', async (req, res) => {
         running += byDay[d];
         return +running.toFixed(2);
       });
+      if (values.length > 0 && currentNlv > 0) {
+        values[values.length - 1] = +currentNlv.toFixed(2);
+      }
 
       const calendar = {};
       Object.keys(calByDay).forEach(d => { calendar[d] = +calByDay[d].toFixed(2); });
@@ -185,14 +193,13 @@ app.get('/api/curve', async (req, res) => {
       });
 
       // NLV-based monthly P&L (fuente de verdad = Net Liq real)
-      const currentNlv = await tt.getBalances().then(b => parseFloat(b?.['net-liquidating-value']||0)).catch(()=>0);
-      const nlvHistory = loadNlvHistory();
       const nlvByMonth = computeMonthlyNlv(nlvHistory, currentNlv);
 
       return {
         curve: { labels, values, initial, maxDD: +maxDD.toFixed(2), maxDDPct: +maxDDPct.toFixed(2) },
         calendar, byMonth, byWeek,
         nlvByMonth,
+        nlvSnapshots: Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).concat([[todayStr(), currentNlv]]),
         ts: new Date().toISOString()
       };
     });
@@ -288,6 +295,95 @@ app.get('/api/health', (req, res) => res.json({
   ts: new Date().toISOString()
 }));
 
+// ── Market Data (auto-fill validador) ────────────────────────
+function calcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i-1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  let ag = gains / period, al = losses / period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i-1];
+    ag = (ag * (period-1) + Math.max(d, 0)) / period;
+    al = (al * (period-1) + Math.max(-d, 0)) / period;
+  }
+  if (al === 0) return 100;
+  return Math.round((100 - 100 / (1 + ag/al)) * 10) / 10;
+}
+
+app.get('/api/market-data/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const isIndex = ['SPX','SPY','QQQ','IWM','NDX','RUT'].includes(symbol);
+    const yhSym = symbol === 'SPX' ? '%5EGSPC'
+                : symbol === 'NDX' ? '%5EIXIC'
+                : symbol === 'RUT' ? '%5ERUT'
+                : encodeURIComponent(symbol);
+
+    // VIX actual + historial 1 año (para IV Rank)
+    const vixR = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1y',
+      { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const vixJ = await vixR.json();
+    const vixPrices = vixJ.chart.result[0].indicators.quote[0].close.filter(v => v != null);
+    const vix      = Math.round(vixPrices.at(-1) * 100) / 100;
+    const vix52H   = Math.round(Math.max(...vixPrices) * 100) / 100;
+    const vix52L   = Math.round(Math.min(...vixPrices) * 100) / 100;
+    const ivRank   = Math.round((vix - vix52L) / (vix52H - vix52L) * 100);
+
+    // RSI 14d del símbolo
+    const prR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=45d`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const prJ = await prR.json();
+    const closes = prJ.chart.result[0].indicators.quote[0].close.filter(v => v != null);
+    const rsi    = calcRSI(closes);
+    const price  = Math.round(closes.at(-1) * 100) / 100;
+
+    // Earnings — solo acciones individuales
+    let earningsDays = 999;
+    if (!isIndex) {
+      try {
+        const eR = await fetch(
+          `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=calendarEvents`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const eJ  = await eR.json();
+        const eTs = eJ.quoteSummary?.result?.[0]?.calendarEvents?.earnings?.earningsDate?.[0]?.raw;
+        if (eTs) earningsDays = Math.round((eTs * 1000 - Date.now()) / 86400000);
+      } catch(e) {}
+    }
+
+    res.json({ symbol, price, vix, ivRank, rsi, earningsDays });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Playbooks ────────────────────────────────────────────────
+const PB_FILE2 = path.join(__dirname, 'playbooks.json');
+function loadPlaybooksData() {
+  try { return JSON.parse(fs.readFileSync(PB_FILE2,'utf8')); }
+  catch(e) { return { playbooks:[] }; }
+}
+function savePlaybooksData(data) { fs.writeFileSync(PB_FILE2, JSON.stringify(data,null,2),'utf8'); }
+
+app.get('/api/playbooks', (req, res) => res.json(loadPlaybooksData()));
+app.post('/api/playbooks', (req, res) => {
+  const data = loadPlaybooksData();
+  const pb = req.body;
+  pb.id = pb.id || `pb-${Date.now()}`;
+  const idx = data.playbooks.findIndex(p=>p.id===pb.id);
+  if (idx>=0) data.playbooks[idx]=pb; else data.playbooks.push(pb);
+  savePlaybooksData(data);
+  res.json(pb);
+});
+app.delete('/api/playbooks/:id', (req, res) => {
+  const data = loadPlaybooksData();
+  data.playbooks = data.playbooks.filter(p=>p.id!==req.params.id);
+  savePlaybooksData(data);
+  res.json({ok:true});
+});
+
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ── Guardado automático diario de NLV ─────────────────────────
@@ -334,7 +430,32 @@ app.listen(PORT, async () => {
   }
 });
 
-// ── IA Chat endpoint ─────────────────────────────────────────
+// ── Playbooks ────────────────────────────────────────────────
+const PB_FILE = path.join(__dirname, 'playbooks.json');
+function loadPlaybooks() {
+  try { return JSON.parse(fs.readFileSync(PB_FILE,'utf8')); }
+  catch(e) { return { playbooks:[] }; }
+}
+function savePlaybooks(data) { fs.writeFileSync(PB_FILE, JSON.stringify(data,null,2),'utf8'); }
+
+app.get('/api/playbooks', (req, res) => res.json(loadPlaybooks()));
+
+app.post('/api/playbooks', (req, res) => {
+  const data = loadPlaybooks();
+  const pb = req.body;
+  pb.id = pb.id || `pb-${Date.now()}`;
+  const idx = data.playbooks.findIndex(p=>p.id===pb.id);
+  if (idx>=0) data.playbooks[idx]=pb; else data.playbooks.push(pb);
+  savePlaybooks(data);
+  res.json(pb);
+});
+
+app.delete('/api/playbooks/:id', (req, res) => {
+  const data = loadPlaybooks();
+  data.playbooks = data.playbooks.filter(p=>p.id!==req.params.id);
+  savePlaybooks(data);
+  res.json({ok:true});
+});
 app.post('/api/ai-chat', async (req, res) => {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;

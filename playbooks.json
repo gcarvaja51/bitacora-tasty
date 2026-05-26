@@ -1,0 +1,86 @@
+{
+  "playbooks": [
+    {
+      "id": "iron-condor",
+      "name": "Iron Condor",
+      "emoji": "🦅",
+      "color": "#5b82e6",
+      "strategy": "Iron Condor",
+      "underlyings": ["SPX","SPY","QQQ","IWM"],
+      "onlyIndices": true,
+      "description": "Estrategia neutral — mercado lateral, dos lados expuestos, doble theta",
+      "entry": [
+        {"id":"ivrank",   "name":"IV Rank",           "min":40,  "max":70,   "unit":"%",   "critical":true,  "hint":"Más alto que Bull Put. Necesitas prima de ambos lados"},
+        {"id":"rsi",      "name":"RSI 14d",            "min":45,  "max":55,   "unit":"",    "critical":true,  "hint":"Mercado lateral puro. RSI cerca de 50"},
+        {"id":"vix",      "name":"VIX",                "min":18,  "max":25,   "unit":"",    "critical":false, "hint":"Zona dulce. VIX muy alto = peligro de movimiento brusco"},
+        {"id":"delta",    "name":"Delta",              "min":0.15,"max":0.20, "unit":"",    "critical":false, "hint":"Strikes lejos del precio. Sweet spot"},
+        {"id":"dte",      "name":"DTE",                "min":30,  "max":45,   "unit":"d",   "critical":false, "hint":"35 días ideal"},
+        {"id":"earnings", "name":"Días sin Earnings",  "min":14,  "max":999,  "unit":"d",   "critical":true,  "hint":"SAGRADO. Doble de exigente que Bull/Bear"}
+      ],
+      "management": {
+        "takeProfitPct": 50,
+        "defensePct": 80,
+        "notes": "Regla 25-50%. Solo defender el lado amenazado. Dejar correr el otro."
+      },
+      "defense": [
+        {"name":"Roll lado amenazado",    "detail":"Bajas el put/call vendido. El otro lado sigue cobrando theta. Cero costo extra."},
+        {"name":"Cerrar lado ganador",    "detail":"Si cobró 80%+ prima, cierras ese lado. Te quedas solo con el amenazado."},
+        {"name":"Cut Losses ★",           "detail":"Si la tesis muere, acepta la pérdida limitada. El profesional acepta y avanza."}
+      ]
+    },
+    {
+      "id": "bull-put-spread",
+      "name": "Bull Put Spread",
+      "emoji": "🐂",
+      "color": "#13d68f",
+      "strategy": "Bull Put Spread",
+      "underlyings": [],
+      "onlyIndices": false,
+      "description": "Estrategia alcista/neutral — empresa que NO necesitas poseer, capital limitado",
+      "entry": [
+        {"id":"ivrank",   "name":"IV Rank",           "min":30,  "max":60,   "unit":"%",   "critical":true,  "hint":"Mismo que Wheel. Primas valen la pena y riesgo manejable"},
+        {"id":"rsi",      "name":"RSI 14d",            "min":30,  "max":60,   "unit":"",    "critical":true,  "hint":"Tendencia neutral o alcista. NO usar en bear markets"},
+        {"id":"delta",    "name":"Delta",              "min":0.15,"max":0.30, "unit":"",    "critical":false, "hint":"Probabilidad de éxito 70-85%"},
+        {"id":"dte",      "name":"DTE",                "min":14,  "max":45,   "unit":"d",   "critical":false, "hint":"Suficiente theta decay"},
+        {"id":"earnings", "name":"Días sin Earnings",  "min":7,   "max":999,  "unit":"d",   "critical":true,  "hint":"SAGRADO. ±6% destruye el spread en un día"}
+      ],
+      "management": {
+        "takeProfitPct": 50,
+        "defensePct": 200,
+        "notes": "Cerrar al 50% prima. 3-4 trades/mes. Capital liberado en ~9 días."
+      },
+      "defense": [
+        {"name":"Cerrar al 50%",         "detail":"$70 en ~9 días. Reinvertir capital liberado (compounding)."},
+        {"name":"Roll si amenazado",     "detail":"Bajar strikes + extender vencimiento por crédito neto."},
+        {"name":"Cut Losses",            "detail":"Si RSI rompe a bajista, aceptar pérdida y reasignar capital."}
+      ]
+    },
+    {
+      "id": "bear-call-spread",
+      "name": "Bear Call Spread",
+      "emoji": "🐻",
+      "color": "#f04f5a",
+      "strategy": "Bear Call Spread",
+      "underlyings": [],
+      "onlyIndices": false,
+      "description": "Estrategia bajista/neutral — acción sobrecomprada que quieres shortear sin riesgo ilimitado",
+      "entry": [
+        {"id":"ivrank",   "name":"IV Rank",           "min":30,  "max":60,   "unit":"%",   "critical":true,  "hint":"Sweet spot. Igual que Bull Put"},
+        {"id":"rsi",      "name":"RSI 14d",            "min":65,  "max":100,  "unit":"",    "critical":true,  "hint":"RSI > 70 ideal. Acción sobrecomprada, en resistencia"},
+        {"id":"delta",    "name":"Delta",              "min":0.15,"max":0.30, "unit":"",    "critical":false, "hint":"Strikes por encima del precio actual"},
+        {"id":"dte",      "name":"DTE",                "min":14,  "max":45,   "unit":"d",   "critical":false, "hint":"9 días promedio al cerrar al 50%"},
+        {"id":"earnings", "name":"Días sin Earnings",  "min":7,   "max":999,  "unit":"d",   "critical":true,  "hint":"SAGRADO. Earnings = ±6% en un día, destruye el spread"}
+      ],
+      "management": {
+        "takeProfitPct": 50,
+        "defensePct": 200,
+        "notes": "Cerrar al 50% prima (~$70 en ~9 días). 3-4 trades/mes. ~150% más capital reinvertido al año."
+      },
+      "defense": [
+        {"name":"Cerrar al 50%",         "detail":"Meta principal. Capital liberado en ~9 días, reinvertir."},
+        {"name":"Roll lado amenazado",   "detail":"Subir strikes + extender vencimiento por crédito neto."},
+        {"name":"Cut Losses",            "detail":"Si RSI cruza a alcista con momentum, aceptar pérdida limitada."}
+      ]
+    }
+  ]
+}
