@@ -295,7 +295,143 @@ app.get('/api/health', (req, res) => res.json({
   ts: new Date().toISOString()
 }));
 
-// ── Market Data (auto-fill validador) ────────────────────────
+// ── Watchlist ─────────────────────────────────────────────────
+const WL_FILE = path.join(__dirname, 'watchlist.json');
+function loadWatchlist() {
+  try { return JSON.parse(fs.readFileSync(WL_FILE,'utf8')); }
+  catch(e) { return { stocks:[] }; }
+}
+function saveWatchlist(d) { fs.writeFileSync(WL_FILE, JSON.stringify(d,null,2),'utf8'); }
+
+app.get('/api/watchlist', (req, res) => res.json(loadWatchlist()));
+
+app.post('/api/watchlist', (req, res) => {
+  const wl = loadWatchlist();
+  const { symbol, name, status } = req.body;
+  const sym = symbol.toUpperCase();
+  if (wl.stocks.find(s => s.symbol === sym)) return res.status(409).json({ error:'Ya existe' });
+  const stock = { symbol:sym, name:name||sym, status:status||'orange', addedDate:todayStr(), notes:[] };
+  wl.stocks.push(stock);
+  saveWatchlist(wl);
+  res.json(stock);
+});
+
+app.put('/api/watchlist/:symbol', (req, res) => {
+  const wl = loadWatchlist();
+  const s  = wl.stocks.find(s => s.symbol === req.params.symbol.toUpperCase());
+  if (!s) return res.status(404).json({ error:'No encontrado' });
+  if (req.body.status) s.status = req.body.status;
+  if (req.body.name)   s.name   = req.body.name;
+  saveWatchlist(wl);
+  res.json(s);
+});
+
+app.delete('/api/watchlist/:symbol', (req, res) => {
+  const wl = loadWatchlist();
+  wl.stocks = wl.stocks.filter(s => s.symbol !== req.params.symbol.toUpperCase());
+  saveWatchlist(wl);
+  res.json({ ok:true });
+});
+
+app.post('/api/watchlist/:symbol/note', (req, res) => {
+  const wl  = loadWatchlist();
+  const s   = wl.stocks.find(s => s.symbol === req.params.symbol.toUpperCase());
+  if (!s) return res.status(404).json({ error:'No encontrado' });
+  const note = {
+    id:     `n${Date.now()}`,
+    date:   todayStr(),
+    status: req.body.status || s.status,
+    text:   req.body.text   || '',
+    image:  req.body.image  || null,
+  };
+  s.notes.unshift(note);
+  if (req.body.status) s.status = req.body.status;
+  saveWatchlist(wl);
+  res.json(note);
+});
+
+app.delete('/api/watchlist/:symbol/note/:noteId', (req, res) => {
+  const wl = loadWatchlist();
+  const s  = wl.stocks.find(s => s.symbol === req.params.symbol.toUpperCase());
+  if (!s) return res.status(404).json({ error:'No encontrado' });
+  s.notes  = s.notes.filter(n => n.id !== req.params.noteId);
+  saveWatchlist(wl);
+  res.json({ ok:true });
+});
+
+app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
+  try {
+    const sym   = req.params.symbol.toUpperCase();
+    const yhSym = sym === 'SPX' ? '%5EGSPC' : encodeURIComponent(sym);
+
+    // Precio + datos básicos de Yahoo Finance
+    const [prR, earR, vixR] = await Promise.all([
+      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=45d`, { headers:{'User-Agent':'Mozilla/5.0'} }),
+      fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=summaryDetail,defaultKeyStatistics,calendarEvents`, { headers:{'User-Agent':'Mozilla/5.0'} }),
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1y', { headers:{'User-Agent':'Mozilla/5.0'} }),
+    ]);
+
+    const prJ  = await prR.json();
+    const earJ = await earR.json();
+    const vixJ = await vixR.json();
+
+    // Precio e histórico
+    const closes = prJ.chart.result[0].indicators.quote[0].close.filter(v=>v!=null);
+    const price  = Math.round(closes.at(-1) * 100) / 100;
+    const prev   = closes.at(-2) || price;
+    const chg    = Math.round((price - prev) * 100) / 100;
+    const chgPct = Math.round((chg/prev)*10000)/100;
+    const rsi    = calcRSI(closes);
+    const hi52   = Math.round(Math.max(...closes) * 100) / 100;
+    const lo52   = Math.round(Math.min(...closes) * 100) / 100;
+
+    // Fundamentales
+    const sd  = earJ.quoteSummary?.result?.[0]?.summaryDetail || {};
+    const ks  = earJ.quoteSummary?.result?.[0]?.defaultKeyStatistics || {};
+    const cal = earJ.quoteSummary?.result?.[0]?.calendarEvents || {};
+    const pe       = sd.trailingPE?.raw  || sd.forwardPE?.raw  || null;
+    const mktCap   = sd.marketCap?.raw   || null;
+    const divYield = sd.dividendYield?.raw || null;
+    const beta     = sd.beta?.raw || null;
+    const shortFloat = ks.shortPercentOfFloat?.raw || null;
+
+    // Earnings
+    let earningsDays = 999;
+    const eTs = cal.earnings?.earningsDate?.[0]?.raw;
+    if (eTs) earningsDays = Math.round((eTs*1000 - Date.now()) / 86400000);
+
+    // IV Rank via VIX
+    const vixPrices = vixJ.chart.result[0].indicators.quote[0].close.filter(v=>v!=null);
+    const vix    = Math.round(vixPrices.at(-1) * 100) / 100;
+    const ivRank = Math.round((vix - Math.min(...vixPrices)) / (Math.max(...vixPrices) - Math.min(...vixPrices)) * 100);
+
+    // Opción Sigma FMP (fundamentales adicionales)
+    let fmp = {};
+    try {
+      const fmpR = await fetch(
+        `https://jrcdslfwrasitrvjboho.supabase.co/functions/v1/proxy/fmp/quote?symbol=${sym}`,
+        { headers:{'origin':'https://www.opcionsigma.com','referer':'https://www.opcionsigma.com/'} }
+      );
+      const fmpJ = await fmpR.json();
+      if (Array.isArray(fmpJ) && fmpJ[0]) fmp = fmpJ[0];
+    } catch(e) {}
+
+    res.json({
+      symbol: sym, price, chg, chgPct, rsi, vix, ivRank,
+      hi52, lo52, earningsDays,
+      pe:        pe        ? Math.round(pe*10)/10   : null,
+      mktCap:    mktCap    ? (mktCap/1e9).toFixed(1)+'B' : null,
+      beta:      beta      ? Math.round(beta*100)/100 : null,
+      divYield:  divYield  ? Math.round(divYield*1000)/10+'%' : null,
+      shortFloat:shortFloat? Math.round(shortFloat*1000)/10+'%' : null,
+      fmpPrice:  fmp.price || null,
+      fmpAvg50:  fmp.priceAvg50 || null,
+      fmpAvg200: fmp.priceAvg200 || null,
+      fmpYearHigh: fmp.yearHigh || null,
+      fmpYearLow:  fmp.yearLow  || null,
+    });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
 function calcRSI(closes, period = 14) {
   if (closes.length < period + 1) return 50;
   let gains = 0, losses = 0;

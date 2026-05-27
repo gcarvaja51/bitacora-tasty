@@ -234,6 +234,54 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 }
 .card-body { padding: 16px; }
 
+/* ══ WATCHLIST ══════════════════════════ */
+.wl-status-orange { background:rgba(255,140,0,.15);  border:1px solid rgba(255,140,0,.4);  color:#ff8c00; }
+.wl-status-yellow { background:rgba(245,200,66,.15); border:1px solid rgba(245,200,66,.4); color:#f5c842; }
+.wl-status-violet { background:rgba(160,100,255,.15);border:1px solid rgba(160,100,255,.4);color:#a064ff; }
+.wl-status-green  { background:rgba(19,214,143,.15); border:1px solid rgba(19,214,143,.4); color:#13d68f; }
+.wl-badge { display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.04em; }
+.wl-dot   { width:7px;height:7px;border-radius:50%;flex-shrink:0; }
+.wl-dot-orange { background:#ff8c00; }
+.wl-dot-yellow { background:#f5c842; }
+.wl-dot-violet { background:#a064ff; }
+.wl-dot-green  { background:#13d68f; }
+
+.wl-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:24px; }
+.wl-card { background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:border-color .2s; }
+.wl-card:hover { border-color:rgba(91,130,230,.4); }
+.wl-card-sym  { font-size:18px;font-weight:700;color:var(--bright);font-family:var(--mono); }
+.wl-card-name { font-size:11px;color:var(--muted);margin-bottom:10px; }
+.wl-card-price{ font-size:14px;font-family:var(--mono);color:var(--bright); }
+.wl-card-date { font-size:10px;color:var(--muted);margin-top:6px; }
+
+/* Detail view */
+.wl-detail { display:grid;grid-template-columns:300px 1fr;gap:20px; }
+@media(max-width:800px){.wl-detail{grid-template-columns:1fr;}}
+.wl-fund-card { background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;align-self:start; }
+.wl-fund-row  { display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04); }
+.wl-fund-row:last-child{border:none;}
+.wl-fund-label{ font-size:11px;color:var(--muted); }
+.wl-fund-val  { font-size:12px;font-family:var(--mono);color:var(--bright); }
+.wl-fund-val.pos{color:var(--green);}
+.wl-fund-val.neg{color:var(--red);}
+.wl-fund-val.warn{color:var(--gold);}
+
+/* Timeline */
+.wl-timeline { display:flex;flex-direction:column;gap:12px; }
+.wl-note { background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;position:relative; }
+.wl-note-header { display:flex;align-items:center;gap:8px;margin-bottom:8px; }
+.wl-note-date { font-size:10px;color:var(--muted);font-family:var(--mono); }
+.wl-note-text { font-size:13px;color:var(--text);line-height:1.5; }
+.wl-note-img  { margin-top:10px;max-width:100%;border-radius:8px;cursor:pointer; }
+.wl-note-del  { position:absolute;top:10px;right:10px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;opacity:.5; }
+.wl-note-del:hover{opacity:1;color:var(--red);}
+
+/* Add note form */
+.wl-add-note  { background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px; }
+.wl-textarea  { width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--bright);font-size:13px;resize:vertical;min-height:70px;font-family:inherit;line-height:1.5; }
+.wl-textarea:focus{outline:none;border-color:rgba(91,130,230,.5);}
+.wl-status-select { background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--bright);font-size:12px; }
+
 /* ══ PLAYBOOKS ══════════════════════════ */
 .pb-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; margin-bottom:24px; }
 .pb-card { background:var(--card); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
@@ -568,6 +616,9 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <div class="nav-item" onclick="nav('reports',this)">
       <span class="icon">◑</span> Reportes
     </div>
+    <div class="nav-item" onclick="nav('watchlist',this)">
+      <span class="icon">👁</span> Watchlist
+    </div>
     <div class="nav-item" onclick="nav('playbooks',this)">
       <span class="icon">📋</span> Playbooks
     </div>
@@ -747,20 +798,18 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Fecha</th>
-              <th>Hora</th>
+              <th>Cierre</th>
+              <th>Apertura</th>
               <th>Símbolo</th>
               <th>Estrategia</th>
-              <th>Acción</th>
-              <th>Descripción</th>
-              <th>Precio</th>
-              <th>Valor</th>
-              <th>Comisión</th>
-              <th>Neto</th>
-              <th>Orden #</th>
+              <th>Duración</th>
+              <th>Prima cobrada</th>
+              <th>Costo cierre</th>
+              <th>P&amp;L</th>
+              <th>% Capturado</th>
             </tr></thead>
             <tbody id="hist-tbody">
-              <tr><td colspan="11"><div class="loader"><div class="spinner"></div></div></td></tr>
+              <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -882,6 +931,11 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       </div>
     </div>
 
+    <!-- ══ WATCHLIST ════════════════════════ -->
+    <div id="panel-watchlist" class="panel">
+      <div id="watchlist-content"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
     <!-- ══ PLAYBOOKS ════════════════════════ -->
     <div id="panel-playbooks" class="panel">
       <div id="playbooks-content"><div class="loader"><div class="spinner"></div></div></div>
@@ -928,11 +982,11 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Hora</th><th>Símbolo</th><th>Tipo</th><th>Acción</th>
-              <th>Descripción</th><th>Precio</th><th>Valor</th><th>Comisión</th><th>Neto</th>
+              <th>Hora</th><th>Símbolo</th><th>Estrategia</th><th>Acción</th>
+              <th>Prima</th><th>Costo cierre</th><th>P&amp;L</th><th>% Cap.</th>
             </tr></thead>
             <tbody id="today-tbody">
-              <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
+              <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -1001,9 +1055,11 @@ function dteChip(dte) {
 // ══════════════════════════════════════════
 //  API
 // ══════════════════════════════════════════
-async function api(path) {
-  const r = await fetch(path);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+async function api(path, method='GET', body=null) {
+  const opts = { method, headers:{} };
+  if (body) { opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  if (!r.ok) { const e=await r.json().catch(()=>({})); throw new Error(e.error||`HTTP ${r.status}`); }
   return r.json();
 }
 
@@ -1020,6 +1076,7 @@ function nav(tab, el) {
   else if (tab==='positions') loadPositions();
   else if (tab==='history') loadHistory();
   else if (tab==='reports') loadReports();
+  else if (tab==='watchlist') loadWatchlist();
   else if (tab==='playbooks') loadPlaybooks();
   else if (tab==='ai')      loadAI();
   else if (tab==='wheel')   loadWheel();
@@ -1435,52 +1492,73 @@ function initHistFilters() {
 async function loadHistory() {
   initHistFilters();
   try {
-    const sd=$('hist-from').value, ed=$('hist-to').value;
-    const data=await api(`/api/transactions?startDate=${sd}&endDate=${ed}`);
-    const items=data.items||[];
-    let net=0;
-    items.forEach(t=>{ net+=parseFloat(t['net-value']||0)*(t['net-value-effect']==='Credit'?1:-1); });
-    $('hist-summary').textContent=`${items.length} ops · Neto período: ${f$(net)}`;
+    const sd = $('hist-from').value, ed = $('hist-to').value;
+    const data = await api(`/api/transactions?startDate=${sd}&endDate=${ed}`);
+    const legs = data.metrics?.strategies || [];
 
-    $('hist-tbody').innerHTML = !items.length
-      ? '<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--muted);">Sin transacciones</td></tr>'
-      : items.map(tx=>{
-          const nv=parseFloat(tx['net-value']||0)*(tx['net-value-effect']==='Credit'?1:-1);
-          const gv=parseFloat(tx.value||0)*(tx['value-effect']==='Credit'?1:-1);
-          const comm=parseFloat(tx.commission||0)+parseFloat(tx['clearing-fees']||0)+parseFloat(tx['regulatory-fees']||0);
-          const action=tx.action||'';
-          const isOpen=action.includes('to Open');
-          const sym=tx.symbol||'';
-          const qty=parseFloat(tx.quantity||0);
-          const instrType=tx['instrument-type']||'';
-          // Detectar tipo de estrategia desde descripción y símbolo
-          const isPut=sym.match(/P\d{8}$/);
-          const isCall=sym.match(/C\d{8}$/);
-          const isShort=/Sell/i.test(action);
-          let stratLabel='—';
-          if (instrType==='Equity') stratLabel=`Acciones · ${qty}`;
-          else if (isPut && isShort && isOpen) stratLabel=`CSP · ${qty}c`;
-          else if (isPut && !isShort && isOpen) stratLabel=`Long Put · ${qty}c`;
-          else if (isCall && isShort && isOpen) stratLabel=`Cov. Call · ${qty}c`;
-          else if (isCall && !isShort && isOpen) stratLabel=`Long Call · ${qty}c`;
-          else if (isPut && !isOpen) stratLabel=`Cerrar Put · ${qty}c`;
-          else if (isCall && !isOpen) stratLabel=`Cerrar Call · ${qty}c`;
-          else if (tx['transaction-type']==='Receive Deliver') stratLabel='Asignación';
+    // Consolidar patas del mismo spread por underlying+fechas+estrategia
+    const spreadMap = new Map();
+    for (const leg of legs) {
+      const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
+      // Para spreads: agrupar por underlying+openDate+closeDate+stratType
+      // Para singles: clave única por leg
+      const spreadKey = isSpread
+        ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
+        : leg.key;
+
+      if (!spreadMap.has(spreadKey)) {
+        spreadMap.set(spreadKey, {
+          underlying:   leg.underlying,
+          openDate:     leg.openDate,
+          closeDate:    leg.closeDate,
+          stratType:    leg.stratType,
+          durationDays: leg.durationDays,
+          openValue:    0,
+          closeValue:   0,
+          pnl:          0,
+          legs:         0,
+        });
+      }
+      const s = spreadMap.get(spreadKey);
+      s.openValue  += leg.openValue  || 0;
+      s.closeValue += leg.closeValue || 0;
+      s.pnl        += leg.pnl        || 0;
+      s.legs++;
+    }
+
+    const strategies = [...spreadMap.values()].sort((a,b) =>
+      new Date(b.closeDate) - new Date(a.closeDate));
+
+    const wins     = strategies.filter(s => s.pnl > 0).length;
+    const totalPnl = strategies.reduce((a,b) => a + b.pnl, 0);
+    $('hist-summary').textContent =
+      `${strategies.length} trades cerrados · Win Rate: ${strategies.length ? Math.round(wins/strategies.length*100) : 0}% · P&L: ${f$(totalPnl)}`;
+
+    $('hist-tbody').innerHTML = !strategies.length
+      ? '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
+      : strategies.map(s => {
+          const captured = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null;
+          const capHtml  = captured !== null
+            ? `<span class="${captured >= 0 ? 'pos' : 'neg'}">${captured > 0 ? '+' : ''}${captured}%</span>`
+            : '—';
+          const durLabel = s.durationDays === 0 ? 'Intradía'
+            : s.durationDays === 1 ? '1 día'
+            : `${s.durationDays}d`;
           return `<tr>
-            <td class="dim td-mono">${tx['transaction-date']||'—'}</td>
-            <td class="dim td-mono">${fTime(tx['executed-at'])}</td>
-            <td class="td-bright">${tx['underlying-symbol']||'—'}</td>
-            <td class="dim" style="font-size:10px;color:var(--muted);">${stratLabel}</td>
-            <td><span class="badge ${isOpen?'badge-blue':'badge-gold'}" style="font-size:9px;">${action.replace(' to ',' ')}</span></td>
-            <td class="dim" style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;">${tx.description||'—'}</td>
-            <td class="td-mono dim">${tx.price?'$'+parseFloat(tx.price).toFixed(2):'—'}</td>
-            <td class="td-mono ${cc(gv)}">${f$(gv)}</td>
-            <td class="td-mono dim">-${fa$(comm)}</td>
-            <td class="td-mono ${cc(nv)}" style="font-weight:700;">${f$(nv)}</td>
-            <td class="dim td-mono" style="font-size:10px;">#${tx['order-id']||tx.id||'—'}</td>
+            <td class="td-mono dim">${s.closeDate || '—'}</td>
+            <td class="td-mono dim">${s.openDate  || '—'}</td>
+            <td class="td-bright">${s.underlying  || '—'}</td>
+            <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType || '—'}</span></td>
+            <td class="td-mono dim">${durLabel}</td>
+            <td class="td-mono pos">${s.openValue  ? '+'+fa$(Math.abs(s.openValue))  : '—'}</td>
+            <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : '—'}</td>
+            <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+            <td>${capHtml}</td>
           </tr>`;
         }).join('');
-  } catch(e) { $('hist-tbody').innerHTML=`<tr><td colspan="11"><div class="error-box">${e.message}</div></td></tr>`; }
+  } catch(e) {
+    $('hist-tbody').innerHTML = `<tr><td colspan="9"><div class="error-box">${e.message}</div></td></tr>`;
+  }
 }
 
 // ══════════════════════════════════════════
@@ -1654,8 +1732,254 @@ async function loadReports(forceRefresh) {
 }
 
 // ══════════════════════════════════════════
-//  PLAYBOOKS
+//  WATCHLIST
 // ══════════════════════════════════════════
+const WL_STATUS = {
+  orange: { label:'En seguimiento', dot:'wl-dot-orange', badge:'wl-status-orange', emoji:'🟠' },
+  yellow: { label:'Casi lista',     dot:'wl-dot-yellow', badge:'wl-status-yellow', emoji:'🟡' },
+  violet: { label:'Esperar earnings',dot:'wl-dot-violet',badge:'wl-status-violet', emoji:'🟣' },
+  green:  { label:'En el mercado',  dot:'wl-dot-green',  badge:'wl-status-green',  emoji:'🟢' },
+};
+let wlData      = null;
+let wlActive    = null; // symbol currently open
+let wlFundCache = {};
+
+async function loadWatchlist() {
+  try {
+    wlData = await api('/api/watchlist');
+    renderWatchlistMain();
+  } catch(e) {
+    $('watchlist-content').innerHTML = `<div class="error-box" style="padding:20px;">Error cargando watchlist: ${e.message}</div>`;
+    console.error('Watchlist error:', e);
+  }
+}
+
+function renderWatchlistMain() {
+  const stocks = wlData?.stocks || [];
+  const cardsHtml = stocks.map(s => {
+    const st   = WL_STATUS[s.status] || WL_STATUS.orange;
+    const fund = wlFundCache[s.symbol];
+    const priceHtml = fund
+      ? `<div class="wl-card-price">${fa$(fund.price)} <span class="${fund.chg>=0?'pos':'neg'}" style="font-size:11px;">${fund.chg>=0?'+':''}${fund.chgPct}%</span></div>`
+      : `<div class="wl-card-price dim">—</div>`;
+    return `<div class="wl-card" onclick="openWatchlistDetail('${s.symbol}')">
+      <div class="wl-card-sym">${s.symbol}</div>
+      <div class="wl-card-name">${s.name}</div>
+      ${priceHtml}
+      <div style="margin-top:10px;"><span class="wl-badge ${st.badge}"><span class="wl-dot ${st.dot}"></span>${st.label}</span></div>
+      <div class="wl-card-date">Desde ${s.addedDate} · ${s.notes.length} nota${s.notes.length!==1?'s':''}</div>
+    </div>`;
+  }).join('');
+
+  $('watchlist-content').innerHTML = `
+    <!-- Agregar activo -->
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px;">
+      <input id="wl-new-sym" type="text" placeholder="Símbolo (ej: SOFI)"
+        style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-family:var(--mono);font-size:13px;width:140px;text-transform:uppercase;"
+        oninput="this.value=this.value.toUpperCase()">
+      <input id="wl-new-name" type="text" placeholder="Nombre (opcional)"
+        style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-size:13px;flex:1;min-width:150px;">
+      <select id="wl-new-status" class="wl-status-select">
+        <option value="orange">🟠 En seguimiento</option>
+        <option value="yellow">🟡 Casi lista</option>
+        <option value="violet">🟣 Esperar earnings</option>
+        <option value="green">🟢 En el mercado</option>
+      </select>
+      <button onclick="addWatchlistStock()" class="btn btn-primary" style="padding:8px 16px;">+ Agregar</button>
+    </div>
+
+    <!-- Cards -->
+    ${stocks.length === 0
+      ? `<div style="text-align:center;padding:60px;color:var(--muted);">
+           <div style="font-size:40px;margin-bottom:12px;">👁</div>
+           <div>Agrega tu primer activo para empezar el seguimiento</div>
+         </div>`
+      : `<div class="wl-grid">${cardsHtml}</div>`
+    }
+  `;
+}
+
+async function addWatchlistStock() {
+  const sym  = $('wl-new-sym').value.trim().toUpperCase();
+  const name = $('wl-new-name').value.trim();
+  const status = $('wl-new-status').value;
+  if (!sym) return;
+  try {
+    await api('/api/watchlist', 'POST', { symbol:sym, name:name||sym, status });
+    wlData = await api('/api/watchlist');
+    $('wl-new-sym').value = '';
+    $('wl-new-name').value = '';
+    renderWatchlistMain();
+    // Auto-abrir detalle
+    openWatchlistDetail(sym);
+  } catch(e) { alert(e.message); }
+}
+
+async function openWatchlistDetail(symbol) {
+  wlActive = symbol;
+  const s = wlData?.stocks?.find(s => s.symbol === symbol);
+  if (!s) return;
+
+  $('watchlist-content').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+      <button onclick="loadWatchlist()" class="btn" style="padding:6px 12px;font-size:12px;">← Volver</button>
+      <div style="font-size:20px;font-weight:700;color:var(--bright);font-family:var(--mono);">${symbol}</div>
+      <div style="font-size:13px;color:var(--muted);">${s.name}</div>
+      <select id="wl-status-sel" onchange="updateWlStatus('${symbol}',this.value)" class="wl-status-select" style="margin-left:auto;">
+        ${Object.entries(WL_STATUS).map(([k,v])=>`<option value="${k}" ${s.status===k?'selected':''}>${v.emoji} ${v.label}</option>`).join('')}
+      </select>
+      <button onclick="deleteWlStock('${symbol}')" class="btn" style="padding:6px 10px;font-size:11px;color:var(--red);">🗑 Eliminar</button>
+    </div>
+    <div class="wl-detail">
+      <div>
+        <div id="wl-fund-${symbol}" class="wl-fund-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;">DATOS AUTOMÁTICOS</div>
+            <button onclick="loadWlFundamentals('${symbol}')" class="btn" style="padding:4px 10px;font-size:10px;">⟳ Actualizar</button>
+          </div>
+          <div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">Cargando datos...</div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;margin-bottom:12px;">DIARIO DE SEGUIMIENTO</div>
+        <!-- Agregar nota -->
+        <div class="wl-add-note" style="margin-bottom:16px;">
+          <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+            <select id="wl-note-status" class="wl-status-select">
+              ${Object.entries(WL_STATUS).map(([k,v])=>`<option value="${k}" ${s.status===k?'selected':''}>${v.emoji} ${v.label}</option>`).join('')}
+            </select>
+            <label class="btn" style="padding:6px 10px;font-size:11px;cursor:pointer;">
+              📎 Foto <input type="file" id="wl-note-img" accept="image/*" style="display:none;" onchange="previewWlImg(this)">
+            </label>
+            <span id="wl-img-preview" style="font-size:10px;color:var(--green);"></span>
+          </div>
+          <textarea id="wl-note-text" class="wl-textarea" placeholder="Escribe tu observación... (ej: EMA 10/20 apuntando arriba, esperar confirmación)"></textarea>
+          <button onclick="addWlNote('${symbol}')" class="btn btn-primary" style="margin-top:8px;padding:7px 16px;font-size:12px;">+ Agregar nota</button>
+        </div>
+        <!-- Timeline -->
+        <div class="wl-timeline" id="wl-timeline-${symbol}">
+          ${renderWlTimeline(s)}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Cargar fundamentales automáticamente
+  loadWlFundamentals(symbol);
+}
+
+function renderWlTimeline(s) {
+  if (!s.notes.length) return `<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px;">Sin notas aún — agrega la primera observación</div>`;
+  return s.notes.map(n => {
+    const st = WL_STATUS[n.status] || WL_STATUS.orange;
+    return `<div class="wl-note">
+      <button class="wl-note-del" onclick="deleteWlNote('${s.symbol}','${n.id}')">×</button>
+      <div class="wl-note-header">
+        <span class="wl-badge ${st.badge}" style="font-size:10px;padding:2px 8px;"><span class="wl-dot ${st.dot}"></span>${st.label}</span>
+        <span class="wl-note-date">${n.date}</span>
+      </div>
+      <div class="wl-note-text">${n.text || ''}</div>
+      ${n.image ? `<img src="${n.image}" class="wl-note-img" onclick="window.open(this.src)">` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function loadWlFundamentals(symbol) {
+  const el = $(`wl-fund-${symbol}`);
+  if (!el) return;
+  try {
+    const d = await api(`/api/watchlist/${symbol}/fundamentals`);
+    wlFundCache[symbol] = d;
+
+    const earHtml = d.earningsDays === 999
+      ? `<span class="wl-fund-val pos">Sin earnings próximos</span>`
+      : d.earningsDays < 0
+        ? `<span class="wl-fund-val dim">Ya pasaron</span>`
+        : `<span class="wl-fund-val ${d.earningsDays<14?'neg':d.earningsDays<30?'warn':'pos'}">${d.earningsDays} días</span>`;
+
+    const rsiClass = d.rsi < 30 ? 'pos' : d.rsi > 70 ? 'neg' : 'wl-fund-val';
+    const rsiNote  = d.rsi < 30 ? ' (sobrevendido)' : d.rsi > 70 ? ' (sobrecomprado)' : d.rsi > 45 && d.rsi < 55 ? ' ✅ lateral' : '';
+
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;">DATOS AUTOMÁTICOS</div>
+        <button onclick="loadWlFundamentals('${symbol}')" class="btn" style="padding:4px 10px;font-size:10px;">⟳</button>
+      </div>
+      <div style="font-size:22px;font-weight:700;color:var(--bright);font-family:var(--mono);margin-bottom:4px;">
+        ${fa$(d.price)}
+        <span style="font-size:13px;${d.chg>=0?'color:var(--green)':'color:var(--red)'};">${d.chg>=0?'+':''}${d.chgPct}%</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:14px;">Actualizado ahora</div>
+      ${row('RSI 14d',`<span class="wl-fund-val ${rsiClass}">${d.rsi}${rsiNote}</span>`)}
+      ${row('IV Rank',`<span class="wl-fund-val ${d.ivRank>40&&d.ivRank<70?'pos':''}">${d.ivRank}%</span>`)}
+      ${row('VIX',`<span class="wl-fund-val">${d.vix}</span>`)}
+      ${row('52W Rango',`<span class="wl-fund-val">${fa$(d.fmpYearLow||d.lo52)} — ${fa$(d.fmpYearHigh||d.hi52)}</span>`)}
+      ${row('MA 50d',d.fmpAvg50?`<span class="wl-fund-val ${d.price>d.fmpAvg50?'pos':'neg'}">${fa$(d.fmpAvg50)} ${d.price>d.fmpAvg50?'▲ encima':'▼ debajo'}</span>`:'<span class="dim">—</span>')}
+      ${row('MA 200d',d.fmpAvg200?`<span class="wl-fund-val ${d.price>d.fmpAvg200?'pos':'neg'}">${fa$(d.fmpAvg200)} ${d.price>d.fmpAvg200?'▲ encima':'▼ debajo'}</span>`:'<span class="dim">—</span>')}
+      ${d.pe?row('P/E',`<span class="wl-fund-val">${d.pe}x</span>`):''}
+      ${d.mktCap?row('Market Cap',`<span class="wl-fund-val">$${d.mktCap}</span>`):''}
+      ${d.beta?row('Beta',`<span class="wl-fund-val">${d.beta}</span>`):''}
+      ${row('Próx. Earnings', earHtml)}
+      ${d.divYield?row('Dividendo',`<span class="wl-fund-val">${d.divYield}</span>`):''}
+    `;
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:12px;">Error: ${e.message}</div>`;
+  }
+}
+
+function row(label, valHtml) {
+  return `<div class="wl-fund-row"><span class="wl-fund-label">${label}</span>${valHtml}</div>`;
+}
+
+let wlImgData = null;
+function previewWlImg(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    wlImgData = e.target.result;
+    $('wl-img-preview').textContent = '✅ ' + file.name;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function addWlNote(symbol) {
+  const text   = $('wl-note-text')?.value?.trim();
+  const status = $('wl-note-status')?.value;
+  if (!text && !wlImgData) return;
+  try {
+    await api(`/api/watchlist/${symbol}/note`, 'POST', { text, status, image: wlImgData });
+    wlData = await api('/api/watchlist');
+    const s = wlData.stocks.find(s => s.symbol === symbol);
+    $(`wl-timeline-${symbol}`).innerHTML = renderWlTimeline(s);
+    $('wl-note-text').value = '';
+    $('wl-img-preview').textContent = '';
+    wlImgData = null;
+    $('wl-note-img').value = '';
+    // Actualizar badge del status si cambió
+    $('wl-status-sel').value = status;
+  } catch(e) { alert(e.message); }
+}
+
+async function updateWlStatus(symbol, status) {
+  await api(`/api/watchlist/${symbol}`, 'PUT', { status });
+  wlData = await api('/api/watchlist');
+}
+
+async function deleteWlNote(symbol, noteId) {
+  if (!confirm('¿Eliminar esta nota?')) return;
+  await api(`/api/watchlist/${symbol}/note/${noteId}`, 'DELETE');
+  wlData = await api('/api/watchlist');
+  const s = wlData.stocks.find(s => s.symbol === symbol);
+  $(`wl-timeline-${symbol}`).innerHTML = renderWlTimeline(s);
+}
+
+async function deleteWlStock(symbol) {
+  if (!confirm(`¿Eliminar ${symbol} del watchlist?`)) return;
+  await api(`/api/watchlist/${symbol}`, 'DELETE');
+  wlData = await api('/api/watchlist');
+  loadWatchlist();
+}
 let pbData = null;
 
 async function loadPlaybooks() {
@@ -2076,45 +2400,66 @@ async function removeWheel(sym) {
 }
 
 async function loadToday() {
+  $('today-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--muted);">Cargando...</td></tr>';
   try {
-    const data = S.today || await api('/api/today');
-    S.today = data;
-    const items=data.items||[];
-    let net=0,credit=0,fees=0;
-    items.forEach(tx=>{
-      net   += parseFloat(tx['net-value']||0)*(tx['net-value-effect']==='Credit'?1:-1);
-      const v=parseFloat(tx.value||0);
-      if(tx['value-effect']==='Credit') credit+=v;
-      fees  += parseFloat(tx.commission||0)+parseFloat(tx['clearing-fees']||0)+parseFloat(tx['regulatory-fees']||0);
-    });
+    const today = new Date().toISOString().slice(0,10);
 
-    $('today-kpis').innerHTML=[
-      kpiCard('P&L Hoy', f$(net), 'operaciones cerradas y abiertas', cc(net)),
-      kpiCard('Trades', items.length, 'ejecutados hoy', 'dim'),
-      kpiCard('Premium Recibido', fa$(credit), 'crédito bruto', 'pos'),
-      kpiCard('Comisiones', '-'+fa$(fees), 'pagado al broker', 'neg'),
+    // Usar caché si ya está cargado, si no fetchear 60 días
+    if (!S.txns) {
+      const start = new Date(); start.setDate(start.getDate()-60);
+      S.txns = await api(`/api/transactions?startDate=${start.toISOString().slice(0,10)}&endDate=${today}`);
+    }
+    const legs = S.txns.metrics?.strategies || [];
+
+    // Solo trades cerrados HOY
+    const todayLegs = legs.filter(s => s.closeDate === today);
+
+    // Consolidar spreads
+    const spreadMap = new Map();
+    for (const leg of todayLegs) {
+      const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
+      const key = isSpread
+        ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
+        : leg.key;
+      if (!spreadMap.has(key)) {
+        spreadMap.set(key, { underlying:leg.underlying, openDate:leg.openDate, closeDate:leg.closeDate,
+          stratType:leg.stratType, durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0 });
+      }
+      const s = spreadMap.get(key);
+      s.openValue  += leg.openValue  || 0;
+      s.closeValue += leg.closeValue || 0;
+      s.pnl        += leg.pnl        || 0;
+    }
+
+    const strategies = [...spreadMap.values()];
+    const wins       = strategies.filter(s=>s.pnl>0).length;
+    const totalPnl   = strategies.reduce((a,b)=>a+b.pnl, 0);
+
+    $('today-kpis').innerHTML = [
+      kpiCard('P&L Hoy',  f$(totalPnl), 'trades cerrados hoy', cc(totalPnl)),
+      kpiCard('Trades',   strategies.length, 'cerrados hoy', 'dim'),
+      kpiCard('Win Rate', strategies.length ? Math.round(wins/strategies.length*100)+'%' : '—', 'hoy', wins>0&&wins===strategies.length?'pos':'dim'),
     ].join('');
 
-    $('today-tbody').innerHTML = !items.length
-      ? '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Sin operaciones hoy — mercado cerrado o sin actividad</td></tr>'
-      : items.map(tx=>{
-          const nv=parseFloat(tx['net-value']||0)*(tx['net-value-effect']==='Credit'?1:-1);
-          const gv=parseFloat(tx.value||0)*(tx['value-effect']==='Credit'?1:-1);
-          const comm=parseFloat(tx.commission||0)+parseFloat(tx['clearing-fees']||0);
-          const isOpen=(tx.action||'').includes('to Open');
+    $('today-tbody').innerHTML = !strategies.length
+      ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados hoy</td></tr>'
+      : strategies.map(s => {
+          const cap = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
+          const dur = s.durationDays===0?'Intradía':s.durationDays===1?'1 día':`${s.durationDays}d`;
           return `<tr>
-            <td class="td-mono dim">${fTime(tx['executed-at'])}</td>
-            <td class="td-bright">${tx['underlying-symbol']||'—'}</td>
-            <td class="dim" style="font-size:10px;">${tx['instrument-type']||'—'}</td>
-            <td><span class="badge ${isOpen?'badge-blue':'badge-gold'}">${tx.action||'—'}</span></td>
-            <td class="dim" style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${tx.description||'—'}</td>
-            <td class="td-mono dim">${tx.price?'$'+parseFloat(tx.price).toFixed(2):'—'}</td>
-            <td class="td-mono ${cc(gv)}">${f$(gv)}</td>
-            <td class="td-mono dim">-${fa$(comm)}</td>
-            <td class="td-mono ${cc(nv)}" style="font-weight:700;">${f$(nv)}</td>
+            <td class="td-mono dim">${s.closeDate}</td>
+            <td class="td-bright">${s.underlying}</td>
+            <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
+            <td class="td-mono dim">${dur}</td>
+            <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+            <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
+            <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+            <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
           </tr>`;
         }).join('');
-  } catch(e) { $('today-tbody').innerHTML=`<tr><td colspan="9"><div class="error-box">${e.message}</div></td></tr>`; }
+  } catch(e) {
+    $('today-tbody').innerHTML=`<tr><td colspan="8"><div class="error-box">${e.message}</div></td></tr>`;
+  }
 }
 
 // ══════════════════════════════════════════
