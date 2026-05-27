@@ -1133,7 +1133,7 @@ async function loadDashboard() {
     renderEquityChart(curveData.curve, curveData.nlvSnapshots);
     renderMonthlyChart(curveData.nlvByMonth || txData.metrics.strategyByMonth || curveData.byMonth || calendarToMonthly(curveData.calendar));
     renderDashPositions(ov.positions);
-    renderDashRecent(txData.items);
+    renderDashRecent(txData.items, txData.metrics?.strategies || []);
   } catch(e) { console.error(e); showError('dash-kpis', e.message); }
 }
 
@@ -1232,18 +1232,44 @@ function renderDashPositions(positions=[]) {
   }).join('');
 }
 
-function renderDashRecent(items=[]) {
-  if (!items.length) { $('dash-recent').innerHTML = '<div class="dim" style="font-size:12px;">Sin operaciones</div>'; return; }
-  $('dash-recent').innerHTML = items.slice(0,8).map(tx=>{
-    const nv=parseFloat(tx['net-value']||0)*(tx['net-value-effect']==='Credit'?1:-1);
-    return `<div class="stat-row">
+// ── Consolidación global: una fila por spread ─────────────────
+function consolidateStrategies(legs) {
+  const map = new Map();
+  for (const leg of legs) {
+    const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
+    const key = isSpread
+      ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
+      : leg.key;
+    if (!map.has(key)) {
+      map.set(key, { underlying:leg.underlying, openDate:leg.openDate,
+        closeDate:leg.closeDate, stratType:leg.stratType,
+        durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0 });
+    }
+    const s = map.get(key);
+    s.openValue  += leg.openValue  || 0;
+    s.closeValue += leg.closeValue || 0;
+    s.pnl        += leg.pnl        || 0;
+  }
+  return [...map.values()];
+}
+
+function renderDashRecent(items=[], strategies=[]) {
+  const consolidated = consolidateStrategies(strategies)
+    .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
+    .slice(0, 8);
+  if (!consolidated.length) {
+    $('dash-recent').innerHTML = '<div class="dim" style="font-size:12px;">Sin operaciones recientes</div>';
+    return;
+  }
+  $('dash-recent').innerHTML = consolidated.map(s => `
+    <div class="stat-row">
       <div>
-        <span class="td-bright" style="font-size:12px;">${tx['underlying-symbol']||'—'}</span>
-        <span class="dim" style="font-size:10px;margin-left:6px;">${fDateShort(tx['executed-at'])}</span>
+        <span class="td-bright" style="font-size:12px;">${s.underlying}</span>
+        <span class="dim" style="font-size:10px;margin-left:6px;">${s.stratType||'—'}</span>
+        <span class="dim" style="font-size:10px;margin-left:6px;">${s.closeDate}</span>
       </div>
-      <div class="${cc(nv)} td-mono" style="font-size:12px;">${f$(nv)}</div>
-    </div>`;
-  }).join('');
+      <div class="${cc(s.pnl)} td-mono" style="font-size:12px;">${f$(s.pnl)}</div>
+    </div>`).join('');
 }
 
 // ══════════════════════════════════════════
@@ -1494,40 +1520,9 @@ async function loadHistory() {
   try {
     const sd = $('hist-from').value, ed = $('hist-to').value;
     const data = await api(`/api/transactions?startDate=${sd}&endDate=${ed}`);
-    const legs = data.metrics?.strategies || [];
-
-    // Consolidar patas del mismo spread por underlying+fechas+estrategia
-    const spreadMap = new Map();
-    for (const leg of legs) {
-      const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
-      // Para spreads: agrupar por underlying+openDate+closeDate+stratType
-      // Para singles: clave única por leg
-      const spreadKey = isSpread
-        ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
-        : leg.key;
-
-      if (!spreadMap.has(spreadKey)) {
-        spreadMap.set(spreadKey, {
-          underlying:   leg.underlying,
-          openDate:     leg.openDate,
-          closeDate:    leg.closeDate,
-          stratType:    leg.stratType,
-          durationDays: leg.durationDays,
-          openValue:    0,
-          closeValue:   0,
-          pnl:          0,
-          legs:         0,
-        });
-      }
-      const s = spreadMap.get(spreadKey);
-      s.openValue  += leg.openValue  || 0;
-      s.closeValue += leg.closeValue || 0;
-      s.pnl        += leg.pnl        || 0;
-      s.legs++;
-    }
-
-    const strategies = [...spreadMap.values()].sort((a,b) =>
-      new Date(b.closeDate) - new Date(a.closeDate));
+    const legs       = data.metrics?.strategies || [];
+    const strategies = consolidateStrategies(legs)
+      .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate));
 
     const wins     = strategies.filter(s => s.pnl > 0).length;
     const totalPnl = strategies.reduce((a,b) => a + b.pnl, 0);
@@ -1690,20 +1685,21 @@ async function loadReports(forceRefresh) {
       </tr>`;
     }).join('') : '<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--muted);">Sin datos</td></tr>';
 
-    // Strategies table
-    const stratList = (m.strategies||[]).slice(-30).reverse();
+    // Strategies table — consolidada (un spread = una fila)
+    const stratList = consolidateStrategies(m.strategies||[])
+      .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
+      .slice(0, 30);
     $('strat-tbody').innerHTML = stratList.length ? stratList.map(s=>`<tr>
       <td class="td-mono dim">${s.openDate||'—'}</td>
       <td class="td-mono dim">${s.closeDate||'—'}</td>
       <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
       <td class="td-bright">${s.underlying||'—'}</td>
-      <td class="dim" style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;">${s.desc||'—'}</td>
-      <td class="td-mono pos">${fa$(s.openValue)}</td>
-      <td class="td-mono ${cc(s.closeValue)}">${f$(s.closeValue)}</td>
+      <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+      <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
       <td class="td-mono ${cc(s.pnl)}" style="font-weight:700">${f$(s.pnl)}</td>
-      <td class="dim td-mono" style="font-size:10px;">${s.durationCat||'—'}</td>
-      <td><span class="badge ${s.win?'badge-green':'badge-red'}">${s.win?'✓ WIN':'✗ LOSS'}</span></td>
-    </tr>`).join('') : '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
+      <td class="dim td-mono" style="font-size:10px;">${s.durationDays===0?'Intradía':s.durationDays===1?'1d':`${s.durationDays}d`}</td>
+      <td><span class="badge ${s.pnl>0?'badge-green':'badge-red'}">${s.pnl>0?'✓ WIN':'✗ LOSS'}</span></td>
+    </tr>`).join('') : '<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
 
     // Monthly table — NLV change como fuente principal (coincide con TastyTrade)
     const curveByMonth = S.curve?.nlvByMonth || m.strategyByMonth || m.byMonth || {};
@@ -2402,7 +2398,9 @@ async function removeWheel(sym) {
 async function loadToday() {
   $('today-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--muted);">Cargando...</td></tr>';
   try {
-    const today = new Date().toISOString().slice(0,10);
+    // Fecha local (no UTC) para evitar desfase de zona horaria
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
     // Usar caché si ya está cargado, si no fetchear 60 días
     if (!S.txns) {
@@ -2411,27 +2409,9 @@ async function loadToday() {
     }
     const legs = S.txns.metrics?.strategies || [];
 
-    // Solo trades cerrados HOY
-    const todayLegs = legs.filter(s => s.closeDate === today);
-
-    // Consolidar spreads
-    const spreadMap = new Map();
-    for (const leg of todayLegs) {
-      const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
-      const key = isSpread
-        ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
-        : leg.key;
-      if (!spreadMap.has(key)) {
-        spreadMap.set(key, { underlying:leg.underlying, openDate:leg.openDate, closeDate:leg.closeDate,
-          stratType:leg.stratType, durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0 });
-      }
-      const s = spreadMap.get(key);
-      s.openValue  += leg.openValue  || 0;
-      s.closeValue += leg.closeValue || 0;
-      s.pnl        += leg.pnl        || 0;
-    }
-
-    const strategies = [...spreadMap.values()];
+    // Solo trades cerrados HOY — consolidados (un spread = una fila)
+    const todayLegs  = legs.filter(s => s.closeDate === today);
+    const strategies = consolidateStrategies(todayLegs);
     const wins       = strategies.filter(s=>s.pnl>0).length;
     const totalPnl   = strategies.reduce((a,b)=>a+b.pnl, 0);
 
