@@ -79,22 +79,33 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       }
     }
 
-    // Detectar rolls: BTC_PUT + STO_PUT mismo día — agrupar todos en uno
-    const rollDates = new Set();
-    for (let i = 0; i < events.length - 1; i++) {
-      if (events[i].type === 'BTC_PUT' && events[i+1]?.type === 'STO_PUT' && events[i].date === events[i+1].date) {
-        if (rollDates.has(events[i].date + events[i].strike)) { events.splice(i,2); i--; continue; }
-        rollDates.add(events[i].date + events[i].strike);
-        const net = events[i+1].amount + events[i].amount;
-        events[i] = {
-          date: events[i].date, type:'ROLL',
-          fromStrike:events[i].strike, fromExpiry:events[i].expiry,
-          toStrike:events[i+1].strike, toExpiry:events[i+1].expiry,
-          amount: net,
-        };
-        events.splice(i + 1, 1);
+    // Detectar rolls: BTC_PUT + STO_PUT mismo día → consolidar en un Roll con crédito neto
+    const processed = new Set();
+    const consolidated = [];
+    for (let i = 0; i < events.length; i++) {
+      if (processed.has(i)) continue;
+      const ev = events[i];
+      if (ev.type === 'BTC_PUT') {
+        // Buscar STO_PUT del mismo día
+        const j = events.findIndex((e, idx) =>
+          idx !== i && !processed.has(idx) &&
+          e.type === 'STO_PUT' && e.date === ev.date
+        );
+        if (j >= 0) {
+          processed.add(i); processed.add(j);
+          const net = events[j].amount + ev.amount;
+          consolidated.push({
+            date: ev.date, type: 'ROLL',
+            fromStrike: ev.strike, fromExpiry: ev.expiry,
+            toStrike: events[j].strike, toExpiry: events[j].expiry,
+            amount: net,
+          });
+          continue;
+        }
       }
+      if (!processed.has(i)) consolidated.push(ev);
     }
+    const finalEvents = consolidated;
 
     const openPut   = positions.find(p => p['underlying-symbol']===und && (p.symbol||'').match(/P\d{8}$/));
     const openCall  = positions.find(p => p['underlying-symbol']===und && (p.symbol||'').match(/C\d{8}$/));
@@ -125,7 +136,7 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
     }
 
     wheels.push({
-      underlying:und, phase, events,
+      underlying:und, phase, events:finalEvents,
       shares:Math.round(shares),
       avgCost:+avgCost.toFixed(4),
       costBasis: projectedCostBasis,

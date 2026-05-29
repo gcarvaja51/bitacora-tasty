@@ -234,6 +234,38 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 }
 .card-body { padding: 16px; }
 
+/* ══ TRADE JOURNAL ══════════════════════ */
+.journal-panel { position:fixed;top:0;right:-480px;width:460px;height:100vh;background:var(--card);
+  border-left:1px solid var(--border);z-index:1000;transition:right .3s ease;overflow-y:auto;
+  display:flex;flex-direction:column; }
+.journal-panel.open { right:0; }
+.journal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;display:none; }
+.journal-overlay.open { display:block; }
+.journal-header { padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px; }
+.journal-title { font-size:14px;font-weight:700;color:var(--bright);flex:1; }
+.journal-body  { padding:16px 20px;flex:1; }
+.journal-section { margin-bottom:20px; }
+.journal-section-title { font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px; }
+.photo-slot { border:1px dashed var(--border);border-radius:10px;min-height:120px;display:flex;
+  align-items:center;justify-content:center;flex-direction:column;gap:8px;cursor:pointer;
+  transition:border-color .2s;position:relative;overflow:hidden;background:rgba(255,255,255,.02); }
+.photo-slot:hover { border-color:rgba(91,130,230,.5); }
+.photo-slot img { width:100%;border-radius:10px;display:block; }
+.photo-slot-label { font-size:11px;color:var(--muted); }
+.photo-actions { display:flex;gap:6px;margin-top:6px; }
+.score-stars { display:flex;gap:6px; }
+.score-star { font-size:22px;cursor:pointer;opacity:.3;transition:opacity .2s; }
+.score-star.active { opacity:1; }
+.tags-grid { display:flex;flex-wrap:wrap;gap:6px; }
+.tag-btn { padding:4px 10px;border-radius:20px;font-size:11px;border:1px solid var(--border);
+  background:transparent;color:var(--muted);cursor:pointer;transition:all .2s; }
+.tag-btn.selected { background:rgba(91,130,230,.2);border-color:rgba(91,130,230,.5);color:var(--bright); }
+.tag-btn:hover { border-color:var(--muted); }
+.journal-note { width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;
+  padding:10px;color:var(--bright);font-size:12px;resize:vertical;min-height:80px;font-family:inherit;line-height:1.5; }
+.journal-note:focus { outline:none;border-color:rgba(91,130,230,.5); }
+.has-journal { display:inline-flex;align-items:center;gap:3px;font-size:9px;color:var(--green);margin-left:4px; }
+
 /* ══ WATCHLIST ══════════════════════════ */
 .wl-status-orange { background:rgba(255,140,0,.15);  border:1px solid rgba(255,140,0,.4);  color:#ff8c00; }
 .wl-status-yellow { background:rgba(245,200,66,.15); border:1px solid rgba(245,200,66,.4); color:#f5c842; }
@@ -670,6 +702,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     </div>
     <div class="topbar-actions">
       <span class="ts-label" id="refresh-ts">—</span>
+      <span id="auto-refresh-countdown" style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-right:8px;">⟳ 10:00</span>
       <button class="btn-refresh" id="btn-refresh" onclick="refreshAll()">↺ Actualizar</button>
     </div>
   </div>
@@ -744,7 +777,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="card-header" id="cal-detail-title">Operaciones del día</div>
         <div class="card-body table-wrap">
           <table><thead><tr>
-            <th>Hora</th><th>Símbolo</th><th>Acción</th><th>Descripción</th><th>Valor</th><th>Neto</th>
+            <th>Tipo</th><th>Símbolo</th><th>Estrategia</th><th>Duración</th><th>Prima</th><th>P&amp;L</th><th>% Cap.</th>
           </tr></thead>
           <tbody id="cal-detail-tbody"></tbody></table>
         </div>
@@ -807,6 +840,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
               <th>Costo cierre</th>
               <th>P&amp;L</th>
               <th>% Capturado</th>
+              <th>Journal</th>
             </tr></thead>
             <tbody id="hist-tbody">
               <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
@@ -996,6 +1030,17 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   </div><!-- /content -->
 </div><!-- /main -->
 </div><!-- /app -->
+
+<!-- ══ TRADE JOURNAL PANEL ═════════════ -->
+<div class="journal-overlay" id="journal-overlay" onclick="closeJournal()"></div>
+<div class="journal-panel" id="journal-panel">
+  <div class="journal-header">
+    <div class="journal-title" id="journal-trade-title">Trade Journal</div>
+    <button onclick="closeJournal()" class="btn" style="padding:4px 10px;font-size:12px;">✕</button>
+  </div>
+  <div class="journal-body" id="journal-body">
+  </div>
+</div>
 
 <script>
 // ══════════════════════════════════════════
@@ -1415,27 +1460,55 @@ async function calDayClick(dateStr, pnl) {
   const detail=$('cal-detail'), title=$('cal-detail-title'), tbody=$('cal-detail-tbody');
   detail.style.display='block';
   title.textContent=`${fDate(dateStr)}  —  P&L: ${f$(pnl)}`;
-  tbody.innerHTML='<tr><td colspan="6"><div class="loader"><div class="spinner"></div></div></td></tr>';
+  tbody.innerHTML='<tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr>';
 
   try {
-    const data = await api(`/api/transactions?startDate=${dateStr}&endDate=${dateStr}`);
-    const items=data.items||[];
-    if(!items.length){ tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted);">Sin operaciones este día</td></tr>'; return; }
-    tbody.innerHTML=items.map(tx=>{
-      const nv=parseFloat(tx['net-value']||0)*(tx['net-value-effect']==='Credit'?1:-1);
-      const gv=parseFloat(tx.value||0)*(tx['value-effect']==='Credit'?1:-1);
-      return `<tr>
-        <td class="td-mono dim">${fTime(tx['executed-at'])}</td>
-        <td class="td-bright">${tx['underlying-symbol']||'—'}</td>
-        <td><span class="badge ${(tx.action||'').includes('Open')?'badge-blue':'badge-gold'}">${tx.action||'—'}</span></td>
-        <td class="dim" style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${tx.description||'—'}</td>
-        <td class="td-mono ${cc(gv)}">${f$(gv)}</td>
-        <td class="td-mono ${cc(nv)}" style="font-weight:700;">${f$(nv)}</td>
-      </tr>`;
-    }).join('');
-  } catch(e) { tbody.innerHTML=`<tr><td colspan="6"><div class="error-box">${e.message}</div></td></tr>`; }
-}
+    // Siempre usar el historial completo para no perder trades viejos
+    if (!S.txns || S.txns._range === '60d') {
+      S.txns = await api('/api/transactions');
+      S.txns._fullHistory = true;
+    }
+    const legs = S.txns.metrics?.strategies || [];
 
+    // Trades CERRADOS ese día
+    const closedLegs = legs.filter(s => s.closeDate === dateStr);
+    const closed      = consolidateStrategies(closedLegs);
+
+    // Trades ABIERTOS ese día (sin cerrar aún o cerrados en otro día)
+    const openLegs = legs.filter(s => s.openDate === dateStr && s.closeDate !== dateStr);
+    const opened   = consolidateStrategies(openLegs);
+
+    if (!closed.length && !opened.length) {
+      tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">Sin trades este día</td></tr>';
+      return;
+    }
+
+    const rows = [
+      ...closed.map(s => {
+        const cap = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
+        return `<tr>
+          <td><span class="badge badge-gold" style="font-size:9px;">Cierre</span></td>
+          <td class="td-bright">${s.underlying}</td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td class="td-mono dim">${s.durationDays===0?'Intradía':s.durationDays+'d'}</td>
+          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+          <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+          <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
+        </tr>`;
+      }),
+      ...opened.map(s => `<tr style="opacity:.7;">
+          <td><span class="badge badge-blue" style="font-size:9px;">Apertura</span></td>
+          <td class="td-bright">${s.underlying}</td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td class="td-mono dim">Abierto</td>
+          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+          <td class="td-mono dim">En curso</td>
+          <td class="dim">—</td>
+        </tr>`),
+    ];
+    tbody.innerHTML = rows.join('');
+  } catch(e) { tbody.innerHTML=`<tr><td colspan="7"><div class="error-box">${e.message}</div></td></tr>`; }
+}
 function calPrev(){ S.calMonth--; if(S.calMonth<0){S.calMonth=11;S.calYear--;} renderCalendar(); }
 function calNext(){ S.calMonth++; if(S.calMonth>11){S.calMonth=0;S.calYear++;} renderCalendar(); }
 
@@ -1532,6 +1605,8 @@ async function loadHistory() {
     $('hist-tbody').innerHTML = !strategies.length
       ? '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
       : strategies.map(s => {
+          const key      = tradeKey(s);
+          const hasNote  = jNotes[key];
           const captured = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null;
           const capHtml  = captured !== null
             ? `<span class="${captured >= 0 ? 'pos' : 'neg'}">${captured > 0 ? '+' : ''}${captured}%</span>`
@@ -1549,6 +1624,9 @@ async function loadHistory() {
             <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : '—'}</td>
             <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
             <td>${capHtml}</td>
+            <td><button onclick='openJournal(${JSON.stringify(s)})' class="btn" style="padding:4px 8px;font-size:11px;">
+              ${hasNote ? '📓✅' : '📓'}
+            </button></td>
           </tr>`;
         }).join('');
   } catch(e) {
@@ -1728,8 +1806,252 @@ async function loadReports(forceRefresh) {
 }
 
 // ══════════════════════════════════════════
-//  WATCHLIST
+//  TRADE JOURNAL
 // ══════════════════════════════════════════
+let jNotes    = {};
+let jCurrent  = null; // trade key activo
+
+const TAGS_SETUP  = ['Pullback','Cruce EMAs','Breakout','Soporte','Resistencia','Lateral','Fase 1','Fase 2','Fase 3','Fase 4'];
+const TAGS_PSICO  = ['Disciplinado','Nervioso','FOMO','Revanche','Confiado','Impaciente'];
+const TAGS_MARKET = ['Alta Volatilidad','Baja Volatilidad','Tendencia Alcista','Tendencia Bajista','Sin Tendencia'];
+
+async function loadJournalNotes() {
+  try { jNotes = await api('/api/trade-notes'); } catch(e) { jNotes = {}; }
+}
+
+function tradeKey(s) {
+  return `${s.underlying}_${s.openDate}_${s.closeDate}_${s.stratType||'Otro'}`;
+}
+
+function openJournal(trade) {
+  jCurrent = tradeKey(trade);
+  const note = jNotes[jCurrent] || {};
+  const panel = $('journal-panel');
+  const overlay = $('journal-overlay');
+
+  $('journal-trade-title').textContent = `${trade.underlying} — ${trade.stratType||'—'} — ${f$(trade.pnl)}`;
+
+  $('journal-body').innerHTML = `
+    <!-- Tiempos -->
+    <div class="journal-section">
+      <div class="journal-section-title">⏱ Tiempos del Trade</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="background:rgba(255,255,255,.04);border-radius:8px;padding:10px;">
+          <div style="font-size:9px;color:var(--muted);margin-bottom:4px;">APERTURA</div>
+          <div style="font-size:12px;color:var(--bright);font-family:var(--mono);">${trade.openDate}</div>
+        </div>
+        <div style="background:rgba(255,255,255,.04);border-radius:8px;padding:10px;">
+          <div style="font-size:9px;color:var(--muted);margin-bottom:4px;">CIERRE</div>
+          <div style="font-size:12px;color:var(--bright);font-family:var(--mono);">${trade.closeDate}</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;">
+        Duración: <span style="color:var(--bright);">${trade.durationDays===0?'Intradía':trade.durationDays===1?'1 día':trade.durationDays+' días'}</span>
+        &nbsp;·&nbsp; P&L: <span class="${cc(trade.pnl)}">${f$(trade.pnl)}</span>
+        &nbsp;·&nbsp; Prima: <span class="pos">+${fa$(Math.abs(trade.openValue||0))}</span>
+      </div>
+    </div>
+
+    <!-- Fotos -->
+    <div class="journal-section">
+      <div class="journal-section-title">📸 Foto del Trade</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Entrada</div>
+          <div class="photo-slot" id="slot-entry" onclick="$('input-entry').click()">
+            ${note.photoEntry
+              ? `<img src="${note.photoEntry}" alt="entrada">`
+              : `<div style="font-size:24px;">📷</div><div class="photo-slot-label">Subir foto</div>`}
+          </div>
+          <div class="photo-actions">
+            <label class="btn" style="padding:5px 8px;font-size:10px;cursor:pointer;flex:1;text-align:center;">
+              📁 Subir<input type="file" id="input-entry" accept="image/*" style="display:none" onchange="uploadPhoto('entry',this)">
+            </label>
+            <button class="btn" style="padding:5px 8px;font-size:10px;flex:1;" onclick="captureTV('entry')">📡 TV</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Salida</div>
+          <div class="photo-slot" id="slot-exit" onclick="$('input-exit').click()">
+            ${note.photoExit
+              ? `<img src="${note.photoExit}" alt="salida">`
+              : `<div style="font-size:24px;">📷</div><div class="photo-slot-label">Subir foto</div>`}
+          </div>
+          <div class="photo-actions">
+            <label class="btn" style="padding:5px 8px;font-size:10px;cursor:pointer;flex:1;text-align:center;">
+              📁 Subir<input type="file" id="input-exit" accept="image/*" style="display:none" onchange="uploadPhoto('exit',this)">
+            </label>
+            <button class="btn" style="padding:5px 8px;font-size:10px;flex:1;" onclick="captureTV('exit')">📡 TV</button>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;">📡 TV = captura lo que está en TradingView ahora (Edge debe estar abierto)</div>
+    </div>
+
+    <!-- Nota -->
+    <div class="journal-section">
+      <div class="journal-section-title">📝 Por qué entré</div>
+      <textarea class="journal-note" id="journal-note-text" placeholder="Describe el setup, por qué era bueno el momento, qué indicadores viste...">${note.note||''}</textarea>
+    </div>
+
+    <!-- Score -->
+    <div class="journal-section">
+      <div class="journal-section-title">⭐ Score del Trade</div>
+      <div class="score-stars" id="score-stars">
+        ${[1,2,3,4,5].map(n=>`<span class="score-star ${(note.score||0)>=n?'active':''}" onclick="setScore(${n})">★</span>`).join('')}
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;" id="score-label">${scoreLabel(note.score||0)}</div>
+    </div>
+
+    <!-- ¿Seguiste el plan? -->
+    <div class="journal-section">
+      <div class="journal-section-title">✅ ¿Seguiste el Playbook?</div>
+      <div style="display:flex;gap:8px;">
+        <button id="btn-yes" onclick="setFollowed(true)"
+          class="btn ${note.followedPlan===true?'btn-primary':''}" style="flex:1;padding:8px;">
+          ✅ Sí
+        </button>
+        <button id="btn-no" onclick="setFollowed(false)"
+          class="btn ${note.followedPlan===false?'btn btn-danger':''}" style="flex:1;padding:8px;${note.followedPlan===false?'background:rgba(240,79,90,.2);border-color:var(--red);':''}">
+          ❌ No
+        </button>
+      </div>
+    </div>
+
+    <!-- Tags -->
+    <div class="journal-section">
+      <div class="journal-section-title">🏷 Tags</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Setup</div>
+      <div class="tags-grid" style="margin-bottom:10px;">
+        ${TAGS_SETUP.map(t=>`<button class="tag-btn ${(note.tags||[]).includes(t)?'selected':''}" onclick="toggleTag('${t}')">${t}</button>`).join('')}
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Psicología</div>
+      <div class="tags-grid" style="margin-bottom:10px;">
+        ${TAGS_PSICO.map(t=>`<button class="tag-btn ${(note.tags||[]).includes(t)?'selected':''}" onclick="toggleTag('${t}')">${t}</button>`).join('')}
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Mercado</div>
+      <div class="tags-grid" style="margin-bottom:10px;">
+        ${TAGS_MARKET.map(t=>`<button class="tag-btn ${(note.tags||[]).includes(t)?'selected':''}" onclick="toggleTag('${t}')">${t}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:4px;">
+        <input id="tag-custom" type="text" placeholder="Tag personalizado..."
+          style="flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--bright);font-size:12px;"
+          onkeydown="if(event.key==='Enter')addCustomTag()">
+        <button onclick="addCustomTag()" class="btn" style="padding:6px 10px;font-size:11px;">+ Add</button>
+      </div>
+    </div>
+
+    <!-- Guardar -->
+    <button onclick="saveJournal()" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;margin-bottom:20px;">
+      💾 Guardar Journal
+    </button>
+  `;
+
+  panel.classList.add('open');
+  overlay.classList.add('open');
+}
+
+function closeJournal() {
+  $('journal-panel').classList.remove('open');
+  $('journal-overlay').classList.remove('open');
+}
+
+function scoreLabel(n) {
+  return ['','1 — Muy mal ejecutado','2 — Mal ejecutado','3 — Regular','4 — Bien ejecutado','5 — Perfecto'][n]||'Sin calificar';
+}
+
+function setScore(n) {
+  const cur = jNotes[jCurrent]||{};
+  cur.score = n;
+  jNotes[jCurrent] = cur;
+  document.querySelectorAll('.score-star').forEach((el,i)=>el.classList.toggle('active',i<n));
+  $('score-label').textContent = scoreLabel(n);
+}
+
+function setFollowed(val) {
+  const cur = jNotes[jCurrent]||{};
+  cur.followedPlan = val;
+  jNotes[jCurrent] = cur;
+  $('btn-yes').classList.toggle('btn-primary', val===true);
+  $('btn-no').style.background = val===false ? 'rgba(240,79,90,.2)' : '';
+  $('btn-no').style.borderColor = val===false ? 'var(--red)' : '';
+}
+
+function toggleTag(tag) {
+  const cur = jNotes[jCurrent]||{};
+  if (!cur.tags) cur.tags = [];
+  const idx = cur.tags.indexOf(tag);
+  if (idx>=0) cur.tags.splice(idx,1); else cur.tags.push(tag);
+  jNotes[jCurrent] = cur;
+  document.querySelectorAll('.tag-btn').forEach(el => {
+    if (el.textContent === tag) el.classList.toggle('selected', cur.tags.includes(tag));
+  });
+}
+
+function addCustomTag() {
+  const input = $('tag-custom');
+  const tag = input.value.trim();
+  if (!tag) return;
+  input.value = '';
+  const cur = jNotes[jCurrent]||{};
+  if (!cur.tags) cur.tags = [];
+  if (!cur.tags.includes(tag)) cur.tags.push(tag);
+  jNotes[jCurrent] = cur;
+  // Agregar botón visualmente
+  const btn = document.createElement('button');
+  btn.className = 'tag-btn selected';
+  btn.textContent = tag;
+  btn.onclick = () => toggleTag(tag);
+  document.querySelector('.tags-grid:last-of-type').appendChild(btn);
+}
+
+function uploadPhoto(slot, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const data = e.target.result;
+    const cur = jNotes[jCurrent]||{};
+    cur[slot==='entry'?'photoEntry':'photoExit'] = data;
+    jNotes[jCurrent] = cur;
+    const slotEl = $(`slot-${slot}`);
+    slotEl.innerHTML = `<img src="${data}" alt="${slot}" style="width:100%;border-radius:10px;">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function captureTV(slot) {
+  const btn = event.target;
+  btn.textContent = '⏳';
+  btn.disabled = true;
+  try {
+    const data = await api('/api/tv-screenshot', 'POST');
+    if (data.error) throw new Error(data.error);
+    const cur = jNotes[jCurrent]||{};
+    cur[slot==='entry'?'photoEntry':'photoExit'] = data.screenshot;
+    jNotes[jCurrent] = cur;
+    const slotEl = $(`slot-${slot}`);
+    slotEl.innerHTML = `<img src="${data.screenshot}" alt="${slot}" style="width:100%;border-radius:10px;">`;
+    btn.textContent = '✅';
+  } catch(e) {
+    alert('Error capturando TradingView: ' + e.message);
+    btn.textContent = '📡 TV';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function saveJournal() {
+  const cur = jNotes[jCurrent]||{};
+  cur.note = $('journal-note-text')?.value||'';
+  try {
+    await api(`/api/trade-notes/${encodeURIComponent(jCurrent)}`, 'POST', cur);
+    jNotes[jCurrent] = cur;
+    closeJournal();
+    // Recargar historial para mostrar indicador
+    if (document.querySelector('.nav-item.active')?.textContent?.includes('Historial')) loadHistory();
+  } catch(e) { alert('Error guardando: '+e.message); }
+}
 const WL_STATUS = {
   orange: { label:'En seguimiento', dot:'wl-dot-orange', badge:'wl-status-orange', emoji:'🟠' },
   yellow: { label:'Casi lista',     dot:'wl-dot-yellow', badge:'wl-status-yellow', emoji:'🟡' },
@@ -2318,7 +2640,7 @@ async function loadWheel() {
             <div class="wheel-event-date">${e.date}</div>
             <div class="wheel-event-desc">${desc}</div>
           </div>
-          <div class="wheel-event-amount ${amt>=0?'pos':'neg'}">${amt>=0?'+':''}$${Math.abs(amt).toFixed(2)}</div>
+          <div class="wheel-event-amount ${amt>=0?'pos':'neg'}">${amt>=0?'+$':'-$'}${Math.abs(amt).toFixed(2)}</div>
         </div>`;
       }).join('');
 
@@ -2468,10 +2790,29 @@ async function refreshAll() {
 function showError(id,msg){ $(id).innerHTML=`<div class="error-box">Error: ${msg}</div>`; }
 
 // Auto-refresh cada 90 segundos
-setInterval(()=>{ S.overview=null; }, 90000);
+// ── Auto-refresh cada 10 minutos ─────────────────────────────
+const AUTO_REFRESH_SECS = 600; // 10 minutos
+let arSecsLeft = AUTO_REFRESH_SECS;
+
+function updateCountdown() {
+  const m = Math.floor(arSecsLeft / 60);
+  const s = arSecsLeft % 60;
+  const el = $('auto-refresh-countdown');
+  if (el) el.textContent = `⟳ ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  arSecsLeft--;
+  if (arSecsLeft < 0) {
+    arSecsLeft = AUTO_REFRESH_SECS;
+    // Solo auto-refresh si el mercado puede estar abierto (lunes-viernes)
+    const d = new Date(); const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) refreshAll();
+  }
+}
+
+setInterval(updateCountdown, 1000);
 
 // ══ INIT ══
 loadDashboard();
+loadJournalNotes();
 </script>
 </body>
 </html>

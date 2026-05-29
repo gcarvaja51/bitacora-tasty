@@ -91,7 +91,8 @@ function bustCache() { _cache.clear(); }
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const daysAgo  = n  => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Balance + posiciones + Greeks
@@ -295,8 +296,333 @@ app.get('/api/health', (req, res) => res.json({
   ts: new Date().toISOString()
 }));
 
+// ── Reporte PDF ───────────────────────────────────────────────
+app.get('/report', async (req, res) => {
+  try {
+    const [bal, positions, txData] = await Promise.all([
+      tt.getBalances(),
+      tt.getPositions(),
+      tt.getAllTransactions('2026-02-01', todayStr()),
+    ]);
+    const { buildMetrics } = require('./src/metrics');
+    const m        = buildMetrics(txData);
+    const nlv      = parseFloat(bal?.['net-liquidating-value'] || 0);
+    const initial  = 10644;
+    const totalRet = ((nlv - initial) / initial * 100).toFixed(2);
+    const nlvHist  = loadNlvHistory();
+    const nlvByMonth = computeMonthlyNlv(nlvHist, nlv);
+    const today    = todayStr();
+
+    // Consolidar estrategias
+    const allLegs  = m.strategies || [];
+    const spreadMap = new Map();
+    for (const leg of allLegs) {
+      const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
+      const key = isSpread
+        ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
+        : leg.key;
+      if (!spreadMap.has(key)) spreadMap.set(key, { ...leg, pnl: 0, openValue: 0, closeValue: 0 });
+      const s = spreadMap.get(key);
+      s.pnl        += leg.pnl        || 0;
+      s.openValue  += leg.openValue  || 0;
+      s.closeValue += leg.closeValue || 0;
+    }
+    const trades = [...spreadMap.values()].sort((a,b) => new Date(b.closeDate)-new Date(a.closeDate));
+    const recentTrades = trades.slice(0, 10);
+
+    // Stats por estrategia
+    const byStrat = {};
+    trades.forEach(t => {
+      const k = t.stratType || 'Otro';
+      if (!byStrat[k]) byStrat[k] = { trades:0, wins:0, pnl:0 };
+      byStrat[k].trades++;
+      if (t.pnl > 0) byStrat[k].wins++;
+      byStrat[k].pnl += t.pnl;
+    });
+
+    // Posiciones consolidadas
+    const posMap = new Map();
+    positions.filter(p => p['instrument-type'] !== 'Unknown').forEach(p => {
+      const und = p['underlying-symbol'];
+      if (!posMap.has(und)) posMap.set(und, { underlying:und, legs:[], pnlNoReal:0 });
+      const op  = parseFloat(p['average-open-price']||0);
+      const cp  = parseFloat(p['close-price']||0);
+      const qty = parseFloat(p.quantity||0);
+      const mul = parseFloat(p.multiplier||1);
+      const dir = p['quantity-direction']==='Short' ? -1 : 1;
+      const pnl = dir*(cp-op)*qty*mul;
+      posMap.get(und).pnlNoReal += pnl;
+      posMap.get(und).legs.push(p);
+    });
+    const openPositions = [...posMap.values()];
+    const totalPnlNoReal = openPositions.reduce((a,b)=>a+b.pnlNoReal,0);
+
+    const fa$ = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const f$  = n => { const v=parseFloat(n)||0; return (v>=0?'+':'')+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+    const cc  = n => parseFloat(n)>=0?'pos':'neg';
+
+    const monthRows = Object.entries(nlvByMonth).sort().map(([mo,pnl]) => {
+      const label = new Date(+mo.slice(0,4), +mo.slice(5,7)-1).toLocaleDateString('es-CO',{month:'long',year:'numeric'});
+      return `<tr>
+        <td>${label.charAt(0).toUpperCase()+label.slice(1)}</td>
+        <td class="${cc(pnl)}">${f$(pnl)}</td>
+        <td class="${cc(pnl)}">${initial?(pnl/initial*100).toFixed(2)+'%':'—'}</td>
+      </tr>`;
+    }).join('');
+
+    const stratRows = Object.entries(byStrat)
+      .sort((a,b)=>b[1].pnl-a[1].pnl)
+      .map(([k,v]) => `<tr>
+        <td>${k}</td>
+        <td>${v.trades}</td>
+        <td>${v.trades?Math.round(v.wins/v.trades*100):0}%</td>
+        <td class="${cc(v.pnl)}">${f$(v.pnl)}</td>
+      </tr>`).join('');
+
+    const tradeRows = recentTrades.map(t => `<tr>
+      <td>${t.closeDate}</td>
+      <td><strong>${t.underlying}</strong></td>
+      <td>${t.stratType||'—'}</td>
+      <td>${t.durationDays===0?'Intradía':t.durationDays+'d'}</td>
+      <td class="pos">${t.openValue?'+'+fa$(Math.abs(t.openValue)):'—'}</td>
+      <td class="${cc(t.pnl)}"><strong>${f$(t.pnl)}</strong></td>
+    </tr>`).join('');
+
+    const posRows = openPositions.map(p => {
+      const mainLeg = p.legs[0];
+      return `<tr>
+        <td><strong>${p.underlying}</strong></td>
+        <td>${p.legs.length > 1 ? 'Spread/Multi' : mainLeg['instrument-type']==='Equity'?'Acciones':'Opción'}</td>
+        <td>${p.legs.length}</td>
+        <td class="${cc(p.pnlNoReal)}">${f$(p.pnlNoReal)}</td>
+      </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Bitácora Tasty — Informe ${today}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color:#1a1a2e; background:#fff; font-size:13px; }
+
+  /* PORTADA */
+  .cover { height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;
+    background:linear-gradient(135deg,#0d1117 0%,#161b27 50%,#0d1117 100%); color:#fff; text-align:center; page-break-after:always; }
+  .cover-logo { font-size:48px; margin-bottom:20px; }
+  .cover-title { font-size:36px; font-weight:700; letter-spacing:2px; color:#13d68f; margin-bottom:8px; }
+  .cover-sub { font-size:18px; color:#8892a4; margin-bottom:40px; }
+  .cover-trader { font-size:22px; font-weight:600; color:#f5c842; margin-bottom:8px; }
+  .cover-date { font-size:14px; color:#4e5a70; }
+  .cover-divider { width:80px; height:3px; background:linear-gradient(90deg,#13d68f,#5b82e6); margin:24px auto; border-radius:2px; }
+
+  /* CONTENIDO */
+  .page { padding:40px 48px; page-break-after:always; }
+  .page:last-child { page-break-after:auto; }
+
+  h1 { font-size:22px; color:#0d1117; border-bottom:2px solid #13d68f; padding-bottom:8px; margin-bottom:24px; }
+  h2 { font-size:16px; color:#161b27; margin:24px 0 12px; font-weight:600; }
+
+  /* KPI CARDS */
+  .kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:32px; }
+  .kpi-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:18px; text-align:center; }
+  .kpi-label { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.08em; margin-bottom:6px; }
+  .kpi-value { font-size:24px; font-weight:700; color:#0d1117; }
+  .kpi-sub { font-size:11px; color:#94a3b8; margin-top:4px; }
+  .kpi-card.green .kpi-value { color:#059669; }
+  .kpi-card.red .kpi-value { color:#dc2626; }
+  .kpi-card.blue .kpi-value { color:#2563eb; }
+  .kpi-card.gold .kpi-value { color:#d97706; }
+
+  /* TABLAS */
+  table { width:100%; border-collapse:collapse; margin-bottom:24px; font-size:12px; }
+  th { background:#0d1117; color:#fff; padding:10px 12px; text-align:left; font-size:11px; font-weight:600; letter-spacing:.05em; }
+  td { padding:9px 12px; border-bottom:1px solid #f1f5f9; }
+  tr:hover td { background:#f8fafc; }
+  .pos { color:#059669; font-weight:600; }
+  .neg { color:#dc2626; font-weight:600; }
+
+  /* FIRMA */
+  .footer { margin-top:40px; padding-top:16px; border-top:1px solid #e2e8f0; display:flex; justify-content:space-between;
+    font-size:10px; color:#94a3b8; }
+
+  @media print {
+    .cover { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .kpi-card { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    th { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style>
+</head>
+<body>
+
+<!-- PORTADA -->
+<div class="cover">
+  <div class="cover-logo">📊</div>
+  <div class="cover-title">BITÁCORA TASTY</div>
+  <div class="cover-sub">Informe de Trading — Opciones sobre Acciones</div>
+  <div class="cover-divider"></div>
+  <div class="cover-trader">Guillermo Carvajal</div>
+  <div class="cover-date">Generado: ${today} · Período: Feb 2026 — ${today}</div>
+</div>
+
+<!-- PAG 1: RESUMEN EJECUTIVO -->
+<div class="page">
+  <h1>📈 Resumen Ejecutivo</h1>
+  <div class="kpi-grid">
+    <div class="kpi-card ${nlv>=initial?'green':'red'}">
+      <div class="kpi-label">Net Liquidating Value</div>
+      <div class="kpi-value">${fa$(nlv)}</div>
+      <div class="kpi-sub">Capital actual</div>
+    </div>
+    <div class="kpi-card ${parseFloat(totalRet)>=0?'green':'red'}">
+      <div class="kpi-label">Retorno Total</div>
+      <div class="kpi-value">${totalRet}%</div>
+      <div class="kpi-sub">vs capital inicial ${fa$(initial)}</div>
+    </div>
+    <div class="kpi-card ${m.totalPnL>=0?'green':'red'}">
+      <div class="kpi-label">P&L Realizado</div>
+      <div class="kpi-value">${f$(m.totalPnL)}</div>
+      <div class="kpi-sub">Trades cerrados</div>
+    </div>
+    <div class="kpi-card blue">
+      <div class="kpi-label">Win Rate</div>
+      <div class="kpi-value">${m.winRate}%</div>
+      <div class="kpi-sub">${m.totalStrategies} trades totales</div>
+    </div>
+    <div class="kpi-card gold">
+      <div class="kpi-label">Profit Factor</div>
+      <div class="kpi-value">${m.profitFactor}x</div>
+      <div class="kpi-sub">Ganancia/Pérdida ratio</div>
+    </div>
+    <div class="kpi-card red">
+      <div class="kpi-label">Comisiones Pagadas</div>
+      <div class="kpi-value">-${fa$(m.totalComm)}</div>
+      <div class="kpi-sub">Al broker</div>
+    </div>
+  </div>
+
+  <h2>Resultados Mensuales (Net Liq Real)</h2>
+  <table>
+    <thead><tr><th>Mes</th><th>P&L</th><th>% Retorno</th></tr></thead>
+    <tbody>${monthRows}</tbody>
+  </table>
+
+  <div class="footer">
+    <span>Bitácora Tasty — Guillermo Carvajal</span>
+    <span>Generado ${today}</span>
+  </div>
+</div>
+
+<!-- PAG 2: ESTRATEGIAS -->
+<div class="page">
+  <h1>🎯 Análisis por Estrategia</h1>
+  <table>
+    <thead><tr><th>Estrategia</th><th>Trades</th><th>Win Rate</th><th>P&L</th></tr></thead>
+    <tbody>${stratRows}</tbody>
+  </table>
+
+  <h2>Últimos 10 Trades Cerrados</h2>
+  <table>
+    <thead><tr><th>Cierre</th><th>Símbolo</th><th>Estrategia</th><th>Duración</th><th>Prima</th><th>P&L</th></tr></thead>
+    <tbody>${tradeRows}</tbody>
+  </table>
+
+  <div class="footer">
+    <span>Bitácora Tasty — Guillermo Carvajal</span>
+    <span>Generado ${today}</span>
+  </div>
+</div>
+
+<!-- PAG 3: POSICIONES ABIERTAS -->
+<div class="page">
+  <h1>📋 Posiciones Abiertas</h1>
+  <div class="kpi-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:24px;">
+    <div class="kpi-card ${totalPnlNoReal>=0?'green':'red'}">
+      <div class="kpi-label">P&L No Realizado Total</div>
+      <div class="kpi-value">${f$(totalPnlNoReal)}</div>
+      <div class="kpi-sub">${openPositions.length} subyacentes</div>
+    </div>
+    <div class="kpi-card blue">
+      <div class="kpi-label">Posiciones Abiertas</div>
+      <div class="kpi-value">${positions.length}</div>
+      <div class="kpi-sub">patas individuales</div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>Subyacente</th><th>Tipo</th><th>Patas</th><th>P&L No Real</th></tr></thead>
+    <tbody>${posRows}</tbody>
+  </table>
+
+  <div class="footer">
+    <span>Bitácora Tasty — Guillermo Carvajal</span>
+    <span>Confidencial · Generado ${today}</span>
+  </div>
+</div>
+
+</body>
+</html>`;
+
+    res.send(html);
+  } catch(e) {
+    res.status(500).send(`<pre>Error generando reporte: ${e.message}</pre>`);
+  }
+});
+// ── Trade Journal ─────────────────────────────────────────────
+const TN_FILE = path.join(__dirname, 'trade_notes.json');
+function loadNotes()  { try { return JSON.parse(fs.readFileSync(TN_FILE,'utf8')); } catch(e) { return {}; } }
+function saveNotes(d) { fs.writeFileSync(TN_FILE, JSON.stringify(d,null,2),'utf8'); }
+
+app.get('/api/trade-notes', (req, res) => res.json(loadNotes()));
+
+app.post('/api/trade-notes/:key', (req, res) => {
+  const notes = loadNotes();
+  const key   = decodeURIComponent(req.params.key);
+  notes[key]  = { ...(notes[key]||{}), ...req.body, updatedAt: new Date().toISOString() };
+  saveNotes(notes);
+  res.json(notes[key]);
+});
+
+app.delete('/api/trade-notes/:key', (req, res) => {
+  const notes = loadNotes();
+  delete notes[decodeURIComponent(req.params.key)];
+  saveNotes(notes);
+  res.json({ ok:true });
+});
+
+// ── TradingView Screenshot via CDP ────────────────────────────
+app.post('/api/tv-screenshot', async (req, res) => {
+  try {
+    const CDP_PORT = 9223;
+    const listResp = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`);
+    const targets  = await listResp.json();
+    const tv = targets.find(t => t.type==='page' && t.url.includes('tradingview.com/chart'));
+    if (!tv) return res.status(404).json({ error:'TradingView no está abierto en Edge (puerto 9223). Ábrelo con el bot.' });
+
+    const WebSocket = require('ws');
+    const screenshot = await new Promise((resolve, reject) => {
+      const ws = new WebSocket(tv.webSocketDebuggerUrl);
+      let done = false;
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ id:1, method:'Page.enable' }));
+        ws.send(JSON.stringify({ id:2, method:'Page.captureScreenshot',
+          params:{ format:'jpeg', quality:80 } }));
+      });
+      ws.on('message', raw => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.id===2 && msg.result?.data && !done) {
+          done = true; ws.close(); resolve(msg.result.data);
+        }
+      });
+      ws.on('error', reject);
+      setTimeout(() => { if(!done){ ws.close(); reject(new Error('Timeout')); } }, 10000);
+    });
+
+    res.json({ screenshot:`data:image/jpeg;base64,${screenshot}`, symbol:tv.title });
+  } catch(e) { res.status(500).json({ error:e.message }); }
+});
+
 // ── Watchlist ─────────────────────────────────────────────────
-const WL_FILE = path.join(__dirname, 'watchlist.json');
 function loadWatchlist() {
   try { return JSON.parse(fs.readFileSync(WL_FILE,'utf8')); }
   catch(e) { return { stocks:[] }; }
