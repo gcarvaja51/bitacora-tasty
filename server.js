@@ -590,6 +590,91 @@ app.delete('/api/trade-notes/:key', (req, res) => {
   res.json({ ok:true });
 });
 
+// ── Algo Signals (CIAR v3 webhook desde TradingView) ─────────
+const ALGO_FILE = path.join(__dirname, 'algo_signals.json');
+function loadAlgoSignals() {
+  try { return JSON.parse(fs.readFileSync(ALGO_FILE,'utf8')); }
+  catch(e) { return {}; }
+}
+function saveAlgoSignals(d) { fs.writeFileSync(ALGO_FILE, JSON.stringify(d,null,2),'utf8'); }
+
+// Webhook receptor — TradingView envía aquí cuando CIAR v3 genera señal
+app.post('/api/algo-signal', (req, res) => {
+  try {
+    const { ticker, signal, price, time } = req.body;
+    if (!ticker || !signal) return res.status(400).json({ error: 'ticker y signal requeridos' });
+    const sym = ticker.toUpperCase().replace(/[^A-Z0-9]/g,'');
+    const signals = loadAlgoSignals();
+    if (!signals[sym]) signals[sym] = [];
+    signals[sym].unshift({
+      signal: signal.toUpperCase(), // BUY | SELL
+      price:  parseFloat(price) || 0,
+      time:   time || new Date().toISOString(),
+      receivedAt: new Date().toISOString(),
+    });
+    // Guardar solo los últimos 50 por símbolo
+    signals[sym] = signals[sym].slice(0, 50);
+    saveAlgoSignals(signals);
+    console.log(`[CIAR v3] ${sym} → ${signal.toUpperCase()} @ $${price}`);
+    res.json({ ok: true, sym, signal: signal.toUpperCase() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Consulta la última señal de uno o todos los tickers
+app.get('/api/algo-signals', (req, res) => {
+  const signals = loadAlgoSignals();
+  // Retorna solo la señal más reciente por ticker
+  const latest = {};
+  for (const [sym, arr] of Object.entries(signals)) {
+    if (arr && arr.length > 0) latest[sym] = arr[0];
+  }
+  res.json(latest);
+});
+
+app.get('/api/algo-signals/:symbol', (req, res) => {
+  const sym = req.params.symbol.toUpperCase();
+  const signals = loadAlgoSignals();
+  res.json(signals[sym] || []);
+});
+
+// ── Playbook Alejandro — checklist sessions ───────────────────
+const CHECKLIST_FILE = path.join(__dirname, 'alejandro_checklists.json');
+function loadChecklists() {
+  try { return JSON.parse(fs.readFileSync(CHECKLIST_FILE,'utf8')); }
+  catch(e) { return []; }
+}
+function saveChecklists(d) { fs.writeFileSync(CHECKLIST_FILE, JSON.stringify(d,null,2),'utf8'); }
+
+app.get('/api/alejandro-checklists', (req, res) => res.json(loadChecklists()));
+
+app.post('/api/alejandro-checklists', (req, res) => {
+  const checklists = loadChecklists();
+  const item = { ...req.body, id: `cl-${Date.now()}`, createdAt: new Date().toISOString() };
+  checklists.unshift(item);
+  // Guardar solo los últimos 200 checklists
+  const trimmed = checklists.slice(0, 200);
+  saveChecklists(trimmed);
+  res.json(item);
+});
+
+app.put('/api/alejandro-checklists/:id', (req, res) => {
+  const checklists = loadChecklists();
+  const idx = checklists.findIndex(c => c.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'No encontrado' });
+  checklists[idx] = { ...checklists[idx], ...req.body, updatedAt: new Date().toISOString() };
+  saveChecklists(checklists);
+  res.json(checklists[idx]);
+});
+
+app.delete('/api/alejandro-checklists/:id', (req, res) => {
+  const checklists = loadChecklists();
+  saveChecklists(checklists.filter(c => c.id !== req.params.id));
+  res.json({ ok: true });
+});
+
+// ── Watchlist file ─────────────────────────────────────────────
+const WL_FILE = path.join(__dirname, 'watchlist.json');
+
 // ── TradingView Screenshot via CDP ────────────────────────────
 app.post('/api/tv-screenshot', async (req, res) => {
   try {

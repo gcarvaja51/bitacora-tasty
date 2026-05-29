@@ -414,8 +414,61 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .wheel-basis-label { font-size:10px; color:var(--muted); margin-bottom:6px; }
 .wheel-basis-track { background:var(--border2); border-radius:4px; height:6px; overflow:hidden; }
 .wheel-basis-fill  { height:100%; border-radius:4px; background:linear-gradient(90deg,var(--green),#13d68f88); transition:width .4s; }
+/* Panel de precios rueda */
+.wheel-price-panel { display:flex; align-items:stretch; gap:0; background:rgba(255,255,255,.04); border:1px solid var(--border2); border-radius:10px; margin:10px 0 4px; overflow:hidden; }
+.wheel-price-col { flex:1; padding:12px 14px; display:flex; flex-direction:column; gap:3px; }
+.wheel-price-label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+.wheel-price-main { font-family:var(--mono); font-size:20px; font-weight:700; color:var(--bright); line-height:1.1; }
+.wheel-price-sub { font-family:var(--mono); font-size:11px; margin-top:2px; }
+.wheel-price-divider { width:1px; background:var(--border2); margin:10px 0; flex-shrink:0; }
 
 .chart-wrap { position: relative; height: 220px; min-height: 220px; }
+
+/* ══ PLAYBOOK ALEJANDRO ══════════════════ */
+.ale-layout { display:grid; grid-template-columns:1fr 220px; gap:16px; align-items:start; }
+.ale-main   { display:flex; flex-direction:column; gap:12px; }
+.ale-sidebar { background:var(--card); border:1px solid var(--border2); border-radius:12px; padding:14px; position:sticky; top:0; }
+.ale-sidebar-title { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:10px; }
+.ale-hist-item { display:grid; grid-template-columns:80px 1fr 44px 50px; gap:4px; align-items:center; padding:8px 6px; border-bottom:1px solid var(--border); cursor:pointer; border-radius:6px; }
+.ale-hist-item:hover { background:rgba(255,255,255,.04); }
+.ale-hist-item:last-child { border-bottom:none; }
+.ale-header { display:flex; justify-content:space-between; align-items:center; background:var(--card); border:1px solid var(--border2); border-radius:12px; padding:16px 20px; }
+.ale-title   { font-size:20px; font-weight:700; color:var(--bright); }
+.ale-subtitle { font-size:11px; color:var(--muted); margin-top:3px; }
+.ale-score-ring { background:rgba(255,255,255,.04); border:2px solid var(--border2); border-radius:12px; padding:12px 20px; text-align:center; min-width:100px; transition:border-color .3s; }
+.ale-score-ring.can-trade { border-color:var(--green); background:rgba(19,214,143,.08); }
+.ale-score-ring.almost    { border-color:var(--gold);  background:rgba(245,200,66,.08); }
+.ale-score-num   { font-family:var(--mono); font-size:24px; font-weight:700; color:var(--bright); }
+.ale-score-label { font-size:10px; color:var(--muted); margin-top:2px; font-weight:600; letter-spacing:.05em; }
+.ale-ticker-row  { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.ale-auto-banner { display:flex; gap:8px; flex-wrap:wrap; background:rgba(91,130,230,.08); border:1px solid rgba(91,130,230,.2); border-radius:10px; padding:10px 14px; }
+.ale-auto-item   { display:flex; flex-direction:column; gap:2px; min-width:80px; }
+.ale-auto-val    { font-family:var(--mono); font-size:14px; font-weight:700; color:var(--bright); }
+.ale-bloque      { background:var(--card); border:1px solid var(--border2); border-radius:12px; overflow:hidden; }
+.ale-bloque-header { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background:rgba(255,255,255,.03); border-bottom:1px solid var(--border2); }
+.ale-var         { padding:12px 16px; border-bottom:1px solid var(--border); transition:background .15s; }
+.ale-var:last-child { border-bottom:none; }
+.ale-var:hover   { background:rgba(255,255,255,.02); }
+.ale-var-si      { background:rgba(19,214,143,.05); }
+.ale-var-no      { background:rgba(240,79,90,.05); }
+.ale-var-parcial { background:rgba(245,200,66,.05); }
+.ale-critical    { position:relative; }
+.ale-var-top     { display:flex; gap:12px; align-items:flex-start; }
+.ale-var-icon    { font-size:20px; min-width:28px; text-align:center; padding-top:2px; }
+.ale-var-info    { flex:1; }
+.ale-var-label   { font-size:13px; font-weight:600; color:var(--bright); margin-bottom:3px; }
+.ale-var-desc    { font-size:11px; color:var(--muted); line-height:1.5; }
+.ale-auto-hint   { font-size:11px; color:var(--text); margin-top:5px; font-style:italic; background:rgba(255,255,255,.04); padding:4px 8px; border-radius:5px; border-left:2px solid var(--gold); }
+.ale-var-btns    { display:flex; flex-direction:column; gap:4px; min-width:90px; }
+.ale-btn         { padding:5px 10px; border-radius:6px; border:1px solid var(--border2); background:rgba(255,255,255,.04); color:var(--muted); font-size:11px; font-weight:600; cursor:pointer; transition:all .15s; white-space:nowrap; }
+.ale-btn:hover   { background:rgba(255,255,255,.08); color:var(--bright); }
+.ale-btn-si      { background:rgba(19,214,143,.2) !important; color:var(--green) !important; border-color:var(--green) !important; }
+.ale-btn-no      { background:rgba(240,79,90,.2)  !important; color:var(--red)   !important; border-color:var(--red)   !important; }
+.ale-btn-par     { background:rgba(245,200,66,.2) !important; color:var(--gold)  !important; border-color:var(--gold)  !important; }
+.ale-crit-badge  { font-size:9px; background:rgba(240,79,90,.2); color:var(--red); border:1px solid var(--red); border-radius:4px; padding:1px 5px; margin-left:5px; vertical-align:middle; }
+.ale-auto-badge  { font-size:9px; background:rgba(91,130,230,.2); color:#5b82e6; border:1px solid #5b82e6; border-radius:4px; padding:1px 5px; margin-left:5px; vertical-align:middle; }
+.ale-veredicto-box { display:flex; gap:14px; align-items:center; background:var(--card); border:2px solid var(--border2); border-radius:12px; padding:14px 20px; }
+@media(max-width:900px) { .ale-layout { grid-template-columns:1fr; } .ale-sidebar { position:static; } }
 
 /* ══ TABLES ══════════════════════════════ */
 .table-wrap { overflow-x: auto; }
@@ -659,6 +712,9 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     </div>
     <div class="nav-item" onclick="nav('wheel',this)">
       <span class="icon">🔄</span> La Rueda
+    </div>
+    <div class="nav-item" onclick="nav('alejandro',this)">
+      <span class="icon">🎯</span> Playbook Alejandro
     </div>
     <div class="nav-item" onclick="nav('today',this)">
       <span class="icon">◎</span> Hoy
@@ -1003,6 +1059,11 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <div style="font-size:10px;color:var(--muted);margin-top:6px;">Enter para enviar · Shift+Enter para nueva línea · Los datos se filtran según el período seleccionado</div>
     </div>
 
+    <!-- ══ PLAYBOOK ALEJANDRO ════════════════ -->
+    <div id="panel-alejandro" class="panel">
+      <div id="alejandro-content"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
     <!-- ══ LA RUEDA ═══════════════════════ -->
     <div id="panel-wheel" class="panel">
       <div id="wheel-content"><div class="loader"><div class="spinner"></div></div></div>
@@ -1125,6 +1186,7 @@ function nav(tab, el) {
   else if (tab==='playbooks') loadPlaybooks();
   else if (tab==='ai')      loadAI();
   else if (tab==='wheel')   loadWheel();
+  else if (tab==='alejandro') loadAlejandro();
   else if (tab==='today') loadToday();
 }
 
@@ -2613,6 +2675,15 @@ async function loadWheel() {
     const wheels = data.wheels || [];
     const underlyings = data.underlyings || [];
 
+    // Traer precio actual de todos los subyacentes en paralelo
+    const priceMap = {};
+    await Promise.all(underlyings.map(async sym => {
+      try {
+        const md = await api(`/api/market-data/${sym}`);
+        priceMap[sym] = { price: md.price || 0, chg: md.chg || 0, chgPct: md.chgPct || 0, rsi: md.rsi };
+      } catch(e) { priceMap[sym] = { price: 0, chg: 0, chgPct: 0 }; }
+    }));
+
     const phaseLabel = { CSP_ACTIVA:'🔵 CSP Activa', CC_ACTIVA:'🟢 Covered Call', ACCIONES:'🟡 Acciones', IDLE:'⚪ Sin actividad' };
     const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
     const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯' };
@@ -2625,6 +2696,37 @@ async function loadWheel() {
       const openInfo = w.activePut  ? `Strike $${w.activePut.strike.toFixed(2)} · ${w.activePut.expiry.slice(5)}`
                      : w.activeCall ? `Call $${w.activeCall.strike.toFixed(2)} · ${w.activeCall.expiry.slice(5)}`
                      : w.shares > 0 ? `${w.shares} acciones` : '—';
+
+      // ── Precio actual vs costo base ────────────────────────
+      const mkt = priceMap[w.underlying] || { price:0, chg:0, chgPct:0 };
+      const currentPrice = mkt.price || 0;
+      const costBase = w.costBasis !== null ? w.costBasis : null;
+      const priceDiff = (costBase !== null && currentPrice > 0) ? currentPrice - costBase : null;
+      const priceDiffPct = (costBase !== null && costBase > 0 && currentPrice > 0) ? (currentPrice - costBase) / costBase * 100 : null;
+      const chgSign = mkt.chg >= 0 ? '+' : '';
+      const priceChgCls = mkt.chg >= 0 ? 'pos' : 'neg';
+      const diffCls = priceDiff !== null ? (priceDiff >= 0 ? 'pos' : 'neg') : '';
+
+      const pricePanelHtml = currentPrice > 0 ? `
+        <div class="wheel-price-panel">
+          <div class="wheel-price-col">
+            <div class="wheel-price-label">Precio Actual</div>
+            <div class="wheel-price-main">$${currentPrice.toFixed(2)}</div>
+            <div class="wheel-price-sub ${priceChgCls}">${chgSign}$${Math.abs(mkt.chg).toFixed(2)} (${chgSign}${mkt.chgPct?.toFixed(2)}%)</div>
+          </div>
+          <div class="wheel-price-divider"></div>
+          <div class="wheel-price-col">
+            <div class="wheel-price-label">Costo Base${w.isProjected?' <span style="color:var(--gold);font-size:9px;">PROY.</span>':''}</div>
+            <div class="wheel-price-main">${costBase !== null ? '$'+costBase.toFixed(3) : '—'}</div>
+            <div class="wheel-price-sub dim">Prima cobrada: +$${w.totalPremium.toFixed(2)}</div>
+          </div>
+          <div class="wheel-price-divider"></div>
+          <div class="wheel-price-col">
+            <div class="wheel-price-label">Margen vs Costo</div>
+            <div class="wheel-price-main ${diffCls}">${priceDiff !== null ? (priceDiff>=0?'+':'')+priceDiff.toFixed(2) : '—'}</div>
+            <div class="wheel-price-sub ${diffCls}">${priceDiffPct !== null ? (priceDiffPct>=0?'+':'')+priceDiffPct.toFixed(1)+'%' : ''}</div>
+          </div>
+        </div>` : '';
 
       const timelineHtml = w.events.map(e => {
         const isRoll = e.type === 'ROLL';
@@ -2652,22 +2754,19 @@ async function loadWheel() {
             <button onclick="removeWheel('${w.underlying}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;" title="Quitar de La Rueda">✕</button>
           </div>
         </div>
+        ${pricePanelHtml}
         <div class="wheel-stats">
           <div class="wheel-stat">
             <div class="wheel-stat-label">Prima Cobrada</div>
             <div class="wheel-stat-val pos">+$${w.totalPremium.toFixed(2)}</div>
           </div>
           <div class="wheel-stat">
-            <div class="wheel-stat-label">Costo Base ${w.isProjected?'<span style="color:var(--gold);font-size:8px;">PROYECTADO</span>':''}</div>
-            <div class="wheel-stat-val">${w.costBasis!==null?'$'+w.costBasis.toFixed(3):'—'}</div>
-          </div>
-          <div class="wheel-stat">
-            <div class="wheel-stat-label">Posición Actual</div>
-            <div class="wheel-stat-val" style="font-size:12px;">${openInfo}</div>
-          </div>
-          <div class="wheel-stat">
             <div class="wheel-stat-label">% Base Reducido</div>
             <div class="wheel-stat-val pos">${reductionPct.toFixed(1)}%</div>
+          </div>
+          <div class="wheel-stat" style="grid-column:span 2;">
+            <div class="wheel-stat-label">Posición Actual</div>
+            <div class="wheel-stat-val" style="font-size:12px;">${openInfo}</div>
           </div>
         </div>
         ${reductionPct>0?`<div class="wheel-basis-bar">
@@ -2809,6 +2908,327 @@ function updateCountdown() {
 }
 
 setInterval(updateCountdown, 1000);
+
+// ══ PLAYBOOK ALEJANDRO ══════════════════════════════════════
+const ALEJANDRO_VARS = [
+  // BLOQUE 1 — DIRECCIÓN
+  { id:'tendencia',    bloque:1, label:'Tendencia',          desc:'¿Quién controla la subasta? Localización del precio vs SMA 30 semanal (= SMA 200 diaria). Dirección y Timing.', auto:false, icon:'📈' },
+  { id:'ciclo',        bloque:1, label:'Ciclo / Fase',       desc:'Fase Stan Weinstein (1-4) + Microciclo Oliver Kell (Reversal, Wedge Pop, Crossback, Base & Brake). Operar en Fase 2 alcista o Fase 4 bajista.', auto:false, icon:'🔄' },
+  { id:'estructura',   bloque:1, label:'Estructura',         desc:'¿En qué pivote estoy? ¿Qué tengo a la izquierda? POC, fractales y Módulos de Giro (Fallo, Doble llegada, Directo, Manipulación).', auto:false, icon:'🏗' },
+  // BLOQUE 2 — TRIGGER
+  { id:'hl_lh',        bloque:2, label:'HL / LH',            desc:'Higher Low (alcista) o Lower High (bajista). Tendencia extendida luego del tercer HL/LH. La temporalidad más alta prevalece.', auto:false, icon:'📐' },
+  { id:'consolidacion',bloque:2, label:'Consolidación',      desc:'Base & Brake, Wedge o zona de congestión con volumen decreciente. El precio comprime antes del rompimiento.', auto:false, icon:'📦' },
+  { id:'ibp',          bloque:2, label:'Ideal Buy Point',    desc:'El punto óptimo de entrada: rompimiento limpio con volumen, cruce de EMAs o nivel clave superado. Menor riesgo, mayor R/R.', auto:false, icon:'🎯' },
+  { id:'volumen',      bloque:2, label:'Volumen',            desc:'Sube en el rompimiento (confirma el trigger). Baja en el pullback (confirma soporte). Volumen relativo vs promedio.', auto:'volume', icon:'📊' },
+  // BLOQUE 3 — FUERZA
+  { id:'macd',         bloque:3, label:'MACD Alineado',      desc:'Línea rápida cruza en dirección del trade. Pendiente positiva/negativa. Distancia a línea cero (alejado = sobrecompra/venta).', auto:'macd', icon:'⚡', critical:true },
+  { id:'ema',          bloque:3, label:'Precio desde EMAs',  desc:'EMAs 10 y 20 alineadas en dirección del trade. Precio saliendo desde ellas (no sobre-extendido). Confirmación de momentum.', auto:'ema', icon:'📉', critical:true },
+  { id:'algoritmo',    bloque:3, label:'Algoritmo CIAR v3',  desc:'Señal activa de compra o venta del algoritmo CIAR v3 en TradingView. Incorpora CCI Period y ATR para stop/target.', auto:'ciar', icon:'🤖', critical:true },
+];
+
+const BLOQUE_LABELS = { 1:'📍 Dirección del Precio', 2:'⚡ Trigger', 3:'💪 Fuerza' };
+const BLOQUE_COLORS = { 1:'#e06060', 2:'#5b82e6', 3:'#13d68f' };
+
+let aleState = {
+  ticker: '',
+  checks: {}, // { varId: 'si'|'no'|'parcial' }
+  autoData: null,
+  history: [],
+};
+
+async function loadAlejandro() {
+  $('alejandro-content').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  try {
+    const [signals, history] = await Promise.all([
+      api('/api/algo-signals'),
+      api('/api/alejandro-checklists'),
+    ]);
+    aleState.history = history || [];
+    aleState.signals = signals || {};
+    renderAlejandro();
+  } catch(e) {
+    $('alejandro-content').innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
+  }
+}
+
+async function aleLoadMarketData() {
+  const sym = aleState.ticker.trim().toUpperCase();
+  if (!sym) return;
+  try {
+    const md = await api(`/api/market-data/${sym}`);
+    // Calcular señales automáticas
+    aleState.autoData = {
+      price:    md.price,
+      rsi:      md.rsi,
+      vix:      md.vix,
+      ivRank:   md.ivRank,
+      earnings: md.earningsDays,
+    };
+    // Señal CIAR v3
+    const ciarSignal = aleState.signals[sym] || null;
+    aleState.autoData.ciar = ciarSignal;
+    renderAlejandroChecks();
+  } catch(e) {
+    console.error('Error market data:', e.message);
+  }
+}
+
+function aleCheck(varId, val) {
+  aleState.checks[varId] = val;
+  renderAlejandroChecks();
+}
+
+function renderAlejandro() {
+  const totalPassed = Object.values(aleState.checks).filter(v=>v==='si').length;
+  const totalVars   = ALEJANDRO_VARS.length;
+  const criticals   = ALEJANDRO_VARS.filter(v=>v.critical);
+  const critPassed  = criticals.filter(v=>aleState.checks[v.id]==='si').length;
+  const score       = Math.round(totalPassed / totalVars * 100);
+  const canTrade    = critPassed === criticals.length && totalPassed >= 7;
+
+  // Historia reciente
+  const histHtml = aleState.history.slice(0,5).map(h => {
+    const passed = Object.values(h.checks||{}).filter(v=>v==='si').length;
+    const pct    = Math.round(passed / totalVars * 100);
+    const color  = pct >= 78 ? 'var(--green)' : pct >= 55 ? 'var(--gold)' : 'var(--red)';
+    return `<div class="ale-hist-item" onclick='aleLoadHistory(${JSON.stringify(h.id)})'>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--muted);">${h.date}</div>
+      <div style="font-weight:600;color:var(--bright);">${h.ticker}</div>
+      <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${color};">${pct}%</div>
+      <div style="font-size:10px;color:var(--muted);">${h.direction||'—'}</div>
+    </div>`;
+  }).join('');
+
+  $('alejandro-content').innerHTML = `
+    <div class="ale-layout">
+      <!-- COLUMNA PRINCIPAL -->
+      <div class="ale-main">
+        <!-- Header -->
+        <div class="ale-header">
+          <div>
+            <div class="ale-title">🎯 Playbook Alejandro</div>
+            <div class="ale-subtitle">Framework Paradigma Investments — 10 variables de validación</div>
+          </div>
+          <div class="ale-score-ring ${canTrade?'can-trade':''}">
+            <div class="ale-score-num">${score}%</div>
+            <div class="ale-score-label">${canTrade?'✅ OPERAR':'⏳ ESPERAR'}</div>
+          </div>
+        </div>
+
+        <!-- Buscador de ticker -->
+        <div class="ale-ticker-row">
+          <input id="ale-ticker-input" type="text" placeholder="Ticker (ej: AAPL, NU, JBLU)"
+            value="${aleState.ticker}"
+            style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 16px;color:var(--bright);font-family:var(--mono);font-size:15px;font-weight:700;width:180px;text-transform:uppercase;"
+            onkeydown="if(event.key==='Enter'){aleState.ticker=this.value.toUpperCase().trim();aleState.checks={};aleState.autoData=null;aleLoadMarketData();renderAlejandroChecks();}">
+          <button onclick="aleState.ticker=$('ale-ticker-input').value.toUpperCase().trim();aleState.checks={};aleState.autoData=null;aleLoadMarketData();renderAlejandroChecks();" class="btn btn-primary">Cargar</button>
+          <select id="ale-direction" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--bright);font-size:13px;">
+            <option value="">Dirección...</option>
+            <option value="LARGO">📈 Largo (Alcista)</option>
+            <option value="CORTO">📉 Corto (Bajista)</option>
+          </select>
+          <button onclick="aleSaveChecklist()" class="btn" style="background:rgba(19,214,143,.15);color:var(--green);border:1px solid var(--green);">💾 Guardar</button>
+          <button onclick="aleReset()" class="btn" style="background:rgba(240,79,90,.1);color:var(--red);border:1px solid var(--red);">✕ Limpiar</button>
+        </div>
+
+        <!-- Auto data banner -->
+        <div id="ale-auto-banner"></div>
+
+        <!-- Checklist -->
+        <div id="ale-checks"></div>
+
+        <!-- Veredicto final -->
+        <div id="ale-veredicto" style="margin-top:16px;"></div>
+      </div>
+
+      <!-- COLUMNA HISTORIAL -->
+      <div class="ale-sidebar">
+        <div class="ale-sidebar-title">📋 Historial Reciente</div>
+        ${histHtml || '<div class="dim" style="padding:20px;font-size:12px;text-align:center;">Sin checklists guardados</div>'}
+        ${aleState.history.length > 5 ? `<div style="text-align:center;margin-top:8px;"><button onclick="aleShowAllHistory()" class="btn" style="font-size:11px;padding:4px 12px;">Ver todos (${aleState.history.length})</button></div>` : ''}
+      </div>
+    </div>
+  `;
+  renderAlejandroChecks();
+}
+
+function renderAlejandroChecks() {
+  const checksEl = $('ale-checks');
+  const bannerEl = $('ale-auto-banner');
+  const verEl    = $('ale-veredicto');
+  if (!checksEl) return;
+
+  const sym      = aleState.ticker;
+  const autoData = aleState.autoData;
+
+  // Auto banner
+  if (sym && autoData) {
+    const earOk = autoData.earnings > 14;
+    const rsiStr = autoData.rsi ? autoData.rsi.toFixed(1) : '—';
+    const ciar   = autoData.ciar;
+    const ciarAge = ciar ? Math.round((Date.now() - new Date(ciar.receivedAt).getTime()) / 60000) : null;
+    bannerEl.innerHTML = `
+      <div class="ale-auto-banner">
+        <div class="ale-auto-item"><span class="dim">Precio</span><span class="ale-auto-val">$${autoData.price?.toFixed(2)||'—'}</span></div>
+        <div class="ale-auto-item"><span class="dim">RSI 14d</span><span class="ale-auto-val ${autoData.rsi>70?'neg':autoData.rsi<30?'pos':''}">${rsiStr}</span></div>
+        <div class="ale-auto-item"><span class="dim">IV Rank</span><span class="ale-auto-val">${autoData.ivRank||'—'}%</span></div>
+        <div class="ale-auto-item"><span class="dim">VIX</span><span class="ale-auto-val">${autoData.vix||'—'}</span></div>
+        <div class="ale-auto-item ${earOk?'':'neg-bg'}"><span class="dim">Earnings en</span><span class="ale-auto-val ${earOk?'pos':'neg'}">${autoData.earnings>900?'Sin fecha':autoData.earnings+'d'}</span></div>
+        <div class="ale-auto-item ${ciar?'':'dim-bg'}"><span class="dim">CIAR v3</span><span class="ale-auto-val ${ciar?.signal==='BUY'?'pos':ciar?.signal==='SELL'?'neg':''}">${ciar?ciar.signal+' hace '+ciarAge+'min':'Sin señal'}</span></div>
+      </div>`;
+  } else if (sym) {
+    bannerEl.innerHTML = `<div class="ale-auto-banner dim" style="text-align:center;padding:10px;">Cargando datos de ${sym}...</div>`;
+  } else {
+    bannerEl.innerHTML = '';
+  }
+
+  // Bloques de checks
+  let html = '';
+  let totalPassed = 0;
+  const criticalsFailed = [];
+
+  [1,2,3].forEach(bloque => {
+    const vars = ALEJANDRO_VARS.filter(v => v.bloque === bloque);
+    const color = BLOQUE_COLORS[bloque];
+    html += `<div class="ale-bloque">
+      <div class="ale-bloque-header" style="border-left:3px solid ${color};">
+        <span style="color:${color};font-weight:700;">${BLOQUE_LABELS[bloque]}</span>
+        <span class="dim" style="font-size:11px;">${vars.filter(v=>aleState.checks[v.id]==='si').length}/${vars.length} ✓</span>
+      </div>`;
+
+    vars.forEach(v => {
+      const val     = aleState.checks[v.id] || '';
+      const isAuto  = !!v.auto;
+      let autoHint  = '';
+
+      // Sugerencias automáticas
+      if (autoData && v.id === 'macd') {
+        const rsi = autoData.rsi;
+        autoHint = rsi > 50 ? '⚡ RSI '+rsi.toFixed(1)+' — momentum alcista' : '⚡ RSI '+rsi.toFixed(1)+' — momentum bajista';
+      }
+      if (autoData && v.id === 'ema') {
+        autoHint = `📉 Precio $${autoData.price?.toFixed(2)} — verifica en gráfico`;
+      }
+      if (autoData && v.id === 'algoritmo') {
+        const ciar = autoData.ciar;
+        if (ciar) {
+          const age = Math.round((Date.now() - new Date(ciar.receivedAt).getTime()) / 60000);
+          autoHint = `🤖 CIAR v3: ${ciar.signal} @ $${ciar.price?.toFixed(2)} — hace ${age} min`;
+          // Auto-sugerir check si la señal es reciente (< 60 min)
+          if (age < 60 && !aleState.checks[v.id]) {
+            aleState.checks[v.id] = ciar.signal === 'BUY' ? 'si' : ciar.signal === 'SELL' ? 'si' : '';
+          }
+        } else {
+          autoHint = '🤖 Sin señal reciente del CIAR v3';
+        }
+      }
+      if (autoData && v.id === 'volumen') {
+        autoHint = `📊 Volumen relativo disponible en gráfico`;
+      }
+
+      if (val === 'si') totalPassed++;
+      if (v.critical && val !== 'si') criticalsFailed.push(v.label);
+
+      const btnSi  = `<button onclick="aleCheck('${v.id}','si')"    class="ale-btn ${val==='si'?'ale-btn-si':''}">✅ Sí</button>`;
+      const btnNo  = `<button onclick="aleCheck('${v.id}','no')"    class="ale-btn ${val==='no'?'ale-btn-no':''}">❌ No</button>`;
+      const btnPar = `<button onclick="aleCheck('${v.id}','parcial')" class="ale-btn ${val==='parcial'?'ale-btn-par':''}">⚠️ Parcial</button>`;
+
+      html += `<div class="ale-var ${val?'ale-var-'+val:''} ${v.critical?'ale-critical':''}">
+        <div class="ale-var-top">
+          <div class="ale-var-icon">${v.icon}</div>
+          <div class="ale-var-info">
+            <div class="ale-var-label">${v.label}${v.critical?' <span class="ale-crit-badge">CRÍTICO</span>':''}${isAuto?' <span class="ale-auto-badge">AUTO</span>':''}</div>
+            <div class="ale-var-desc">${v.desc}</div>
+            ${autoHint?`<div class="ale-auto-hint">${autoHint}</div>`:''}
+          </div>
+          <div class="ale-var-btns">${btnSi}${btnPar}${btnNo}</div>
+        </div>
+      </div>`;
+    });
+
+    html += '</div>';
+  });
+
+  checksEl.innerHTML = html;
+
+  // Veredicto
+  const score    = Math.round(totalPassed / ALEJANDRO_VARS.length * 100);
+  const canTrade = criticalsFailed.length === 0 && totalPassed >= 7;
+  const partial  = totalPassed >= 5 && totalPassed < 7;
+
+  let vcolor, vicon, vmsg;
+  if (canTrade) {
+    vcolor='var(--green)'; vicon='🚀'; vmsg='Todas las condiciones críticas OK. El setup está listo para ejecutar.';
+  } else if (partial) {
+    vcolor='var(--gold)'; vicon='⚠️'; vmsg='Setup parcial. Espera que maduren más variables antes de entrar.';
+  } else {
+    vcolor='var(--red)'; vicon='🛑'; vmsg='Setup incompleto. NO entrar al mercado todavía.';
+  }
+
+  const failedStr = criticalsFailed.length ? `<div style="font-size:11px;color:var(--red);margin-top:6px;">⚠️ Críticos pendientes: ${criticalsFailed.join(', ')}</div>` : '';
+
+  verEl.innerHTML = `
+    <div class="ale-veredicto-box" style="border-color:${vcolor};">
+      <div style="font-size:22px;">${vicon}</div>
+      <div>
+        <div style="font-size:16px;font-weight:700;color:${vcolor};">${score}% — ${canTrade?'OPERAR':partial?'CASI LISTO':'NO OPERAR'}</div>
+        <div style="font-size:12px;color:var(--text);margin-top:4px;">${vmsg}</div>
+        ${failedStr}
+      </div>
+    </div>`;
+
+  // Actualizar score ring si existe
+  const ring = document.querySelector('.ale-score-ring');
+  if (ring) {
+    ring.className = `ale-score-ring ${canTrade?'can-trade':partial?'almost':''}`;
+    ring.querySelector('.ale-score-num').textContent = score+'%';
+    ring.querySelector('.ale-score-label').textContent = canTrade?'✅ OPERAR':partial?'⚠️ CASI':'🛑 ESPERAR';
+  }
+}
+
+async function aleSaveChecklist() {
+  const sym  = aleState.ticker.trim().toUpperCase();
+  const dir  = $('ale-direction')?.value || '';
+  if (!sym) { alert('Ingresa un ticker primero'); return; }
+  const passed = Object.values(aleState.checks).filter(v=>v==='si').length;
+  const score  = Math.round(passed / ALEJANDRO_VARS.length * 100);
+  const item   = {
+    ticker:    sym,
+    direction: dir,
+    date:      new Date().toLocaleDateString('es-CO'),
+    checks:    { ...aleState.checks },
+    score,
+    autoData:  aleState.autoData,
+  };
+  try {
+    await fetch('/api/alejandro-checklists', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(item),
+    });
+    await loadAlejandro();
+  } catch(e) { alert('Error guardando: '+e.message); }
+}
+
+function aleReset() {
+  aleState.ticker = '';
+  aleState.checks = {};
+  aleState.autoData = null;
+  renderAlejandro();
+}
+
+async function aleLoadHistory(id) {
+  const h = aleState.history.find(c => c.id === id);
+  if (!h) return;
+  aleState.ticker = h.ticker;
+  aleState.checks = { ...h.checks };
+  aleState.autoData = h.autoData || null;
+  if (!aleState.autoData) await aleLoadMarketData();
+  renderAlejandroChecks();
+  const input = $('ale-ticker-input');
+  if (input) input.value = h.ticker;
+  const sel = $('ale-direction');
+  if (sel && h.direction) sel.value = h.direction;
+}
 
 // ══ INIT ══
 loadDashboard();
