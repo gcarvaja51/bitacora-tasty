@@ -1,1 +1,11 @@
-{ "stocks": [] }
+{
+  "stocks": [
+    {
+      "symbol": "BABA",
+      "name": "BABA",
+      "status": "orange",
+      "addedDate": "2026-05-29",
+      "notes": []
+    }
+  ]
+}
