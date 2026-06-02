@@ -682,6 +682,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   .grid-3 { grid-template-columns: 1fr 1fr; }
 }
 </style>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 <div class="app">
@@ -3048,7 +3049,10 @@ let aleState = {
   history:     [],
   signals:     {},
   comentarios: '',
+  imagen: '',
+  audio: '',
   histFiltro:  { tesis:'todas', orden:'reciente', busca:'' },
+  evalTf: '1D',
 };
 
 async function loadAlejandro() {
@@ -3075,6 +3079,8 @@ async function aleCargarTicker() {
   if (banner) banner.innerHTML = `<div class="ale-auto-banner dim" style="text-align:center;padding:10px;">⏳ Cargando datos de ${aleState.ticker}...</div>`;
   await aleLoadMarketData();
   renderAlejandroChecks();
+  // Esperar DOM antes de crear el chart
+  setTimeout(() => renderEvalChart(aleState.ticker), 100);
 }
 
 async function aleLoadMarketData() {
@@ -3105,11 +3111,13 @@ async function aleLoadMarketData() {
     aleState.signals = signals || {};
     const ciarSignal = signals[sym] || null;
 
+    const priceHistory = md.priceHistory || [];
     aleState.autoData = {
       price, chg, chgPct, rsi, vix, ivRank, earnings,
       ema10, ema20,
       macdLine, macdSignal, macdHist,
       ciar: ciarSignal,
+      priceHistory,
     };
     renderAlejandroChecks();
     aleInitCharts(sym);
@@ -3219,6 +3227,63 @@ function aleHistFiltro(key, val) {
   renderAlejandro();
 }
 
+// ── Imagen ────────────────────────────────────────────────
+function aleCargarImagen(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { alert('Imagen muy grande (max 5MB)'); return; }
+  const reader = new FileReader();
+  reader.onload = e => { aleState.imagen = e.target.result; renderAlejandro(); };
+  reader.readAsDataURL(file);
+}
+function aleVerImagen() {
+  const w = window.open('','_blank');
+  w.document.write('<img src="'+aleState.imagen+'" style="max-width:100%;"/>');
+}
+
+// ── Grabación de audio ─────────────────────────────────────
+let _mediaRecorder = null;
+let _audioChunks   = [];
+let _recTimer      = null;
+let _recSecs       = 0;
+
+async function aleToggleGrabacion() {
+  const btn = document.getElementById('ale-rec-btn');
+  if (_mediaRecorder && _mediaRecorder.state === 'recording') {
+    // Detener
+    _mediaRecorder.stop();
+    clearInterval(_recTimer);
+    if (btn) btn.textContent = '🎙️ Grabar (max 60s)';
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _audioChunks = [];
+    _mediaRecorder = new MediaRecorder(stream);
+    _mediaRecorder.ondataavailable = e => _audioChunks.push(e.data);
+    _mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob   = new Blob(_audioChunks, { type: 'audio/webm' });
+      const reader = new FileReader();
+      reader.onload = e => { aleState.audio = e.target.result; renderAlejandro(); };
+      reader.readAsDataURL(blob);
+    };
+    _mediaRecorder.start();
+    _recSecs = 0;
+    if (btn) btn.textContent = '⏹ Detener (0s)';
+    _recTimer = setInterval(() => {
+      _recSecs++;
+      if (btn) btn.textContent = `⏹ Detener (${_recSecs}s)`;
+      if (_recSecs >= 60) {
+        _mediaRecorder.stop();
+        clearInterval(_recTimer);
+      }
+    }, 1000);
+  } catch(e) {
+    alert('No se pudo acceder al micrófono: ' + e.message);
+  }
+}
+
 function aleToggleEvol(uid) {
   const el = document.getElementById(uid);
   if (!el) return;
@@ -3231,8 +3296,8 @@ function aleToggleEvol(uid) {
 function renderAlejandro() {
   const { scoreGlobal, modScores } = calcAlejandroScore(aleState.checks);
   const score    = scoreGlobal;
-  const canTrade = score >= 90;
-  const cautela  = score >= 70 && score < 90;
+  const canTrade = score >= 95;
+  const cautela  = score >= 85 && score < 95;
 
   const histHtml = (() => {
     const { tesis:fTesis, orden:fOrden, busca:fBusca } = aleState.histFiltro;
@@ -3272,14 +3337,14 @@ function renderAlejandro() {
       const ultimo = regs[0];
       const tIcon  = ultimo.tesis==='alcista'?'📈':ultimo.tesis==='bajista'?'📉':'➡️';
       const { scoreGlobal: pctU } = calcAlejandroScore(ultimo.checks || {}, ultimo.direction || ultimo.tesis || 'alcista');
-      const colU   = pctU >= 90 ? 'var(--green)' : pctU >= 70 ? 'var(--gold)' : 'var(--red)';
+      const colU   = pctU >= 95 ? 'var(--green)' : pctU >= 85 ? 'var(--gold)' : 'var(--red)';
       const uid    = 'evol_' + ticker.replace(/[^a-zA-Z0-9]/g,'_');
 
       // Detalle de cada evaluación
       const detalles = [...regs].reverse().map(h => {
         const { scoreGlobal: pct } = calcAlejandroScore(h.checks || {}, h.direction || h.tesis || 'alcista');
-        const col  = pct >= 90 ? 'var(--green)' : pct >= 70 ? 'var(--gold)' : 'var(--red)';
-        const icon = pct >= 90 ? '🚀' : pct >= 70 ? '⚠️' : '🛑';
+        const col  = pct >= 95 ? 'var(--green)' : pct >= 85 ? 'var(--gold)' : 'var(--red)';
+        const icon = pct >= 95 ? '🚀' : pct >= 85 ? '⚠️' : '🛑';
         const hChecks = h.checks || {};
         const hTesis  = h.direction || h.tesis || 'alcista';
         const hSubs   = ALE_SUBS_TESIS[hTesis] || ALE_SUBS_TESIS['alcista'];
@@ -3380,25 +3445,70 @@ function renderAlejandro() {
           <textarea id="ale-comentarios" placeholder="Observaciones, contexto del mercado, razón de entrada..." oninput="aleState.comentarios=this.value" style="width:100%;min-height:80px;background:var(--card);border:1px solid var(--border2);border-radius:10px;padding:10px 14px;color:var(--bright);font-size:13px;resize:vertical;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border2)'">${aleState.comentarios||''}</textarea>
         </div>
 
-        <!-- Gráficos TradingView -->
-        <div id="ale-charts" style="margin-top:16px;display:none;">
-          <!-- Gráfico 1 -->
-          <div style="background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:14px;margin-bottom:12px;">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
-              <span style="font-size:12px;font-weight:600;color:var(--bright);">📊 Gráfico 1</span>
-              <div style="display:flex;gap:4px;flex-wrap:wrap;" id="ale-tf1-btns"></div>
+        <!-- Imagen y Audio -->
+        <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+
+          <!-- Imagen del chart -->
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;letter-spacing:.05em;">📸 PANTALLAZO TV</div>
+            <div style="position:relative;">
+              ${aleState.imagen
+                ? `<div style="position:relative;display:inline-block;width:100%;">
+                    <img src="${aleState.imagen}" style="width:100%;border-radius:8px;border:1px solid var(--border2);cursor:pointer;" onclick="aleVerImagen()" />
+                    <button onclick="aleState.imagen='';renderAlejandro();" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.7);border:none;color:#f04f5a;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:11px;">✕</button>
+                   </div>`
+                : `<label style="display:flex;align-items:center;justify-content:center;gap:6px;padding:10px;border:1px dashed var(--border2);border-radius:8px;cursor:pointer;color:var(--muted);font-size:12px;background:rgba(255,255,255,.02);">
+                    <input type="file" accept="image/*" style="display:none;" onchange="aleCargarImagen(this)">
+                    📎 Subir imagen
+                   </label>`
+              }
             </div>
-            <div id="ale-tv-chart1" style="height:400px;border-radius:8px;overflow:hidden;"></div>
           </div>
-          <!-- Gráfico 2 -->
+
+          <!-- Audio -->
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;letter-spacing:.05em;">🎙️ NOTA DE VOZ</div>
+            <div id="ale-audio-ctrl">
+              ${aleState.audio
+                ? `<div style="display:flex;align-items:center;gap:6px;">
+                    <audio controls src="${aleState.audio}" style="flex:1;height:32px;"></audio>
+                    <button onclick="aleState.audio='';renderAlejandro();" style="background:rgba(240,79,90,.15);border:1px solid #f04f5a;color:#f04f5a;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px;">✕</button>
+                   </div>`
+                : `<div style="display:flex;gap:6px;">
+                    <button id="ale-rec-btn" onclick="aleToggleGrabacion()" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border2);background:rgba(255,255,255,.03);color:var(--muted);cursor:pointer;font-size:12px;">
+                      🎙️ Grabar (max 60s)
+                    </button>
+                   </div>`
+              }
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Chart de Evaluaciones (primero) -->
+        <div id="ale-eval-chart-wrap" style="display:none;margin-top:16px;background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+            <span style="font-size:12px;font-weight:600;color:var(--bright);">📍 Historial de Evaluaciones</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div id="eval-tf-btns" style="display:flex;gap:3px;"></div>
+              <span style="font-size:10px;color:var(--muted);">Click en marcador para cargar</span>
+            </div>
+          </div>
+          <div id="ale-eval-chart" style="height:400px;border-radius:8px;"></div>
+          <div id="ale-eval-macd" style="display:none;"></div>
+        </div>
+
+        <!-- Gráfico TradingView (único, debajo) -->
+        <div id="ale-charts" style="margin-top:12px;display:none;">
           <div style="background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:14px;">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
-              <span style="font-size:12px;font-weight:600;color:var(--bright);">📊 Gráfico 2</span>
-              <div style="display:flex;gap:4px;flex-wrap:wrap;" id="ale-tf2-btns"></div>
+              <span style="font-size:12px;font-weight:600;color:var(--bright);">📊 TradingView</span>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;" id="ale-tf1-btns"></div>
             </div>
-            <div id="ale-tv-chart2" style="height:400px;border-radius:8px;overflow:hidden;"></div>
+            <div id="ale-tv-chart1" style="height:450px;border-radius:8px;overflow:hidden;"></div>
           </div>
         </div>
+
       </div>
 
       <!-- Historial -->
@@ -3486,8 +3596,8 @@ function renderAlejandroChecks() {
   // ── Score ponderado ───────────────────────────────────────
   const { scoreGlobal, modScores } = calcAlejandroScore(aleState.checks);
   const score    = scoreGlobal;
-  const canTrade = score >= 90;
-  const cautela  = score >= 70 && score < 90;
+  const canTrade = score >= 95;
+  const cautela  = score >= 85 && score < 95;
   const criticalsFailed = ALEJANDRO_VARS.filter(v => {
     if (!v.critical) return false;
     const subs = (ALE_SUBS_TESIS[aleState.tesis||'alcista']||ALE_SUBS_TESIS['alcista'])[v.id] || [];
@@ -3765,9 +3875,9 @@ function renderAlejandroChecks() {
     </div>
     <div style="text-align:center;padding:8px 14px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid var(--border2);">
       <div style="font-size:10px;color:var(--muted);margin-bottom:3px;">UMBRAL</div>
-      <div style="font-size:11px;color:#f04f5a;font-weight:600;">&lt;70 No operar</div>
-      <div style="font-size:11px;color:#f5c842;font-weight:600;">70-89 Cautela</div>
-      <div style="font-size:11px;color:#13d68f;font-weight:600;">90+ Operar</div>
+      <div style="font-size:11px;color:#f04f5a;font-weight:600;">&lt;85 No operar</div>
+      <div style="font-size:11px;color:#f5c842;font-weight:600;">85-94 Cautela</div>
+      <div style="font-size:11px;color:#13d68f;font-weight:600;">95+ Operar</div>
     </div>
   </div>`;
 
@@ -3866,30 +3976,25 @@ function aleInitCharts(sym) {
   chartsEl.style.display = 'block';
   aleRenderChartBtns();
   aleLoadChart(1, sym, aleChartState.tf1);
-  aleLoadChart(2, sym, aleChartState.tf2);
 }
 
 function aleRenderChartBtns() {
-  [1,2].forEach(n => {
-    const el = $(`ale-tf${n}-btns`);
-    if (!el) return;
-    const cur = n===1 ? aleChartState.tf1 : aleChartState.tf2;
-    el.innerHTML = ALE_TIMEFRAMES.map(tf => {
-      const active = tf.tv === cur;
-      return `<button onclick="aleSetTf(${n},'${tf.tv}')" style="
-        padding:4px 9px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;
-        border:1px solid ${active?'var(--green)':'var(--border2)'};
-        background:${active?'rgba(19,214,143,.2)':'rgba(255,255,255,.04)'};
-        color:${active?'var(--green)':'var(--muted)'};transition:all .15s;">${tf.label}</button>`;
-    }).join('');
-  });
+  const el = $('ale-tf1-btns');
+  if (!el) return;
+  el.innerHTML = ALE_TIMEFRAMES.map(tf => {
+    const active = tf.tv === aleChartState.tf1;
+    return `<button onclick="aleSetTf(1,'${tf.tv}')" style="
+      padding:4px 9px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;
+      border:1px solid ${active?'var(--green)':'var(--border2)'};
+      background:${active?'rgba(19,214,143,.2)':'rgba(255,255,255,.04)'};
+      color:${active?'var(--green)':'var(--muted)'};transition:all .15s;">${tf.label}</button>`;
+  }).join('');
 }
 
 function aleSetTf(n, tv) {
-  if (n===1) aleChartState.tf1 = tv;
-  else       aleChartState.tf2 = tv;
+  aleChartState.tf1 = tv;
   aleRenderChartBtns();
-  aleLoadChart(n, aleState.ticker, tv);
+  aleLoadChart(1, aleState.ticker, tv);
 }
 
 function aleLoadChart(n, sym, tv) {
@@ -3928,6 +4033,8 @@ async function aleSaveChecklist() {
     score,
     modScores,
     comentarios: aleState.comentarios || '',
+    imagen:      aleState.imagen     || '',
+    audio:       aleState.audio      || '',
     autoData:    aleState.autoData,
   };
   try {
@@ -3944,8 +4051,191 @@ async function aleSaveChecklist() {
       });
     }
     await loadAlejandro();
+    setTimeout(() => renderEvalChart(sym), 150);
   } catch(e) { alert('Error guardando: '+e.message); }
 }
+
+// ── Chart de evaluaciones con lightweight-charts ─────────────
+let _evalChart = null;
+let _evalMacdChart = null;
+let _evalSeries = null;
+let _evalMarkers = [];
+
+const EVAL_TF_MAP = {
+  '1H':  { interval:'1h',  range:'1mo'  },
+  '2H':  { interval:'2h',  range:'2mo'  },
+  '4H':  { interval:'4h',  range:'3mo'  },
+  '1D':  { interval:'1d',  range:'6mo'  },
+  '1W':  { interval:'1wk', range:'2y'   },
+  '1M':  { interval:'1mo', range:'5y'   },
+};
+
+function renderEvalTfBtns() {
+  const wrap = document.getElementById('eval-tf-btns');
+  if (!wrap) return;
+  const tfs = ['1H','2H','4H','1D','1W','1M'];
+  wrap.innerHTML = tfs.map(tf => {
+    const sel = aleState.evalTf === tf;
+    return `<span onclick="aleSetEvalTf('${tf}')"
+      style="padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:700;
+      border:1px solid ${sel?'var(--green)':'var(--border2)'};
+      background:${sel?'rgba(19,214,143,.15)':'rgba(255,255,255,.03)'};
+      color:${sel?'var(--green)':'var(--muted)'};">${tf}</span>`;
+  }).join('');
+}
+
+async function aleSetEvalTf(tf) {
+  aleState.evalTf = tf;
+  renderEvalTfBtns();
+  if (aleState.ticker) await renderEvalChart(aleState.ticker);
+}
+
+async function renderEvalChart(ticker) {
+  const wrap      = $('ale-eval-chart-wrap');
+  const container = $('ale-eval-chart');
+  const macdDiv   = $('ale-eval-macd');
+  if (!wrap || !container || !ticker) return;
+
+  // Renderizar botones de temporalidad
+  renderEvalTfBtns();
+
+  let priceData = [];
+  const tf = aleState.evalTf || '1D';
+
+  if (tf === '1D' && aleState.autoData?.priceHistory?.length) {
+    // Usar datos ya cacheados para temporalidad diaria
+    priceData = aleState.autoData.priceHistory;
+  } else {
+    // Fetch al servidor para otras temporalidades
+    try {
+      const { interval, range } = EVAL_TF_MAP[tf] || EVAL_TF_MAP['1D'];
+      const r = await fetch(`/api/price-history/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}`);
+      priceData = await r.json();
+    } catch(e) { console.error('price-history error:', e); }
+  }
+
+  if (!priceData.length) { wrap.style.display='none'; return; }
+
+  wrap.style.display = 'block';
+
+  // Destruir chart anterior
+  if (_evalChart)     { _evalChart.remove();     _evalChart     = null; }
+  if (_evalMacdChart) { _evalMacdChart.remove(); _evalMacdChart = null; }
+  container.innerHTML = '';
+  if (macdDiv) macdDiv.style.display = 'none'; // no usamos el div separado
+
+  // ── Helpers ───────────────────────────────────────────────
+  const calcEMALocal = (data, period) => {
+    const k = 2/(period+1); let ema=null, count=0; const out=[];
+    for (const d of data) {
+      count++;
+      if (count<period) continue;
+      if (count===period) ema=data.slice(0,period).reduce((a,b)=>a+b.close,0)/period;
+      else ema=d.close*k+ema*(1-k);
+      out.push({time:d.time,value:+ema.toFixed(3)});
+    }
+    return out;
+  };
+
+  const calcMACDLocal = (data) => {
+    const k12=2/13,k26=2/27,k9=2/10;
+    let e12=null,e26=null,sig=null;
+    const ml=[],sl=[],hist=[];
+    for (let i=0;i<data.length;i++) {
+      const c=data[i].close;
+      e12=e12===null?c:c*k12+e12*(1-k12);
+      e26=e26===null?c:c*k26+e26*(1-k26);
+      if(i<25) continue;
+      const m=e12-e26; sig=sig===null?m:m*k9+sig*(1-k9); const h=m-sig;
+      ml.push({time:data[i].time,value:+m.toFixed(4)});
+      sl.push({time:data[i].time,value:+sig.toFixed(4)});
+      hist.push({time:data[i].time,value:+h.toFixed(4),
+        color:h>=0?'rgba(38,166,154,0.7)':'rgba(239,83,80,0.7)'});
+    }
+    return {ml,sl,hist};
+  };
+
+  const W = container.offsetWidth || 600;
+
+  // ── UN SOLO chart con precio arriba y MACD abajo ──────────
+  _evalChart = LightweightCharts.createChart(container, {
+    width:  W,
+    height: 280,
+    layout: { background:{color:'#131722'}, textColor:'#b2b5be' },
+    grid:   { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor:'#2a2e39' },
+    timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false },
+  });
+
+  // Precio en el 70% superior
+  _evalSeries = _evalChart.addCandlestickSeries({
+    upColor:'#26a69a', downColor:'#ef5350',
+    borderUpColor:'#26a69a', borderDownColor:'#ef5350',
+    wickUpColor:'#26a69a', wickDownColor:'#ef5350',
+  });
+  _evalSeries.setData(priceData);
+
+  // EMA 10 y 20 — mismo panel que precio
+  _evalChart.addLineSeries({
+    color:'#f5c842', lineWidth:1, priceLineVisible:false, lastValueVisible:false,
+  }).setData(calcEMALocal(priceData,10));
+  _evalChart.addLineSeries({
+    color:'#5b82e6', lineWidth:1, priceLineVisible:false, lastValueVisible:false,
+  }).setData(calcEMALocal(priceData,20));
+
+  // MACD removido — solo velas + EMAs
+
+  // ── Marcadores ────────────────────────────────────────────
+  const evals = aleState.history.filter(h=>h.ticker===ticker);
+  _evalMarkers = evals;
+  if (evals.length) {
+    // Construir mapa de fecha → timestamp exacto del precio
+    // para que el marcador caiga exactamente en la vela correcta
+    const priceTimeMap = {};
+    priceData.forEach(d => {
+      const fecha = new Date(d.time * 1000).toISOString().slice(0,10); // yyyy-mm-dd
+      priceTimeMap[fecha] = d.time;
+    });
+
+    const markers = evals.map(h=>{
+      const {scoreGlobal}=calcAlejandroScore(h.checks||{},h.direction||h.tesis||'alcista');
+      const color=scoreGlobal>=95?'#13d68f':scoreGlobal>=85?'#f5c842':'#f04f5a';
+      // Convertir fecha del checklist (dd/mm/yyyy) a yyyy-mm-dd
+      const p=h.date.split('/');
+      const fechaKey = `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+      // Usar el timestamp exacto del dato de precio para ese día
+      const ts = priceTimeMap[fechaKey] || Math.floor(new Date(Date.UTC(+p[2],+p[1]-1,+p[0],20,0,0)).getTime()/1000);
+      const tesisMark = h.direction || h.tesis || '';
+      const shape = tesisMark==='alcista' ? 'arrowUp' : tesisMark==='bajista' ? 'arrowDown' : 'square';
+      const position = tesisMark==='bajista' ? 'belowBar' : 'aboveBar';
+      return {time:ts, position, color, shape, text:scoreGlobal+'%', size:1};
+    }).sort((a,b)=>a.time-b.time);
+    _evalSeries.setMarkers(markers);
+  }
+
+  // ── Click marcador ────────────────────────────────────────
+  _evalChart.subscribeClick(param=>{
+    if (!param.time) return;
+    const clicked=_evalMarkers.find(h=>{
+      const p=h.date.split('/');
+      const fechaKey=`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+      const ts=priceTimeMap[fechaKey]||Math.floor(new Date(Date.UTC(+p[2],+p[1]-1,+p[0],20,0,0)).getTime()/1000);
+      return Math.abs(ts-param.time)<86400;
+    });
+    if (clicked) aleLoadHistory(clicked.id);
+  });
+
+  // Zoom a zona de evaluaciones
+  if (evals.length) {
+    const p=evals[evals.length-1].date.split('/');
+    const ts=Math.floor(new Date(p[2],p[1]-1,p[0]).getTime()/1000);
+    _evalChart.timeScale().setVisibleRange({from:ts-45*86400, to:ts+15*86400});
+  } else {
+    _evalChart.timeScale().fitContent();
+  }
+}
+
 
 function aleReset() {
   aleState.ticker      = '';
@@ -3953,6 +4243,8 @@ function aleReset() {
   aleState.checks      = {};
   aleState.autoData    = null;
   aleState.comentarios = '';
+  aleState.imagen      = '';
+  aleState.audio       = '';
   renderAlejandro();
 }
 
@@ -3964,6 +4256,8 @@ async function aleLoadHistory(id) {
   aleState.checks      = { ...h.checks };
   aleState.autoData    = h.autoData || null;
   aleState.comentarios = h.comentarios || '';
+  aleState.imagen      = h.imagen      || '';
+  aleState.audio       = h.audio       || '';
   renderAlejandro();
   // Esperar a que el DOM se pinte y luego refrescar indicadores y comentarios
   setTimeout(() => {

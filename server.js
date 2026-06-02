@@ -820,11 +820,22 @@ app.get('/api/market-data/:symbol', async (req, res) => {
     const ivRank   = Math.round((vix - vix52L) / (vix52H - vix52L) * 100);
 
     // RSI, EMA, MACD — 90 días para tener suficiente historia
-    const prR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=90d`,
+    const prR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=6mo`,
       { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const prJ = await prR.json();
-    const rawCloses = prJ.chart.result[0].indicators.quote[0].close;
-    const closes    = rawCloses.filter(v => v != null);
+    const result0    = prJ.chart.result[0];
+    const timestamps = result0.timestamp;
+    const quote      = result0.indicators.quote[0];
+    const rawCloses  = quote.close;
+    const closes     = rawCloses.filter(v => v != null);
+    // OHLC para candlestick chart
+    const priceHistory = timestamps.map((t, i) => ({
+      time:  t,
+      open:  quote.open[i]  ? +quote.open[i].toFixed(2)  : null,
+      high:  quote.high[i]  ? +quote.high[i].toFixed(2)  : null,
+      low:   quote.low[i]   ? +quote.low[i].toFixed(2)   : null,
+      close: quote.close[i] ? +quote.close[i].toFixed(2) : null,
+    })).filter(d => d.close !== null);
     const rsi       = calcRSI(closes);
     const price     = Math.round(closes.at(-1) * 100) / 100;
     const prev      = closes.at(-2) || price;
@@ -849,7 +860,7 @@ app.get('/api/market-data/:symbol', async (req, res) => {
 
     res.json({
       symbol, price, chg, chgPct, vix, ivRank, rsi, earningsDays,
-      ema10, ema20,
+      ema10, ema20, priceHistory,
       macdLine: macd.line, macdSignal: macd.signal, macdHist: macd.hist,
     });
   } catch(e) {
@@ -882,6 +893,35 @@ app.delete('/api/playbooks/:id', (req, res) => {
   res.json({ok:true});
 });
 
+// ── Price History para chart de evaluaciones ────────────────
+app.get('/api/price-history/:symbol', async (req, res) => {
+  try {
+    const sym      = req.params.symbol.toUpperCase();
+    const interval = req.query.interval || '1d';
+    const range    = req.query.range    || '6mo';
+    const yhSym    = sym === 'SPX' ? '%5EGSPC' : encodeURIComponent(sym);
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=${interval}&range=${range}`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } }
+    );
+    const j      = await r.json();
+    const result = j.chart?.result?.[0];
+    if (!result) return res.json([]);
+    const ts    = result.timestamp;
+    const quote = result.indicators.quote[0];
+    const data  = ts.map((t, i) => ({
+      time:  t,
+      open:  quote.open[i]  ? +quote.open[i].toFixed(2)  : null,
+      high:  quote.high[i]  ? +quote.high[i].toFixed(2)  : null,
+      low:   quote.low[i]   ? +quote.low[i].toFixed(2)   : null,
+      close: quote.close[i] ? +quote.close[i].toFixed(2) : null,
+    })).filter(d => d.close !== null);
+    res.json(data);
+  } catch(e) {
+    res.json([]);
+  }
+});
+
 // ── Algo Signals (CIAR v3 webhook) ───────────────────────────
 const ALGO_FILE = path.join(__dirname, 'algo_signals.json');
 function loadSignals() {
@@ -912,7 +952,8 @@ app.get('/api/alejandro-checklists', (req, res) => res.json(loadChecklists()));
 
 app.post('/api/alejandro-checklists', (req, res) => {
   const checklists = loadChecklists();
-  const item = { ...req.body, id: `cl-${Date.now()}`, createdAt: new Date().toISOString() };
+  const nowCOL = new Date().toLocaleString('sv-SE', {timeZone:'America/Bogota'}).replace(' ','T') + '-05:00';
+  const item = { ...req.body, id: `cl-${Date.now()}`, createdAt: nowCOL };
   checklists.unshift(item);
   saveChecklists(checklists.slice(0, 200));
   res.json(item);
@@ -922,7 +963,8 @@ app.put('/api/alejandro-checklists/:id', (req, res) => {
   const checklists = loadChecklists();
   const idx = checklists.findIndex(c => c.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'No encontrado' });
-  checklists[idx] = { ...checklists[idx], ...req.body, updatedAt: new Date().toISOString() };
+  const updCOL = new Date().toLocaleString('sv-SE', {timeZone:'America/Bogota'}).replace(' ','T') + '-05:00';
+  checklists[idx] = { ...checklists[idx], ...req.body, updatedAt: updCOL };
   saveChecklists(checklists);
   res.json(checklists[idx]);
 });
