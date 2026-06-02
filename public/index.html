@@ -3086,50 +3086,19 @@ async function aleLoadMarketData() {
       api('/api/algo-signals'),
     ]);
 
-    // Precio y datos básicos
-    const price      = md.price || fullData?.price || 0;
-    const chg        = md.chg   || fullData?.chg   || 0;
-    const chgPct     = md.chgPct|| fullData?.chgPct|| 0;
-    const rsi        = md.rsi   || fullData?.rsi   || 0;
+    // Todos los datos vienen del servidor (precio, RSI, EMA, MACD, earnings)
+    const price      = md.price || 0;
+    const chg        = md.chg   || 0;
+    const chgPct     = md.chgPct|| 0;
+    const rsi        = md.rsi   || 0;
     const vix        = md.vix   || 0;
     const ivRank     = md.ivRank|| 0;
-    const earnings   = md.earningsDays ?? fullData?.earningsDays ?? 999;
-
-    // Calcular EMA 10 y EMA 20 desde Yahoo Finance
-    let ema10 = null, ema20 = null, macdLine = null, macdSignal = null, macdHist = null;
-    try {
-      const yhSym = sym === 'SPX' ? '%5EGSPC' : encodeURIComponent(sym);
-      const prR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=90d`,
-        { headers:{ 'User-Agent':'Mozilla/5.0' } });
-      const prJ = await prR.json();
-      const closes = prJ.chart.result[0].indicators.quote[0].close.filter(v => v != null);
-
-      // EMA helper
-      const calcEMA = (data, period) => {
-        const k = 2 / (period + 1);
-        let ema = data.slice(0, period).reduce((a,b)=>a+b,0) / period;
-        for (let i = period; i < data.length; i++) ema = data[i] * k + ema * (1 - k);
-        return ema;
-      };
-
-      ema10 = +calcEMA(closes, 10).toFixed(4);
-      ema20 = +calcEMA(closes, 20).toFixed(4);
-
-      // MACD (12, 26, 9)
-      const ema12 = calcEMA(closes, 12);
-      const ema26 = calcEMA(closes, 26);
-      macdLine = +(ema12 - ema26).toFixed(4);
-
-      // Signal line = EMA9 del MACD — aproximación con los últimos 9 valores MACD
-      const macdSeries = [];
-      for (let i = 25; i < closes.length; i++) {
-        const e12 = calcEMA(closes.slice(0, i+1), 12);
-        const e26 = calcEMA(closes.slice(0, i+1), 26);
-        macdSeries.push(e12 - e26);
-      }
-      macdSignal = macdSeries.length >= 9 ? +calcEMA(macdSeries, 9).toFixed(4) : null;
-      macdHist   = macdSignal !== null ? +(macdLine - macdSignal).toFixed(4) : null;
-    } catch(e) { /* sin MACD */ }
+    const earnings   = md.earningsDays ?? 999;
+    const ema10      = md.ema10    || null;
+    const ema20      = md.ema20    || null;
+    const macdLine   = md.macdLine || null;
+    const macdSignal = md.macdSignal || null;
+    const macdHist   = md.macdHist   || null;
 
     // Señal CIAR v3
     aleState.signals = signals || {};
@@ -3168,7 +3137,7 @@ const ALE_MODULOS = {
 const ALE_SUBS_TESIS = {
   alcista: {
     tendencia:   ['tend_loc','tend_dir','tend_tim'],
-    ciclo:       ['ciclo_f2'],
+    ciclo:       ['ciclo_tm','ciclo_tm2'],
     estructura:  ['est_poc','est_giro'],
     emas:        ['ema_alcista'],
     romp_niveles: ['romp_res','romp_sop','romp_ret'],
@@ -3179,7 +3148,7 @@ const ALE_SUBS_TESIS = {
   },
   bajista: {
     tendencia:   ['tend_loc','tend_dir','tend_tim'],
-    ciclo:       ['ciclo_f4'],
+    ciclo:       ['ciclo_tm','ciclo_tm2'],
     estructura:  ['est_poc','est_giro'],
     emas:        ['ema_bajista'],
     romp_niveles: ['romp_res','romp_sop','romp_ret'],
@@ -3190,7 +3159,7 @@ const ALE_SUBS_TESIS = {
   },
   neutral: {
     tendencia:   ['tend_loc','tend_dir','tend_tim'],
-    ciclo:       ['ciclo_f1','ciclo_f3'],
+    ciclo:       ['ciclo_tm','ciclo_tm2'],
     estructura:  ['est_poc','est_giro'],
     emas:        ['ema_neutral'],
     romp_niveles: ['romp_res','romp_sop','romp_ret'],
@@ -3202,6 +3171,33 @@ const ALE_SUBS_TESIS = {
 };
 // Variables excluyentes: marcar UNA sola sub = 100% de esa variable
 const ALE_EXCLUYENTES = new Set(['ciclo','emas','romp_niveles','validacion']); // radio: 1 sub = 100%
+
+// ── Tabla scoring ciclo TM+Tm ────────────────────────────────
+// Formato: 'TM_Tm' → factor (0=minimo, 0.4=minima, 0.6=media, 0.8=maxima_aprox, 1.0=maxima)
+const CICLO_SCORE_MAP = {
+  // ALCISTA (TM=F2)
+  'f2_f1': 0.6, 'f2_f2': 1.0, 'f2_f3': 0.6, 'f2_f4': 0.2,
+  // BAJISTA (TM=F4)
+  'f4_f1': 0.6, 'f4_f2': 0.2, 'f4_f3': 0.6, 'f4_f4': 1.0,
+  // NEUTRAL (TM=F1 o F3)
+  'f1_f1': 1.0, 'f1_f2': 0.2, 'f1_f3': 0.6, 'f1_f4': 0.2,
+  'f3_f1': 0.2, 'f3_f2': 0.6, 'f3_f3': 1.0, 'f3_f4': 0.2,
+};
+function getCicloFactor(checks, tesis) {
+  const tm  = checks['ciclo_tm']  || '';  // ej: 'f2'
+  const tm2 = checks['ciclo_tm2'] || '';  // ej: 'f1'
+  if (!tm || !tm2) {
+    // Solo TM marcado
+    if (tm) {
+      const esperado = tesis==='alcista'?'f2':tesis==='bajista'?'f4':'f1_f3';
+      if (tesis==='neutral') return (tm==='f1'||tm==='f3') ? 0.5 : 0;
+      return tm===esperado ? 0.5 : 0;
+    }
+    return 0;
+  }
+  const key = tm + '_' + tm2;
+  return CICLO_SCORE_MAP[key] ?? 0;
+}
 
 function calcAlejandroScore(checks, tesis) {
   const t = tesis || aleState.tesis || '';
@@ -3215,7 +3211,9 @@ function calcAlejandroScore(checks, tesis) {
       totalPeso  += peso;
       const subs  = subsActivas[varId] || [];
       let factor  = 0;
-      if (ALE_EXCLUYENTES.has(varId)) {
+      if (varId === 'ciclo') {
+        factor = getCicloFactor(checks, t);
+      } else if (ALE_EXCLUYENTES.has(varId)) {
         // Excluyente: cualquiera marcada = 100%
         factor = subs.some(s => checks[s]==='si') ? 1.0 : 0;
       } else {
@@ -3407,7 +3405,7 @@ function aleSetTesis(t) {
   aleState.tesis = aleState.tesis === t ? '' : t;
   // Si cambia la tesis, limpiar selecciones de variables excluyentes
   if (prev !== aleState.tesis) {
-    ['ciclo_sel','ciclo_f1','ciclo_f2','ciclo_f3','ciclo_f4',
+    ['ciclo_sel','ciclo_f1','ciclo_f2','ciclo_f3','ciclo_f4','ciclo_tm','ciclo_tm2','ciclo_tmTf','ciclo_tm2Tf',
      'ema_sel','ema_alcista','ema_bajista','ema_neutral',
      'algo_sel','algo_compra','algo_venta'].forEach(k => delete aleState.checks[k]);
   }
@@ -3482,6 +3480,10 @@ function renderAlejandroChecks() {
     const t = aleState.tesis || 'alcista';
     const subs = (ALE_SUBS_TESIS[t]||ALE_SUBS_TESIS['alcista'])[id] || [];
     if (subs.length === 0) return aleState.checks[id] || '';
+    if (id === 'ciclo') {
+      const f = getCicloFactor(aleState.checks, aleState.tesis||'alcista');
+      return f>=1?'si':f>0?'parcial':'';
+    }
     if (ALE_EXCLUYENTES.has(id)) {
       return subs.some(s => aleState.checks[s]==='si') ? 'si' : '';
     }
@@ -3503,20 +3505,67 @@ function renderAlejandroChecks() {
       ? `<div style="background:rgba(240,79,90,.15);border:1px solid #f04f5a;border-radius:6px;padding:6px 10px;font-size:11px;color:#f04f5a;margin-bottom:6px;">⚠️ Impulso 3 — Tendencia posiblemente agotada. Evalúa con extrema cautela.</div>` : '';
 
     if (varObj.id === 'ciclo') {
-      const todasFases = [
-        {id:'ciclo_f1',label:'Fase 1',sub:'Neutral alcista',tip:'Acumulación'},
-        {id:'ciclo_f2',label:'Fase 2',sub:'Alcista ✅',tip:'Zona de compra'},
-        {id:'ciclo_f3',label:'Fase 3',sub:'Neutral bajista',tip:'Distribución'},
-        {id:'ciclo_f4',label:'Fase 4',sub:'Bajista',tip:'Zona de venta'},
+      const t = aleState.tesis || 'alcista';
+      const TFS = ['W','D','4H','2H','1H'];
+      const FASES_ALL = [
+        {id:'f1',label:'F1',desc:'Neutral alcista'},
+        {id:'f2',label:'F2',desc:'Alcista'},
+        {id:'f3',label:'F3',desc:'Neutral bajista'},
+        {id:'f4',label:'F4',desc:'Bajista'},
       ];
-      const fasesVisibles = getSubsVisibles('ciclo');
-      const fases = todasFases.filter(f => fasesVisibles.includes(f.id));
-      const cicloCol=varColor('ciclo');
-      return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:3px solid ${cicloCol};">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-          ${fases.map(f=>{const sel=aleState.checks[f.id]==='si';const col=sel?bColor:'#4e5a70';return `<div onclick="aleCicloSelect('${f.id}')" style="border:2px solid ${col};border-radius:8px;padding:8px;cursor:pointer;background:${sel?col+'22':'rgba(255,255,255,.02)'};transition:all .15s;"><div style="font-weight:700;font-size:12px;color:${sel?col:'var(--text)'};">${f.label}</div><div style="font-size:10px;color:${sel?col:'var(--muted)'};">${f.sub}</div><div style="font-size:9px;color:var(--muted);">${f.tip}</div></div>`;}).join('')}
-        </div>
-      </div>`;
+      // TM: solo la fase correcta para la tesis
+      const TM_FASE = t==='alcista'?'f2':t==='bajista'?'f4':'';
+      const TM_FASES = t==='neutral'
+        ? FASES_ALL.filter(f=>f.id==='f1'||f.id==='f3')
+        : FASES_ALL.filter(f=>f.id===TM_FASE);
+
+      const tmSel   = aleState.checks['ciclo_tm']   || '';
+      const tm2Sel  = aleState.checks['ciclo_tm2']  || '';
+      const tmTf    = aleState.checks['ciclo_tmTf'] || '';
+      const tm2Tf   = aleState.checks['ciclo_tm2Tf']|| '';
+
+      // Factor y color del ciclo
+      const factor  = getCicloFactor(aleState.checks, t);
+      const cicloCol= factor>=1?'#13d68f':factor>=0.5?'#f5c842':factor>0?'#f5c842':'#4e5a70';
+
+      const tfBtns = (selKey, val) => TFS.map(tf => {
+        const sel = aleState.checks[selKey]===tf;
+        const c   = sel?'#5b82e6':'#4e5a70';
+        return '<span onclick="aleCicloTf(\''+selKey+'\',\''+tf+'\''+')" style="padding:2px 7px;border-radius:4px;border:1px solid '+c+';background:'+(sel?'rgba(91,130,230,.2)':'rgba(255,255,255,.03)')+';font-size:10px;font-weight:600;color:'+c+';cursor:pointer;">'+tf+'</span>';
+      }).join('');
+
+      const faseGrid = (fases, checkKey) => fases.map(f => {
+        const sel = aleState.checks[checkKey]===f.id;
+        const c   = sel?bColor:'#4e5a70';
+        return '<div onclick="aleCicloFase(\''+checkKey+'\',\''+f.id+'\''+')" style="border:2px solid '+c+';border-radius:8px;padding:6px 8px;cursor:pointer;background:'+(sel?c+'22':'rgba(255,255,255,.02)')+';text-align:center;"><div style="font-weight:700;font-size:13px;color:'+(sel?c:'var(--bright)')+'">'+f.label+'</div><div style="font-size:9px;color:var(--muted)">'+f.desc+'</div></div>';
+      }).join('');
+
+      // Etiqueta de combo
+      const comboLabel = tmSel && tm2Sel
+        ? (factor>=1?'🚀 Máximo — Entrar':'⚠️ '+Math.round(factor*100)+'% — Esperar')
+        : '— Completa TM y Tm';
+      const comboCol = factor>=1?'#13d68f':factor>=0.5?'#f5c842':'#4e5a70';
+
+      return '<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:3px solid '+cicloCol+';">'
+
+        // TM
+        +'<div style="margin-bottom:10px;">'
+        +'<div style="font-size:10px;font-weight:700;color:#5b82e6;margin-bottom:4px;">📊 TEMPORALIDAD MAYOR</div>'
+        +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">'+tfBtns('ciclo_tmTf','')+'</div>'
+        +'<div style="display:grid;grid-template-columns:repeat('+TM_FASES.length+',1fr);gap:6px;">'+faseGrid(TM_FASES,'ciclo_tm')+'</div>'
+        +'</div>'
+
+        // Tm
+        +'<div>'
+        +'<div style="font-size:10px;font-weight:700;color:#e06060;margin-bottom:4px;">📊 TEMPORALIDAD MENOR</div>'
+        +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">'+tfBtns('ciclo_tm2Tf','')+'</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">'+faseGrid(FASES_ALL,'ciclo_tm2')+'</div>'
+        +'</div>'
+
+        // Combo resultado
+        +(tmSel||tm2Sel?'<div style="margin-top:8px;padding:6px 10px;border-radius:6px;background:'+comboCol+'22;border:1px solid '+comboCol+';font-size:11px;font-weight:700;color:'+comboCol+';">'+comboLabel+'</div>':'')
+
+        +'</div>';
     }
     if (varObj.id === 'emas') {
       const todasOptsEma=[{id:'ema_alcista',label:'Alcista',icon:'📈',ok:ema10Ok&&ema20Ok&&emaAlign},{id:'ema_bajista',label:'Bajista',icon:'📉',ok:!ema10Ok&&!ema20Ok},{id:'ema_neutral',label:'Neutral',icon:'➡️',ok:false}];
@@ -3703,13 +3752,19 @@ function aleSubCycle(id){
   renderAlejandroChecks();
 }
 function aleCicloSelect(faseId){
-  // Limpiar todas las fases antes de marcar la nueva
-  const yaSeleccionado = aleState.checks[faseId] === 'si';
-  ['ciclo_f1','ciclo_f2','ciclo_f3','ciclo_f4','ciclo_sel'].forEach(k => delete aleState.checks[k]);
-  if (!yaSeleccionado) {
-    aleState.checks[faseId] = 'si';
-    aleState.checks['ciclo_sel'] = faseId;
-  }
+  // Legacy — mantener por compatibilidad con historial viejo
+  renderAlejandroChecks();
+}
+function aleCicloFase(checkKey, faseId){
+  const ya = aleState.checks[checkKey] === faseId;
+  delete aleState.checks[checkKey];
+  if (!ya) aleState.checks[checkKey] = faseId;
+  renderAlejandroChecks();
+}
+function aleCicloTf(tfKey, tf){
+  const ya = aleState.checks[tfKey] === tf;
+  delete aleState.checks[tfKey];
+  if (!ya) aleState.checks[tfKey] = tf;
   renderAlejandroChecks();
 }
 function aleEmaSelect(optId){
