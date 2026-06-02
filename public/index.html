@@ -3048,6 +3048,7 @@ let aleState = {
   history:     [],
   signals:     {},
   comentarios: '',
+  histFiltro:  { tesis:'todas', orden:'reciente', busca:'' },
 };
 
 async function loadAlejandro() {
@@ -3174,29 +3175,12 @@ const ALE_EXCLUYENTES = new Set(['ciclo','emas','romp_niveles','validacion']); /
 
 // ── Tabla scoring ciclo TM+Tm ────────────────────────────────
 // Formato: 'TM_Tm' → factor (0=minimo, 0.4=minima, 0.6=media, 0.8=maxima_aprox, 1.0=maxima)
-const CICLO_SCORE_MAP = {
-  // ALCISTA (TM=F2)
-  'f2_f1': 0.6, 'f2_f2': 1.0, 'f2_f3': 0.6, 'f2_f4': 0.2,
-  // BAJISTA (TM=F4)
-  'f4_f1': 0.6, 'f4_f2': 0.2, 'f4_f3': 0.6, 'f4_f4': 1.0,
-  // NEUTRAL (TM=F1 o F3)
-  'f1_f1': 1.0, 'f1_f2': 0.2, 'f1_f3': 0.6, 'f1_f4': 0.2,
-  'f3_f1': 0.2, 'f3_f2': 0.6, 'f3_f3': 1.0, 'f3_f4': 0.2,
-};
-function getCicloFactor(checks, tesis) {
-  const tm  = checks['ciclo_tm']  || '';  // ej: 'f2'
-  const tm2 = checks['ciclo_tm2'] || '';  // ej: 'f1'
-  if (!tm || !tm2) {
-    // Solo TM marcado
-    if (tm) {
-      const esperado = tesis==='alcista'?'f2':tesis==='bajista'?'f4':'f1_f3';
-      if (tesis==='neutral') return (tm==='f1'||tm==='f3') ? 0.5 : 0;
-      return tm===esperado ? 0.5 : 0;
-    }
-    return 0;
-  }
-  const key = tm + '_' + tm2;
-  return CICLO_SCORE_MAP[key] ?? 0;
+function getCicloFactor(checks) {
+  const tm  = checks['ciclo_tm']  || '';
+  const tm2 = checks['ciclo_tm2'] || '';
+  if (!tm && !tm2) return 0;          // nada marcado
+  if (!tm || !tm2)  return 0.5;       // solo una temporalidad
+  return tm === tm2 ? 1.0 : 0.5;     // coinciden = verde, distintas = amarillo
 }
 
 function calcAlejandroScore(checks, tesis) {
@@ -3212,7 +3196,7 @@ function calcAlejandroScore(checks, tesis) {
       const subs  = subsActivas[varId] || [];
       let factor  = 0;
       if (varId === 'ciclo') {
-        factor = getCicloFactor(checks, t);
+        factor = getCicloFactor(checks);
       } else if (ALE_EXCLUYENTES.has(varId)) {
         // Excluyente: cualquiera marcada = 100%
         factor = subs.some(s => checks[s]==='si') ? 1.0 : 0;
@@ -3230,6 +3214,11 @@ function calcAlejandroScore(checks, tesis) {
   const scoreGlobal = Math.round((modScores.direccion + modScores.trigger + modScores.fuerza) / 3);
   return { scoreGlobal, modScores };
 }
+function aleHistFiltro(key, val) {
+  aleState.histFiltro[key] = val;
+  renderAlejandro();
+}
+
 function aleToggleEvol(uid) {
   const el = document.getElementById(uid);
   if (!el) return;
@@ -3246,27 +3235,49 @@ function renderAlejandro() {
   const cautela  = score >= 70 && score < 90;
 
   const histHtml = (() => {
+    const { tesis:fTesis, orden:fOrden, busca:fBusca } = aleState.histFiltro;
     const histByTicker = {};
     aleState.history.forEach(h => {
       if (!histByTicker[h.ticker]) histByTicker[h.ticker] = [];
       histByTicker[h.ticker].push(h);
     });
-    const tickersSorted = Object.keys(histByTicker).sort((a,b) => {
-      const da = histByTicker[a][0].date.split('/').reverse().join('-');
-      const db = histByTicker[b][0].date.split('/').reverse().join('-');
-      return db.localeCompare(da);
+
+    // Filtrar por tesis y búsqueda
+    let tickers = Object.keys(histByTicker).filter(ticker => {
+      const regs = histByTicker[ticker];
+      const ultimo = regs[0];
+      const tesisTicker = ultimo.direction || ultimo.tesis || '';
+      if (fTesis !== 'todas' && tesisTicker !== fTesis) return false;
+      if (fBusca && !ticker.toLowerCase().includes(fBusca.toLowerCase())) return false;
+      return true;
     });
+
+    // Ordenar
+    const getScore = ticker => {
+      const h = histByTicker[ticker][0];
+      const { scoreGlobal } = calcAlejandroScore(h.checks||{}, h.direction||h.tesis||'alcista');
+      return scoreGlobal;
+    };
+    const getDate = ticker => histByTicker[ticker][0].date.split('/').reverse().join('-');
+
+    if (fOrden === 'reciente')   tickers.sort((a,b) => getDate(b).localeCompare(getDate(a)));
+    else if (fOrden === 'pct_d') tickers.sort((a,b) => getScore(b) - getScore(a));
+    else if (fOrden === 'pct_a') tickers.sort((a,b) => getScore(a) - getScore(b));
+    else if (fOrden === 'az')    tickers.sort((a,b) => a.localeCompare(b));
+    else if (fOrden === 'za')    tickers.sort((a,b) => b.localeCompare(a));
+
+    const tickersSorted = tickers;
     return tickersSorted.map(ticker => {
       const regs   = histByTicker[ticker];
       const ultimo = regs[0];
       const tIcon  = ultimo.tesis==='alcista'?'📈':ultimo.tesis==='bajista'?'📉':'➡️';
-      const { scoreGlobal: pctU } = calcAlejandroScore(ultimo.checks || {});
+      const { scoreGlobal: pctU } = calcAlejandroScore(ultimo.checks || {}, ultimo.direction || ultimo.tesis || 'alcista');
       const colU   = pctU >= 90 ? 'var(--green)' : pctU >= 70 ? 'var(--gold)' : 'var(--red)';
       const uid    = 'evol_' + ticker.replace(/[^a-zA-Z0-9]/g,'_');
 
       // Detalle de cada evaluación
       const detalles = [...regs].reverse().map(h => {
-        const { scoreGlobal: pct } = calcAlejandroScore(h.checks || {});
+        const { scoreGlobal: pct } = calcAlejandroScore(h.checks || {}, h.direction || h.tesis || 'alcista');
         const col  = pct >= 90 ? 'var(--green)' : pct >= 70 ? 'var(--gold)' : 'var(--red)';
         const icon = pct >= 90 ? '🚀' : pct >= 70 ? '⚠️' : '🛑';
         const hChecks = h.checks || {};
@@ -3393,7 +3404,35 @@ function renderAlejandro() {
       <!-- Historial -->
       <div class="ale-sidebar">
         <div class="ale-sidebar-title">📋 Historial</div>
-        ${histHtml||'<div class="dim" style="padding:16px;font-size:11px;text-align:center;">Sin registros</div>'}
+
+        <!-- Búsqueda -->
+        <input id="hist-busca" type="text" placeholder="🔍 Buscar ticker..."
+          value="${aleState.histFiltro.busca}"
+          oninput="aleHistFiltro('busca',this.value)"
+          style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:7px;padding:6px 10px;color:var(--bright);font-size:12px;margin-bottom:8px;box-sizing:border-box;outline:none;">
+
+        <!-- Filtro tesis -->
+        <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
+          ${['todas','alcista','bajista','neutral'].map(t=>{
+            const sel=aleState.histFiltro.tesis===t;
+            const icon=t==='todas'?'🔵':t==='alcista'?'📈':t==='bajista'?'📉':'➡️';
+            const col=sel?'var(--green)':'var(--muted)';
+            return '<span onclick="aleHistFiltro(\'tesis\',\''+t+'\')" style="padding:3px 8px;border-radius:5px;border:1px solid '+(sel?'var(--green)':'var(--border2)')+';background:'+(sel?'rgba(19,214,143,.15)':'rgba(255,255,255,.03)')+';font-size:10px;font-weight:600;color:'+col+';cursor:pointer;">'+icon+' '+(t==='todas'?'Todas':t.charAt(0).toUpperCase()+t.slice(1))+'</span>';
+          }).join('')}
+        </div>
+
+        <!-- Ordenar -->
+        <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">
+          ${[['reciente','🕐'],['pct_d','%↓'],['pct_a','%↑'],['az','A→Z'],['za','Z→A']].map(([k,l])=>{
+            const sel=aleState.histFiltro.orden===k;
+            return '<span onclick="aleHistFiltro(\'orden\',\''+k+'\')" style="padding:3px 7px;border-radius:5px;border:1px solid '+(sel?'var(--gold)':'var(--border2)')+';background:'+(sel?'rgba(245,200,66,.15)':'rgba(255,255,255,.03)')+';font-size:10px;font-weight:600;color:'+(sel?'var(--gold)':'var(--muted)')+';cursor:pointer;">'+l+'</span>';
+          }).join('')}
+        </div>
+
+        <!-- Lista -->
+        <div id="hist-lista">
+          ${histHtml||'<div class="dim" style="padding:16px;font-size:11px;text-align:center;">Sin registros</div>'}
+        </div>
       </div>
     </div>
   `;
@@ -3481,7 +3520,7 @@ function renderAlejandroChecks() {
     const subs = (ALE_SUBS_TESIS[t]||ALE_SUBS_TESIS['alcista'])[id] || [];
     if (subs.length === 0) return aleState.checks[id] || '';
     if (id === 'ciclo') {
-      const f = getCicloFactor(aleState.checks, aleState.tesis||'alcista');
+      const f = getCicloFactor(aleState.checks);
       return f>=1?'si':f>0?'parcial':'';
     }
     if (ALE_EXCLUYENTES.has(id)) {
@@ -3513,11 +3552,8 @@ function renderAlejandroChecks() {
         {id:'f3',label:'F3',desc:'Neutral bajista'},
         {id:'f4',label:'F4',desc:'Bajista'},
       ];
-      // TM: solo la fase correcta para la tesis
-      const TM_FASE = t==='alcista'?'f2':t==='bajista'?'f4':'';
-      const TM_FASES = t==='neutral'
-        ? FASES_ALL.filter(f=>f.id==='f1'||f.id==='f3')
-        : FASES_ALL.filter(f=>f.id===TM_FASE);
+      // TM: las 4 fases disponibles — el trader marca lo que ve
+      const TM_FASES = FASES_ALL;
 
       const tmSel   = aleState.checks['ciclo_tm']   || '';
       const tm2Sel  = aleState.checks['ciclo_tm2']  || '';
@@ -3525,7 +3561,7 @@ function renderAlejandroChecks() {
       const tm2Tf   = aleState.checks['ciclo_tm2Tf']|| '';
 
       // Factor y color del ciclo
-      const factor  = getCicloFactor(aleState.checks, t);
+      const factor  = getCicloFactor(aleState.checks);
       const cicloCol= factor>=1?'#13d68f':factor>=0.5?'#f5c842':factor>0?'#f5c842':'#4e5a70';
 
       const tfBtns = (selKey, val) => TFS.map(tf => {
@@ -3542,7 +3578,7 @@ function renderAlejandroChecks() {
 
       // Etiqueta de combo
       const comboLabel = tmSel && tm2Sel
-        ? (factor>=1?'🚀 Máximo — Entrar':'⚠️ '+Math.round(factor*100)+'% — Esperar')
+        ? (factor>=1?'🚀 Máximo — TM y Tm coinciden':factor>0?'⚠️ Combinación parcial — Seguir observando':'— Marca ambas temporalidades')
         : '— Completa TM y Tm';
       const comboCol = factor>=1?'#13d68f':factor>=0.5?'#f5c842':'#4e5a70';
 
@@ -3552,7 +3588,7 @@ function renderAlejandroChecks() {
         +'<div style="margin-bottom:10px;">'
         +'<div style="font-size:10px;font-weight:700;color:#5b82e6;margin-bottom:4px;">📊 TEMPORALIDAD MAYOR</div>'
         +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">'+tfBtns('ciclo_tmTf','')+'</div>'
-        +'<div style="display:grid;grid-template-columns:repeat('+TM_FASES.length+',1fr);gap:6px;">'+faseGrid(TM_FASES,'ciclo_tm')+'</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">'+faseGrid(TM_FASES,'ciclo_tm')+'</div>'
         +'</div>'
 
         // Tm
