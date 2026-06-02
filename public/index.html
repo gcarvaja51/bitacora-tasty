@@ -17,7 +17,7 @@
   --border2:   #252a3a;
   --text:      #c9d3e0;
   --bright:    #e8edf5;
-  --muted:     #4e5a70;
+  --muted:     #8b96a8;
   --muted2:    #3a4455;
   --green:     #13d68f;
   --green-dim: rgba(19,214,143,.12);
@@ -860,23 +860,24 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr>
-              <th>Subyacente</th>
-              <th>Tipo</th>
-              <th>Dir.</th>
-              <th>Strike</th>
-              <th>Vencimiento</th>
-              <th>DTE</th>
-              <th>Qty</th>
-              <th>Premium Rec.</th>
-              <th>Precio Actual</th>
-              <th>Delta</th>
-              <th>Theta/día</th>
-              <th>P&amp;L No Real.</th>
-              <th>% Capturado</th>
+            <thead id="pos-thead"><tr>
+              <th onclick="posSort('sym')"    style="cursor:pointer;user-select:none;">Subyacente <span id="sort-sym"></span></th>
+              <th onclick="posSort('tipo')"   style="cursor:pointer;user-select:none;">Tipo <span id="sort-tipo"></span></th>
+              <th onclick="posSort('dir')"    style="cursor:pointer;user-select:none;">Dir. <span id="sort-dir"></span></th>
+              <th onclick="posSort('strike')" style="cursor:pointer;user-select:none;">Strike <span id="sort-strike"></span></th>
+              <th onclick="posSort('exp')"    style="cursor:pointer;user-select:none;">Vencimiento <span id="sort-exp"></span></th>
+              <th onclick="posSort('dte')"    style="cursor:pointer;user-select:none;">DTE <span id="sort-dte"></span></th>
+              <th onclick="posSort('qty')"    style="cursor:pointer;user-select:none;">Qty <span id="sort-qty"></span></th>
+              <th onclick="posSort('pnl')"    style="cursor:pointer;user-select:none;">P&amp;L No Real. <span id="sort-pnl"></span></th>
+              <th onclick="posSort('prem')"   style="cursor:pointer;user-select:none;">Premium Rec. <span id="sort-prem"></span></th>
+              <th onclick="posSort('precio')" style="cursor:pointer;user-select:none;">Precio Actual <span id="sort-precio"></span></th>
+              <th onclick="posSort('delta')"  style="cursor:pointer;user-select:none;">Delta <span id="sort-delta"></span></th>
+              <th onclick="posSort('theta')"  style="cursor:pointer;user-select:none;">Theta/día <span id="sort-theta"></span></th>
+              <th onclick="posSort('open')"   style="cursor:pointer;user-select:none;">Apertura <span id="sort-open"></span></th>
+              <th onclick="posSort('pct')"    style="cursor:pointer;user-select:none;">% Capturado <span id="sort-pct"></span></th>
             </tr></thead>
             <tbody id="pos-tbody">
-              <tr><td colspan="13"><div class="loader"><div class="spinner"></div></div></td></tr>
+              <tr><td colspan="14"><div class="loader"><div class="spinner"></div></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -1296,7 +1297,8 @@ function groupPositions(positions) {
     const sym  = p.symbol || '';
     const legType = isStock ? 'stock' : (sym.match(/C\d{8}$/) ? 'C' : 'P');
     const key  = `${und}::${exp}::${legType}`;
-    if (!map.has(key)) map.set(key, { underlying:und, expiry:exp||null, isStock, legs:[], unrealizedPnL:0, premiumNet:0, delta:0, theta:0 });
+    const openDate = p['opened-at'] ? new Date(p['opened-at']).toLocaleDateString('es-CO',{timeZone:'America/Bogota'}) : (p['created-at'] ? new Date(p['created-at']).toLocaleDateString('es-CO',{timeZone:'America/Bogota'}) : '—');
+    if (!map.has(key)) map.set(key, { underlying:und, expiry:exp||null, isStock, legs:[], unrealizedPnL:0, premiumNet:0, delta:0, theta:0, openDate });
     const g = map.get(key);
     const qty=parseFloat(p.quantity||0), op=parseFloat(p['average-open-price']||0),
           cp=parseFloat(p['close-price']||0), mul=parseFloat(p.multiplier||1);
@@ -1591,6 +1593,62 @@ function calNext(){ S.calMonth++; if(S.calMonth>11){S.calMonth=0;S.calYear++;} r
 // ══════════════════════════════════════════
 //  POSITIONS
 // ══════════════════════════════════════════
+// ── Sort de posiciones ──────────────────────────────────────
+let _posSort = { col: 'sym', asc: true };
+let _posGroups = [];
+let _posRows   = [];
+let _posRowMap = {};
+
+function posSort(col) {
+  if (_posSort.col === col) _posSort.asc = !_posSort.asc;
+  else { _posSort.col = col; _posSort.asc = true; }
+  // Actualizar indicadores en headers
+  const cols = ['sym','tipo','dir','strike','exp','dte','qty','pnl','prem','precio','delta','theta','open','pct'];
+  cols.forEach(c => {
+    const el = document.getElementById('sort-'+c);
+    if (el) el.textContent = c===col ? (_posSort.asc?'↑':'↓') : '';
+  });
+  renderPosRows(_posGroups);
+}
+
+function renderPosRows(groups) {
+  if (!groups.length) return;
+  const col = _posSort.col;
+  const asc = _posSort.asc;
+  const sorted = [...groups].sort((a,b) => {
+    let va, vb;
+    if      (col==='sym')    { va=a.underlying;  vb=b.underlying; }
+    else if (col==='tipo')   { va=a.stratType||''; vb=b.stratType||''; }
+    else if (col==='dir')    { va=a.direction||''; vb=b.direction||''; }
+    else if (col==='strike') { va=a.legs[0]?.strike||0; vb=b.legs[0]?.strike||0; }
+    else if (col==='exp')    { va=a.expiry||''; vb=b.expiry||''; }
+    else if (col==='dte')    { va=a.dte??999; vb=b.dte??999; }
+    else if (col==='qty')    { va=a.legs.length; vb=b.legs.length; }
+    else if (col==='pnl')    { va=a.unrealizedPnL; vb=b.unrealizedPnL; }
+    else if (col==='prem')   { va=a.premiumNet; vb=b.premiumNet; }
+    else if (col==='precio') { va=a.currentPrice||0; vb=b.currentPrice||0; }
+    else if (col==='delta')  { va=a.delta; vb=b.delta; }
+    else if (col==='theta')  { va=a.theta; vb=b.theta; }
+    else if (col==='open')   { va=a.openDate||''; vb=b.openDate||''; }
+    else if (col==='pct')    { va=a.premiumNet?a.unrealizedPnL/Math.abs(a.premiumNet)*100:0;
+                               vb=b.premiumNet?b.unrealizedPnL/Math.abs(b.premiumNet)*100:0; }
+    if (typeof va==='string') return asc?va.localeCompare(vb):vb.localeCompare(va);
+    return asc?va-vb:vb-va;
+  });
+
+  // Re-ordenar las filas existentes
+  const tbody = $('pos-tbody');
+  if (!tbody || !_posRows.length) return;
+  const rowsByIndex = {};
+  groups.forEach((g,i) => rowsByIndex[g.underlying+'_'+i] = _posRows[i]);
+  // Mapear sorted → índice original
+  const sortedHtml = sorted.map(g => {
+    const idx = groups.indexOf(g);
+    return _posRows[idx] || '';
+  }).filter(Boolean);
+  tbody.innerHTML = sortedHtml.join('');
+}
+
 async function loadPositions() {
   try {
     if (!S.overview) S.overview = await api('/api/overview');
@@ -1643,11 +1701,12 @@ async function loadPositions() {
         <td class="td-mono dim">${expStr}</td>
         <td>${dte!==null?dteChip(dte):'—'}</td>
         <td class="td-mono">${g.legs.length}</td>
+        <td class="td-mono ${cc(g.unrealizedPnL)}" style="font-weight:700">${f$(g.unrealizedPnL)}</td>
         <td class="td-mono ${g.premiumNet>=0?'pos':'neg'}">${g.premiumNet>=0?fa$(g.premiumNet):'-'+fa$(Math.abs(g.premiumNet))}</td>
         <td class="td-mono">${fa$(Math.abs(g.unrealizedPnL > 0 ? g.premiumNet - g.unrealizedPnL : g.premiumNet + Math.abs(g.unrealizedPnL)))}</td>
         <td class="td-mono dim">${g.delta!==0?g.delta.toFixed(2):'—'}</td>
         <td class="td-mono ${g.theta>0?'pos':g.theta<0?'neg':'dim'}">${g.theta!==0?'$'+g.theta.toFixed(2):'—'}</td>
-        <td class="td-mono ${cc(g.unrealizedPnL)}" style="font-weight:700">${f$(g.unrealizedPnL)}</td>
+        <td class="td-mono dim" style="font-size:11px;">${g.openDate||'—'}</td>
         <td>
           <div class="pct-bar">
             <div class="pct-track"><div class="pct-fill" style="width:${Math.min(100,Math.abs(pct)).toFixed(0)}%;background:${pct>=20?'var(--green)':pct>=0?'var(--gold)':'var(--red)'}"></div></div>
@@ -1657,7 +1716,12 @@ async function loadPositions() {
       </tr>`;
     });
 
-    $('pos-tbody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="13" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
+    // Guardar datos y rows para el sort
+    _posGroups = groups;
+    _posRows   = rows;
+    _posRowMap = {};
+    groups.forEach((g,i) => { _posRowMap[g.underlying+'_'+i] = i; });
+    $('pos-tbody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="14" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
     $('pos-count').textContent = `${groups.length} posiciones (${positions.length} contratos)`;
     $('pos-kpis').innerHTML = [
       kpiCard('Posiciones', groups.length, `${positions.length} contratos`, 'dim'),

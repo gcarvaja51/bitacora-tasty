@@ -758,31 +758,6 @@ app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
     });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
-function calcEMA(closes, period) {
-  if (closes.length < period) return null;
-  const k = 2 / (period + 1);
-  let ema = closes.slice(0, period).reduce((a,b)=>a+b,0) / period;
-  for (let i = period; i < closes.length; i++) ema = closes[i]*k + ema*(1-k);
-  return +ema.toFixed(4);
-}
-
-function calcMACD(closes) {
-  if (closes.length < 35) return { line: null, signal: null, hist: null };
-  const ema12 = calcEMA(closes, 12);
-  const ema26 = calcEMA(closes, 26);
-  const line  = +(ema12 - ema26).toFixed(4);
-  // Signal: EMA9 de los últimos valores MACD
-  const macdSeries = [];
-  for (let i = 25; i < closes.length; i++) {
-    const e12 = calcEMA(closes.slice(0, i+1), 12);
-    const e26 = calcEMA(closes.slice(0, i+1), 26);
-    macdSeries.push(e12 - e26);
-  }
-  const signal = macdSeries.length >= 9 ? +calcEMA(macdSeries, 9).toFixed(4) : null;
-  const hist   = signal !== null ? +(line - signal).toFixed(4) : null;
-  return { line, signal, hist };
-}
-
 function calcRSI(closes, period = 14) {
   if (closes.length < period + 1) return 50;
   let gains = 0, losses = 0;
@@ -819,31 +794,13 @@ app.get('/api/market-data/:symbol', async (req, res) => {
     const vix52L   = Math.round(Math.min(...vixPrices) * 100) / 100;
     const ivRank   = Math.round((vix - vix52L) / (vix52H - vix52L) * 100);
 
-    // RSI, EMA, MACD — 90 días para tener suficiente historia
-    const prR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=6mo`,
+    // RSI 14d del símbolo
+    const prR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=45d`,
       { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const prJ = await prR.json();
-    const result0    = prJ.chart.result[0];
-    const timestamps = result0.timestamp;
-    const quote      = result0.indicators.quote[0];
-    const rawCloses  = quote.close;
-    const closes     = rawCloses.filter(v => v != null);
-    // OHLC para candlestick chart
-    const priceHistory = timestamps.map((t, i) => ({
-      time:  t,
-      open:  quote.open[i]  ? +quote.open[i].toFixed(2)  : null,
-      high:  quote.high[i]  ? +quote.high[i].toFixed(2)  : null,
-      low:   quote.low[i]   ? +quote.low[i].toFixed(2)   : null,
-      close: quote.close[i] ? +quote.close[i].toFixed(2) : null,
-    })).filter(d => d.close !== null);
-    const rsi       = calcRSI(closes);
-    const price     = Math.round(closes.at(-1) * 100) / 100;
-    const prev      = closes.at(-2) || price;
-    const chg       = Math.round((price - prev) * 100) / 100;
-    const chgPct    = Math.round((chg / prev) * 10000) / 100;
-    const ema10     = calcEMA(closes, 10);
-    const ema20     = calcEMA(closes, 20);
-    const macd      = calcMACD(closes);
+    const closes = prJ.chart.result[0].indicators.quote[0].close.filter(v => v != null);
+    const rsi    = calcRSI(closes);
+    const price  = Math.round(closes.at(-1) * 100) / 100;
 
     // Earnings — solo acciones individuales
     let earningsDays = 999;
@@ -858,11 +815,7 @@ app.get('/api/market-data/:symbol', async (req, res) => {
       } catch(e) {}
     }
 
-    res.json({
-      symbol, price, chg, chgPct, vix, ivRank, rsi, earningsDays,
-      ema10, ema20, priceHistory,
-      macdLine: macd.line, macdSignal: macd.signal, macdHist: macd.hist,
-    });
+    res.json({ symbol, price, vix, ivRank, rsi, earningsDays });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -893,88 +846,72 @@ app.delete('/api/playbooks/:id', (req, res) => {
   res.json({ok:true});
 });
 
-// ── Price History para chart de evaluaciones ────────────────
-app.get('/api/price-history/:symbol', async (req, res) => {
-  try {
-    const sym      = req.params.symbol.toUpperCase();
-    const interval = req.query.interval || '1d';
-    const range    = req.query.range    || '6mo';
-    const yhSym    = sym === 'SPX' ? '%5EGSPC' : encodeURIComponent(sym);
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=${interval}&range=${range}`,
-      { headers: { 'User-Agent': 'Mozilla/5.0' } }
-    );
-    const j      = await r.json();
-    const result = j.chart?.result?.[0];
-    if (!result) return res.json([]);
-    const ts    = result.timestamp;
-    const quote = result.indicators.quote[0];
-    const data  = ts.map((t, i) => ({
-      time:  t,
-      open:  quote.open[i]  ? +quote.open[i].toFixed(2)  : null,
-      high:  quote.high[i]  ? +quote.high[i].toFixed(2)  : null,
-      low:   quote.low[i]   ? +quote.low[i].toFixed(2)   : null,
-      close: quote.close[i] ? +quote.close[i].toFixed(2) : null,
-    })).filter(d => d.close !== null);
-    res.json(data);
-  } catch(e) {
-    res.json([]);
-  }
-});
-
-// ── Algo Signals (CIAR v3 webhook) ───────────────────────────
-const ALGO_FILE = path.join(__dirname, 'algo_signals.json');
-function loadSignals() {
-  try { return JSON.parse(fs.readFileSync(ALGO_FILE,'utf8')); } catch(e) { return {}; }
+// ── Playbook Alejandro — Checklists ──────────────────────────
+const ALE_FILE = path.join(__dirname, 'alejandro_checklists.json');
+function loadAleChecklists() {
+  try { return JSON.parse(fs.readFileSync(ALE_FILE, 'utf8')); }
+  catch(e) { return []; }
 }
-function saveSignals(data) { fs.writeFileSync(ALGO_FILE, JSON.stringify(data,null,2),'utf8'); }
+function saveAleChecklists(data) { fs.writeFileSync(ALE_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 
-app.post('/api/algo-signal', (req, res) => {
-  const { ticker, signal, price, time } = req.body;
-  if (!ticker || !signal) return res.status(400).json({ error: 'ticker y signal requeridos' });
-  const signals = loadSignals();
-  signals[ticker.toUpperCase()] = { signal, price, time, receivedAt: new Date().toISOString() };
-  saveSignals(signals);
-  console.log(`[CIAR v3] ${ticker} ${signal} @ $${price}`);
-  res.json({ ok: true, ticker, signal });
+app.get('/api/alejandro-checklists', (req, res) => {
+  res.json(loadAleChecklists());
 });
-
-app.get('/api/algo-signals', (req, res) => res.json(loadSignals()));
-
-// ── Alejandro Checklists ──────────────────────────────────────
-const CL_FILE = path.join(__dirname, 'alejandro_checklists.json');
-function loadChecklists() {
-  try { return JSON.parse(fs.readFileSync(CL_FILE,'utf8')); } catch(e) { return []; }
-}
-function saveChecklists(data) { fs.writeFileSync(CL_FILE, JSON.stringify(data,null,2),'utf8'); }
-
-app.get('/api/alejandro-checklists', (req, res) => res.json(loadChecklists()));
 
 app.post('/api/alejandro-checklists', (req, res) => {
-  const checklists = loadChecklists();
-  const nowCOL = new Date().toLocaleString('sv-SE', {timeZone:'America/Bogota'}).replace(' ','T') + '-05:00';
-  const item = { ...req.body, id: `cl-${Date.now()}`, createdAt: nowCOL };
-  checklists.unshift(item);
-  saveChecklists(checklists.slice(0, 200));
+  const list = loadAleChecklists();
+  const item = { ...req.body, id: `ale-${Date.now()}` };
+  list.unshift(item);
+  saveAleChecklists(list);
   res.json(item);
 });
 
 app.put('/api/alejandro-checklists/:id', (req, res) => {
-  const checklists = loadChecklists();
-  const idx = checklists.findIndex(c => c.id === req.params.id);
-  if (idx < 0) return res.status(404).json({ error: 'No encontrado' });
-  const updCOL = new Date().toLocaleString('sv-SE', {timeZone:'America/Bogota'}).replace(' ','T') + '-05:00';
-  checklists[idx] = { ...checklists[idx], ...req.body, updatedAt: updCOL };
-  saveChecklists(checklists);
-  res.json(checklists[idx]);
+  const list = loadAleChecklists();
+  const idx  = list.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'No encontrado' });
+  list[idx] = { ...list[idx], ...req.body, id: req.params.id };
+  saveAleChecklists(list);
+  res.json(list[idx]);
 });
 
 app.delete('/api/alejandro-checklists/:id', (req, res) => {
-  const checklists = loadChecklists();
-  saveChecklists(checklists.filter(c => c.id !== req.params.id));
+  const list = loadAleChecklists();
+  const filtered = list.filter(c => c.id !== req.params.id);
+  saveAleChecklists(filtered);
   res.json({ ok: true });
 });
 
+// ── CIAR v3 — Algo Signals ───────────────────────────────────
+const ALGO_FILE = path.join(__dirname, 'algo_signals.json');
+function loadAlgoSignals() {
+  try { return JSON.parse(fs.readFileSync(ALGO_FILE, 'utf8')); }
+  catch(e) { return []; }
+}
+
+app.get('/api/algo-signals', (req, res) => {
+  res.json(loadAlgoSignals());
+});
+
+app.post('/api/algo-signal', (req, res) => {
+  const signals = loadAlgoSignals();
+  const signal  = {
+    id:        `sig-${Date.now()}`,
+    ticker:    (req.body.ticker || req.body.symbol || '').toUpperCase(),
+    type:      req.body.type || req.body.signal || '',
+    price:     req.body.price || null,
+    timestamp: new Date().toISOString(),
+    raw:       req.body,
+  };
+  signals.unshift(signal);
+  // Mantener solo últimas 500 señales
+  if (signals.length > 500) signals.splice(500);
+  fs.writeFileSync(ALGO_FILE, JSON.stringify(signals, null, 2), 'utf8');
+  console.log(`[ALGO] Señal recibida: ${signal.ticker} ${signal.type}`);
+  res.json({ ok: true, signal });
+});
+
+// ────────────────────────────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ── Guardado automático diario de NLV ─────────────────────────
