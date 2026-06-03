@@ -697,7 +697,7 @@ app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
     // Precio + datos básicos de Yahoo Finance
     const [prR, earR, vixR] = await Promise.all([
       fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=45d`, { headers:{'User-Agent':'Mozilla/5.0'} }),
-      fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=summaryDetail,defaultKeyStatistics,calendarEvents`, { headers:{'User-Agent':'Mozilla/5.0'} }),
+      fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=summaryDetail,defaultKeyStatistics,calendarEvents,assetProfile`, { headers:{'User-Agent':'Mozilla/5.0'} }),
       fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1y', { headers:{'User-Agent':'Mozilla/5.0'} }),
     ]);
 
@@ -717,6 +717,7 @@ app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
 
     // Fundamentales
     const sd  = earJ.quoteSummary?.result?.[0]?.summaryDetail || {};
+    const ap  = earJ.quoteSummary?.result?.[0]?.assetProfile || {};
     const ks  = earJ.quoteSummary?.result?.[0]?.defaultKeyStatistics || {};
     const cal = earJ.quoteSummary?.result?.[0]?.calendarEvents || {};
     const pe       = sd.trailingPE?.raw  || sd.forwardPE?.raw  || null;
@@ -748,6 +749,7 @@ app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
 
     res.json({
       symbol: sym, price, chg, chgPct, rsi, vix, ivRank,
+      sector: ap.sector||null, industry: ap.industry||null,
       hi52, lo52, earningsDays,
       pe:        pe        ? Math.round(pe*10)/10   : null,
       mktCap:    mktCap    ? (mktCap/1e9).toFixed(1)+'B' : null,
@@ -979,23 +981,137 @@ app.get('/api/screener/:id', async (req, res) => {
   }
 });
 
-// ── Playbook score por ticker ─────────────────────────────────
-app.get('/api/watchlist/:symbol/playbook-score', (req, res) => {
-  const sym = req.params.symbol.toUpperCase();
-  const checklists = loadChecklists();
-  const entries = checklists.filter(c => c.ticker === sym);
-  if (!entries.length) return res.json(null);
-  const last = entries[0]; // ya vienen ordenados desc
-  const fase = ['ciclo_f1','ciclo_f2','ciclo_f3','ciclo_f4']
-    .find(f => last.checks?.[f] === 'si')?.replace('ciclo_f','F') || '—';
-  res.json({
-    score:     last.score,
-    modScores: last.modScores,
-    fase,
-    direction: last.direction || last.tesis || '',
-    date:      last.date,
-  });
+// ── Fase preliminar por ticker ───────────────────────────────
+app.get('/api/watchlist/:symbol/fase-preliminar', async (req, res) => {
+  try {
+    const sym   = req.params.symbol.toUpperCase();
+    const yhSym = sym === 'SPX' ? '%5EGSPC' : encodeURIComponent(sym);
+
+    // Precio + EMAs + MACD desde Yahoo Finance (90 días)
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=90d`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } }
+    );
+    const j = await r.json();
+    const result = j.chart?.result?.[0];
+    if (!result) return res.json({ fase: null, razon: 'Sin datos' });
+
+    const closes = result.indicators.quote[0].close.filter(v => v != null);
+    if (closes.length < 30) return res.json({ fase: null, razon: 'Insuficientes datos' });
+
+    // Calcular EMA
+    const ema = (data, period) => {
+      const k = 2/(period+1); let e = null;
+      for (let i=0;i<data.length;i++) {
+        if (i<period-1) continue;
+        if (i===period-1) e=data.slice(0,period).reduce((a,b)=>a+b,0)/period;
+        else e=data[i]*k+e*(1-k);
+      }
+      return +e.toFixed(4);
+    };
+
+    // Calcular MACD
+    const macdCalc = (data) => {
+      const k12=2/13, k26=2/27, k9=2/10;
+      let e12=null,e26=null,sig=null;
+      for (let i=0;i<data.length;i++) {
+        const c=data[i];
+        e12=e12===null?c:c*k12+e12*(1-k12);
+        e26=e26===null?c:c*k26+e26*(1-k26);
+        if (i<25) continue;
+        const m=e12-e26;
+        sig=sig===null?m:m*k9+sig*(1-k9);
+      }
+      return { line: e12-e26, signal: sig, hist: (e12-e26)-sig };
+    };
+
+    const precio = closes.at(-1);
+    const ema10  = ema(closes, 10);
+    const ema20  = ema(closes, 20);
+    const macd   = macdCalc(closes);
+
+    // CIAR v3 — señal activa para este ticker
+    const signals = loadSignals();
+    const ciar    = signals[sym];
+    const ciarAge = ciar ? Math.floor((Date.now() - new Date(ciar.receivedAt).getTime()) / 60000) : null;
+    const ciarFresh = ciarAge !== null && ciarAge < 1440; // señal del día (24h)
+
+    // Determinar fase
+    const sobreEma20  = precio > ema20;
+    const bajoEma20   = precio < ema20;
+    const ema10Alc    = ema10 > ema20;
+    const ema10Baj    = ema10 < ema20;
+    const macdAlc     = macd.line > 0 && macd.hist > 0;
+    const macdBaj     = macd.line < 0 && macd.hist < 0;
+    const macdNeutro  = Math.abs(macd.line) < Math.abs(precio) * 0.003;
+    const ciarBuy     = ciarFresh && ciar.signal === 'BUY';
+    const ciarSell    = ciarFresh && ciar.signal === 'SELL';
+
+    let fase, color, icono, razon, confirmado;
+
+    // Score de confirmaciones: EMA cruce, Precio vs EMA20, MACD, CIAR
+    const scores = {
+      emaCruce:  ema10Alc ? 'alc' : ema10Baj ? 'baj' : 'neu',
+      precioEma: sobreEma20 ? 'alc' : bajoEma20 ? 'baj' : 'neu',
+      macd:      macdAlc ? 'alc' : macdBaj ? 'baj' : 'neu',
+      ciar:      ciarFresh ? ciar.signal : null,
+    };
+
+    const alcCount = [
+      scores.emaCruce==='alc', scores.precioEma==='alc',
+      scores.macd==='alc',     scores.ciar==='BUY'
+    ].filter(Boolean).length;
+
+    const bajCount = [
+      scores.emaCruce==='baj', scores.precioEma==='baj',
+      scores.macd==='baj',     scores.ciar==='SELL'
+    ].filter(Boolean).length;
+
+    // Determinar fase
+    if (alcCount >= 2) {
+      fase = alcCount === 4 ? 'F2' : 'F2~';
+      color = '#13d68f';
+    } else if (bajCount >= 2) {
+      fase = bajCount === 4 ? 'F4' : 'F4~';
+      color = '#f04f5a';
+    } else if (alcCount === 1 && bajCount === 0) {
+      fase = 'F1'; color = '#6b7280'; // saliendo hacia F2
+    } else if (bajCount === 1 && alcCount === 0) {
+      fase = 'F3'; color = '#6b7280'; // saliendo hacia F4
+    } else {
+      fase = 'F1'; color = '#6b7280';
+    }
+
+    // Razon
+    const tags = [
+      scores.emaCruce==='alc'?'EMA✓':scores.emaCruce==='baj'?'EMA✗':'EMA~',
+      scores.precioEma==='alc'?'P>EMA20':scores.precioEma==='baj'?'P<EMA20':'P≈EMA20',
+      scores.macd==='alc'?'MACD+':scores.macd==='baj'?'MACD-':'MACD~',
+      scores.ciar ? `CIAR ${scores.ciar}✅` : 'CIAR—',
+    ];
+    razon = tags.join(' · ');
+    confirmado = ciarFresh;
+
+    // Confirmaciones para los dots (4 dots = EMA cruce, Precio, MACD, CIAR)
+    const dots = [
+      { ok: scores.emaCruce!=='neu',  alc: scores.emaCruce==='alc',  label:'EMA' },
+      { ok: scores.precioEma!=='neu', alc: scores.precioEma==='alc', label:'Precio' },
+      { ok: scores.macd!=='neu',      alc: scores.macd==='alc',      label:'MACD' },
+      { ok: !!scores.ciar,            alc: scores.ciar==='BUY',      label:'CIAR' },
+    ];
+
+    res.json({
+      fase, color, razon, confirmado, dots,
+      datos: { precio, ema10, ema20, macdLine: +macd.line.toFixed(4), macdHist: +macd.hist.toFixed(4) },
+      ciar: ciarFresh ? { signal: ciar.signal, age: ciarAge } : null,
+    });
+  } catch(e) {
+    res.json({ fase: null, razon: e.message });
+  }
 });
+
+// ── Playbook score por ticker ─────────────────────────────────
+// playbook-score movido después de loadChecklists
 
 // ── Price History para chart de evaluaciones ────────────────
 app.get('/api/price-history/:symbol', async (req, res) => {
@@ -1051,6 +1167,32 @@ function loadChecklists() {
   try { return JSON.parse(fs.readFileSync(CL_FILE,'utf8')); } catch(e) { return []; }
 }
 function saveChecklists(data) { fs.writeFileSync(CL_FILE, JSON.stringify(data,null,2),'utf8'); }
+
+app.get('/api/watchlist/:symbol/playbook-score', (req, res) => {
+  const sym = req.params.symbol.toUpperCase();
+  const checklists = loadChecklists();
+  const entries = checklists.filter(c => c.ticker === sym);
+  if (!entries.length) return res.json(null);
+  const parseDate = d => {
+    if (!d) return 0;
+    const p = d.split('/');
+    return p.length===3 ? new Date(+p[2],+p[1]-1,+p[0]).getTime() : new Date(d).getTime();
+  };
+  entries.sort((a,b) => parseDate(b.date) - parseDate(a.date));
+  const last = entries[0];
+  const fase = last.checks?.['ciclo_tm']
+    ? last.checks['ciclo_tm'].toUpperCase()
+    : (['ciclo_f1','ciclo_f2','ciclo_f3','ciclo_f4']
+        .find(f => last.checks?.[f]==='si')?.replace('ciclo_f','F') || '—');
+  // Devolver checks al frontend para que calcule el score con su lógica actual
+  res.json({
+    score:     last.score,  // score original guardado (referencia)
+    checks:    last.checks || {},
+    fase,
+    direction: last.direction || last.tesis || '',
+    date:      last.date,
+  });
+});
 
 app.get('/api/alejandro-checklists', (req, res) => res.json(loadChecklists()));
 

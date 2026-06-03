@@ -899,6 +899,15 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
           </table>
         </div>
       </div>
+
+      <!-- Distribución por Sector -->
+      <div class="card" id="pos-sector-card" style="margin-top:16px;display:none;">
+        <div class="card-header">Distribución por Sector</div>
+        <div class="card-body" style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+          <canvas id="pos-sector-chart" width="220" height="220" style="max-width:220px;"></canvas>
+          <div id="pos-sector-legend" style="flex:1;min-width:200px;"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ══ HISTORIAL ══════════════════════ -->
@@ -1532,7 +1541,7 @@ function renderCalendar() {
   const firstDay = new Date(y,mo,1).getDay();
   const offset = firstDay===0 ? 6 : firstDay-1;
   const daysInMonth = new Date(y,mo+1,0).getDate();
-  const todayStr = new Date().toISOString().slice(0,10);
+  const todayStr = new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'});
 
   let html='';
   for(let i=0;i<offset;i++) html+=`<div class="cal-day empty"></div>`;
@@ -1553,7 +1562,9 @@ function renderCalendar() {
 
 async function calDayClick(dateStr, pnl) {
   const detail=$('cal-detail'), title=$('cal-detail-title'), tbody=$('cal-detail-tbody');
+  if (!detail) { console.error('cal-detail no encontrado'); return; }
   detail.style.display='block';
+  detail.scrollIntoView({ behavior:'smooth', block:'start' });
   title.textContent=`${fDate(dateStr)}  —  P&L: ${f$(pnl)}`;
   tbody.innerHTML='<tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr>';
 
@@ -1579,11 +1590,14 @@ async function calDayClick(dateStr, pnl) {
     }
 
     const rows = [
-      ...closed.map(s => {
+      ...closed.map((s,ci) => {
+        window._calTrades = window._calTrades||{}; 
+        const tkey = 'c_'+ci+'_'+dateStr;
+        window._calTrades[tkey] = s;
         const cap = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
-        return `<tr>
+        return `<tr style="cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
           <td><span class="badge badge-gold" style="font-size:9px;">Cierre</span></td>
-          <td class="td-bright">${s.underlying}</td>
+          <td class="td-bright" style="font-weight:700;">${s.underlying}</td>
           <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">${s.durationDays===0?'Intradía':s.durationDays+'d'}</td>
           <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
@@ -1591,25 +1605,172 @@ async function calDayClick(dateStr, pnl) {
           <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
         </tr>`;
       }),
-      ...opened.map(s => `<tr style="opacity:.7;">
+      ...opened.map((s,oi) => {
+        window._calTrades = window._calTrades||{};
+        const tkey = 'o_'+oi+'_'+dateStr;
+        window._calTrades[tkey] = s;
+        return `<tr style="opacity:.8;cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
           <td><span class="badge badge-blue" style="font-size:9px;">Apertura</span></td>
-          <td class="td-bright">${s.underlying}</td>
+          <td class="td-bright" style="font-weight:700;">${s.underlying}</td>
           <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">Abierto</td>
           <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
           <td class="td-mono dim">En curso</td>
           <td class="dim">—</td>
-        </tr>`),
+        </tr>`;
+      }),
     ];
     tbody.innerHTML = rows.join('');
   } catch(e) { tbody.innerHTML=`<tr><td colspan="7"><div class="error-box">${e.message}</div></td></tr>`; }
 }
+function calShowTradeDetail(tkey) {
+  const s = (window._calTrades||{})[tkey];
+  if (!s) return;
+  const cap = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
+  const isOpen = !s.pnl && s.pnl !== 0;
+
+  // Crear modal
+  const existing = document.getElementById('cal-trade-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'cal-trade-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:500px;width:100%;position:relative;">
+      <button onclick="document.getElementById('cal-trade-modal').remove()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,.08);border:none;color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <div style="font-size:24px;font-weight:800;color:var(--bright);font-family:var(--mono);">${s.underlying}</div>
+        <span class="badge ${s.closeDate?'badge-gold':'badge-blue'}" style="font-size:11px;">${s.closeDate?'Cerrado':'Abierto'}</span>
+        <span class="badge badge-muted" style="font-size:11px;">${s.stratType||'—'}</span>
+      </div>
+
+      <!-- Grid de datos -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">PRIMA COBRADA</div>
+          <div style="font-size:18px;font-weight:700;color:var(--green);font-family:var(--mono);">+${fa$(Math.abs(s.openValue||0))}</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">P&L REALIZADO</div>
+          <div style="font-size:18px;font-weight:700;font-family:var(--mono);" class="${cc(s.pnl)}">${s.pnl!=null?f$(s.pnl):'En curso'}</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">APERTURA</div>
+          <div style="font-size:13px;font-weight:600;color:var(--bright);">${s.openDate||'—'}</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">${s.closeDate?'CIERRE':'ESTADO'}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--bright);">${s.closeDate||'Abierto'}</div>
+        </div>
+        ${s.durationDays!=null?`
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">DURACIÓN</div>
+          <div style="font-size:13px;font-weight:600;color:var(--bright);">${s.durationDays===0?'Intradía':s.durationDays+' días'}</div>
+        </div>`:''}
+        ${cap!=null?`
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">% CAPTURADO</div>
+          <div style="font-size:18px;font-weight:700;font-family:var(--mono);" class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</div>
+        </div>`:''}
+      </div>
+
+      <!-- Botón Playbook -->
+      <button onclick="document.getElementById('cal-trade-modal').remove();wlOpenPlaybook('${s.underlying}')"
+        style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--green);background:rgba(19,214,143,.1);color:var(--green);font-size:13px;font-weight:700;cursor:pointer;">
+        📋 Abrir en Playbook Alejandro
+      </button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target===modal) modal.remove(); });
+}
+
 function calPrev(){ S.calMonth--; if(S.calMonth<0){S.calMonth=11;S.calYear--;} renderCalendar(); }
 function calNext(){ S.calMonth++; if(S.calMonth>11){S.calMonth=0;S.calYear++;} renderCalendar(); }
 
 // ══════════════════════════════════════════
 //  POSITIONS
 // ══════════════════════════════════════════
+// ── Gráfico sector de posiciones ─────────────────────────────
+async function renderPosSectorChart(groups) {
+  const card = $('pos-sector-card');
+  if (!card) return;
+
+  // Obtener sector para cada subyacente único
+  const syms = [...new Set(groups.map(g => g.underlying))];
+  const sectorMap = {};
+  await Promise.all(syms.map(async sym => {
+    try {
+      // Usar el cache del watchlist si existe, si no llamar fundamentals
+      const cached = wlFundCache[sym];
+      if (cached?.sector) { sectorMap[sym] = cached.sector; return; }
+      const r = await fetch('/api/watchlist/'+sym+'/fundamentals');
+      const d = await r.json();
+      sectorMap[sym] = d.sector || 'Sin sector';
+      wlFundCache[sym] = d;
+    } catch(e) { sectorMap[sym] = 'Sin sector'; }
+  }));
+
+  // Agrupar posiciones por sector (contar posiciones únicas)
+  const sectorCount = {};
+  groups.forEach(g => {
+    const sec = sectorMap[g.underlying] || 'Sin sector';
+    sectorCount[sec] = (sectorCount[sec] || 0) + 1;
+  });
+
+  const labels  = Object.keys(sectorCount);
+  const data    = Object.values(sectorCount);
+  const total   = data.reduce((a,b)=>a+b,0);
+  const COLORS  = ['#13d68f','#5b82e6','#f5c842','#f04f5a','#a78bfa','#fb923c','#34d399','#60a5fa','#f472b6','#fbbf24'];
+
+  card.style.display = 'block';
+
+  // Dibujar con Canvas 2D
+  const canvas = $('pos-sector-chart');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,220,220);
+  let startAngle = -Math.PI/2;
+  data.forEach((val,i) => {
+    const slice = (val/total) * 2 * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(110,110);
+    ctx.arc(110,110,100,startAngle,startAngle+slice);
+    ctx.closePath();
+    ctx.fillStyle = COLORS[i%COLORS.length];
+    ctx.fill();
+    ctx.strokeStyle = '#0d1117';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    startAngle += slice;
+  });
+  // Donut hole
+  ctx.beginPath();
+  ctx.arc(110,110,50,0,2*Math.PI);
+  ctx.fillStyle = '#0d1117';
+  ctx.fill();
+  // Texto central
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 18px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(total, 110, 107);
+  ctx.font = '11px Arial';
+  ctx.fillStyle = '#8b96a8';
+  ctx.fillText('posiciones', 110, 124);
+
+  // Leyenda
+  $('pos-sector-legend').innerHTML = labels.map((l,i) => {
+    const pct = Math.round(data[i]/total*100);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <div style="width:12px;height:12px;border-radius:3px;background:${COLORS[i%COLORS.length]};flex-shrink:0;"></div>
+      <div style="flex:1;font-size:12px;color:var(--bright);">${l}</div>
+      <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:${COLORS[i%COLORS.length]};">${data[i]} <span style="color:var(--muted);font-weight:400;">(${pct}%)</span></div>
+    </div>`;
+  }).join('');
+}
+
 // ── Sort de posiciones ──────────────────────────────────────
 let _posSort = { col: 'sym', asc: true };
 let _posGroups = [];
@@ -1739,6 +1900,9 @@ async function loadPositions() {
     _posRowMap = {};
     groups.forEach((g,i) => { _posRowMap[g.underlying+'_'+i] = i; });
     $('pos-tbody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="14" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
+
+    // Gráfico de torta por sector
+    renderPosSectorChart(groups);
     $('pos-count').textContent = `${groups.length} posiciones (${positions.length} contratos)`;
     $('pos-kpis').innerHTML = [
       kpiCard('Posiciones', groups.length, `${positions.length} contratos`, 'dim'),
@@ -2233,6 +2397,7 @@ let wlData      = null;
 let wlActive    = null; // symbol currently open
 let wlFundCache = {};
 let wlPbCache   = {};
+let wlFaseCache = {};
 let wlSort      = { col:'sym', asc:true };
 let wlTab       = 'watchlist';
 let scData      = {};
@@ -2246,7 +2411,26 @@ async function loadWatchlist() {
     stocks.forEach(async s => {
       try {
         const pb = await api('/api/watchlist/'+s.symbol+'/playbook-score');
-        if (pb) { wlPbCache[s.symbol] = pb; renderWatchlistTable(); }
+        if (pb) {
+          // Recalcular score con la lógica actual del frontend
+          const { scoreGlobal, modScores } = calcAlejandroScore(pb.checks || {}, pb.direction || 'alcista');
+          wlPbCache[s.symbol] = { ...pb, score: scoreGlobal, modScores };
+          renderWatchlistTable();
+        }
+      } catch(e) {}
+      // Cargar sector en background
+      try {
+        const fund = await api('/api/watchlist/'+s.symbol+'/fundamentals');
+        if (fund) {
+          wlFundCache[s.symbol] = fund;
+          renderWatchlistTable();
+          wlRenderFilters(); // actualizar chips de sector
+        }
+      } catch(e) {}
+      // Cargar fase preliminar en background
+      try {
+        const fase = await api('/api/watchlist/'+s.symbol+'/fase-preliminar');
+        if (fase) { wlFaseCache[s.symbol] = fase; renderWatchlistTable(); }
       } catch(e) {}
     });
   } catch(e) {
@@ -2281,7 +2465,16 @@ function renderWatchlistTable() {
   const stocks = wlData?.stocks || [];
   const col = wlSort.col, asc = wlSort.asc;
 
-  const sorted = [...stocks].sort((a,b) => {
+  // Aplicar filtros
+  const filtered = stocks.filter(s => {
+    if (wlFilterSector && wlFundCache[s.symbol]?.sector !== wlFilterSector) return false;
+    if (wlFilterOrigen && s.screener !== wlFilterOrigen) return false;
+    return true;
+  });
+  // Renderizar chips de filtro
+  setTimeout(wlRenderFilters, 0);
+
+  const sorted = [...filtered].sort((a,b) => {
     const fa = wlFundCache[a.symbol], fb = wlFundCache[b.symbol];
     const pa = wlPbCache[a.symbol],   pb = wlPbCache[b.symbol];
     let va, vb;
@@ -2311,6 +2504,7 @@ function renderWatchlistTable() {
       const action = btn.dataset.wlAction;
       if (action === 'detail')   openWatchlistDetail(sym);
       else if (action === 'pb')  wlOpenPlaybook(sym);
+      else if (action === 'del') wlDeleteStock(sym);
     });
   }, 50);
 
@@ -2327,24 +2521,45 @@ function renderWatchlistTable() {
          <div class="wl-score-bar"><div style="width:${pb.score}%;height:100%;background:${pb.score>=95?'#13d68f':pb.score>=85?'#f5c842':'#f04f5a'};border-radius:2px;"></div></div>`
       : '<span style="color:var(--muted)">—</span>';
     const scTag = s.screener ? `<span style="font-size:9px;color:#5b82e6;background:rgba(91,130,230,.15);padding:1px 5px;border-radius:3px;">${s.screener}</span>` : '';
+    // Fase Auto
+    const fp = wlFaseCache[s.symbol];
+    const faseAutoHtml = fp
+      ? '<div style="display:flex;align-items:center;gap:4px;">'
+        + '<span style="font-weight:700;font-size:11px;color:'+(fp.fase?.startsWith('F2')?'#13d68f':fp.fase?.startsWith('F4')?'#f04f5a':'#6b7280')+';font-family:var(--mono);">'+fp.fase+'</span>'
+        + wlRenderDots(fp.fase, fp.dots)
+        + (fp.confirmado?'<span style="font-size:9px;color:#13d68f;">✅</span>':'')
+        + '</div>'
+      : '<span style="color:var(--muted);font-size:10px;">⏳</span>';
+    const sectorHtml = fund?.sector
+      ? '<span style="font-size:10px;color:var(--muted);" title="'+(fund.industry||'')+'">'+fund.sector+'</span>'
+      : '<span style="color:var(--muted);font-size:10px;">⏳</span>';
     return `<tr>
       <td style="font-weight:700;font-family:var(--mono);color:var(--bright);cursor:pointer;" data-wl-action="detail" data-wl-sym="${s.symbol}">${s.symbol}</td>
-      <td style="color:var(--muted);font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.name||'—'}</td>
-      <td>${scTag}</td>
-      <td><span class="wl-badge ${st.badge}"><span class="wl-dot ${st.dot}"></span>${st.label}</span></td>
+      <td><span class="wl-badge ${st.badge}" style="cursor:pointer;" onclick="wlCycleStatus('${s.symbol}','${s.status}')"><span class="wl-dot ${st.dot}"></span>${st.label}</span></td>
       <td style="font-family:var(--mono);">${priceStr}</td>
       <td>${chgStr}</td>
       <td>${rsiStr}</td>
+      <td>${faseAutoHtml}</td>
       <td>${faseStr}</td>
       <td>${scoreStr}</td>
-      <td style="text-align:center;">
-        <button data-wl-action="pb"     data-wl-sym="${s.symbol}" title="Playbook Alejandro" style="background:rgba(19,214,143,.1);border:1px solid rgba(19,214,143,.3);color:#13d68f;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;">📋</button>
-        <button data-wl-action="detail" data-wl-sym="${s.symbol}" title="Ver detalle" style="background:rgba(91,130,230,.1);border:1px solid rgba(91,130,230,.3);color:#5b82e6;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:3px;">🔍</button>
+      <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${pb?.date||'—'}</td>
+      <td style="text-align:center;white-space:nowrap;">
+        <button data-wl-action="pb"     data-wl-sym="${s.symbol}" title="Playbook" style="background:rgba(19,214,143,.1);border:1px solid rgba(19,214,143,.3);color:#13d68f;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;">📋</button>
+        <button data-wl-action="detail" data-wl-sym="${s.symbol}" title="Detalle"  style="background:rgba(91,130,230,.1);border:1px solid rgba(91,130,230,.3);color:#5b82e6;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:3px;">🔍</button>
+        <button data-wl-action="del"    data-wl-sym="${s.symbol}" title="Eliminar" style="background:rgba(240,79,90,.1);border:1px solid rgba(240,79,90,.3);color:#f04f5a;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:3px;">🗑</button>
       </td>
     </tr>`;
   }).join('');
 
   $('wl-tab-content').innerHTML = `
+    <!-- Filtros rápidos -->
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+      <span style="font-size:11px;color:var(--muted);">Filtrar:</span>
+      <div id="wl-sector-filters" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+      <div id="wl-origen-filters" style="display:flex;gap:4px;flex-wrap:wrap;margin-left:8px;"></div>
+      <button onclick="wlClearFilters()" style="padding:3px 10px;border-radius:5px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;">✕ Limpiar</button>
+    </div>
+
     <!-- Agregar activo -->
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
       <input id="wl-new-sym" type="text" placeholder="Símbolo" oninput="this.value=this.value.toUpperCase()"
@@ -2365,9 +2580,11 @@ function renderWatchlistTable() {
       : `<div style="overflow-x:auto;">
           <table class="wl-table">
             <thead><tr>
-              ${th('sym','Ticker')}${th('name','Empresa')}${th('screener','Screener')}${th('status','Estado')}
+              ${th('sym','Ticker')}
+              ${th('status','Estado')}
               ${th('price','Precio')}${th('chg','Chg%')}${th('rsi','RSI')}
-              ${th('fase','Fase')}${th('score','Score PA')}
+              ${th('fasePrel','Fase Auto')}${th('fase','Fase PB')}
+              ${th('score','Score PA')}${th('date','Últ. Análisis')}
               <th>Acciones</th>
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -2375,6 +2592,131 @@ function renderWatchlistTable() {
          </div>`
     }
   `;
+}
+
+async function wlDeleteStock(sym) {
+  if (!confirm('¿Eliminar ' + sym + ' del watchlist?')) return;
+  try {
+    await api('/api/watchlist/' + sym, 'DELETE');
+    wlData = await api('/api/watchlist');
+    renderWatchlistTable();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+function wlRenderDots(fase, dots) {
+  if (!dots || !fase) return '<span style="color:var(--muted);font-size:10px;">—</span>';
+
+  const isF2 = fase.startsWith('F2');
+  const isF4 = fase.startsWith('F4');
+  const isF1 = fase === 'F1';
+  const isF3 = fase === 'F3';
+
+  return dots.map((d, i) => {
+    const isLast = i === dots.length - 1;
+    let bg, border;
+
+    if (!d.ok) {
+      // No confirmado — gris
+      bg = 'rgba(107,114,128,0.2)';
+      border = '#4b5563';
+    } else if (isF2 || (isF1 && isLast)) {
+      // Verde — F2 o última bolita de F1 (saliendo hacia F2)
+      const opacity = (isF1 && isLast) ? '0.4' : '1';
+      bg = `rgba(19,214,143,${isF1?0.15:0.25})`;
+      border = isF1 ? 'rgba(19,214,143,0.4)' : '#13d68f';
+    } else if (isF4 || (isF3 && isLast)) {
+      // Rojo — F4 o última bolita de F3 (saliendo hacia F4)
+      bg = `rgba(240,79,90,${isF3?0.15:0.25})`;
+      border = isF3 ? 'rgba(240,79,90,0.4)' : '#f04f5a';
+    } else {
+      bg = 'rgba(107,114,128,0.2)';
+      border = '#4b5563';
+    }
+
+    return `<span title="${d.label}" style="
+      display:inline-block;width:10px;height:10px;border-radius:50%;
+      background:${bg};border:1.5px solid ${border};
+      margin-right:3px;vertical-align:middle;">
+    </span>`;
+  }).join('');
+}
+
+// ── Filtros watchlist ─────────────────────────────────────────
+let wlFilterSector = '';
+let wlFilterOrigen = '';
+
+function wlRenderFilters() {
+  const stocks = wlData?.stocks || [];
+  const sectores = [...new Set(stocks.map(s => wlFundCache[s.symbol]?.sector).filter(Boolean))].sort();
+  const origenes = [...new Set(stocks.map(s => s.screener).filter(Boolean))].sort();
+
+  const sEl = document.getElementById('wl-sector-filters');
+  const oEl = document.getElementById('wl-origen-filters');
+  if (!sEl || !oEl) return;
+
+  // Usar data-attributes para evitar problemas con comillas
+  sEl.innerHTML = sectores.map(sec => {
+    const sel = wlFilterSector === sec;
+    return '<span data-filter-type="sector" data-filter-val="'+sec+'" style="padding:2px 8px;border-radius:12px;font-size:10px;cursor:pointer;'
+      +'border:1px solid '+(sel?'var(--green)':'var(--border)')+';'
+      +'background:'+(sel?'rgba(19,214,143,.15)':'rgba(255,255,255,.03)')+';'
+      +'color:'+(sel?'var(--green)':'var(--muted)')+';">'+sec+'</span>';
+  }).join('');
+
+  oEl.innerHTML = origenes.map(orig => {
+    const sel = wlFilterOrigen === orig;
+    return '<span data-filter-type="origen" data-filter-val="'+orig+'" style="padding:2px 8px;border-radius:12px;font-size:10px;cursor:pointer;'
+      +'border:1px solid '+(sel?'#5b82e6':'var(--border)')+';'
+      +'background:'+(sel?'rgba(91,130,230,.15)':'rgba(255,255,255,.03)')+';'
+      +'color:'+(sel?'#5b82e6':'var(--muted)')+';">'+orig+'</span>';
+  }).join('');
+
+  // Event delegation — registrar una sola vez
+  if (!sEl._hasListener) {
+    sEl._hasListener = true;
+    sEl.addEventListener('click', e => {
+      const chip = e.target.closest('[data-filter-type]');
+      if (!chip) return;
+      wlFilterSector = wlFilterSector === chip.dataset.filterVal ? '' : chip.dataset.filterVal;
+      renderWatchlistTable();
+      wlRenderFilters();
+    });
+  }
+  if (!oEl._hasListener) {
+    oEl._hasListener = true;
+    oEl.addEventListener('click', e => {
+      const chip = e.target.closest('[data-filter-type]');
+      if (!chip) return;
+      wlFilterOrigen = wlFilterOrigen === chip.dataset.filterVal ? '' : chip.dataset.filterVal;
+      renderWatchlistTable();
+      wlRenderFilters();
+    });
+  }
+}
+
+function wlSetFilter(tipo, val) {
+  if (tipo === 'sector') wlFilterSector = wlFilterSector === val ? '' : val;
+  if (tipo === 'origen') wlFilterOrigen = wlFilterOrigen === val ? '' : val;
+  renderWatchlistTable();
+  wlRenderFilters();
+}
+
+function wlClearFilters() {
+  wlFilterSector = ''; wlFilterOrigen = '';
+  renderWatchlistTable();
+  wlRenderFilters();
+}
+
+// ── Cambiar estado con click ───────────────────────────────────
+const WL_STATUS_ORDER = ['orange','yellow','violet','green'];
+async function wlCycleStatus(sym, currentStatus) {
+  const idx = WL_STATUS_ORDER.indexOf(currentStatus);
+  const next = WL_STATUS_ORDER[(idx + 1) % WL_STATUS_ORDER.length];
+  try {
+    await api('/api/watchlist/' + sym, 'PUT', { status: next });
+    wlData = await api('/api/watchlist');
+    renderWatchlistTable();
+  } catch(e) { console.error(e); }
 }
 
 function wlSortBy(col) {
