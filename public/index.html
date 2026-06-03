@@ -285,6 +285,23 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .wl-card-name { font-size:11px;color:var(--muted);margin-bottom:10px; }
 .wl-card-price{ font-size:14px;font-family:var(--mono);color:var(--bright); }
 .wl-card-date { font-size:10px;color:var(--muted);margin-top:6px; }
+/* Watchlist tabla */
+.wl-table { width:100%;border-collapse:collapse;font-size:12px; }
+.wl-table th { background:var(--bg);color:var(--muted);padding:8px 10px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap;border-bottom:1px solid var(--border); }
+.wl-table th:hover { color:var(--bright); }
+.wl-table td { padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle; }
+.wl-table tr:hover td { background:rgba(255,255,255,.03); }
+.wl-fase { display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;font-family:var(--mono); }
+.wl-fase-f1 { background:rgba(245,200,66,.15);color:#f5c842; }
+.wl-fase-f2 { background:rgba(19,214,143,.15);color:#13d68f; }
+.wl-fase-f3 { background:rgba(91,130,230,.15);color:#5b82e6; }
+.wl-fase-f4 { background:rgba(240,79,90,.15);color:#f04f5a; }
+.wl-score-bar { width:60px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:5px; }
+.sc-chip { display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid;margin:2px;transition:all .15s; }
+.sc-chip:hover { opacity:.8; }
+.sc-chip.added { opacity:.4;cursor:default; }
+.sc-card { background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:14px;margin-bottom:10px; }
+.sc-card-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:8px; }
 
 /* Detail view */
 .wl-detail { display:grid;grid-template-columns:300px 1fr;gap:20px; }
@@ -2215,11 +2232,23 @@ const WL_STATUS = {
 let wlData      = null;
 let wlActive    = null; // symbol currently open
 let wlFundCache = {};
+let wlPbCache   = {};
+let wlSort      = { col:'sym', asc:true };
+let wlTab       = 'watchlist';
+let scData      = {};
 
 async function loadWatchlist() {
   try {
     wlData = await api('/api/watchlist');
     renderWatchlistMain();
+    // Cargar scores del Playbook Alejandro para cada ticker en background
+    const stocks = wlData?.stocks || [];
+    stocks.forEach(async s => {
+      try {
+        const pb = await api('/api/watchlist/'+s.symbol+'/playbook-score');
+        if (pb) { wlPbCache[s.symbol] = pb; renderWatchlistTable(); }
+      } catch(e) {}
+    });
   } catch(e) {
     $('watchlist-content').innerHTML = `<div class="error-box" style="padding:20px;">Error cargando watchlist: ${e.message}</div>`;
     console.error('Watchlist error:', e);
@@ -2227,48 +2256,235 @@ async function loadWatchlist() {
 }
 
 function renderWatchlistMain() {
+  $('watchlist-content').innerHTML = `
+    <!-- Tabs -->
+    <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+      <button onclick="wlSetTab('watchlist')" style="padding:6px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;
+        background:${wlTab==='watchlist'?'rgba(91,130,230,.2)':'rgba(255,255,255,.04)'};
+        color:${wlTab==='watchlist'?'var(--bright)':'var(--muted)'};">👁 Mi Watchlist</button>
+      <button onclick="wlSetTab('screeners')" style="padding:6px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;
+        background:${wlTab==='screeners'?'rgba(19,214,143,.2)':'rgba(255,255,255,.04)'};
+        color:${wlTab==='screeners'?'var(--green)':'var(--muted)'};">🔍 Screeners Paradigma</button>
+    </div>
+    <div id="wl-tab-content"></div>
+  `;
+  if (wlTab === 'watchlist') renderWatchlistTable();
+  else renderScreeners();
+}
+
+function wlSetTab(tab) {
+  wlTab = tab;
+  renderWatchlistMain();
+}
+
+function renderWatchlistTable() {
   const stocks = wlData?.stocks || [];
-  const cardsHtml = stocks.map(s => {
+  const col = wlSort.col, asc = wlSort.asc;
+
+  const sorted = [...stocks].sort((a,b) => {
+    const fa = wlFundCache[a.symbol], fb = wlFundCache[b.symbol];
+    const pa = wlPbCache[a.symbol],   pb = wlPbCache[b.symbol];
+    let va, vb;
+    if      (col==='sym')    { va=a.symbol;         vb=b.symbol; }
+    else if (col==='name')   { va=a.name||'';        vb=b.name||''; }
+    else if (col==='price')  { va=fa?.price||0;      vb=fb?.price||0; }
+    else if (col==='chg')    { va=fa?.chgPct||0;     vb=fb?.chgPct||0; }
+    else if (col==='rsi')    { va=fa?.rsi||0;        vb=fb?.rsi||0; }
+    else if (col==='score')  { va=pa?.score||0;      vb=pb?.score||0; }
+    else if (col==='fase')   { va=pa?.fase||'';      vb=pb?.fase||''; }
+    else if (col==='status') { va=a.status||'';      vb=b.status||''; }
+    else if (col==='screener'){va=a.screener||'';    vb=b.screener||''; }
+    if (typeof va==='string') return asc?va.localeCompare(vb):vb.localeCompare(va);
+    return asc?va-vb:vb-va;
+  });
+
+  const sortIcon = c => c===col?(asc?'↑':'↓'):'';
+  const th = (c,label) => `<th onclick="wlSortBy('${c}')">${label} ${sortIcon(c)}</th>`;
+
+  // Event delegation para tabla (evitar problemas de escape en onclick inline)
+  setTimeout(() => {
+    const tbody = document.querySelector('.wl-table tbody');
+    if (tbody) tbody.addEventListener('click', e => {
+      const btn = e.target.closest('[data-wl-action]');
+      if (!btn) return;
+      const sym = btn.dataset.wlSym;
+      const action = btn.dataset.wlAction;
+      if (action === 'detail')   openWatchlistDetail(sym);
+      else if (action === 'pb')  wlOpenPlaybook(sym);
+    });
+  }, 50);
+
+  const rows = sorted.map(s => {
     const st   = WL_STATUS[s.status] || WL_STATUS.orange;
     const fund = wlFundCache[s.symbol];
-    const priceHtml = fund
-      ? `<div class="wl-card-price">${fa$(fund.price)} <span class="${fund.chg>=0?'pos':'neg'}" style="font-size:11px;">${fund.chg>=0?'+':''}${fund.chgPct}%</span></div>`
-      : `<div class="wl-card-price dim">—</div>`;
-    return `<div class="wl-card" onclick="openWatchlistDetail('${s.symbol}')">
-      <div class="wl-card-sym">${s.symbol}</div>
-      <div class="wl-card-name">${s.name}</div>
-      ${priceHtml}
-      <div style="margin-top:10px;"><span class="wl-badge ${st.badge}"><span class="wl-dot ${st.dot}"></span>${st.label}</span></div>
-      <div class="wl-card-date">Desde ${s.addedDate} · ${s.notes.length} nota${s.notes.length!==1?'s':''}</div>
-    </div>`;
+    const pb   = wlPbCache[s.symbol];
+    const priceStr = fund ? fa$(fund.price) : '—';
+    const chgStr   = fund ? `<span class="${fund.chg>=0?'pos':'neg'}">${fund.chg>=0?'+':''}${fund.chgPct}%</span>` : '—';
+    const rsiStr   = fund?.rsi ? `<span style="color:${fund.rsi<40?'#f04f5a':fund.rsi>70?'#f5c842':'#8b96a8'}">${Math.round(fund.rsi)}</span>` : '—';
+    const faseStr  = pb?.fase ? `<span class="wl-fase wl-fase-${pb.fase.toLowerCase()}">${pb.fase}</span>` : '<span style="color:var(--muted)">—</span>';
+    const scoreStr = pb?.score != null
+      ? `<span style="font-weight:700;color:${pb.score>=95?'#13d68f':pb.score>=85?'#f5c842':'#f04f5a'}">${pb.score}%</span>
+         <div class="wl-score-bar"><div style="width:${pb.score}%;height:100%;background:${pb.score>=95?'#13d68f':pb.score>=85?'#f5c842':'#f04f5a'};border-radius:2px;"></div></div>`
+      : '<span style="color:var(--muted)">—</span>';
+    const scTag = s.screener ? `<span style="font-size:9px;color:#5b82e6;background:rgba(91,130,230,.15);padding:1px 5px;border-radius:3px;">${s.screener}</span>` : '';
+    return `<tr>
+      <td style="font-weight:700;font-family:var(--mono);color:var(--bright);cursor:pointer;" data-wl-action="detail" data-wl-sym="${s.symbol}">${s.symbol}</td>
+      <td style="color:var(--muted);font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.name||'—'}</td>
+      <td>${scTag}</td>
+      <td><span class="wl-badge ${st.badge}"><span class="wl-dot ${st.dot}"></span>${st.label}</span></td>
+      <td style="font-family:var(--mono);">${priceStr}</td>
+      <td>${chgStr}</td>
+      <td>${rsiStr}</td>
+      <td>${faseStr}</td>
+      <td>${scoreStr}</td>
+      <td style="text-align:center;">
+        <button data-wl-action="pb"     data-wl-sym="${s.symbol}" title="Playbook Alejandro" style="background:rgba(19,214,143,.1);border:1px solid rgba(19,214,143,.3);color:#13d68f;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;">📋</button>
+        <button data-wl-action="detail" data-wl-sym="${s.symbol}" title="Ver detalle" style="background:rgba(91,130,230,.1);border:1px solid rgba(91,130,230,.3);color:#5b82e6;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:3px;">🔍</button>
+      </td>
+    </tr>`;
   }).join('');
 
-  $('watchlist-content').innerHTML = `
+  $('wl-tab-content').innerHTML = `
     <!-- Agregar activo -->
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px;">
-      <input id="wl-new-sym" type="text" placeholder="Símbolo (ej: SOFI)"
-        style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-family:var(--mono);font-size:13px;width:140px;text-transform:uppercase;"
-        oninput="this.value=this.value.toUpperCase()">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+      <input id="wl-new-sym" type="text" placeholder="Símbolo" oninput="this.value=this.value.toUpperCase()"
+        style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--bright);font-family:var(--mono);font-size:13px;width:110px;text-transform:uppercase;">
       <input id="wl-new-name" type="text" placeholder="Nombre (opcional)"
-        style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-size:13px;flex:1;min-width:150px;">
+        style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--bright);font-size:12px;flex:1;min-width:130px;">
       <select id="wl-new-status" class="wl-status-select">
         <option value="orange">🟠 En seguimiento</option>
         <option value="yellow">🟡 Casi lista</option>
         <option value="violet">🟣 Esperar earnings</option>
         <option value="green">🟢 En el mercado</option>
       </select>
-      <button onclick="addWatchlistStock()" class="btn btn-primary" style="padding:8px 16px;">+ Agregar</button>
+      <button onclick="addWatchlistStock()" class="btn btn-primary" style="padding:7px 14px;font-size:12px;">+ Agregar</button>
     </div>
 
-    <!-- Cards -->
     ${stocks.length === 0
-      ? `<div style="text-align:center;padding:60px;color:var(--muted);">
-           <div style="font-size:40px;margin-bottom:12px;">👁</div>
-           <div>Agrega tu primer activo para empezar el seguimiento</div>
+      ? `<div style="text-align:center;padding:60px;color:var(--muted);"><div style="font-size:40px;margin-bottom:12px;">👁</div><div>Agrega tu primer activo</div></div>`
+      : `<div style="overflow-x:auto;">
+          <table class="wl-table">
+            <thead><tr>
+              ${th('sym','Ticker')}${th('name','Empresa')}${th('screener','Screener')}${th('status','Estado')}
+              ${th('price','Precio')}${th('chg','Chg%')}${th('rsi','RSI')}
+              ${th('fase','Fase')}${th('score','Score PA')}
+              <th>Acciones</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
          </div>`
-      : `<div class="wl-grid">${cardsHtml}</div>`
     }
   `;
+}
+
+function wlSortBy(col) {
+  if (wlSort.col === col) wlSort.asc = !wlSort.asc;
+  else { wlSort.col = col; wlSort.asc = true; }
+  renderWatchlistTable();
+}
+
+function wlOpenPlaybook(sym) {
+  aleState.ticker = sym;
+  aleState.checks = {};
+  aleState.tesis  = '';
+  aleState.comentarios = '';
+  aleState.imagen = '';
+  aleState.audio  = '';
+  aleState.autoData = null;
+  switchTab('playbook-alejandro');
+  setTimeout(() => {
+    const input = $('ale-ticker-input');
+    if (input) { input.value = sym; aleCargarTicker(); }
+  }, 300);
+}
+
+// ── Screeners Paradigma ────────────────────────────────────────
+let scInfo = [];
+async function renderScreeners() {
+  $('wl-tab-content').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);">⏳ Cargando screeners...</div>';
+  if (!scInfo.length) {
+    try { scInfo = await api('/api/screeners'); } catch(e) { scInfo = []; }
+  }
+  const existingSyms = new Set((wlData?.stocks||[]).map(s=>s.symbol));
+
+  const cards = scInfo.map(sc => {
+    const results = scData[sc.id] || [];
+    const chips = results.map(ticker => {
+      const already = existingSyms.has(ticker);
+      const safeLabel = (scInfo.find(s=>s.id===sc.id)?.label||sc.id).replace(/'/g,"\'");
+      const clickFn = already ? '' : `onclick="scAddSingle('${ticker}','${safeLabel}')"`;
+      return `<span class="sc-chip ${already?'added':''}" ${clickFn}
+        style="border-color:${already?'var(--border)':'#5b82e6'};color:${already?'var(--muted)':'#5b82e6'};background:${already?'rgba(255,255,255,.03)':'rgba(91,130,230,.1)'};">
+        ${ticker}${already?' ✓':''}
+      </span>`;
+    }).join('');
+
+    const isLoading = sc._loading;
+    const hasResults = results.length > 0;
+    const newCount = results.filter(t => !existingSyms.has(t)).length;
+
+    return `<div class="sc-card">
+      <div class="sc-card-header">
+        <div>
+          <span style="font-size:14px;font-weight:700;color:var(--bright);">${sc.label}</span>
+          <span style="font-size:11px;color:var(--muted);margin-left:8px;">${sc.desc}</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          ${hasResults ? `<span style="font-size:10px;color:var(--muted);">${results.length} tickers · ${newCount} nuevos</span>` : ''}
+          <button onclick="scRun('${sc.id}')" ${isLoading?'disabled':''} style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;
+            border:1px solid var(--green);background:rgba(19,214,143,.1);color:var(--green);">
+            ${isLoading?'⏳ Cargando...':'▶ Ejecutar'}
+          </button>
+          <a href="${sc.url}" target="_blank" style="padding:5px 10px;border-radius:7px;font-size:11px;border:1px solid var(--border);color:var(--muted);text-decoration:none;">↗ Finviz</a>
+          ${hasResults&&newCount>0 ? `<button onclick="scImportAll('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #5b82e6;background:rgba(91,130,230,.15);color:#5b82e6;">⬇ Importar ${newCount}</button>` : ''}
+        </div>
+      </div>
+      ${hasResults ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:6px;">${chips}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  $('wl-tab-content').innerHTML = cards || '<div style="padding:20px;color:var(--muted);">No se pudieron cargar los screeners</div>';
+
+}
+
+async function scRun(id) {
+  scInfo = scInfo.map(s => s.id===id ? {...s, _loading:true} : s);
+  renderScreeners();
+  try {
+    scData[id] = await api('/api/screener/'+id);
+  } catch(e) {
+    scData[id] = [];
+  }
+  scInfo = scInfo.map(s => s.id===id ? {...s, _loading:false} : s);
+  renderScreeners();
+}
+
+async function scAddSingle(ticker, screenerLabel) {
+  try {
+    await api('/api/watchlist', 'POST', { symbol:ticker, name:ticker, status:'orange', screener:screenerLabel });
+    wlData = await api('/api/watchlist');
+    // Feedback visual rápido
+    const chips = document.querySelectorAll('.sc-chip');
+    chips.forEach(c => { if (c.textContent.trim()===ticker) { c.classList.add('added'); c.removeAttribute('onclick'); c.textContent=ticker+' ✓'; c.style.borderColor='var(--border)'; c.style.color='var(--muted)'; } });
+    // Actualizar contador
+    renderScreeners();
+  } catch(e) {
+    if (!e.message?.includes('409')) console.error(e);
+  }
+}
+
+async function scImportAll(scId) {
+  const results = scData[scId] || [];
+  const existing = new Set((wlData?.stocks||[]).map(s=>s.symbol));
+  const news = results.filter(t => !existing.has(t));
+  const scLabel = scInfo.find(s=>s.id===scId)?.label || scId;
+  for (const ticker of news) {
+    try {
+      await api('/api/watchlist', 'POST', { symbol:ticker, name:ticker, status:'orange', screener:scLabel });
+    } catch(e) {}
+  }
+  wlData = await api('/api/watchlist');
+  renderScreeners();
 }
 
 async function addWatchlistStock() {
@@ -2277,7 +2493,7 @@ async function addWatchlistStock() {
   const status = $('wl-new-status').value;
   if (!sym) return;
   try {
-    await api('/api/watchlist', 'POST', { symbol:sym, name:name||sym, status });
+    await api('/api/watchlist', 'POST', { symbol:sym, name:name||sym, status, screener:'' });
     wlData = await api('/api/watchlist');
     $('wl-new-sym').value = '';
     $('wl-new-name').value = '';
