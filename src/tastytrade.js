@@ -1,12 +1,12 @@
-'use strict';
+﻿'use strict';
 
 const fs   = require('fs');
 const path = require('path');
 const ENV_PATH = path.join(__dirname, '..', '.env');
 
-// ── Black-Scholes helpers ─────────────────────────────────────
+// â”€â”€ Black-Scholes helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function bsN(x) {
-  // Aproximación de la CDF normal estándar
+  // AproximaciÃ³n de la CDF normal estÃ¡ndar
   const a1= 0.254829592, a2=-0.284496736, a3= 1.421413741,
         a4=-1.453152027, a5= 1.061405429, p = 0.3275911;
   const sign = x < 0 ? -1 : 1;
@@ -53,7 +53,7 @@ class TastytradeClient {
         env += `\nTT_SESSION_TOKEN=${token}`;
       }
       fs.writeFileSync(ENV_PATH, env, 'utf8');
-      console.log('[TT] ✅ Token guardado automáticamente en .env');
+      console.log('[TT] âœ… Token guardado automÃ¡ticamente en .env');
     } catch(e) {
       console.log('[TT] No se pudo guardar token:', e.message);
     }
@@ -70,12 +70,12 @@ class TastytradeClient {
         if (res.ok) {
           const json = await res.json();
           this.sessionToken = json.data?.['session-token'];
-          console.log('[TT] Auth via usuario/contraseña OK');
-          this._saveToken(this.sessionToken); // guardar para próximo reinicio
+          console.log('[TT] Auth via usuario/contraseÃ±a OK');
+          this._saveToken(this.sessionToken); // guardar para prÃ³ximo reinicio
           return this.sessionToken;
         }
         const errText = await res.text().catch(()=>'');
-        console.log('[TT] Login falló:', res.status, errText.slice(0,200));
+        console.log('[TT] Login fallÃ³:', res.status, errText.slice(0,200));
       } catch(e) {
         console.log('[TT] Error de red en auth:', e.message);
       }
@@ -92,7 +92,7 @@ class TastytradeClient {
     });
 
     if (res.status === 401 && !isRetry) {
-      console.log('[TT] 401 — reautenticando...');
+      console.log('[TT] 401 â€” reautenticando...');
       this.sessionToken = null;
       await this._doAuth();
       return this._req(path, opts, true);
@@ -144,7 +144,7 @@ class TastytradeClient {
     // Intento 2: Black-Scholes con IV de Yahoo Finance (funciona 24/7)
     console.log('[Greeks] Usando Black-Scholes + Yahoo Finance...');
     try {
-      // Extraer subyacentes únicos
+      // Extraer subyacentes Ãºnicos
       const underlyings = [...new Set(symbols.map(s => {
         const m = s.match(/^([A-Z]+)\s/);
         return m ? m[1] : s.replace(/\s.*/,'').replace(/\d.*/,'');
@@ -182,12 +182,12 @@ class TastytradeClient {
         } catch(e) {}
       }
 
-      // Calcular Greeks con Black-Scholes para cada símbolo
+      // Calcular Greeks con Black-Scholes para cada sÃ­mbolo
       const map = {};
       const R   = 0.0525; // tasa libre de riesgo ~5.25%
 
       for (const sym of symbols) {
-        // Parsear símbolo TastyTrade: "HOOD  260618C00076000"
+        // Parsear sÃ­mbolo TastyTrade: "HOOD  260618C00076000"
         const m = sym.match(/^([A-Z]+)\s+(\d{2})(\d{2})(\d{2})([CP])(\d+)/);
         if (!m) continue;
         const und    = m[1];
@@ -201,28 +201,28 @@ class TastytradeClient {
         if (!S) continue;
 
         const T  = Math.max((new Date(yr, mo, dy) - Date.now()) / (365.25 * 86400000), 0.001);
-        const σ  = ivMap[und] || 0.35;
+        const Ïƒ  = ivMap[und] || 0.35;
 
         // Black-Scholes
-        const d1  = (Math.log(S/K) + (R + σ*σ/2) * T) / (σ * Math.sqrt(T));
-        const d2  = d1 - σ * Math.sqrt(T);
+        const d1  = (Math.log(S/K) + (R + Ïƒ*Ïƒ/2) * T) / (Ïƒ * Math.sqrt(T));
+        const d2  = d1 - Ïƒ * Math.sqrt(T);
         const Nd1 = bsN(d1);
         const Nd2 = bsN(d2);
         const nd1 = bsPDF(d1);
 
         const delta = isCall ? Nd1 : Nd1 - 1;
-        const gamma = nd1 / (S * σ * Math.sqrt(T));
+        const gamma = nd1 / (S * Ïƒ * Math.sqrt(T));
         const vega  = S * nd1 * Math.sqrt(T) / 100;
         const theta = isCall
-          ? (-(S * nd1 * σ) / (2 * Math.sqrt(T)) - R * K * Math.exp(-R*T) * Nd2) / 365
-          : (-(S * nd1 * σ) / (2 * Math.sqrt(T)) + R * K * Math.exp(-R*T) * bsN(-d2)) / 365;
+          ? (-(S * nd1 * Ïƒ) / (2 * Math.sqrt(T)) - R * K * Math.exp(-R*T) * Nd2) / 365
+          : (-(S * nd1 * Ïƒ) / (2 * Math.sqrt(T)) + R * K * Math.exp(-R*T) * bsN(-d2)) / 365;
 
         map[sym] = {
           delta: Math.round(delta * 1000) / 1000,
           theta: Math.round(theta * 10000) / 10000,
           gamma: Math.round(gamma * 10000) / 10000,
           vega:  Math.round(vega  * 1000) / 1000,
-          iv:    Math.round(σ * 100 * 10) / 10,
+          iv:    Math.round(Ïƒ * 100 * 10) / 10,
           mark:  0,
           src:   'bs',
         };
@@ -240,7 +240,7 @@ class TastytradeClient {
     if (startDate) url += `&start-date=${startDate}`;
     if (endDate)   url += `&end-date=${endDate}`;
     const d = await this._req(url);
-    // Paginación está en la raíz de la respuesta, no dentro de data
+    // PaginaciÃ³n estÃ¡ en la raÃ­z de la respuesta, no dentro de data
     return { items: d.data?.items ?? [], pagination: d.pagination };
   }
 
@@ -252,7 +252,7 @@ class TastytradeClient {
       all.push(...d.items);
       totalPages = d.pagination?.['total-pages'] ?? 1;
       offset++;
-      if (offset % 10 === 0) console.log(`[TT] Cargando transacciones... página ${offset}/${totalPages}`);
+      if (offset % 10 === 0) console.log(`[TT] Cargando transacciones... pÃ¡gina ${offset}/${totalPages}`);
     } while (offset < totalPages);
     console.log(`[TT] Total transacciones cargadas: ${all.length}`);
     return all;
