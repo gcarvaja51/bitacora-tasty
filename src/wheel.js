@@ -42,30 +42,39 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       if (/Sell to Open/i.test(action) && parsed.type === 'P') {
         events.push({ date, type:'STO_PUT', strike:parsed.strike, expiry:parsed.expiry, amount:Math.abs(nv) });
         totalPremium += Math.abs(nv);
+
       } else if (/Buy to Close/i.test(action) && parsed.type === 'P') {
         events.push({ date, type:'BTC_PUT', strike:parsed.strike, expiry:parsed.expiry, amount:-Math.abs(nv) });
         totalPremium -= Math.abs(nv);
+
       } else if (/Sell to Open/i.test(action) && parsed.type === 'C') {
         events.push({ date, type:'STO_CALL', strike:parsed.strike, expiry:parsed.expiry, amount:Math.abs(nv) });
         totalPremium += Math.abs(nv);
+        // Reducir costo base por prima de CC (solo si ya hay acciones)
         if (costBasis !== null && shares > 0) costBasis -= Math.abs(nv) / shares;
+
       } else if (/Buy to Close/i.test(action) && parsed.type === 'C') {
         events.push({ date, type:'BTC_CALL', strike:parsed.strike, expiry:parsed.expiry, amount:-Math.abs(nv) });
         totalPremium -= Math.abs(nv);
+        // Revertir reducción al cerrar CC
         if (costBasis !== null && shares > 0) costBasis += Math.abs(nv) / shares;
+
       } else if (instrType === 'Equity' && /Buy to Open|Buy/i.test(action)) {
         const qty   = parseFloat(tx.quantity || 0);
         const price = parseFloat(tx.price || 0);
         avgCost = shares ? (avgCost * shares + price * qty) / (shares + qty) : price;
         shares += qty;
-        costBasis = avgCost;
+        // FIX: descontar TODA la prima acumulada hasta ahora (incluye Puts cobradas antes de comprar)
+        costBasis = avgCost - totalPremium / shares;
         events.push({ date, type:'STOCK_BUY', qty, price, amount:-Math.abs(nv) });
+
       } else if (instrType === 'Equity' && /Sell/i.test(action)) {
         const qty   = parseFloat(tx.quantity || 0);
         const price = parseFloat(tx.price || 0);
         events.push({ date, type:'STOCK_SELL', qty, price, amount:Math.abs(nv) });
         shares -= qty;
         if (shares <= 0) shares = 0;
+
       } else if (txType === 'Receive Deliver' && /Receive/i.test(action)) {
         const qty = parseFloat(tx.quantity || 0);
         if (qty > 0) {
@@ -79,54 +88,80 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       }
     }
 
-    // Detectar rolls: BTC_PUT + STO_PUT mismo día → consolidar en un Roll con crédito neto
-    const processed = new Set();
-    const consolidated = [];
-    for (let i = 0; i < events.length; i++) {
-      if (processed.has(i)) continue;
-      const ev = events[i];
-      if (ev.type === 'BTC_PUT') {
-        // Buscar STO_PUT del mismo día
-        const j = events.findIndex((e, idx) =>
-          idx !== i && !processed.has(idx) &&
-          e.type === 'STO_PUT' && e.date === ev.date
-        );
-        if (j >= 0) {
-          processed.add(i); processed.add(j);
-          const net = events[j].amount + ev.amount;
-          consolidated.push({
-            date: ev.date, type: 'ROLL',
-            fromStrike: ev.strike, fromExpiry: ev.expiry,
-            toStrike: events[j].strike, toExpiry: events[j].expiry,
-            amount: net,
-          });
-          continue;
-        }
-      }
-      if (!processed.has(i)) consolidated.push(ev);
-    }
-    const finalEvents = consolidated;
+    // ── Consolidar rolls: BTC_PUT + STO_PUT mismo día ──────────────
+    // FIX multi-contrato: con 2 contratos TastyTrade genera 2 pares de tx el mismo día.
+    // Agrupamos TODOS los BTC_PUT y STO_PUT del mismo día en un único evento ROLL
+    // cuyo monto es la suma neta de todos ellos.
+    const rollsByDate = {};
+    const nonRollEvents = [];
 
-    const openPut   = positions.find(p => p['underlying-symbol']===und && (p.symbol||'').match(/P\d{8}$/));
-    const openCall  = positions.find(p => p['underlying-symbol']===und && (p.symbol||'').match(/C\d{8}$/));
-    const openStock = positions.find(p => p['underlying-symbol']===und && p['instrument-type']==='Equity');
+    for (const ev of events) {
+      if (ev.type === 'BTC_PUT' || ev.type === 'STO_PUT') {
+        if (!rollsByDate[ev.date]) rollsByDate[ev.date] = { btc: [], sto: [] };
+        if (ev.type === 'BTC_PUT') rollsByDate[ev.date].btc.push(ev);
+        else                       rollsByDate[ev.date].sto.push(ev);
+      } else {
+        nonRollEvents.push(ev);
+      }
+    }
+
+    const rollEvents = [];
+    for (const [date, { btc, sto }] of Object.entries(rollsByDate)) {
+      if (btc.length > 0 && sto.length > 0) {
+        // Es un roll — consolidar todos en uno
+        const netAmount = sto.reduce((s, e) => s + e.amount, 0) +
+                          btc.reduce((s, e) => s + e.amount, 0);
+        rollEvents.push({
+          date,
+          type: 'ROLL',
+          fromStrike: btc[0].strike,
+          fromExpiry: btc[0].expiry,
+          toStrike:   sto[0].strike,
+          toExpiry:   sto[0].expiry,
+          amount:     +netAmount.toFixed(2),
+        });
+      } else {
+        // Solo BTC o solo STO sin par → dejar como eventos individuales
+        btc.forEach(e => rollEvents.push(e));
+        sto.forEach(e => rollEvents.push(e));
+      }
+    }
+
+    // Reconstruir timeline ordenado por fecha
+    const finalEvents = [...nonRollEvents, ...rollEvents]
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // ── Posiciones abiertas ────────────────────────────────────────
+    // FIX multi-contrato: buscar TODAS las puts/calls abiertas, no solo la primera
+    const openPuts  = positions.filter(p => p['underlying-symbol']===und && (p.symbol||'').match(/P\d{8}$/));
+    const openCalls = positions.filter(p => p['underlying-symbol']===und && (p.symbol||'').match(/C\d{8}$/));
+    const openStock = positions.find(p  => p['underlying-symbol']===und && p['instrument-type']==='Equity');
+
+    const openPut  = openPuts[0]  || null;
+    const openCall = openCalls[0] || null;
+
+    // Contratos totales (suma de todas las posiciones abiertas del mismo tipo)
+    const contractsPut  = openPuts.reduce((s, p)  => s + Math.abs(parseFloat(p.quantity||0)), 0);
+    const contractsCall = openCalls.reduce((s, p) => s + Math.abs(parseFloat(p.quantity||0)), 0);
+    // Acciones reales desde posición equity (TastyTrade devuelve qty=200 para 2 contratos)
+    const sharesFromPos = openStock ? Math.abs(parseFloat(openStock.quantity||0)) : Math.round(shares);
+    // Contratos equivalentes: opciones abiertas, o acciones/100 si solo hay equity
+    const contracts     = contractsPut || contractsCall || Math.round(sharesFromPos / 100);
 
     let phase = 'IDLE';
     if (openPut)                      phase = 'CSP_ACTIVA';
     else if (openCall)                phase = 'CC_ACTIVA';
     else if (openStock || shares > 0) phase = 'ACCIONES';
 
-    // Parsear strike del símbolo (más fiable que strike-price field)
     const putStrike  = openPut  ? parseSymbol(openPut.symbol||'').strike  || parseFloat(openPut['strike-price']||0)  : 0;
     const callStrike = openCall ? parseSymbol(openCall.symbol||'').strike || parseFloat(openCall['strike-price']||0) : 0;
     const putExpiry  = openPut  ? parseSymbol(openPut.symbol||'').expiry  || (openPut['expires-at']||'').slice(0,10)  : '';
     const callExpiry = openCall ? parseSymbol(openCall.symbol||'').expiry || (openCall['expires-at']||'').slice(0,10) : '';
 
-    const activePut  = openPut  ? { strike:putStrike,  expiry:putExpiry  } : null;
-    const activeCall = openCall ? { strike:callStrike, expiry:callExpiry } : null;
+    const activePut  = openPut  ? { strike:putStrike,  expiry:putExpiry,  contracts:contractsPut  } : null;
+    const activeCall = openCall ? { strike:callStrike, expiry:callExpiry, contracts:contractsCall } : null;
 
-    // Costo base proyectado para CSP abierta (antes de asignación)
-    const contracts = openPut ? parseFloat(openPut.quantity||0) : openCall ? parseFloat(openCall.quantity||0) : 0;
+    // ── Costo base proyectado (CSP abierta, antes de asignación) ──
     const sharesIfAssigned = contracts * 100;
     let projectedCostBasis = costBasis;
     if (costBasis === null && putStrike > 0 && sharesIfAssigned > 0) {
@@ -136,17 +171,24 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
     }
 
     wheels.push({
-      underlying:und, phase, events:finalEvents,
-      shares:Math.round(shares),
-      avgCost:+avgCost.toFixed(4),
-      costBasis: projectedCostBasis,
-      isProjected: costBasis === null && projectedCostBasis !== null,
-      totalPremium:+totalPremium.toFixed(2),
-      activePut, activeCall, openStock,
+      underlying:   und,
+      phase,
+      events:       finalEvents,
+      shares:       Math.round(shares),
+      avgCost:      +avgCost.toFixed(4),
+      costBasis:    projectedCostBasis,
+      isProjected:  costBasis === null && projectedCostBasis !== null,
+      totalPremium: +totalPremium.toFixed(2),
+      contracts,          // ← total contratos abiertos
+      contractsPut,       // ← contratos put
+      contractsCall,      // ← contratos call
+      activePut,
+      activeCall,
+      openStock,
     });
   }
 
-  return wheels.sort((a,b) => {
+  return wheels.sort((a, b) => {
     const ord = { CSP_ACTIVA:0, CC_ACTIVA:1, ACCIONES:2, IDLE:3 };
     return (ord[a.phase]??9) - (ord[b.phase]??9);
   });

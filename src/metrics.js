@@ -251,6 +251,14 @@ function buildMetrics(items = []) {
     (() => { const d={}; strategies.forEach(s=>{ if(s.closeDate){ d[s.closeDate]=(d[s.closeDate]||0)+s.pnl; } }); return d; })() : {});
   const stratByDay = {};
   strategies.forEach(s => { if(s.closeDate) stratByDay[s.closeDate]=(stratByDay[s.closeDate]||0)+s.pnl; });
+
+  // Primas cobradas en aperturas (no realizadas) — solo créditos netos positivos
+  const openByDay = {};
+  for (const o of orders) {
+    if (o.isOpening && o.netValue > 0) {
+      openByDay[o.date] = (openByDay[o.date] || 0) + o.netValue;
+    }
+  }
   const sDayVals = Object.values(stratByDay);
   const posD2 = sDayVals.filter(v=>v>0);
   const negD2 = sDayVals.filter(v=>v<0);
@@ -271,6 +279,7 @@ function buildMetrics(items = []) {
     worstDay:        sDayVals.length ? Math.min(...sDayVals) : 0,
     strategies:      strategies.slice(-200),
     stratByDay,           // daily P&L by close date (fuente única)
+    openByDay,            // primas cobradas en aperturas por día (informativo)
     strategyByMonth,      // monthly P&L desde estrategias
     strategyByWeek,       // weekly P&L desde estrategias
     byDay,                // cash flow (para referencia)
