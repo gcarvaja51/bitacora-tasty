@@ -1329,6 +1329,9 @@ function groupPositions(positions) {
     const qty=parseFloat(p.quantity||0), op=parseFloat(p['average-open-price']||0),
           cp=parseFloat(p['close-price']||0), mul=parseFloat(p.multiplier||1);
     g.legs.push(p);
+    // Precio actual de mercado (mark price de la API)
+    const mp = parseFloat(p['mark-price'] || p['close-price'] || cp);
+    g.currentPrice = mp; // último precio visto
     // SHORT: ganas cuando el precio baja (op > cp). LONG: ganas cuando sube (cp > op)
     const posDir = p['quantity-direction']==='Short' ? -1 : 1;
     g.unrealizedPnL += posDir * (cp-op)*qty*mul;
@@ -1597,7 +1600,7 @@ async function calDayClick(dateStr, pnl) {
         const cap = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
         return `<tr style="cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
           <td><span class="badge badge-gold" style="font-size:9px;">Cierre</span></td>
-          <td class="td-bright" style="font-weight:700;">${s.underlying}</td>
+          <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
           <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">${s.durationDays===0?'Intradía':s.durationDays+'d'}</td>
           <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
@@ -1611,7 +1614,7 @@ async function calDayClick(dateStr, pnl) {
         window._calTrades[tkey] = s;
         return `<tr style="opacity:.8;cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
           <td><span class="badge badge-blue" style="font-size:9px;">Apertura</span></td>
-          <td class="td-bright" style="font-weight:700;">${s.underlying}</td>
+          <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
           <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">Abierto</td>
           <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
@@ -1697,78 +1700,210 @@ function calNext(){ S.calMonth++; if(S.calMonth>11){S.calMonth=0;S.calYear++;} r
 // ── Gráfico sector de posiciones ─────────────────────────────
 async function renderPosSectorChart(groups) {
   const card = $('pos-sector-card');
-  if (!card) return;
+  if (!card || !groups.length) return;
 
-  // Obtener sector para cada subyacente único
+  // Obtener sector para cada subyacente único — endpoint genérico
   const syms = [...new Set(groups.map(g => g.underlying))];
   const sectorMap = {};
+
   await Promise.all(syms.map(async sym => {
     try {
-      // Usar el cache del watchlist si existe, si no llamar fundamentals
-      const cached = wlFundCache[sym];
-      if (cached?.sector) { sectorMap[sym] = cached.sector; return; }
-      const r = await fetch('/api/watchlist/'+sym+'/fundamentals');
+      // Cache primero
+      if (wlFundCache[sym]?.sector) { sectorMap[sym] = wlFundCache[sym].sector; return; }
+      // Llamar market-data que ya incluye sector
+      const r = await fetch('/api/market-data/' + encodeURIComponent(sym));
       const d = await r.json();
-      sectorMap[sym] = d.sector || 'Sin sector';
-      wlFundCache[sym] = d;
+      if (d.sector) { sectorMap[sym] = d.sector; wlFundCache[sym] = { ...wlFundCache[sym], sector: d.sector }; }
+      else sectorMap[sym] = 'Sin sector';
     } catch(e) { sectorMap[sym] = 'Sin sector'; }
   }));
 
-  // Agrupar posiciones por sector (contar posiciones únicas)
-  const sectorCount = {};
+  // Agrupar por sector usando DINERO INVERTIDO (premiumNet = prima cobrada o pagada)
+  const sectorDinero = {};
   groups.forEach(g => {
     const sec = sectorMap[g.underlying] || 'Sin sector';
-    sectorCount[sec] = (sectorCount[sec] || 0) + 1;
+    const dinero = Math.abs(g.premiumNet || 0);
+    sectorDinero[sec] = (sectorDinero[sec] || 0) + dinero;
   });
 
-  const labels  = Object.keys(sectorCount);
-  const data    = Object.values(sectorCount);
-  const total   = data.reduce((a,b)=>a+b,0);
-  const COLORS  = ['#13d68f','#5b82e6','#f5c842','#f04f5a','#a78bfa','#fb923c','#34d399','#60a5fa','#f472b6','#fbbf24'];
+  // Ordenar por dinero descendente
+  const entries = Object.entries(sectorDinero).sort((a,b) => b[1]-a[1]);
+  const labels  = entries.map(e => e[0]);
+  const data    = entries.map(e => e[1]);
+  const total   = data.reduce((a,b) => a+b, 0);
+  if (!total) return;
+
+  const COLORS = ['#13d68f','#5b82e6','#f5c842','#f04f5a','#a78bfa','#fb923c','#34d399','#60a5fa','#f472b6','#fbbf24'];
 
   card.style.display = 'block';
 
-  // Dibujar con Canvas 2D
+  // Canvas donut
   const canvas = $('pos-sector-chart');
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0,0,220,220);
-  let startAngle = -Math.PI/2;
-  data.forEach((val,i) => {
-    const slice = (val/total) * 2 * Math.PI;
-    ctx.beginPath();
-    ctx.moveTo(110,110);
-    ctx.arc(110,110,100,startAngle,startAngle+slice);
-    ctx.closePath();
-    ctx.fillStyle = COLORS[i%COLORS.length];
-    ctx.fill();
-    ctx.strokeStyle = '#0d1117';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    startAngle += slice;
-  });
-  // Donut hole
-  ctx.beginPath();
-  ctx.arc(110,110,50,0,2*Math.PI);
-  ctx.fillStyle = '#0d1117';
-  ctx.fill();
-  // Texto central
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 18px Arial';
-  ctx.textAlign = 'center';
-  ctx.fillText(total, 110, 107);
-  ctx.font = '11px Arial';
-  ctx.fillStyle = '#8b96a8';
-  ctx.fillText('posiciones', 110, 124);
+  const ctx    = canvas.getContext('2d');
 
-  // Leyenda
-  $('pos-sector-legend').innerHTML = labels.map((l,i) => {
-    const pct = Math.round(data[i]/total*100);
+  // Guardar slices para hit-testing en hover
+  const slices = [];
+  let startAngle = -Math.PI / 2;
+
+  function drawDonut(highlightIdx = -1) {
+    ctx.clearRect(0, 0, 220, 220);
+    slices.length = 0;
+    let sa = -Math.PI / 2;
+    data.forEach((val, i) => {
+      const slice = (val / total) * 2 * Math.PI;
+      slices.push({ start: sa, end: sa + slice, idx: i });
+      const isHL = i === highlightIdx;
+      // Expandir slice en hover
+      const cx = isHL ? 110 + Math.cos(sa + slice/2)*6 : 110;
+      const cy = isHL ? 110 + Math.sin(sa + slice/2)*6 : 110;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, isHL ? 104 : 100, sa, sa + slice);
+      ctx.closePath();
+      ctx.fillStyle   = COLORS[i % COLORS.length];
+      ctx.fill();
+      ctx.strokeStyle = '#0d1117';
+      ctx.lineWidth   = 2;
+      ctx.stroke();
+      sa += slice;
+    });
+    // Donut hole
+    ctx.beginPath();
+    ctx.arc(110, 110, 48, 0, 2 * Math.PI);
+    ctx.fillStyle = '#0d1117';
+    ctx.fill();
+    // Texto centro
+    if (highlightIdx >= 0) {
+      ctx.fillStyle = COLORS[highlightIdx % COLORS.length];
+      ctx.font      = 'bold 13px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.round(data[highlightIdx]/total*100) + '%', 110, 107);
+      ctx.font      = '9px Arial';
+      ctx.fillStyle = '#8b96a8';
+      ctx.fillText(labels[highlightIdx].split(' ')[0], 110, 122);
+    } else {
+      ctx.fillStyle  = '#ffffff';
+      ctx.font       = 'bold 14px Arial';
+      ctx.textAlign  = 'center';
+      ctx.fillText('$' + Math.round(total), 110, 107);
+      ctx.font       = '10px Arial';
+      ctx.fillStyle  = '#8b96a8';
+      ctx.fillText('invertido', 110, 122);
+    }
+  }
+
+  drawDonut();
+
+  // Tooltip con activos por sector
+  const sectorActivos = {};
+  groups.forEach(g => {
+    const sec = sectorMap[g.underlying] || 'Sin sector';
+    if (!sectorActivos[sec]) sectorActivos[sec] = [];
+    if (!sectorActivos[sec].includes(g.underlying)) sectorActivos[sec].push(g.underlying);
+  });
+
+  // Crear tooltip div
+  let tooltip = document.getElementById('pos-sector-tooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'pos-sector-tooltip';
+    tooltip.style.cssText = 'position:fixed;background:var(--card);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;font-size:11px;pointer-events:none;z-index:999;display:none;box-shadow:0 4px 20px rgba(0,0,0,.5);';
+    document.body.appendChild(tooltip);
+  }
+
+  canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left - 110;
+    const y = e.clientY - rect.top  - 110;
+    const dist = Math.sqrt(x*x + y*y);
+
+    if (dist < 48 || dist > 110) {
+      drawDonut(); tooltip.style.display = 'none'; return;
+    }
+    let angle = Math.atan2(y, x);
+    if (angle < -Math.PI/2) angle += 2*Math.PI;
+
+    const hit = slices.find(s => angle >= s.start && angle < s.end);
+    if (!hit) { drawDonut(); tooltip.style.display = 'none'; return; }
+
+    drawDonut(hit.idx);
+    const sec     = labels[hit.idx];
+    const activos = (sectorActivos[sec] || []).join(' · ');
+    const pct     = Math.round(data[hit.idx]/total*100);
+    tooltip.innerHTML = '<div style="font-weight:700;color:'+COLORS[hit.idx%COLORS.length]+';">'+sec+'</div>'
+      + '<div style="color:var(--muted);margin-top:2px;">'+activos+'</div>'
+      + '<div style="color:var(--bright);margin-top:4px;font-weight:700;">$'+Math.round(data[hit.idx])+' ('+pct+'%)</div>';
+    tooltip.style.display = 'block';
+    tooltip.style.left    = (e.clientX + 12) + 'px';
+    tooltip.style.top     = (e.clientY - 10) + 'px';
+  };
+
+  canvas.onmouseleave = () => {
+    drawDonut(); tooltip.style.display = 'none';
+  };
+
+  // Leyenda con monto y porcentaje
+  $('pos-sector-legend').innerHTML = labels.map((l, i) => {
+    const pct = Math.round(data[i] / total * 100);
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
       <div style="width:12px;height:12px;border-radius:3px;background:${COLORS[i%COLORS.length]};flex-shrink:0;"></div>
       <div style="flex:1;font-size:12px;color:var(--bright);">${l}</div>
-      <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:${COLORS[i%COLORS.length]};">${data[i]} <span style="color:var(--muted);font-weight:400;">(${pct}%)</span></div>
+      <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:${COLORS[i%COLORS.length]};">
+        $${Math.round(data[i])} <span style="color:var(--muted);font-weight:400;">(${pct}%)</span>
+      </div>
     </div>`;
   }).join('');
+}
+
+// ── Generador de fila de posición ────────────────────────────
+function buildPosRow(g) {
+  const strat = strategyType(g);
+  let dir;
+  if (g.isStock) {
+    dir = 'LONG';
+  } else {
+    const shortLeg = g.legs.find(l => l['quantity-direction'] === 'Short');
+    if (shortLeg) {
+      const shortIsCall = (shortLeg.symbol||'').match(/C\d{8}$/);
+      dir = shortIsCall ? 'SHORT' : 'LONG';
+    } else { dir = 'LONG'; }
+  }
+  // Guardar en el grupo para que el sort pueda usarlos
+  g.stratType = strat;
+  g.direction = dir;
+  const dirBadge = dir==='SHORT'?'badge-red':'badge-green';
+  const fl = g.legs[0];
+  let dte=null, expStr='—';
+  if (!g.isStock && fl['expires-at']) {
+    dte = Math.ceil((new Date(fl['expires-at'])-new Date())/86400000);
+    expStr = new Date(fl['expires-at']).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'});
+  }
+  g.dte = dte;
+  const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
+  const absPrem = Math.abs(g.premiumNet);
+  const pct = absPrem > 0 ? (g.unrealizedPnL / absPrem * 100) : 0;
+  const osLink = osGetLinks()[g.underlying] ? '🔗' : '';
+  return `<tr>
+    <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${g.underlying}',event)" title="Ver en OptionStrat">${g.underlying} <span style="font-size:9px;color:var(--muted);">${osLink}</span></td>
+    <td class="dim">${strat}</td>
+    <td><span class="badge ${dirBadge}">${dir}</span></td>
+    <td class="td-mono dim" style="font-size:11px;">${strikes}</td>
+    <td class="td-mono dim">${expStr}</td>
+    <td>${dte!==null?dteChip(dte):'—'}</td>
+    <td class="td-mono">${g.legs.length}</td>
+    <td class="td-mono ${cc(g.unrealizedPnL)}" style="font-weight:700">${f$(g.unrealizedPnL)}</td>
+    <td class="td-mono ${g.premiumNet>=0?'pos':'neg'}">${g.premiumNet>=0?fa$(g.premiumNet):'-'+fa$(Math.abs(g.premiumNet))}</td>
+    <td class="td-mono dim">${g.currentPrice ? '$'+g.currentPrice.toFixed(2) : '—'}</td>
+    <td class="td-mono dim">${g.delta!==0?g.delta.toFixed(2):'—'}</td>
+    <td class="td-mono ${g.theta>0?'pos':g.theta<0?'neg':'dim'}">${g.theta!==0?'$'+g.theta.toFixed(2):'—'}</td>
+    <td class="td-mono dim" style="font-size:11px;">${g.openDate||'—'}</td>
+    <td>
+      <div class="pct-bar">
+        <div class="pct-track"><div class="pct-fill" style="width:${Math.min(100,Math.abs(pct)).toFixed(0)}%;background:${pct>=20?'var(--green)':pct>=0?'var(--gold)':'var(--red)'}"></div></div>
+        <span class="td-mono ${pct>=0?'pos':'neg'}" style="font-size:10px;min-width:40px;">${pct.toFixed(0)}%</span>
+      </div>
+    </td>
+  </tr>`;
 }
 
 // ── Sort de posiciones ──────────────────────────────────────
@@ -1814,17 +1949,11 @@ function renderPosRows(groups) {
     return asc?va-vb:vb-va;
   });
 
-  // Re-ordenar las filas existentes
+  // Regenerar HTML con los grupos en el nuevo orden
+  _posGroups = sorted;
   const tbody = $('pos-tbody');
-  if (!tbody || !_posRows.length) return;
-  const rowsByIndex = {};
-  groups.forEach((g,i) => rowsByIndex[g.underlying+'_'+i] = _posRows[i]);
-  // Mapear sorted → índice original
-  const sortedHtml = sorted.map(g => {
-    const idx = groups.indexOf(g);
-    return _posRows[idx] || '';
-  }).filter(Boolean);
-  tbody.innerHTML = sortedHtml.join('');
+  if (!tbody) return;
+  tbody.innerHTML = sorted.map(g => buildPosRow(g)).join('') || '<tr><td colspan="14" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
 }
 
 async function loadPositions() {
@@ -1871,27 +2000,7 @@ async function loadPositions() {
       const absPrem = Math.abs(g.premiumNet);
       const pct = absPrem > 0 ? (g.unrealizedPnL / absPrem * 100) : 0;
 
-      return `<tr>
-        <td class="td-bright" style="font-weight:700">${g.underlying}</td>
-        <td class="dim">${strat}</td>
-        <td><span class="badge ${dirBadge}">${dir}</span></td>
-        <td class="td-mono dim" style="font-size:11px;">${strikes}</td>
-        <td class="td-mono dim">${expStr}</td>
-        <td>${dte!==null?dteChip(dte):'—'}</td>
-        <td class="td-mono">${g.legs.length}</td>
-        <td class="td-mono ${cc(g.unrealizedPnL)}" style="font-weight:700">${f$(g.unrealizedPnL)}</td>
-        <td class="td-mono ${g.premiumNet>=0?'pos':'neg'}">${g.premiumNet>=0?fa$(g.premiumNet):'-'+fa$(Math.abs(g.premiumNet))}</td>
-        <td class="td-mono">${fa$(Math.abs(g.unrealizedPnL > 0 ? g.premiumNet - g.unrealizedPnL : g.premiumNet + Math.abs(g.unrealizedPnL)))}</td>
-        <td class="td-mono dim">${g.delta!==0?g.delta.toFixed(2):'—'}</td>
-        <td class="td-mono ${g.theta>0?'pos':g.theta<0?'neg':'dim'}">${g.theta!==0?'$'+g.theta.toFixed(2):'—'}</td>
-        <td class="td-mono dim" style="font-size:11px;">${g.openDate||'—'}</td>
-        <td>
-          <div class="pct-bar">
-            <div class="pct-track"><div class="pct-fill" style="width:${Math.min(100,Math.abs(pct)).toFixed(0)}%;background:${pct>=20?'var(--green)':pct>=0?'var(--gold)':'var(--red)'}"></div></div>
-            <span class="td-mono ${pct>=0?'pos':'neg'}" style="font-size:10px;min-width:40px;">${pct.toFixed(0)}%</span>
-          </div>
-        </td>
-      </tr>`;
+      return buildPosRow(g);
     });
 
     // Guardar datos y rows para el sort
@@ -3904,6 +4013,60 @@ async function aleToggleGrabacion() {
   } catch(e) {
     alert('No se pudo acceder al micrófono: ' + e.message);
   }
+}
+
+// ── OptionStrat links ────────────────────────────────────────
+function osGetLinks() {
+  try { return JSON.parse(localStorage.getItem('os_links')||'{}'); } catch(e) { return {}; }
+}
+function osSetLink(sym, url) {
+  const links = osGetLinks();
+  if (url) links[sym] = url; else delete links[sym];
+  localStorage.setItem('os_links', JSON.stringify(links));
+}
+
+function osShowPopup(sym, e) {
+  e && e.stopPropagation();
+  const existing = document.getElementById('os-popup');
+  if (existing) existing.remove();
+
+  const links  = osGetLinks();
+  const curUrl = links[sym] || '';
+
+  const popup = document.createElement('div');
+  popup.id = 'os-popup';
+  popup.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  popup.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:22px;max-width:420px;width:100%;position:relative;">
+      <button onclick="document.getElementById('os-popup').remove()" style="position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;">✕</button>
+      <div style="font-size:16px;font-weight:800;color:var(--bright);margin-bottom:4px;">📊 ${sym} — OptionStrat</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Guarda o edita el link de análisis para este ticker</div>
+
+      <input id="os-url-input" type="text" value="${curUrl}"
+        placeholder="https://optionstrat.com/..."
+        style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:9px 12px;color:var(--bright);font-size:12px;outline:none;box-sizing:border-box;margin-bottom:12px;"
+        onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border2)'">
+
+      <div style="display:flex;gap:8px;">
+        ${curUrl ? `<button onclick="window.open('${curUrl}','_blank');document.getElementById('os-popup').remove();"
+          style="flex:1;padding:9px;border-radius:8px;border:none;background:#13d68f;color:#0d1117;font-weight:700;cursor:pointer;font-size:13px;">
+          🚀 Abrir en OptionStrat
+        </button>` : ''}
+        <button onclick="osSetLink('${sym}',document.getElementById('os-url-input').value.trim());document.getElementById('os-popup').remove();"
+          style="flex:1;padding:9px;border-radius:8px;border:1px solid var(--green);background:rgba(19,214,143,.1);color:var(--green);font-weight:700;cursor:pointer;font-size:13px;">
+          💾 Guardar
+        </button>
+        ${curUrl ? `<button onclick="osSetLink('${sym}','');document.getElementById('os-popup').remove();"
+          style="padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:rgba(240,79,90,.1);color:#f04f5a;cursor:pointer;font-size:13px;">
+          🗑
+        </button>` : ''}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(popup);
+  popup.addEventListener('click', e => { if (e.target===popup) popup.remove(); });
+  // Focus en el input
+  setTimeout(() => document.getElementById('os-url-input')?.focus(), 50);
 }
 
 function aleToggleEvol(uid) {

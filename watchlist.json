@@ -638,6 +638,30 @@
       "screener": "🎯 Gangas",
       "addedDate": "2026-06-02",
       "notes": []
+    },
+    {
+      "symbol": "HOOD",
+      "name": "HOOD",
+      "status": "green",
+      "screener": "",
+      "addedDate": "2026-06-03",
+      "notes": [
+        {
+          "id": "n1780514445558",
+          "date": "2026-06-03",
+          "status": "orange",
+          "text": "ASDASDASD",
+          "image": null
+        }
+      ]
+    },
+    {
+      "symbol": "CMG",
+      "name": "CMG",
+      "status": "yellow",
+      "screener": "",
+      "addedDate": "2026-06-03",
+      "notes": []
     }
   ]
 }

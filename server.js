@@ -851,10 +851,12 @@ app.get('/api/market-data/:symbol', async (req, res) => {
     const ema20     = calcEMA(closes, 20);
     const macd      = calcMACD(closes);
 
-    // Earnings — solo acciones individuales
+    // Earnings + Sector — solo acciones individuales
     let earningsDays = 999;
+    let sector = null, industry = null;
     if (!isIndex) {
       try {
+        // Earnings desde calendarEvents
         const eR = await fetch(
           `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=calendarEvents`,
           { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -862,11 +864,23 @@ app.get('/api/market-data/:symbol', async (req, res) => {
         const eTs = eJ.quoteSummary?.result?.[0]?.calendarEvents?.earnings?.earningsDate?.[0]?.raw;
         if (eTs) earningsDays = Math.round((eTs * 1000 - Date.now()) / 86400000);
       } catch(e) {}
+      try {
+        // Sector e Industry desde search endpoint (más confiable)
+        const sR = await fetch(
+          `https://query1.finance.yahoo.com/v1/finance/search?q=${yhSym}&quotesCount=1&newsCount=0`,
+          { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.yahoo.com' } });
+        const sJ = await sR.json();
+        const sq = sJ.quotes?.[0];
+        if (sq?.quoteType === 'EQUITY') {
+          sector   = sq.sector   || null;
+          industry = sq.industry || null;
+        }
+      } catch(e) {}
     }
 
     res.json({
       symbol, price, chg, chgPct, vix, ivRank, rsi, earningsDays,
-      ema10, ema20, priceHistory,
+      ema10, ema20, priceHistory, sector, industry,
       macdLine: macd.line, macdSignal: macd.signal, macdHist: macd.hist,
     });
   } catch(e) {
