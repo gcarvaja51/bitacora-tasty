@@ -1235,6 +1235,159 @@ app.delete('/api/alejandro-checklists/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+
+// ── Cadena de Opciones ────────────────────────────────────────
+app.get('/api/option-chain/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const expiry = req.query.expiry || null;
+
+    // 1. Cadena de strikes/vencimientos desde TastyTrade
+    const chainData = await tt._req(`/option-chains/${symbol}/nested`);
+    const expirations = chainData.data?.items?.[0]?.expirations || [];
+    if (!expirations.length) return res.status(404).json({ error: 'No se encontró cadena de opciones' });
+
+    const expList = expiry
+      ? expirations.filter(e => e['expiration-date'] === expiry)
+      : expirations.slice(0, 6);
+
+    // 2. Precio actual del subyacente desde Yahoo Finance (v8 no requiere crumb)
+    let underlyingPrice = 0;
+    let ivBase = 0.40;
+    try {
+      const qR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const qJ = await qR.json();
+      underlyingPrice = parseFloat(qJ.chart?.result?.[0]?.meta?.regularMarketPrice || 0);
+    } catch(e) {}
+
+    // 3. Precios/Greeks reales desde TastyTrade /market-data en lotes de 50
+    const pricingMap = {};
+    const allSymbols = [];
+    for (const exp of expList) {
+      for (const s of (exp.strikes || [])) {
+        if (s.call) allSymbols.push(s.call);
+        if (s.put)  allSymbols.push(s.put);
+      }
+    }
+
+    const BATCH = 50;
+    for (let i = 0; i < allSymbols.length; i += BATCH) {
+      try {
+        const batch = allSymbols.slice(i, i + BATCH);
+        const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+        const d = await tt._req(`/market-data?${params}`);
+        for (const item of (d.data?.items || [])) {
+          const iv = parseFloat(item.volatility || 0) * 100;
+          if (iv > 0) ivBase = Math.max(ivBase, iv / 100);
+          pricingMap[item.symbol] = {
+            iv:     +iv.toFixed(1),
+            mark:   parseFloat(item.mark   || item.mid || 0),
+            bid:    parseFloat(item.bid    || 0),
+            ask:    parseFloat(item.ask    || 0),
+            volume: parseInt(item.volume   || 0),
+            oi:     parseInt(item['open-interest'] || 0),
+            delta:  parseFloat(item.delta  || 0),
+            theta:  parseFloat(item.theta  || 0),
+            gamma:  parseFloat(item.gamma  || 0),
+            vega:   parseFloat(item.vega   || 0),
+          };
+        }
+      } catch(e) {}
+    }
+
+    try {
+
+      // 4. Construir respuesta con Black-Scholes para strikes sin datos de Yahoo
+      const R = 0.0525;
+      function bsN(x) {
+        const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+        const sign=x<0?-1:1; x=Math.abs(x)/Math.sqrt(2);
+        const t=1/(1+p*x);
+        return 0.5*(1+sign*(1-(((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t)*Math.exp(-x*x)));
+      }
+      function bsPDF(x){return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI);}
+      function calcGreeks(S,K,T,sigma,isCall){
+        if(!S||!K||T<=0||!sigma) return {};
+        const d1=(Math.log(S/K)+(R+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));
+        const d2=d1-sigma*Math.sqrt(T);
+        const Nd1=bsN(d1),Nd2=bsN(d2),nd1=bsPDF(d1);
+        const delta=isCall?Nd1:Nd1-1;
+        const gamma=nd1/(S*sigma*Math.sqrt(T));
+        const theta=isCall
+          ?(-(S*nd1*sigma)/(2*Math.sqrt(T))-R*K*Math.exp(-R*T)*Nd2)/365
+          :(-(S*nd1*sigma)/(2*Math.sqrt(T))+R*K*Math.exp(-R*T)*bsN(-d2))/365;
+        return {
+          delta: +delta.toFixed(3),
+          gamma: +gamma.toFixed(4),
+          theta: +theta.toFixed(4),
+        };
+      }
+
+      const result = expList.map(exp => {
+        const expDate = exp['expiration-date'];
+        const T = Math.max((new Date(expDate) - Date.now()) / (365.25*86400000), 0.001);
+
+        return {
+          expiry: expDate,
+          dte:    exp['days-to-expiration'],
+          type:   exp['expiration-type'],
+          strikes: (exp.strikes || []).map(s => {
+            const strike = parseFloat(s['strike-price']);
+            const atm = underlyingPrice > 0 && Math.abs(strike - underlyingPrice) / underlyingPrice < 0.03;
+
+            // Buscar datos directamente por símbolo TastyTrade
+            const cData = pricingMap[s.call] || {};
+            const pData = pricingMap[s.put]  || {};
+
+            const cIv = (cData.iv||0) > 0 ? cData.iv/100 : ivBase;
+            const pIv = (pData.iv||0) > 0 ? pData.iv/100 : ivBase;
+
+            // Greeks: usar reales de TastyTrade si disponibles, sino Black-Scholes
+            const cGreeksBS = calcGreeks(underlyingPrice, strike, T, cIv, true);
+            const pGreeksBS = calcGreeks(underlyingPrice, strike, T, pIv, false);
+
+            return {
+              strike,
+              atm,
+              call: {
+                symbol: s.call,
+                iv:     +((cData.iv||0) > 0 ? cData.iv : ivBase*100).toFixed(1),
+                mark:   cData.mark   || 0,
+                bid:    cData.bid    || 0,
+                ask:    cData.ask    || 0,
+                volume: cData.volume || 0,
+                oi:     cData.oi     || 0,
+                delta:  cData.delta  || cGreeksBS.delta || 0,
+                theta:  cData.theta  || cGreeksBS.theta || 0,
+                gamma:  cData.gamma  || cGreeksBS.gamma || 0,
+                vega:   cData.vega   || 0,
+              },
+              put: {
+                symbol: s.put,
+                iv:     +((pData.iv||0) > 0 ? pData.iv : ivBase*100).toFixed(1),
+                mark:   pData.mark   || 0,
+                bid:    pData.bid    || 0,
+                ask:    pData.ask    || 0,
+                volume: pData.volume || 0,
+                oi:     pData.oi     || 0,
+                delta:  pData.delta  || pGreeksBS.delta || 0,
+                theta:  pData.theta  || pGreeksBS.theta || 0,
+                gamma:  pData.gamma  || pGreeksBS.gamma || 0,
+                vega:   pData.vega   || 0,
+              },
+            };
+          }),
+        };
+      });
+
+      return res.json({ symbol, underlyingPrice, expirations: result });
+    } catch(e2) {
+      return res.status(500).json({ error: e2.message });
+    }
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ── Guardado automático diario de NLV ─────────────────────────
