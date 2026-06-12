@@ -432,6 +432,23 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .wheel-basis-track { background:var(--border2); border-radius:4px; height:6px; overflow:hidden; }
 .wheel-basis-fill  { height:100%; border-radius:4px; background:linear-gradient(90deg,var(--green),#13d68f88); transition:width .4s; }
 /* Panel de precios rueda */
+.wheel-view-toggle { display:flex; gap:6px; margin-bottom:16px; }
+.wheel-view-btn { padding:6px 16px; border-radius:20px; border:1px solid var(--border2); background:transparent; color:var(--muted); font-size:11px; font-weight:600; cursor:pointer; transition:all .15s; letter-spacing:.06em; }
+.wheel-view-btn.active { background:rgba(19,214,143,.15); border-color:var(--green); color:var(--green); }
+/* Tabla rendimiento */
+.wheel-table-wrap { overflow-x:auto; margin-bottom:20px; }
+.wheel-tbl { width:100%; border-collapse:collapse; font-size:12px; }
+.wheel-tbl th { text-align:left; padding:8px 12px; font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border2); white-space:nowrap; }
+.wheel-tbl td { padding:9px 12px; border-bottom:1px solid var(--border); font-family:var(--mono); white-space:nowrap; }
+.wheel-tbl tr:hover td { background:rgba(255,255,255,.02); }
+.wheel-tbl .td-sym { font-weight:700; color:var(--bright); font-family:var(--font); }
+.wheel-tbl .td-phase { font-size:10px; }
+.wheel-tbl tfoot td { font-weight:700; color:var(--bright); border-top:1px solid var(--border2); border-bottom:none; }
+.meta-bar-track { height:6px; border-radius:3px; background:var(--border2); overflow:hidden; margin-top:4px; min-width:80px; }
+.meta-bar-fill  { height:100%; border-radius:3px; transition:width .4s; }
+.meta-ok   { color:var(--green); }
+.meta-warn { color:var(--gold); }
+.meta-low  { color:#e05c5c; }
 .wheel-price-panel { display:flex; align-items:stretch; gap:0; background:rgba(255,255,255,.04); border:1px solid var(--border2); border-radius:10px; margin:10px 0 4px; overflow:hidden; }
 .wheel-price-col { flex:1; padding:12px 14px; display:flex; flex-direction:column; gap:3px; }
 .wheel-price-label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
@@ -905,9 +922,13 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <div id="panel-positions" class="panel">
       <div class="kpi-row cols-3" id="pos-kpis" style="margin-bottom:16px;"></div>
       <div class="card">
-        <div class="card-header">
-          Posiciones Abiertas
-          <span id="pos-count" style="color:var(--blue);"></span>
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span>Posiciones Abiertas <span id="pos-count" style="color:var(--blue);"></span></span>
+          <div style="display:flex;gap:6px;">
+            <button id="pos-filter-all"     onclick="setPosFilter('all')"     style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--green);color:#000;">Todos</button>
+            <button id="pos-filter-options" onclick="setPosFilter('options')" style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--card2);color:var(--text);">📊 Opciones</button>
+            <button id="pos-filter-stocks"  onclick="setPosFilter('stocks')"  style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--card2);color:var(--text);">📈 Acciones</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -958,15 +979,15 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Cierre</th>
-              <th>Apertura</th>
-              <th>Símbolo</th>
-              <th>Estrategia</th>
-              <th>Duración</th>
-              <th>Prima cobrada</th>
-              <th>Costo cierre</th>
-              <th>P&amp;L</th>
-              <th>% Capturado</th>
+              <th onclick="sortHist('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hh-closeDate">▼</span></th>
+              <th onclick="sortHist('openDate')"    style="cursor:pointer;user-select:none;">Apertura <span id="hh-openDate"></span></th>
+              <th onclick="sortHist('underlying')"  style="cursor:pointer;user-select:none;">Símbolo <span id="hh-underlying"></span></th>
+              <th onclick="sortHist('stratType')"   style="cursor:pointer;user-select:none;">Estrategia <span id="hh-stratType"></span></th>
+              <th onclick="sortHist('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hh-durationDays"></span></th>
+              <th onclick="sortHist('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hh-pnl"></span></th>
+              <th onclick="sortHist('capPct')"      style="cursor:pointer;user-select:none;">% Capturado <span id="hh-capPct"></span></th>
+              <th onclick="sortHist('openValue')"   style="cursor:pointer;user-select:none;">Prima cobrada <span id="hh-openValue"></span></th>
+              <th onclick="sortHist('closeValue')"  style="cursor:pointer;user-select:none;">Costo cierre <span id="hh-closeValue"></span></th>
               <th>Journal</th>
             </tr></thead>
             <tbody id="hist-tbody">
@@ -1067,11 +1088,17 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <div class="card">
         <div class="card-header">Estrategias Cerradas (Round-trips)</div>
         <div class="table-wrap">
-          <table>
+          <table id="strat-table">
             <thead><tr>
-              <th>Apertura</th><th>Cierre</th><th>Tipo</th><th>Símbolo</th>
-              <th>Descripción</th><th>Recibido</th><th>Pagado Cierre</th>
-              <th>P&amp;L</th><th>Duración</th><th>Resultado</th>
+              <th onclick="histSort('openDate')"    style="cursor:pointer;user-select:none;">Apertura <span id="hs-openDate"></span></th>
+              <th onclick="histSort('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hs-closeDate"></span></th>
+              <th onclick="histSort('stratType')"   style="cursor:pointer;user-select:none;">Tipo <span id="hs-stratType"></span></th>
+              <th onclick="histSort('underlying')"  style="cursor:pointer;user-select:none;">Símbolo <span id="hs-underlying"></span></th>
+              <th onclick="histSort('openValue')"   style="cursor:pointer;user-select:none;">Recibido <span id="hs-openValue"></span></th>
+              <th onclick="histSort('closeValue')"  style="cursor:pointer;user-select:none;">Pagado Cierre <span id="hs-closeValue"></span></th>
+              <th onclick="histSort('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hs-pnl"></span></th>
+              <th onclick="histSort('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hs-durationDays"></span></th>
+              <th onclick="histSort('win')"         style="cursor:pointer;user-select:none;">Resultado <span id="hs-win"></span></th>
             </tr></thead>
             <tbody id="strat-tbody"></tbody>
           </table>
@@ -1184,7 +1211,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
           <table>
             <thead><tr>
               <th>Hora</th><th>Símbolo</th><th>Estrategia</th><th>Acción</th>
-              <th>Prima</th><th>Costo cierre</th><th>P&amp;L</th><th>% Cap.</th>
+              <th>P&amp;L</th><th>% Cap.</th><th>Prima</th><th>Costo cierre</th>
             </tr></thead>
             <tbody id="today-tbody">
               <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
@@ -1397,13 +1424,17 @@ function groupPositions(positions) {
     if (!map.has(key)) map.set(key, { underlying:und, expiry:exp||null, isStock, legs:[], unrealizedPnL:0, premiumNet:0, delta:0, theta:0, openDate });
     const g = map.get(key);
     const qty=parseFloat(p.quantity||0), op=parseFloat(p['average-open-price']||0),
-          mp=parseFloat(p['mark-price'] || p['close-price'] || 0),
+          mp=parseFloat(p['mark-price'] || p['average-daily-market-close-price'] || p['close-price'] || 0),
           mul=parseFloat(p.multiplier||1);
     g.legs.push(p);
     g.currentPrice = mp;
-    // SHORT: ganas cuando precio baja (op > mp). LONG: ganas cuando sube (mp > op)
+    // Acumular contratos reales (con signo: Short=negativo, Long=positivo)
+    const qtySign = p['quantity-direction']==='Short' ? -1 : 1;
+    g.totalQty = (g.totalQty||0) + qtySign * Math.abs(qty);
+    // P&L: SHORT gana cuando precio baja (op > mp). LONG gana cuando sube (mp > op)
     const posDir = p['quantity-direction']==='Short' ? -1 : 1;
     g.unrealizedPnL += posDir * (mp-op)*qty*mul;
+    // premiumNet: solo patas SHORT suman, patas LONG restan
     if (p['quantity-direction']==='Short') g.premiumNet += op*Math.abs(qty)*mul;
     else                                    g.premiumNet -= op*Math.abs(qty)*mul;
     // Greeks (acumular delta y theta de todas las patas)
@@ -1953,6 +1984,8 @@ function buildPosRow(g) {
   g.dte = dte;
   const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
   const absPrem = Math.abs(g.premiumNet);
+  // Para credit spreads (premiumNet > 0): % capturado = P&L / premium cobrado
+  // Para debit spreads (premiumNet < 0): % capturado = P&L / costo pagado (también positivo)
   const pct = absPrem > 0 ? (g.unrealizedPnL / absPrem * 100) : 0;
   const osLink = osGetLinks()[g.underlying] ? '🔗' : '';
   return `<tr>
@@ -1962,7 +1995,7 @@ function buildPosRow(g) {
     <td class="td-mono dim" style="font-size:11px;">${strikes}</td>
     <td class="td-mono dim">${expStr}</td>
     <td>${dte!==null?dteChip(dte):'—'}</td>
-    <td class="td-mono">${g.legs.length}</td>
+    <td class="td-mono">${Math.abs(g.totalQty||0) || g.legs.length}</td>
     <td class="td-mono ${cc(g.unrealizedPnL)}" style="font-weight:700">${f$(g.unrealizedPnL)}</td>
     <td class="td-mono ${g.premiumNet>=0?'pos':'neg'}">${g.premiumNet>=0?fa$(g.premiumNet):'-'+fa$(Math.abs(g.premiumNet))}</td>
     <td class="td-mono dim">${g.underlyingPrice > 0 ? '$'+g.underlyingPrice.toFixed(2) : (g.currentPrice ? '$'+g.currentPrice.toFixed(2) : '—')}</td>
@@ -1980,9 +2013,26 @@ function buildPosRow(g) {
 
 // ── Sort de posiciones ──────────────────────────────────────
 let _posSort = { col: 'sym', asc: true };
+let _posFilter = 'all';
 let _posGroups = [];
 let _posRows   = [];
 let _posRowMap = {};
+
+function setPosFilter(f) {
+  _posFilter = f;
+  ['all','options','stocks'].forEach(k => {
+    const btn = document.getElementById('pos-filter-'+k);
+    if (!btn) return;
+    if (k === f) { btn.style.background='var(--green)'; btn.style.color='#000'; }
+    else         { btn.style.background='var(--card2)'; btn.style.color='var(--text)'; }
+  });
+  renderPosRows(_posGroups);
+  // Actualizar torta con el filtro activo
+  let filtered = _posGroups;
+  if (f === 'options') filtered = _posGroups.filter(g => !g.isStock);
+  if (f === 'stocks')  filtered = _posGroups.filter(g =>  g.isStock);
+  renderPosSectorChart(filtered);
+}
 
 function posSort(col) {
   if (_posSort.col === col) _posSort.asc = !_posSort.asc;
@@ -1998,9 +2048,16 @@ function posSort(col) {
 
 function renderPosRows(groups) {
   if (!groups.length) return;
+  _posGroups = groups;
+
+  // Aplicar filtro por tipo
+  let filtered = groups;
+  if (_posFilter === 'options') filtered = groups.filter(g => !g.isStock);
+  if (_posFilter === 'stocks')  filtered = groups.filter(g =>  g.isStock);
+
   const col = _posSort.col;
   const asc = _posSort.asc;
-  const sorted = [...groups].sort((a,b) => {
+  const sorted = [...filtered].sort((a,b) => {
     let va, vb;
     if      (col==='sym')    { va=a.underlying;  vb=b.underlying; }
     else if (col==='tipo')   { va=a.stratType||''; vb=b.stratType||''; }
@@ -2022,7 +2079,6 @@ function renderPosRows(groups) {
   });
 
   // Regenerar HTML con los grupos en el nuevo orden
-  _posGroups = sorted;
   const tbody = $('pos-tbody');
   if (!tbody) return;
   tbody.innerHTML = sorted.map(g => buildPosRow(g)).join('') || '<tr><td colspan="14" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
@@ -2125,45 +2181,68 @@ async function loadHistory() {
   initHistFilters();
   try {
     const sd = $('hist-from').value, ed = $('hist-to').value;
-    const data = await api(`/api/transactions?startDate=${sd}&endDate=${ed}`);
+    // Siempre pedimos desde el inicio de la cuenta para que el FIFO
+    // pueda emparejar aperturas antiguas con cierres recientes.
+    // El filtro visual se aplica por closeDate abajo.
+    const data = await api(`/api/transactions?startDate=2026-02-01&endDate=${ed}`);
     const legs       = data.metrics?.strategies || [];
     const strategies = consolidateStrategies(legs)
-      .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate));
+      .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed)
+      .filter(() => true); // sort aplicado en renderHistRows
 
+    strategies.forEach(s => { s.capPct = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null; });
     const wins     = strategies.filter(s => s.pnl > 0).length;
     const totalPnl = strategies.reduce((a,b) => a + b.pnl, 0);
     $('hist-summary').textContent =
       `${strategies.length} trades cerrados · Win Rate: ${strategies.length ? Math.round(wins/strategies.length*100) : 0}% · P&L: ${f$(totalPnl)}`;
 
-    $('hist-tbody').innerHTML = !strategies.length
-      ? '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
-      : strategies.map(s => {
-          const key      = tradeKey(s);
-          const hasNote  = jNotes[key];
-          const captured = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null;
-          const capHtml  = captured !== null
-            ? `<span class="${captured >= 0 ? 'pos' : 'neg'}">${captured > 0 ? '+' : ''}${captured}%</span>`
-            : '—';
-          const durLabel = s.durationDays === 0 ? 'Intradía'
-            : s.durationDays === 1 ? '1 día'
-            : `${s.durationDays}d`;
-          return `<tr>
-            <td class="td-mono dim">${s.closeDate || '—'}</td>
-            <td class="td-mono dim">${s.openDate  || '—'}</td>
-            <td class="td-bright">${s.underlying  || '—'}</td>
-            <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType || '—'}</span></td>
-            <td class="td-mono dim">${durLabel}</td>
-            <td class="td-mono pos">${s.openValue  ? '+'+fa$(Math.abs(s.openValue))  : '—'}</td>
-            <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : '—'}</td>
-            <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
-            <td>${capHtml}</td>
-            <td><button onclick='openJournal(${JSON.stringify(s)})' class="btn" style="padding:4px 8px;font-size:11px;">
-              ${hasNote ? '📓✅' : '📓'}
-            </button></td>
-          </tr>`;
-        }).join('');
+    window._histData = strategies;
+    window._histSortCol = 'closeDate';
+    window._histSortAsc = false;
+
+    window.sortHist = function(col) {
+      if (window._histSortCol === col) window._histSortAsc = !window._histSortAsc;
+      else { window._histSortCol = col; window._histSortAsc = false; }
+      ['closeDate','openDate','underlying','stratType','durationDays','pnl','capPct','openValue','closeValue'].forEach(c => {
+        const el = document.getElementById('hh-'+c);
+        if (el) el.textContent = c === col ? (window._histSortAsc ? '▲' : '▼') : '';
+      });
+      window.renderHistRows(window._histData, window._histSortCol, window._histSortAsc);
+    };
+
+    window.renderHistRows = function(list, col, asc) {
+      const numCols = new Set(['durationDays','pnl','capPct','openValue','closeValue']);
+      const sorted = [...list].sort((a,b) => {
+        const va = numCols.has(col) ? (a[col]||0) : (a[col]||'');
+        const vb = numCols.has(col) ? (b[col]||0) : (b[col]||'');
+        if (typeof va === 'number') return asc ? va-vb : vb-va;
+        return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+      });
+      $('hist-tbody').innerHTML = !sorted.length
+        ? '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
+        : sorted.map(s => {
+            const key     = tradeKey(s);
+            const hasNote = jNotes[key];
+            const capHtml = s.capPct !== null && s.capPct !== undefined
+              ? `<span class="${s.capPct >= 0 ? 'pos' : 'neg'}">${s.capPct > 0 ? '+' : ''}${s.capPct}%</span>` : '—';
+            const durLabel = s.durationDays === 0 ? 'Intradía' : s.durationDays === 1 ? '1 día' : `${s.durationDays}d`;
+            return `<tr>
+              <td class="td-mono dim">${s.closeDate||'—'}</td>
+              <td class="td-mono dim">${s.openDate||'—'}</td>
+              <td class="td-bright">${s.underlying||'—'}</td>
+              <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType||'—'}</span></td>
+              <td class="td-mono dim">${durLabel}</td>
+              <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+              <td>${capHtml}</td>
+              <td class="td-mono pos">${s.openValue ? '+'+fa$(Math.abs(s.openValue)) : '—'}</td>
+              <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : '—'}</td>
+              <td><button onclick='openJournal(${JSON.stringify(s)})' class="btn" style="padding:4px 8px;font-size:11px;">${hasNote ? '📓✅' : '📓'}</button></td>
+            </tr>`;
+          }).join('');
+    };
+    renderHistRows(strategies, 'closeDate', false);
   } catch(e) {
-    $('hist-tbody').innerHTML = `<tr><td colspan="9"><div class="error-box">${e.message}</div></td></tr>`;
+    $('hist-tbody').innerHTML = `<tr><td colspan="10"><div class="error-box">${e.message}</div></td></tr>`;
   }
 }
 
@@ -2184,16 +2263,76 @@ async function loadReports(forceRefresh) {
 
     $('rep-period-label').textContent = `${sd} → ${ed}`;
 
-    // Si hay filtro activo o force, fetch fresh; sino usar caché
-    let data;
-    if (forceRefresh || sd !== '2026-02-01') {
-      data = await api(`/api/transactions?startDate=${sd}&endDate=${ed}`);
-    } else {
-      if (!S.txns) S.txns = await api('/api/transactions');
-      data = S.txns;
+    // Siempre pedimos desde el inicio de la cuenta para que el FIFO
+    // empareje aperturas antiguas con cierres dentro del rango.
+    // Los KPIs y tablas se filtran por closeDate abajo.
+    if (forceRefresh || !S.txns) {
+      S.txns = await api(`/api/transactions?startDate=2026-02-01&endDate=${ed}`);
     }
+    let data = S.txns;
+    // Filtrar estrategias al rango seleccionado por closeDate
+    const allStrats = data.metrics?.strategies || [];
+    const filteredStrats = allStrats.filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+    // Recalcular métricas sobre el rango filtrado
+    const wins = filteredStrats.filter(s => s.pnl > 0);
+    const losers = filteredStrats.filter(s => s.pnl <= 0);
+    const totalGain = wins.reduce((a,b) => a+b.pnl, 0);
+    const totalLoss = Math.abs(losers.reduce((a,b) => a+b.pnl, 0));
+    const byUnd = {}, bySt = {}, byTime = {}, byDur = {};
+    for (const s of filteredStrats) {
+      const un = s.underlying||'OTHER';
+      if (!byUnd[un]) byUnd[un] = {pnl:0,trades:0,wins:0};
+      byUnd[un].pnl += s.pnl; byUnd[un].trades++; if(s.pnl>0) byUnd[un].wins++;
+      const st = s.stratType||'Otro';
+      if (!bySt[st]) bySt[st] = {pnl:0,trades:0,wins:0,avgWin:0,avgLoss:0,winRate:0};
+      bySt[st].pnl += s.pnl; bySt[st].trades++; if(s.pnl>0) bySt[st].wins++;
+      const ap = s.amPm||'Unknown';
+      if (!byTime[ap]) byTime[ap] = {pnl:0,trades:0,wins:0};
+      byTime[ap].pnl += s.pnl; byTime[ap].trades++; if(s.pnl>0) byTime[ap].wins++;
+      const dc = s.durationCat||'Unknown';
+      if (!byDur[dc]) byDur[dc] = {pnl:0,trades:0,wins:0};
+      byDur[dc].pnl += s.pnl; byDur[dc].trades++; if(s.pnl>0) byDur[dc].wins++;
+    }
+    for (const [type,d] of Object.entries(bySt)) {
+      const sw = filteredStrats.filter(s=>s.stratType===type&&s.pnl>0);
+      const sl = filteredStrats.filter(s=>s.stratType===type&&s.pnl<=0);
+      d.avgWin  = sw.length ? +(sw.reduce((a,b)=>a+b.pnl,0)/sw.length).toFixed(2) : 0;
+      d.avgLoss = sl.length ? +(sl.reduce((a,b)=>a+b.pnl,0)/sl.length).toFixed(2) : 0;
+      d.winRate = d.trades ? +((d.wins/d.trades)*100).toFixed(1) : 0;
+    }
+    const stratByDay = {}, strategyByMonth = {}, strategyByWeek = {};
+    const brokerByMonthFiltered = {};
+    filteredStrats.forEach(s => {
+      if (!s.closeDate) return;
+      stratByDay[s.closeDate] = (stratByDay[s.closeDate]||0) + s.pnl;
+      const mo = s.closeDate.slice(0,7);
+      strategyByMonth[mo] = (strategyByMonth[mo]||0) + s.pnl;
+    });
+    // Comisiones solo del rango filtrado (por mes de closeDate de estrategias)
+    const activeMos = new Set(filteredStrats.map(s => s.closeDate?.slice(0,7)).filter(Boolean));
+    for (const [mo, comm] of Object.entries(data.metrics?.brokerByMonth||{})) {
+      if (activeMos.has(mo)) brokerByMonthFiltered[mo] = comm;
+    }
+    const totalCommFiltered = Object.values(brokerByMonthFiltered).reduce((a,b)=>a+b, 0);
+    const m = {
+      ...data.metrics,
+      strategies:      filteredStrats,
+      totalStrategies: filteredStrats.length,
+      winRate:         filteredStrats.length ? +((wins.length/filteredStrats.length)*100).toFixed(2) : 0,
+      profitFactor:    totalLoss > 0 ? +(totalGain/totalLoss).toFixed(2) : totalGain>0 ? 999 : 0,
+      avgWinner:       wins.length   ? +(totalGain/wins.length).toFixed(2)   : 0,
+      avgLoser:        losers.length ? +(totalLoss/losers.length).toFixed(2) : 0,
+      totalPnL:        +filteredStrats.reduce((a,b)=>a+b.pnl,0).toFixed(2),
+      byUnderlying:    byUnd,
+      byStrategy:      bySt,
+      byTimeSlot:      byTime,
+      byDuration:      byDur,
+      stratByDay,
+      strategyByMonth,
+      totalComm:       +totalCommFiltered.toFixed(2),
+      brokerByMonth:   brokerByMonthFiltered,
+    };
     if (!S.curve || !S.curve.byMonth) S.curve = await api('/api/curve');
-    const m = data.metrics;
 
     // KPIs
     $('rep-kpis').innerHTML = [
@@ -2299,8 +2438,31 @@ async function loadReports(forceRefresh) {
     // Strategies table — consolidada (un spread = una fila)
     const stratList = consolidateStrategies(m.strategies||[])
       .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
-      .slice(0, 30);
-    $('strat-tbody').innerHTML = stratList.length ? stratList.map(s=>`<tr>
+      .slice(0, 50);
+
+    // Función de sorting para la tabla de estrategias
+    window._stratList = stratList;
+    window._stratSortCol = 'closeDate';
+    window._stratSortAsc = false;
+    window.histSort = function(col) {
+      if (window._stratSortCol === col) window._stratSortAsc = !window._stratSortAsc;
+      else { window._stratSortCol = col; window._stratSortAsc = false; }
+      // Actualizar indicadores
+      ['openDate','closeDate','stratType','underlying','openValue','closeValue','pnl','durationDays','win'].forEach(c => {
+        const el = document.getElementById('hs-'+c);
+        if (el) el.textContent = c === col ? (window._stratSortAsc ? ' ▲' : ' ▼') : '';
+      });
+      const asc = window._stratSortAsc;
+      const sorted = [...window._stratList].sort((a,b) => {
+        const va = a[col], vb = b[col];
+        if (typeof va === 'number') return asc ? va-vb : vb-va;
+        return asc ? String(va||'').localeCompare(String(vb||'')) : String(vb||'').localeCompare(String(va||''));
+      });
+      renderStratRows(sorted);
+    };
+
+    function renderStratRows(list) {
+      $('strat-tbody').innerHTML = list.length ? list.map(s=>`<tr>
       <td class="td-mono dim">${s.openDate||'—'}</td>
       <td class="td-mono dim">${s.closeDate||'—'}</td>
       <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
@@ -2311,6 +2473,8 @@ async function loadReports(forceRefresh) {
       <td class="dim td-mono" style="font-size:10px;">${s.durationDays===0?'Intradía':s.durationDays===1?'1d':`${s.durationDays}d`}</td>
       <td><span class="badge ${s.pnl>0?'badge-green':'badge-red'}">${s.pnl>0?'✓ WIN':'✗ LOSS'}</span></td>
     </tr>`).join('') : '<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
+    }
+    renderStratRows(stratList);
 
     // Monthly table — NLV change como fuente principal (coincide con TastyTrade)
     const curveByMonth = S.curve?.nlvByMonth || m.strategyByMonth || m.byMonth || {};
@@ -2609,13 +2773,14 @@ async function loadWatchlist() {
     stocks.forEach(async s => {
       try {
         const pb = await api('/api/watchlist/'+s.symbol+'/playbook-score');
-        if (pb) {
-          // Recalcular score con la lógica actual del frontend
-          const { scoreGlobal, modScores } = calcAlejandroScore(pb.checks || {}, pb.direction || 'alcista');
+        if (pb && pb.checks) {
+          // Recalcular score — usar direction del checklist, fallback 'alcista'
+          const tesis = pb.direction || pb.tesis || 'alcista';
+          const { scoreGlobal, modScores } = calcAlejandroScore(pb.checks, tesis);
           wlPbCache[s.symbol] = { ...pb, score: scoreGlobal, modScores };
           renderWatchlistTable();
         }
-      } catch(e) {}
+      } catch(e) { console.warn('[WL Playbook]', s.symbol, e.message); }
       // Cargar sector en background
       try {
         const fund = await api('/api/watchlist/'+s.symbol+'/fundamentals');
@@ -2931,11 +3096,13 @@ function wlOpenPlaybook(sym) {
   aleState.imagen = '';
   aleState.audio  = '';
   aleState.autoData = null;
-  switchTab('playbook-alejandro');
+  // Navegar al panel Playbook Alejandro (panel-alejandro)
+  const navEl = document.querySelector('.nav-item[onclick*="alejandro"]');
+  if (navEl) nav('alejandro', navEl);
   setTimeout(() => {
     const input = $('ale-ticker-input');
     if (input) { input.value = sym; aleCargarTicker(); }
-  }, 300);
+  }, 400);
 }
 
 // ── Screeners Paradigma ────────────────────────────────────────
@@ -3537,6 +3704,7 @@ async function loadWheel() {
     const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯' };
     const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado' };
 
+    // ── VISTA CARDS ──────────────────────────────────────────────
     const cardsHtml = wheels.map(w => {
       const origCost = w.avgCost || 0;
       const adjCost  = w.costBasis !== null ? w.costBasis : origCost;
@@ -3546,7 +3714,6 @@ async function loadWheel() {
                      : w.activeCall ? `Call $${w.activeCall.strike.toFixed(2)} · ${w.activeCall.expiry.slice(5)}${ctrLabel(w.contractsCall)}`
                      : w.shares > 0 ? `${w.shares} acciones` : '—';
 
-      // ── Precio actual vs costo base ────────────────────────
       const mkt = priceMap[w.underlying] || { price:0, chg:0, chgPct:0 };
       const currentPrice = mkt.price || 0;
       const costBase = w.costBasis !== null ? w.costBasis : null;
@@ -3635,7 +3802,251 @@ async function loadWheel() {
       </div>`;
     }).join('');
 
+    // ── VISTA RENDIMIENTO ────────────────────────────────────────
+    const META_MENSUAL_PCT = 5; // % meta mensual sobre margen invertido
+
+    const totalPortValue = wheels.reduce((s, w) => {
+      const mkt = priceMap[w.underlying] || {};
+      const shares = w.shares > 0 ? w.shares : w.contracts * 100;
+      return s + (mkt.price || 0) * shares;
+    }, 0);
+
+    const rendHtml = (() => {
+      // Mes actual en curso (YYYY-MM)
+      const todayD    = new Date();
+      const mesActual = todayD.toISOString().slice(0, 7);
+
+      const rows = wheels.map(w => {
+        const mkt          = priceMap[w.underlying] || {};
+        const currentPrice = mkt.price || 0;
+        const shares       = w.shares > 0 ? w.shares : w.contracts * 100;
+        const posValue     = currentPrice * shares;
+
+        // Base de inversión real:
+        // 1) margen de TastyTrade si viene > 0
+        // 2) fallback: costBasis × shares (dinero real inmovilizado en margin ~45-50%)
+        const marginReal = w.marginRequired > 0
+          ? w.marginRequired
+          : w.costBasis > 0 ? w.costBasis * shares * 0.45 : 0;
+
+        // Fechas — usar SOLO eventos de prima (no compras de acciones)
+        const premTypes  = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
+        const premEvents = w.events.filter(e => premTypes.has(e.type));
+        const firstDate  = premEvents.length > 0 ? new Date(premEvents[0].date) : null;
+        // Meses transcurridos desde primera prima — mínimo 1 mes completo para no inflar
+        const mesesRaw   = firstDate ? (todayD - firstDate) / (1000*60*60*24*30.44) : 1;
+        const meses      = Math.max(1, mesesRaw); // floor 1 mes
+
+        // Primas cobradas en el mes actual
+        const primaMesActual = w.events
+          .filter(e => premTypes.has(e.type) && (e.date||'').startsWith(mesActual))
+          .reduce((s, e) => s + (e.amount || 0), 0);
+
+        // Meta mensual en dólares = marginReal × 5%
+        const metaMes   = marginReal * META_MENSUAL_PCT / 100;
+        // % cumplimiento de meta este mes
+        const metaPct   = metaMes > 0 ? Math.min(200, (primaMesActual / metaMes) * 100) : 0;
+        const metaCls   = metaPct >= 100 ? 'meta-ok' : metaPct >= 60 ? 'meta-warn' : 'meta-low';
+        const metaBarW  = Math.min(100, metaPct).toFixed(1);
+        const metaBarClr= metaPct >= 100 ? 'var(--green)' : metaPct >= 60 ? 'var(--gold)' : '#e05c5c';
+
+        // Rentabilidades corregidas
+        const rentAcum  = marginReal > 0 ? (w.totalPremium / marginReal) * 100 : 0;
+        const rentMes   = meses > 0 ? rentAcum / meses : 0; // promedio mensual histórico
+        // Tasa anual: solo mostrar si hay >= 1 mes de historia real
+        const tieneHistoria = mesesRaw >= 1;
+        const rentAnual = tieneHistoria ? (Math.pow(1 + rentMes/100, 12) - 1) * 100 : null;
+
+        const particip  = totalPortValue > 0 ? (posValue / totalPortValue) * 100 : 0;
+
+        const phaseMap = { CSP_ACTIVA:'CSP', CC_ACTIVA:'Cov. Call', ACCIONES:'Acciones', IDLE:'Idle' };
+        const phaseCss = { CSP_ACTIVA:'#5b82e6', CC_ACTIVA:'var(--green)', ACCIONES:'var(--gold)', IDLE:'var(--muted)' };
+        const estrategia = phaseMap[w.phase] || 'La Rueda';
+
+        return { w, marginReal, rentAcum, rentMes, rentAnual, particip, meses, mesesRaw,
+                 currentPrice, shares, posValue, estrategia, phaseCss,
+                 primaMesActual, metaMes, metaPct, metaCls, metaBarW, metaBarClr };
+      });
+
+      const totalMargin      = rows.reduce((s,r) => s + r.marginReal, 0);
+      const totalPrem        = rows.reduce((s,r) => s + r.w.totalPremium, 0);
+      const totalMeta        = rows.reduce((s,r) => s + r.metaMes, 0);
+      const totalPrimaMes    = rows.reduce((s,r) => s + r.primaMesActual, 0);
+      const metaTotalPct     = totalMeta > 0 ? Math.min(200, totalPrimaMes/totalMeta*100) : 0;
+      const metaTotalCls     = metaTotalPct>=100?'meta-ok':metaTotalPct>=60?'meta-warn':'meta-low';
+      const avgRentMes       = totalMargin > 0 ? (totalPrem / totalMargin) * 100 / Math.max(1, rows.reduce((s,r)=>s+r.meses,0)/rows.length) : 0;
+
+      const tRows = rows.map(r => {
+        const anualStr = r.rentAnual !== null
+          ? `<span class="${r.rentAnual>=60?'meta-warn':''}">${r.rentAnual.toFixed(1)}%</span>`
+          : `<span class="dim" title="< 1 mes de historia">—</span>`;
+        const metaCell = `
+          <div style="font-size:11px;" class="${r.metaCls}">
+            $${r.primaMesActual.toFixed(0)} / $${r.metaMes.toFixed(0)}
+            <span style="float:right;">${r.metaPct.toFixed(0)}%</span>
+          </div>
+          <div class="meta-bar-track">
+            <div class="meta-bar-fill" style="width:${r.metaBarW}%;background:${r.metaBarClr};"></div>
+          </div>`;
+        return `
+        <tr>
+          <td class="td-sym">${r.w.underlying}</td>
+          <td class="td-phase" style="color:${r.phaseCss[r.w.phase]||'var(--muted)'};">${r.estrategia}</td>
+          <td>${r.marginReal > 0 ? '$'+r.marginReal.toFixed(0) : '<span class="dim">—</span>'}</td>
+          <td class="pos">+$${r.w.totalPremium.toFixed(2)}</td>
+          <td class="pos">${r.rentAcum.toFixed(1)}%</td>
+          <td class="pos">${r.rentMes.toFixed(2)}%/m</td>
+          <td>${anualStr}</td>
+          <td style="min-width:140px;">${metaCell}</td>
+          <td class="dim">${r.mesesRaw >= 1 ? r.meses.toFixed(1)+' m' : '<1m'}</td>
+        </tr>`;
+      }).join('');
+
+      const metaTotalCell = `
+        <div style="font-size:11px;" class="${metaTotalCls}">
+          $${totalPrimaMes.toFixed(0)} / $${totalMeta.toFixed(0)}
+          <span style="float:right;">${metaTotalPct.toFixed(0)}%</span>
+        </div>
+        <div class="meta-bar-track">
+          <div class="meta-bar-fill" style="width:${Math.min(100,metaTotalPct).toFixed(1)}%;background:${metaTotalPct>=100?'var(--green)':metaTotalPct>=60?'var(--gold)':'#e05c5c'};"></div>
+        </div>`;
+
+      return `
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+          <div style="font-size:12px;color:var(--muted);">Meta mensual: <strong style="color:var(--bright);">${META_MENSUAL_PCT}% sobre margen invertido</strong></div>
+          <div style="font-size:11px;padding:4px 12px;border-radius:12px;border:1px solid var(--border2);color:var(--muted);">
+            Meta total mes: <strong class="${metaTotalCls}">$${totalMeta.toFixed(0)}</strong>
+            · Cobrado: <strong class="${metaTotalCls}">$${totalPrimaMes.toFixed(0)}</strong>
+            · <strong class="${metaTotalCls}">${metaTotalPct.toFixed(0)}%</strong>
+          </div>
+        </div>
+        <div class="wheel-table-wrap">
+          <table class="wheel-tbl">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Estrategia</th>
+                <th>Margen Inv.</th>
+                <th>Prima Total</th>
+                <th>Rent. Acum</th>
+                <th>Prom/Mes</th>
+                <th>Tasa Anual</th>
+                <th>Meta 5%/m · Mes Actual</th>
+                <th>Tiempo</th>
+              </tr>
+            </thead>
+            <tbody>${tRows}</tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2">TOTAL</td>
+                <td>$${totalMargin.toFixed(0)}</td>
+                <td class="pos">+$${totalPrem.toFixed(2)}</td>
+                <td class="pos">${(totalMargin>0?(totalPrem/totalMargin*100):0).toFixed(1)}%</td>
+                <td class="pos">${avgRentMes.toFixed(2)}%/m</td>
+                <td>—</td>
+                <td>${metaTotalCell}</td>
+                <td>—</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:-8px;margin-bottom:16px;">
+          ⚠️ Margen Inv. = dato real de TastyTrade · fallback: 45% del nocional (costBasis × acciones) si la API no lo devuelve.
+          Tasa Anual se oculta si hay menos de 1 mes de historia.
+        </div>`;
+    })();
+
+    // ── VISTA SEMANAL DE PRIMAS ──────────────────────────────────
+    const semanalHtml = (() => {
+      function mondayOf(dateStr) {
+        const d = new Date(dateStr + 'T12:00:00Z');
+        const dow = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() - dow + 1);
+        return d.toISOString().slice(0,10);
+      }
+
+      const premiumTypes = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
+      // tickerMap: { ticker: { weekStart: amount } }
+      const tickerMap = {};
+      const allWeeksSet = new Set();
+      const allTickers = wheels.map(w => w.underlying);
+
+      for (const w of wheels) {
+        if (!tickerMap[w.underlying]) tickerMap[w.underlying] = {};
+        for (const ev of w.events) {
+          if (!premiumTypes.has(ev.type)) continue;
+          const wk = mondayOf(ev.date);
+          allWeeksSet.add(wk);
+          tickerMap[w.underlying][wk] = (tickerMap[w.underlying][wk] || 0) + (ev.amount || 0);
+        }
+      }
+
+      const allWeeks = [...allWeeksSet].sort().reverse(); // recientes primero
+      if (!allWeeks.length) return '<div class="dim" style="padding:40px;text-align:center;">Sin datos de primas semanales.</div>';
+
+      // Cabecera: semanas como columnas (formato corto MM-DD)
+      const thWeeks = allWeeks.map(wk => {
+        const fri = new Date(wk + 'T12:00:00Z');
+        fri.setUTCDate(fri.getUTCDate() + 4);
+        return `<th style="font-size:9px;">${wk.slice(5)}<br><span style="color:var(--muted);font-weight:400;">→${fri.toISOString().slice(5,10)}</span></th>`;
+      }).join('');
+
+      // Filas: un ticker por fila
+      const tRows = allTickers.map(t => {
+        const weekCells = allWeeks.map(wk => {
+          const v = tickerMap[t]?.[wk] || 0;
+          if (v === 0) return '<td class="dim">—</td>';
+          return `<td class="${v>=0?'pos':'neg'}">${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}</td>`;
+        }).join('');
+        const tickerTotal = allWeeks.reduce((s,wk) => s + (tickerMap[t]?.[wk]||0), 0);
+        const wksWithData = allWeeks.filter(wk => tickerMap[t]?.[wk]).length || 1;
+        const avg = tickerTotal / wksWithData;
+        return `<tr>
+          <td class="td-sym">${t}</td>
+          ${weekCells}
+          <td class="pos" style="font-weight:700;">+$${tickerTotal.toFixed(2)}</td>
+          <td class="dim">$${avg.toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+
+      // Fila de totales por semana
+      const totWeekCells = allWeeks.map(wk => {
+        const tot = allTickers.reduce((s,t) => s + (tickerMap[t]?.[wk]||0), 0);
+        return `<td class="${tot>=0?'pos':'neg'}" style="font-weight:700;">${tot>=0?'+$':'-$'}${Math.abs(tot).toFixed(2)}</td>`;
+      }).join('');
+      const grandTotal = wheels.reduce((s,w)=>s+w.totalPremium,0);
+      const avgTotal   = allWeeks.length ? grandTotal/allWeeks.length : 0;
+
+      return `
+        <div class="wheel-table-wrap">
+          <table class="wheel-tbl">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                ${thWeeks}
+                <th>TOTAL</th>
+                <th>Prom/sem</th>
+              </tr>
+            </thead>
+            <tbody>${tRows}</tbody>
+            <tfoot>
+              <tr style="background:rgba(19,214,143,.05);">
+                <td style="font-weight:700;color:var(--bright);">TOTAL</td>
+                ${totWeekCells}
+                <td class="pos" style="font-weight:700;">+$${grandTotal.toFixed(2)}</td>
+                <td class="dim">$${avgTotal.toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>`;
+    })();
+
     const totalPrem = wheels.reduce((s,w)=>s+w.totalPremium,0);
+    const wv = typeof wheelView !== 'undefined' ? wheelView : 'cards';
+
+    const contentHtml = wv === 'rendimiento' ? rendHtml
+                      : wv === 'semanal'     ? semanalHtml
+                      : `<div class="wheel-grid">${cardsHtml||'<div class="dim" style="padding:40px;">No hay ruedas configuradas. Agrega un activo arriba.</div>'}</div>`;
 
     $('wheel-content').innerHTML = `
       <div style="margin-bottom:16px;">
@@ -3645,19 +4056,26 @@ async function loadWheel() {
           ${kpiCard('Estrategia', 'The Wheel', 'CSP → Acciones → CC','dim')}
         </div>
       </div>
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
-        <input id="wheel-add-input" type="text" placeholder="Ticker (ej: BABA)" 
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+        <input id="wheel-add-input" type="text" placeholder="Ticker (ej: BABA)"
           style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-family:var(--mono);font-size:13px;width:160px;text-transform:uppercase;"
           onkeydown="if(event.key==='Enter') addWheel()">
         <button onclick="addWheel()" class="btn btn-primary" style="padding:8px 18px;">+ Agregar Rueda</button>
         <span class="dim" style="font-size:11px;">Activos: ${underlyings.join(', ')}</span>
       </div>
-      <div class="wheel-grid">${cardsHtml||'<div class="dim" style="padding:40px;">No hay ruedas configuradas. Agrega un activo arriba.</div>'}</div>
+      <div class="wheel-view-toggle" style="margin-bottom:16px;">
+        <button class="wheel-view-btn ${wv==='cards'?'active':''}" onclick="wheelView='cards';loadWheel()">🃏 Cards</button>
+        <button class="wheel-view-btn ${wv==='rendimiento'?'active':''}" onclick="wheelView='rendimiento';loadWheel()">📈 Rendimiento</button>
+        <button class="wheel-view-btn ${wv==='semanal'?'active':''}" onclick="wheelView='semanal';loadWheel()">📅 Primas/Semana</button>
+      </div>
+      ${contentHtml}
     `;
   } catch(e) {
     $('wheel-content').innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
   }
 }
+
+
 
 async function addWheel() {
   const input = $('wheel-add-input');
@@ -3710,10 +4128,10 @@ async function loadToday() {
             <td class="td-bright">${s.underlying}</td>
             <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
             <td class="td-mono dim">${dur}</td>
-            <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
-            <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
             <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
             <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
+            <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+            <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
           </tr>`;
         }).join('');
   } catch(e) {
@@ -4022,7 +4440,8 @@ function getCicloFactor(checks) {
 }
 
 function calcAlejandroScore(checks, tesis) {
-  const t = tesis || aleState.tesis || '';
+  // tesis explícita tiene prioridad; solo usar aleState como fallback en el panel principal
+  const t = (tesis && tesis.trim()) ? tesis.trim() : (typeof aleState !== 'undefined' ? aleState.tesis : '') || 'alcista';
   const subsActivas = ALE_SUBS_TESIS[t] || ALE_SUBS_TESIS['alcista'];
 
   const modScores = {};

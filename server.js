@@ -100,15 +100,32 @@ app.get('/api/overview', async (req, res) => {
   try {
     const data = await cached('overview', 60, async () => {
       const [balances, positions] = await Promise.all([tt.getBalances(), tt.getPositions()]);
-      // Obtener Greeks para posiciones de opciones
+      // Obtener Greeks + mark en tiempo real para posiciones de opciones
       const optionSymbols = positions
         .filter(p => p['instrument-type'] === 'Equity Option')
         .map(p => p.symbol);
       const greeks = await tt.getGreeks(optionSymbols);
-      // Adjuntar Greeks a cada posición
+
+      // Obtener mark-price en tiempo real via /market-data
+      const markMap = {};
+      try {
+        const BATCH = 50;
+        for (let i = 0; i < optionSymbols.length; i += BATCH) {
+          const batch = optionSymbols.slice(i, i + BATCH);
+          const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+          const d = await tt._req(`/market-data?${params}`);
+          for (const item of (d.data?.items || [])) {
+            const mk = parseFloat(item.mark || item.mid || 0);
+            if (mk > 0) markMap[item.symbol] = mk;
+          }
+        }
+      } catch(e) { /* si falla, usará average-daily como fallback */ }
+
+      // Adjuntar Greeks y mark-price a cada posición
       const posWithGreeks = positions.map(p => ({
         ...p,
         greeks: greeks[p.symbol] || null,
+        'mark-price': markMap[p.symbol] || null,
       }));
       return { balances, positions: posWithGreeks, ts: new Date().toISOString() };
     });
@@ -216,8 +233,11 @@ app.get('/api/transactions', async (req, res) => {
     const ck = `txns_${sd}_${ed}`;
     const data = await cached(ck, 120, async () => {
       const allItems = await tt.getAllTransactions(sd, ed);
-      // Para métricas usar solo Trade; para display mostrar todo
-      const tradeItems = allItems.filter(tx => tx['transaction-type'] === 'Trade');
+      // Pasar Trade + Receive Deliver al metrics (cash settlements, assignments, exercises)
+      const tradeItems = allItems.filter(tx =>
+        tx['transaction-type'] === 'Trade' ||
+        tx['transaction-type'] === 'Receive Deliver'
+      );
       const metrics = buildMetrics(tradeItems);
       return { items: allItems, metrics, ts: new Date().toISOString() };
     });
@@ -346,7 +366,7 @@ app.get('/report', async (req, res) => {
       const und = p['underlying-symbol'];
       if (!posMap.has(und)) posMap.set(und, { underlying:und, legs:[], pnlNoReal:0 });
       const op  = parseFloat(p['average-open-price']||0);
-      const cp  = parseFloat(p['close-price']||0);
+      const cp  = parseFloat(p['mark-price'] || p['average-daily-market-close-price'] || p['close-price']||0);
       const qty = parseFloat(p.quantity||0);
       const mul = parseFloat(p.multiplier||1);
       const dir = p['quantity-direction']==='Short' ? -1 : 1;
@@ -1484,7 +1504,7 @@ app.post('/api/ai-chat', async (req, res) => {
       .filter(p => p['instrument-type'] === 'Equity Option' || p['instrument-type'] === 'Equity')
       .map(p => {
         const op  = parseFloat(p['average-open-price'] || 0);
-        const cp  = parseFloat(p['close-price'] || 0);
+        const cp  = parseFloat(p['mark-price'] || p['average-daily-market-close-price'] || p['close-price'] || 0);
         const qty = parseFloat(p.quantity || 0);
         const mul = parseFloat(p.multiplier || 1);
         const dir = p['quantity-direction'] === 'Short' ? -1 : 1;
