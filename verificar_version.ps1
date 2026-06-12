@@ -1,6 +1,6 @@
 ﻿$src = "$HOME\bitacora-tasty"
 $railway = "https://web-production-23473.up.railway.app"
-$MIN_INDEX = 5800; $MIN_SERVER = 1670; $MIN_METRICS = 350
+$MIN_INDEX = 5840; $MIN_SERVER = 1670; $MIN_METRICS = 350
 $FP_INDEX = @('getCicloFactor','aleHistFiltro','ALE_PESOS','consolidateStrategies')
 $FP_SERVER = @('Receive Deliver')
 $FP_METRICS = @('FIFO por proximidad','buildMetrics')
@@ -48,4 +48,5 @@ Write-Host "===========================================" -ForegroundColor Cyan
 if ($ok) { Write-Host "  TODO OK - puedes trabajar" -ForegroundColor Green }
 else { Write-Host "  PROBLEMAS - no edites aun" -ForegroundColor Red }
 Write-Host "===========================================" -ForegroundColor Cyan
+
 
