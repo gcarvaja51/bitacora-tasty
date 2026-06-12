@@ -39,6 +39,9 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       const parsed    = parseSymbol(tx.symbol || '');
       const date      = (tx['transaction-date'] || '').slice(0, 10);
 
+      // Ignorar posiciones largas en opciones (coberturas, no parte del ciclo Rueda)
+      if (parsed.isOption && /Buy to Open|Sell to Close/i.test(action)) continue;
+
       if (/Sell to Open/i.test(action) && parsed.type === 'P') {
         events.push({ date, type:'STO_PUT', strike:parsed.strike, expiry:parsed.expiry, amount:Math.abs(nv) });
         totalPremium += Math.abs(nv);
