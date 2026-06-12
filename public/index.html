@@ -163,9 +163,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .panel.active { display: block; }
 
 /* scrollbar */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.25); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.40); }
 
 /* ══ TYPOGRAPHY ═════════════════════════ */
 .section-title {
@@ -1983,6 +1984,7 @@ function buildPosRow(g) {
   }
   g.dte = dte;
   const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
+  const strikeFs = strat === 'Iron Condor' ? '9px' : '11px';
   const absPrem = Math.abs(g.premiumNet);
   // Para credit spreads (premiumNet > 0): % capturado = P&L / premium cobrado
   // Para debit spreads (premiumNet < 0): % capturado = P&L / costo pagado (también positivo)
@@ -1992,7 +1994,7 @@ function buildPosRow(g) {
     <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${g.underlying}',event)" title="Ver en OptionStrat">${g.underlying} <span style="font-size:9px;color:var(--muted);">${osLink}</span></td>
     <td class="dim">${strat}</td>
     <td><span class="badge ${dirBadge}">${dir}</span></td>
-    <td class="td-mono dim" style="font-size:11px;">${strikes}</td>
+    <td class="td-mono dim" style="font-size:${strikeFs};white-space:nowrap;">${strikes}</td>
     <td class="td-mono dim">${expStr}</td>
     <td>${dte!==null?dteChip(dte):'—'}</td>
     <td class="td-mono">${Math.abs(g.totalQty||0) || g.legs.length}</td>
