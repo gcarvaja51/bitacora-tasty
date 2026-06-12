@@ -1539,22 +1539,52 @@ function renderEquityChart(curve, nlvSnapshots) {
   const initial = curve.initial;
   $('curve-period').textContent = `${curve.labels[0]} → ${curve.labels[curve.labels.length-1]}`;
 
-  // Mapear snapshots NLV a índices de la curva
+  // ── Puntos NLV: último día del mes para meses cerrados, último día de cada semana para mes actual ──
   const snapshotData = Array(curve.labels.length).fill(null);
   if (nlvSnapshots?.length) {
-    nlvSnapshots.forEach(([date, val]) => {
-      // Encontrar el índice más cercano en las labels
-      let idx = curve.labels.indexOf(date);
-      if (idx === -1) {
-        // Buscar el índice más cercano
-        const closest = curve.labels.reduce((best, l, i) => {
-          return Math.abs(new Date(l) - new Date(date)) < Math.abs(new Date(curve.labels[best]) - new Date(date)) ? i : best;
-        }, 0);
-        idx = closest;
+    const today      = new Date(); today.setHours(0,0,0,0);
+    const curMonthYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+
+    // Último valor por día
+    const byDay = {};
+    nlvSnapshots.forEach(([date, val]) => { byDay[date.slice(0,10)] = val; });
+
+    // Agrupar por mes
+    const byMonth = {};
+    Object.entries(byDay).forEach(([d, v]) => {
+      const ym = d.slice(0,7);
+      if (!byMonth[ym]) byMonth[ym] = {};
+      byMonth[ym][d] = v;
+    });
+
+    const selectedDays = [];
+    Object.entries(byMonth).forEach(([ym, days]) => {
+      const sorted = Object.keys(days).sort();
+      if (ym !== curMonthYM) {
+        // Mes cerrado: solo el último día con datos
+        selectedDays.push(sorted[sorted.length - 1]);
+      } else {
+        // Mes abierto: último día de cada semana ISO
+        const byWeek = {};
+        sorted.forEach(d => {
+          const dt   = new Date(d + 'T12:00:00');
+          const jan4 = new Date(dt.getFullYear(), 0, 4);
+          const wk   = `${dt.getFullYear()}-W${String(Math.ceil(((dt-jan4)/86400000+jan4.getDay()+1)/7)).padStart(2,'0')}`;
+          if (!byWeek[wk]) byWeek[wk] = [];
+          byWeek[wk].push(d);
+        });
+        Object.values(byWeek).forEach(wDays => selectedDays.push(wDays.sort()[wDays.length-1]));
       }
-      snapshotData[idx] = +val.toFixed(2);
+    });
+
+    selectedDays.forEach(date => {
+      let idx = curve.labels.findIndex(l => l.slice(0,10) === date);
+      if (idx === -1) idx = curve.labels.reduce((best,l,i) =>
+        Math.abs(new Date(l)-new Date(date)) < Math.abs(new Date(curve.labels[best])-new Date(date)) ? i : best, 0);
+      snapshotData[idx] = +byDay[date].toFixed(2);
     });
   }
+  // ────────────────────────────────────────────────────────────────────────
 
   S.charts.equity = new Chart(ctx, {
     type: 'line',
