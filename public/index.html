@@ -1012,9 +1012,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="card">
           <div class="card-header">P&amp;L por Mes</div>
           <div class="card-body chart-wrap">
-            <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;">
-              <canvas id="monthlyChart" height="180" style="min-width:400px;"></canvas>
-            </div>
+            <canvas id="monthlyChart" height="180"></canvas>
           </div>
         </div>
       </div>
@@ -1793,11 +1791,26 @@ function renderMonthlyChart(byMonth={}) {
 
   const ctx=$('monthlyChart').getContext('2d');
   if (S.charts.monthly) S.charts.monthly.destroy();
+  // En mobile, ajustar ancho del canvas según cantidad de meses
+  const isMobile = window.innerWidth <= 1024;
+  const minBarWidth = 55;
+  if (isMobile && months.length > 0) {
+    const canvasEl = $('monthlyChart');
+    const containerWidth = canvasEl.parentElement.offsetWidth || 300;
+    const neededWidth = Math.max(containerWidth, months.length * minBarWidth);
+    if (neededWidth > containerWidth) {
+      canvasEl.parentElement.style.overflowX = 'auto';
+      canvasEl.parentElement.style.webkitOverflowScrolling = 'touch';
+      canvasEl.style.width = neededWidth + 'px';
+      canvasEl.style.minWidth = neededWidth + 'px';
+    }
+  }
+
   S.charts.monthly = new Chart(ctx,{
     type:'bar',
     data:{ labels, datasets:[{ data:vals, backgroundColor:colors, borderColor:borders, borderWidth:1, borderRadius:4 }] },
     options:{
-      responsive:true, maintainAspectRatio:false,
+      responsive:false, maintainAspectRatio:false,
       plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}} },
       scales:{
         x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10}}, grid:{display:false} },
