@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -757,7 +757,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 }
 
 /* ══ MOBILE RESPONSIVE ══════════════════ */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .sidebar { width: 0; min-width: 0; overflow: hidden; transition: width .25s; position: fixed; z-index: 200; height: 100vh; }
   .sidebar.open { width: 200px; }
   .content { margin-left: 0 !important; width: 100% !important; }
@@ -770,9 +770,9 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 .hamburger {
   display: none;
   position: fixed;
-  top: 12px;
-  left: 12px;
-  z-index: 300;
+  top: 16px;
+  left: 16px;
+  z-index: 9999;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
