@@ -1887,7 +1887,7 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
           tension: chartType==='line'?.3:0,
           pointRadius: chartType==='line'?0:0,
           type: chartType },
-        { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
+        { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0, hidden: tipo==='periodo' },
       ]
     },
     options: {
