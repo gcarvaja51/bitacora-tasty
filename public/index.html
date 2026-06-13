@@ -1489,6 +1489,12 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 </div>
 
 <script>
+// Variables globales de curva — inicializadas al arranque
+var _curveData   = null;
+var _curveTipo   = 'acumulado';
+var _curvePeriod = 'daily';
+var _curveChType = 'bar';
+
 // ══════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════
@@ -1936,7 +1942,7 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
       scales:{
         x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:10}, grid:{color:'rgba(255,255,255,.04)', lineWidth:1} },
         y:{ 
-          beginAtZero: _curveTipo==='acumulado',
+          beginAtZero: tipo==='acumulado',
           ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, 
           grid:{color:'rgba(255,255,255,.04)', lineWidth:1} 
         }
@@ -1979,7 +1985,7 @@ function renderMonthlyChart(byMonth={}) {
       scales:{
         x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10}}, grid:{display:false} },
         y:{ 
-          beginAtZero: _curveTipo==='acumulado',
+          beginAtZero: tipo==='acumulado',
           ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, 
           grid:{color:'rgba(255,255,255,.04)', lineWidth:1} 
         }
@@ -6267,10 +6273,7 @@ function setCurvePeriod(period) {
 
 
 // ══ CURVA DE CAPITAL — CONTROLES ══
-let _curveData    = null;
-let _curveTipo    = 'acumulado';  // 'acumulado' | 'periodo'
-let _curvePeriod  = 'daily';      // 'daily' | 'weekly' | 'monthly'
-let _curveChType  = 'bar';        // 'bar' | 'line'
+// Variables de curva declaradas al inicio del script
 
 function _renderCurveWithState() {
   if (!_curveData) return;
