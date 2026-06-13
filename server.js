@@ -17,19 +17,6 @@ const NLV_SEED = {
   '2026-02-28': 11328.69,
   '2026-03-30': 9730.48,
   '2026-04-30': 9208.64,
-  '2026-05-25': 9540.605,
-  '2026-05-26': 9468.707,
-  '2026-05-27': 9616.805,
-  '2026-05-28': 9617.875,
-  '2026-05-29': 9309.897,
-  '2026-06-01': 9246.604,
-  '2026-06-02': 9033.284,
-  '2026-06-03': 8868.768,
-  '2026-06-04': 9075.705,
-  '2026-06-09': 8733.654,
-  '2026-06-10': 8809.021,
-  '2026-06-11': 9066.322,
-  '2026-06-12': 9084.053,
 };
 
 function loadNlvHistory() {
@@ -45,6 +32,32 @@ function saveNlvSnapshot(dateStr, nlv) {
   const history = loadNlvHistory();
   history[dateStr] = nlv;
   fs.writeFileSync(NLV_FILE, JSON.stringify(history, null, 2), 'utf8');
+}
+
+function computeWeeklyNlv(nlvHistory, currentNlv) {
+  const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
+  const today = new Date().toISOString().slice(0,10);
+  const allEntries = [...entries, [today, currentNlv]];
+
+  const byWeek = {};
+  for (let i = 1; i < allEntries.length; i++) {
+    const [prevDate, prevNlv] = allEntries[i-1];
+    const [curDate,  curNlv]  = allEntries[i];
+    const prevWk = weekKey(prevDate);
+    const curWk  = weekKey(curDate);
+    if (prevWk !== curWk) {
+      // Cruce de semana — asignar el cambio completo a la semana actual
+      if (!byWeek[curWk]) byWeek[curWk] = 0;
+      byWeek[curWk] += curNlv - prevNlv;
+    } else {
+      // Misma semana
+      if (!byWeek[curWk]) byWeek[curWk] = 0;
+      byWeek[curWk] += curNlv - prevNlv;
+    }
+  }
+  // Redondear
+  Object.keys(byWeek).forEach(k => { byWeek[k] = +byWeek[k].toFixed(2); });
+  return byWeek;
 }
 
 function computeMonthlyNlv(nlvHistory, currentNlv) {
@@ -230,10 +243,12 @@ app.get('/api/curve', async (req, res) => {
       // NLV-based monthly P&L (fuente de verdad = Net Liq real)
       const nlvByMonth = computeMonthlyNlv(nlvHistory, currentNlv);
 
+      const nlvByWeek = computeWeeklyNlv(nlvHistory, currentNlv);
+
       return {
         curve: { labels, values, initial, maxDD: +maxDD.toFixed(2), maxDDPct: +maxDDPct.toFixed(2) },
         calendar, byMonth, byWeek,
-        nlvByMonth,
+        nlvByMonth, nlvByWeek,
         nlvSnapshots: Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).concat([[todayStr(), currentNlv]]),
         ts: new Date().toISOString()
       };

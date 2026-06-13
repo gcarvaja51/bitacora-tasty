@@ -6299,12 +6299,13 @@ function _renderCurveWithState() {
     }
   }
   else if (_curvePeriod === 'weekly') {
-    if (!byWeek || !Object.keys(byWeek).length) return;
-    const weeks = Object.keys(byWeek).sort();
+    const srcWeek = _curveData.nlvByWeek || byWeek || {};
+    if (!Object.keys(srcWeek).length) return;
+    const weeks = Object.keys(srcWeek).sort();
     labels = weeks;
     let running = initial;
-    const accumulated = weeks.map(w => { running += byWeek[w]; return +running.toFixed(2); });
-    vals      = _curveTipo === 'acumulado' ? accumulated : weeks.map(w => +byWeek[w].toFixed(2));
+    const accumulated = weeks.map(w => { running += srcWeek[w]; return +running.toFixed(2); });
+    vals      = _curveTipo === 'acumulado' ? accumulated : weeks.map(w => +srcWeek[w].toFixed(2));
     snapshots = null;
   }
   else if (_curvePeriod === 'monthly') {
