@@ -193,8 +193,12 @@ app.get('/api/curve', async (req, res) => {
       const calendar = {};
       Object.keys(calByDay).forEach(d => { calendar[d] = +calByDay[d].toFixed(2); });
 
+      // Calcular drawdown sobre Net Liq real (snapshots), no sobre P&L acumulado
       let peak = initial, maxDD = 0, maxDDPct = 0;
-      values.forEach(v => {
+      const nlvPoints = Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).map(([,v])=>v);
+      if (currentNlv > 0) nlvPoints.push(currentNlv);
+      const ddSource = nlvPoints.length >= 2 ? nlvPoints : values;
+      ddSource.forEach(v => {
         if (v > peak) peak = v;
         const dd = peak - v;
         if (dd > maxDD) { maxDD = dd; maxDDPct = dd / peak * 100; }
