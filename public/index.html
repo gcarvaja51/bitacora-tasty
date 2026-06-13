@@ -758,6 +758,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 
 /* ══ MOBILE RESPONSIVE ══════════════════ */
 @media (max-width: 1024px) {
+  .content { padding-top: 56px !important; }
+  .header { padding-top: 56px !important; }
   .sidebar { width: 0; min-width: 0; overflow: hidden; transition: width .25s; position: fixed; z-index: 200; height: 100vh; }
   .sidebar.open { width: 200px; }
   .content { margin-left: 0 !important; width: 100% !important; }
@@ -790,7 +792,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 <div class="app">
 
 <!-- ════════ SIDEBAR ════════ -->
-<div onclick="toggleSidebar()" style="position:fixed;top:60px;right:16px;left:auto;z-index:9999;background:#13161e;border:1px solid #1f2433;border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:5px;"><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span></div><div onclick="toggleSidebar()" style="position:fixed;top:60px;right:16px;left:auto;z-index:9999;background:#13161e;border:1px solid #1f2433;border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:5px;"><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span></div><aside class="sidebar">
+<div onclick="toggleSidebar()" style="position:fixed;top:8px;right:8px;left:auto;z-index:9999;background:#13161e;border:1px solid #1f2433;border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:5px;"><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span></div><div onclick="toggleSidebar()" style="position:fixed;top:8px;right:8px;left:auto;z-index:9999;background:#13161e;border:1px solid #1f2433;border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:5px;"><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span></div><aside class="sidebar">
   <div class="sidebar-logo">
     <div class="logo-mark">BITÁCORA<span>.</span></div>
     <div class="logo-account" id="sb-account">cargando...</div>
