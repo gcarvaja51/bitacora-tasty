@@ -1812,7 +1812,8 @@ function renderMonthlyChart(byMonth={}) {
   const borders= vals.map(v=>v>=0?'#13d68f':'#f04f5a');
   const labels = months.map(m=>{const [y,mo]=m.split('-');return new Date(+y,+mo-1).toLocaleDateString('es-CO',{month:'short',year:'2-digit'});});
 
-  const ctx=$('monthlyChart').getContext('2d');
+  const ctxEl=$('monthlyChart'); if(!ctxEl) return;
+  const ctx=ctxEl.getContext('2d');
   if (S.charts.monthly) S.charts.monthly.destroy();
   // En mobile, ajustar ancho del canvas según cantidad de meses
   const isMobile = window.innerWidth <= 1024;
