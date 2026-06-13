@@ -1012,7 +1012,9 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="card">
           <div class="card-header">P&amp;L por Mes</div>
           <div class="card-body chart-wrap">
-            <canvas id="monthlyChart" height="180"></canvas>
+            <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;">
+              <canvas id="monthlyChart" height="180" style="min-width:400px;"></canvas>
+            </div>
           </div>
         </div>
       </div>
