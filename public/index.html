@@ -887,6 +887,24 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   .kpi-label { font-size: 9px !important; }
 }
 
+
+/* ══ CURVE PERIOD BUTTONS ═══════════════ */
+.curve-period-btn {
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-family: var(--syne);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  letter-spacing: .04em;
+  transition: all .15s;
+}
+.curve-period-btn:hover { border-color: var(--blue); color: var(--blue); }
+.curve-period-btn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); }
+
 </style>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -1001,9 +1019,13 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <!-- Charts -->
       <div class="grid-2">
         <div class="card">
-          <div class="card-header">
-            Curva de Capital
-            <span id="curve-period" style="color:var(--blue);font-size:10px;"></span>
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Curva de Capital <span id="curve-period" style="color:var(--blue);font-size:10px;"></span></span>
+            <div style="display:flex;gap:4px;" id="curve-period-btns">
+              <button onclick="setCurvePeriod('daily')"   id="cpb-daily"   class="curve-period-btn active">Diario</button>
+              <button onclick="setCurvePeriod('weekly')"  id="cpb-weekly"  class="curve-period-btn">Semanal</button>
+              <button onclick="setCurvePeriod('monthly')" id="cpb-monthly" class="curve-period-btn">Mensual</button>
+            </div>
           </div>
           <div class="card-body chart-wrap">
             <canvas id="equityChart" height="180"></canvas>
@@ -1519,6 +1541,7 @@ async function loadDashboard() {
 
     renderTopBar(ov.balances, ov.positions);
     renderDashKPIs(ov.balances, curveData.curve, txData.metrics);
+    _curveData = curveData;
     renderEquityChart(curveData.curve, curveData.nlvSnapshots);
     renderMonthlyChart(curveData.nlvByMonth || txData.metrics.strategyByMonth || curveData.byMonth || calendarToMonthly(curveData.calendar));
     renderDashPositions(ov.positions);
@@ -6049,6 +6072,54 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+
+
+// ══ CURVA DE CAPITAL — SELECTOR DE PERIODO ══
+let _curveData = null;  // guardamos los datos globalmente
+
+function setCurvePeriod(period) {
+  if (!_curveData) return;
+
+  // Actualizar botones activos
+  ['daily','weekly','monthly'].forEach(p => {
+    const btn = $('cpb-' + p);
+    if (btn) btn.classList.toggle('active', p === period);
+  });
+
+  const { curve, nlvSnapshots, byWeek, nlvByMonth } = _curveData;
+
+  if (period === 'daily') {
+    renderEquityChart(curve, nlvSnapshots);
+  }
+  else if (period === 'weekly') {
+    // Construir curva semanal desde byWeek
+    if (!byWeek || Object.keys(byWeek).length === 0) return;
+    const weeks = Object.keys(byWeek).sort();
+    const initial = curve.initial || 10644;
+    let running = initial;
+    const vals = weeks.map(w => { running += byWeek[w]; return +running.toFixed(2); });
+    // Ajustar último valor al Net Liq actual
+    if (nlvSnapshots && nlvSnapshots.length > 0) {
+      vals[vals.length-1] = nlvSnapshots[nlvSnapshots.length-1][1];
+    }
+    const weekCurve = { labels: weeks, values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
+    renderEquityChart(weekCurve, nlvSnapshots);
+  }
+  else if (period === 'monthly') {
+    // Construir curva mensual desde nlvByMonth (fuente real)
+    if (!nlvByMonth || Object.keys(nlvByMonth).length === 0) return;
+    const months = Object.keys(nlvByMonth).sort();
+    const initial = curve.initial || 10644;
+    let running = initial;
+    const vals = months.map(m => { running += nlvByMonth[m]; return +running.toFixed(2); });
+    // Ajustar último valor al Net Liq actual
+    if (nlvSnapshots && nlvSnapshots.length > 0) {
+      vals[vals.length-1] = nlvSnapshots[nlvSnapshots.length-1][1];
+    }
+    const monthCurve = { labels: months.map(m => m + '-15'), values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
+    renderEquityChart(monthCurve, nlvSnapshots);
+  }
+}
 
 </script>
 </body>
