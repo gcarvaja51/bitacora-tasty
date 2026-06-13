@@ -758,6 +758,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 
 /* ══ MOBILE RESPONSIVE ══════════════════ */
 @media (max-width: 1024px) {
+  .topbar { display: none !important; }
+  .main { padding-top: 0 !important; }
   .content { padding-top: 56px !important; }
   .header { padding-left: 56px; padding-left: 56px; padding-top: 56px !important; }
   .sidebar { width: 0; min-width: 0; overflow: hidden; transition: width .25s; position: fixed; z-index: 200; height: 100vh; }
@@ -824,6 +826,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   border-radius: 2px;
 }
 @media (max-width: 1024px) {
+  .topbar { display: none !important; }
+  .main { padding-top: 0 !important; }
   .mobile-navbar { display: flex; }
   .sidebar { top: 48px !important; height: calc(100vh - 48px) !important; }
   .content { padding-top: 48px !important; }
@@ -833,6 +837,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 
 /* ══ MOBILE FIXES ════════════════════════ */
 @media (max-width: 1024px) {
+  .topbar { display: none !important; }
+  .main { padding-top: 0 !important; }
   /* Forzar todo al ancho de pantalla */
   .panel { padding: 12px 10px !important; overflow-x: hidden !important; }
   .content { overflow-x: hidden !important; }
