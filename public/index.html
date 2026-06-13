@@ -785,14 +785,66 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 }
 .hamburger span { display: block; width: 18px; height: 2px; background: var(--text); border-radius: 2px; }
 
+
+/* ══ MOBILE NAV BAR ══════════════════════ */
+.mobile-navbar {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  z-index: 500;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+}
+.mobile-navbar .mob-title {
+  font-family: var(--syne);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--bright);
+}
+.mob-hamburger {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+}
+.mob-hamburger span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--text);
+  border-radius: 2px;
+}
+@media (max-width: 1024px) {
+  .mobile-navbar { display: flex; }
+  .sidebar { top: 48px !important; height: calc(100vh - 48px) !important; }
+  .content { padding-top: 48px !important; }
+  .app { flex-direction: column; }
+}
+
 </style>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 <div class="app">
+<div class="mobile-navbar">
+  <button class="mob-hamburger" onclick="toggleSidebar()">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="mob-title">Bitácora Tasty</div>
+</div>
+
 
 <!-- ════════ SIDEBAR ════════ -->
-<div onclick="toggleSidebar()" style="position:fixed;top:50%;left:0;right:auto;transform:translateY(-50%);border-radius:0 8px 8px 0;z-index:9999;background:#13161e;border:1px solid #1f2433;border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:5px;"><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span></div><div onclick="toggleSidebar()" style="position:fixed;top:50%;left:0;right:auto;transform:translateY(-50%);border-radius:0 8px 8px 0;z-index:9999;background:#13161e;border:1px solid #1f2433;border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:5px;"><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span><span style="display:block;width:20px;height:2px;background:#c9d3e0;border-radius:2px;"></span></div><aside class="sidebar">
+<aside class="sidebar">
   <div class="sidebar-logo">
     <div class="logo-mark">BITÁCORA<span>.</span></div>
     <div class="logo-account" id="sb-account">cargando...</div>
@@ -5891,7 +5943,6 @@ if ('serviceWorker' in navigator) {
 
 function toggleSidebar() {
   const sb = document.querySelector('.sidebar');
-  const hb = $('hamburger');
   if (sb) sb.classList.toggle('open');
 }
 // Cerrar sidebar al hacer click en nav item en mobile
