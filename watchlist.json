@@ -1,13 +1,6 @@
 {
   "stocks": [
     {
-      "symbol": "BABA",
-      "name": "BABA",
-      "status": "green",
-      "addedDate": "2026-05-29",
-      "notes": []
-    },
-    {
       "symbol": "A",
       "name": "A",
       "status": "orange",
@@ -661,6 +654,30 @@
       "status": "yellow",
       "screener": "",
       "addedDate": "2026-06-03",
+      "notes": []
+    },
+    {
+      "symbol": "GNTX",
+      "name": "GNTX",
+      "status": "yellow",
+      "screener": "",
+      "addedDate": "2026-06-11",
+      "notes": []
+    },
+    {
+      "symbol": "PCG",
+      "name": "PCG",
+      "status": "orange",
+      "screener": "🎡 La Rueda Sigma",
+      "addedDate": "2026-06-11",
+      "notes": []
+    },
+    {
+      "symbol": "MGY",
+      "name": "MGY",
+      "status": "orange",
+      "screener": "🎡 La Rueda Sigma",
+      "addedDate": "2026-06-11",
       "notes": []
     }
   ]

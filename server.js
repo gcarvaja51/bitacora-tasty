@@ -72,13 +72,13 @@ function computeMonthlyNlv(nlvHistory, currentNlv) {
 
 // ── Cliente TastyTrade ─────────────────────────────────────────
 const tt = new TastytradeClient({
-  username:      process.env.TT_USERNAME,
-  password:      process.env.TT_PASSWORD,
-  rememberToken: process.env.TT_REMEMBER_TOKEN,
+  clientSecret:  process.env.TT_CLIENT_SECRET,
+  refreshToken:  process.env.TT_REFRESH_TOKEN,
+  // legacy fallback por si acaso
   sessionToken:  process.env.TT_SESSION_TOKEN,
   accountNumber: process.env.TT_ACCOUNT_NUMBER,
 });
-if (process.env.TT_SESSION_TOKEN) tt.sessionToken = process.env.TT_SESSION_TOKEN;
+tt.startAutoRefresh();
 
 const _cache = new Map();
 function cached(k, s, fn) {
@@ -310,8 +310,8 @@ app.get('/api/nlv-history', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => res.json({
-  ok: true, auth: !!tt.sessionToken,
-  tokenLen: (tt.sessionToken || '').length,
+  ok: true, auth: !!tt.accessToken,
+  tokenLen: (tt.accessToken || '').length,
   account: tt.accountNumber,
   ts: new Date().toISOString()
 }));
