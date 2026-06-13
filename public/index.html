@@ -1847,7 +1847,12 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
   S.charts.equity = new Chart(ctx, {
     type: chartType,
     data: {
-      labels: curve.labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});}),
+      labels: curve.labels.map(l=>{
+      const d=new Date(l+'T12:00:00');
+      if (_curvePeriod==='monthly') return d.toLocaleDateString('es-CO',{month:'short',year:'2-digit'});
+      if (_curvePeriod==='weekly')  return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});
+      return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});
+    }),
       datasets: [
         { label:'Net Liq', data:(()=>{
             // Valores acumulativos interpolados de Net Liq real
@@ -1893,12 +1898,24 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
         tooltip:{
           backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
           titleColor:'#4e5a70', bodyColor:'#c9d3e0',
-          callbacks:{ label: c=>c.parsed.y!=null?' '+c.dataset.label+': '+fa$(c.parsed.y):'' }
+          callbacks:{ 
+            title: items => items[0]?.label || '',
+            label: c => {
+              if (c.parsed.y == null) return '';
+              const v = c.parsed.y;
+              const sign = v >= 0 ? '+' : '';
+              return ' ' + c.dataset.label + ': ' + sign + '$' + Math.abs(v).toLocaleString('es-CO', {minimumFractionDigits:2, maximumFractionDigits:2});
+            }
+          }
         }
       },
       scales:{
         x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:10}, grid:{color:'rgba(255,255,255,.04)', lineWidth:1} },
-        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(255,255,255,.04)', lineWidth:1} }
+        y:{ 
+          beginAtZero: _curveTipo==='acumulado',
+          ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, 
+          grid:{color:'rgba(255,255,255,.04)', lineWidth:1} 
+        }
       }
     }
   });
@@ -1937,7 +1954,11 @@ function renderMonthlyChart(byMonth={}) {
       plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}} },
       scales:{
         x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10}}, grid:{display:false} },
-        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(255,255,255,.04)', lineWidth:1} }
+        y:{ 
+          beginAtZero: _curveTipo==='acumulado',
+          ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, 
+          grid:{color:'rgba(255,255,255,.04)', lineWidth:1} 
+        }
       }
     }
   })
