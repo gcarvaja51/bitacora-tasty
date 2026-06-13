@@ -1031,12 +1031,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
             <canvas id="equityChart" height="180"></canvas>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header">P&amp;L por Mes</div>
-          <div class="card-body chart-wrap">
-            <canvas id="monthlyChart" height="180"></canvas>
-          </div>
-        </div>
+
       </div>
       <!-- Bottom row -->
       <div class="grid-2b">
@@ -1761,28 +1756,33 @@ function renderEquityChart(curve, nlvSnapshots) {
   // ────────────────────────────────────────────────────────────────────────
 
   S.charts.equity = new Chart(ctx, {
-    type: 'line',
+    type: 'bar',
     data: {
       labels: curve.labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});}),
       datasets: [
-        { label:'Net Liq', data:(()=>{
-            // Interpolación lineal entre snapshots reales de Net Liq
+        { label:'P&L', data:(()=>{
+            // Calcular deltas entre snapshots consecutivos de Net Liq
             const pts = snapshotData.map((v,i)=>v!=null?{i,v}:null).filter(Boolean);
-            if (pts.length < 2) return curve.values;
-            const interp = Array(curve.labels.length).fill(null);
-            // Rellenar con interpolación lineal entre puntos conocidos
-            for (let k=0; k<pts.length-1; k++) {
-              const a=pts[k], b=pts[k+1];
-              for (let i=a.i; i<=b.i; i++) {
-                interp[i] = a.v + (b.v-a.v)*(i-a.i)/(b.i-a.i);
-              }
+            if (pts.length < 2) {
+              // Fallback: usar diferencias de values
+              return curve.values.map((v,i) => i===0 ? v - curve.initial : v - curve.values[i-1]);
             }
-            // Extender primer y último punto
-            for (let i=0; i<pts[0].i; i++) interp[i] = pts[0].v;
-            for (let i=pts[pts.length-1].i; i<interp.length; i++) interp[i] = pts[pts.length-1].v;
-            return interp;
-          })(), borderColor:'#13d68f', borderWidth:2, backgroundColor:grad, fill:true, tension:.3, pointRadius:0, pointHoverRadius:5 },
-        { label:'Net Liq (snapshot)', data:snapshotData, borderColor:'#f5c842', borderWidth:0, backgroundColor:'#f5c842', fill:false, tension:0, pointRadius:6, pointHoverRadius:8, showLine:false, pointStyle:'circle' },
+            const deltas = Array(curve.labels.length).fill(0);
+            for (let k=0; k<pts.length; k++) {
+              const prev = k===0 ? curve.initial : pts[k-1].v;
+              deltas[pts[k].i] = +(pts[k].v - prev).toFixed(2);
+            }
+            return deltas;
+          })(),
+          backgroundColor: (ctx) => {
+            const v = ctx.dataset.data[ctx.dataIndex];
+            return v >= 0 ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
+          },
+          borderColor: (ctx) => {
+            const v = ctx.dataset.data[ctx.dataIndex];
+            return v >= 0 ? '#13d68f' : '#f04f5a';
+          },
+          borderWidth: 1, borderRadius: 3, type: 'bar' },
         { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
       ]
     },
@@ -6102,8 +6102,10 @@ function setCurvePeriod(period) {
     if (nlvSnapshots && nlvSnapshots.length > 0) {
       vals[vals.length-1] = nlvSnapshots[nlvSnapshots.length-1][1];
     }
-    const weekCurve = { labels: weeks, values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
-    renderEquityChart(weekCurve, nlvSnapshots);
+    // Calcular deltas semanales
+    const weekDeltas = vals.map((v,i) => i===0 ? v-initial : v-vals[i-1]);
+    const weekCurve = { labels: weeks, values: weekDeltas, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
+    renderEquityChart(weekCurve, null);
   }
   else if (period === 'monthly') {
     // Construir curva mensual desde nlvByMonth (fuente real)
@@ -6116,8 +6118,10 @@ function setCurvePeriod(period) {
     if (nlvSnapshots && nlvSnapshots.length > 0) {
       vals[vals.length-1] = nlvSnapshots[nlvSnapshots.length-1][1];
     }
-    const monthCurve = { labels: months.map(m => m + '-15'), values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
-    renderEquityChart(monthCurve, nlvSnapshots);
+    // Calcular deltas mensuales
+    const monthDeltas = vals.map((v,i) => i===0 ? v-initial : v-vals[i-1]);
+    const monthCurve = { labels: months.map(m => m + '-15'), values: monthDeltas, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
+    renderEquityChart(monthCurve, null);
   }
 }
 
