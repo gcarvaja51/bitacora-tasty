@@ -887,6 +887,16 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   .kpi-label { font-size: 9px !important; }
 }
 
+
+/* ══ CURVE DROPDOWNS ═══════════════════ */
+.c-dd { position:relative; }
+.c-dd-btn { background:var(--card2); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-family:var(--syne); font-size:11px; font-weight:600; padding:5px 11px; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; }
+.c-dd-btn:hover { border-color:var(--blue); color:var(--blue); }
+.c-dd-menu { display:none; position:absolute; top:calc(100% + 4px); right:0; background:#1a1f2e; border:1px solid var(--border); border-radius:8px; min-width:130px; z-index:300; padding:4px 0; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+.c-dd-item { display:flex; align-items:center; gap:8px; padding:7px 14px; font-size:11px; font-weight:600; letter-spacing:.05em; color:var(--text); cursor:pointer; white-space:nowrap; }
+.c-dd-item:hover { background:rgba(79,142,255,.08); color:var(--blue); }
+.c-dd-chk { color:#13d68f; font-size:12px; width:12px; flex-shrink:0; }
+
 </style>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -998,22 +1008,37 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <div class="kpi-row cols-6" id="dash-kpis">
         <div class="loader"><div class="spinner"></div> Cargando...</div>
       </div>
-      <!-- Charts -->
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header">
-            Curva de Capital
-            <span id="curve-period" style="color:var(--blue);font-size:10px;"></span>
-          </div>
-          <div class="card-body chart-wrap">
-            <canvas id="equityChart" height="180"></canvas>
+      <!-- Chart full width -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span>Curva de Capital <span id="curve-period" style="color:var(--blue);font-size:10px;margin-left:6px;"></span></span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <div class="c-dd" id="dd-chart">
+              <button class="c-dd-btn" onclick="cddToggle('dd-chart')"><span id="dd-chart-lbl">Bar</span> &#9662;</button>
+              <div class="c-dd-menu" id="dd-chart-menu">
+                <div class="c-dd-item" onclick="setChType('bar');cddToggle('dd-chart')"><span id="chk-bar" class="c-dd-chk">&#10003;</span>BAR</div>
+                <div class="c-dd-item" onclick="setChType('line');cddToggle('dd-chart')"><span id="chk-line" class="c-dd-chk" style="opacity:0">&#10003;</span>LINE</div>
+              </div>
+            </div>
+            <div class="c-dd" id="dd-period">
+              <button class="c-dd-btn" onclick="cddToggle('dd-period')"><span id="dd-period-lbl">By Daily</span> &#9662;</button>
+              <div class="c-dd-menu" id="dd-period-menu">
+                <div class="c-dd-item" onclick="setChPeriod('daily');cddToggle('dd-period')"><span id="chk-daily" class="c-dd-chk">&#10003;</span>DAILY</div>
+                <div class="c-dd-item" onclick="setChPeriod('weekly');cddToggle('dd-period')"><span id="chk-weekly" class="c-dd-chk" style="opacity:0">&#10003;</span>WEEKLY</div>
+                <div class="c-dd-item" onclick="setChPeriod('monthly');cddToggle('dd-period')"><span id="chk-monthly" class="c-dd-chk" style="opacity:0">&#10003;</span>MONTHLY</div>
+              </div>
+            </div>
+            <div class="c-dd" id="dd-tipo">
+              <button class="c-dd-btn" onclick="cddToggle('dd-tipo')"><span id="dd-tipo-lbl">Acumulado</span> &#9662;</button>
+              <div class="c-dd-menu" id="dd-tipo-menu">
+                <div class="c-dd-item" onclick="setChTipo('acumulado');cddToggle('dd-tipo')"><span id="chk-acum" class="c-dd-chk">&#10003;</span>ACUMULADO</div>
+                <div class="c-dd-item" onclick="setChTipo('periodo');cddToggle('dd-tipo')"><span id="chk-per" class="c-dd-chk" style="opacity:0">&#10003;</span>PERIODO</div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header">P&amp;L por Mes</div>
-          <div class="card-body chart-wrap">
-            <canvas id="monthlyChart" height="180"></canvas>
-          </div>
+        <div class="card-body chart-wrap">
+          <canvas id="equityChart" height="240"></canvas>
         </div>
       </div>
       <!-- Bottom row -->
@@ -1519,7 +1544,7 @@ async function loadDashboard() {
 
     renderTopBar(ov.balances, ov.positions);
     renderDashKPIs(ov.balances, curveData.curve, txData.metrics);
-    renderEquityChart(curveData.curve, curveData.nlvSnapshots);
+    _cData = curveData; _chRedraw();
     renderMonthlyChart(curveData.nlvByMonth || txData.metrics.strategyByMonth || curveData.byMonth || calendarToMonthly(curveData.calendar));
     renderDashPositions(ov.positions);
     renderDashRecent(txData.items, txData.metrics?.strategies || []);
@@ -1675,108 +1700,127 @@ function renderDashRecent(items=[], strategies=[]) {
 // ══════════════════════════════════════════
 //  CHARTS
 // ══════════════════════════════════════════
-function renderEquityChart(curve, nlvSnapshots) {
-  if (!curve?.values?.length) return;
-  const ctx = $('equityChart').getContext('2d');
-  const grad = ctx.createLinearGradient(0,0,0,280);
-  grad.addColorStop(0, 'rgba(19,214,143,.25)');
-  grad.addColorStop(1, 'rgba(19,214,143,.01)');
+function renderEquityChart(curve, nlvSnapshots, _tipo, _chtype) {
+  _tipo   = _tipo   || 'acumulado';
+  _chtype = _chtype || 'bar';
+  if (!curve || !curve.values || !curve.values.length) return;
+  var ctxEl = $('equityChart');
+  if (!ctxEl) return;
+  var ctx = ctxEl.getContext('2d');
+  if (S.charts && S.charts.equity) S.charts.equity.destroy();
+  var initial = curve.initial || 10644;
 
-  if (S.charts.equity) S.charts.equity.destroy();
-  const initial = curve.initial;
-  $('curve-period').textContent = `${curve.labels[0]} → ${curve.labels[curve.labels.length-1]}`;
+  // Período en header
+  var p0 = curve.labels[0] || '', pN = curve.labels[curve.labels.length-1] || '';
+  $('curve-period').textContent = p0.slice(0,10) + ' \u2192 ' + pN.slice(0,10);
 
-  // ── Puntos NLV: último día del mes para meses cerrados, último día de cada semana para mes actual ──
-  const snapshotData = Array(curve.labels.length).fill(null);
-  // Asegurar que el capital inicial se incluye como primer punto
-  if (curve.labels.length > 0) {
-    snapshotData[0] = curve.initial;
-  }
-  if (nlvSnapshots?.length) {
-    const today      = new Date(); today.setHours(0,0,0,0);
-    const curMonthYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
-
-    // Último valor por día
-    const byDay = {};
-    nlvSnapshots.forEach(([date, val]) => { byDay[date.slice(0,10)] = val; });
-
-    // Agrupar por mes
-    const byMonth = {};
-    Object.entries(byDay).forEach(([d, v]) => {
-      const ym = d.slice(0,7);
-      if (!byMonth[ym]) byMonth[ym] = {};
-      byMonth[ym][d] = v;
+  // Datos interpolados para modo acumulado con snapshots
+  var mainData = curve.values;
+  var snapPts = [];
+  if (_tipo === 'acumulado' && nlvSnapshots && nlvSnapshots.length) {
+    var byDay = {};
+    nlvSnapshots.forEach(function(e) { byDay[e[0].slice(0,10)] = e[1]; });
+    var snArr = Array(curve.labels.length).fill(null);
+    snArr[0] = initial;
+    curve.labels.forEach(function(l,i) {
+      var v = byDay[l.slice(0,10)];
+      if (v != null) snArr[i] = +v.toFixed(2);
     });
-
-    const selectedDays = [];
-    Object.entries(byMonth).forEach(([ym, days]) => {
-      const sorted = Object.keys(days).sort();
-      if (ym !== curMonthYM) {
-        // Mes cerrado: solo el último día con datos
-        selectedDays.push(sorted[sorted.length - 1]);
-      } else {
-        // Mes abierto: último día de cada semana ISO
-        const byWeek = {};
-        sorted.forEach(d => {
-          const dt   = new Date(d + 'T12:00:00');
-          const jan4 = new Date(dt.getFullYear(), 0, 4);
-          const wk   = `${dt.getFullYear()}-W${String(Math.ceil(((dt-jan4)/86400000+jan4.getDay()+1)/7)).padStart(2,'0')}`;
-          if (!byWeek[wk]) byWeek[wk] = [];
-          byWeek[wk].push(d);
-        });
-        Object.values(byWeek).forEach(wDays => selectedDays.push(wDays.sort()[wDays.length-1]));
+    var pts = snArr.map(function(v,i){ return v!=null?{i:i,v:v}:null; }).filter(Boolean);
+    if (pts.length >= 2) {
+      var interp = Array(curve.labels.length).fill(null);
+      for (var k=0; k<pts.length-1; k++) {
+        var a=pts[k], b=pts[k+1];
+        for (var ii=a.i; ii<=b.i; ii++) interp[ii] = +(a.v+(b.v-a.v)*(ii-a.i)/(b.i-a.i)).toFixed(2);
       }
-    });
-
-    selectedDays.forEach(date => {
-      let idx = curve.labels.findIndex(l => l.slice(0,10) === date);
-      if (idx === -1) idx = curve.labels.reduce((best,l,i) =>
-        Math.abs(new Date(l)-new Date(date)) < Math.abs(new Date(curve.labels[best])-new Date(date)) ? i : best, 0);
-      snapshotData[idx] = +byDay[date].toFixed(2);
-    });
+      for (var ii=0; ii<pts[0].i; ii++) interp[ii] = pts[0].v;
+      for (var ii=pts[pts.length-1].i; ii<interp.length; ii++) interp[ii] = pts[pts.length-1].v;
+      mainData = interp;
+    }
+    snapPts = pts;
   }
-  // ────────────────────────────────────────────────────────────────────────
+
+  // Label formatter
+  var fmtL = function(l) {
+    if (/\d{4}-W\d{2}/.test(l)) {
+      var parts = l.split('-W');
+      var yr=+parts[0], wk=+parts[1];
+      var d = new Date(yr, 0, 1+(wk-1)*7);
+      return 'W'+wk+' '+d.toLocaleDateString('es-CO',{month:'short'});
+    }
+    var d = new Date(l+'T12:00:00');
+    if (isNaN(d.getTime())) return l;
+    if (l.length===10 && l.slice(7)==='-15') return d.toLocaleDateString('es-CO',{month:'short',year:'2-digit'});
+    return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});
+  };
+
+  // Color por valor
+  var getBg = _chtype==='line' ? 'rgba(19,214,143,.15)' : function(ctx2) {
+    var v = mainData[ctx2.dataIndex];
+    if (_tipo==='acumulado') return v>=initial ? 'rgba(19,214,143,.8)' : 'rgba(240,79,90,.8)';
+    return v>=0 ? 'rgba(19,214,143,.8)' : 'rgba(240,79,90,.8)';
+  };
+  var getBorder = _chtype==='line' ? '#13d68f' : function(ctx2) {
+    var v = mainData[ctx2.dataIndex];
+    if (_tipo==='acumulado') return v>=initial ? '#13d68f' : '#f04f5a';
+    return v>=0 ? '#13d68f' : '#f04f5a';
+  };
+
+  var datasets = [{
+    label: 'Net Liq',
+    data: mainData,
+    backgroundColor: getBg,
+    borderColor: getBorder,
+    borderWidth: _chtype==='line' ? 2 : 0,
+    borderRadius: _chtype==='bar' ? 3 : 0,
+    fill: _chtype==='line',
+    tension: 0.3,
+    pointRadius: 0,
+    pointHoverRadius: 5,
+    type: _chtype
+  }];
+
+  if (_tipo==='acumulado') {
+    datasets.push({ label:'Capital Inicial', data:Array(mainData.length).fill(initial),
+      borderColor:'rgba(245,200,66,.35)', borderWidth:1, borderDash:[6,4],
+      fill:false, pointRadius:0, type:'line' });
+  }
 
   S.charts.equity = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: curve.labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});}),
-      datasets: [
-        { label:'Net Liq', data:(()=>{
-            // Interpolación lineal entre snapshots reales de Net Liq
-            const pts = snapshotData.map((v,i)=>v!=null?{i,v}:null).filter(Boolean);
-            if (pts.length < 2) return curve.values;
-            const interp = Array(curve.labels.length).fill(null);
-            // Rellenar con interpolación lineal entre puntos conocidos
-            for (let k=0; k<pts.length-1; k++) {
-              const a=pts[k], b=pts[k+1];
-              for (let i=a.i; i<=b.i; i++) {
-                interp[i] = a.v + (b.v-a.v)*(i-a.i)/(b.i-a.i);
-              }
-            }
-            // Extender primer y último punto
-            for (let i=0; i<pts[0].i; i++) interp[i] = pts[0].v;
-            for (let i=pts[pts.length-1].i; i<interp.length; i++) interp[i] = pts[pts.length-1].v;
-            return interp;
-          })(), borderColor:'#13d68f', borderWidth:2, backgroundColor:grad, fill:true, tension:.3, pointRadius:0, pointHoverRadius:5 },
-        { label:'Net Liq (snapshot)', data:snapshotData, borderColor:'#f5c842', borderWidth:0, backgroundColor:'#f5c842', fill:false, tension:0, pointRadius:6, pointHoverRadius:8, showLine:false, pointStyle:'circle' },
-        { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
-      ]
-    },
+    type: _chtype,
+    data: { labels: curve.labels.map(fmtL), datasets: datasets },
     options: {
       responsive:true, maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
       plugins:{
-        legend:{display:true, position:'top', labels:{color:'#4e5a70', font:{size:10}, boxWidth:10}},
+        legend:{ display:true, position:'top', labels:{color:'#4e5a70',font:{size:10},boxWidth:10,
+          filter: function(item){ return item.datasetIndex===0; }
+        }},
         tooltip:{
           backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
-          titleColor:'#4e5a70', bodyColor:'#c9d3e0',
-          callbacks:{ label: c=>c.parsed.y!=null?' '+c.dataset.label+': '+fa$(c.parsed.y):'' }
+          titleColor:'#8b96a8', bodyColor:'#c9d3e0',
+          callbacks:{
+            label: function(c) {
+              if (c.datasetIndex!==0 || c.parsed.y==null) return null;
+              var v = c.parsed.y;
+              if (_tipo==='acumulado') {
+                var diff = v-initial;
+                var sign = diff>=0?'+':'-';
+                return ' $'+v.toLocaleString('es-CO',{minimumFractionDigits:2})+
+                  '  ('+sign+'$'+Math.abs(diff).toLocaleString('es-CO',{minimumFractionDigits:2})+')';
+              } else {
+                return ' '+(v>=0?'+':'')+v.toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2});
+              }
+            }
+          }
         }
       },
       scales:{
-        x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:10}, grid:{color:'rgba(31,36,51,.5)'} },
-        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(31,36,51,.5)'} }
+        x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:12},
+            grid:{color:'rgba(255,255,255,.04)'} },
+        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},
+                   callback:function(v){return '$'+Math.round(v).toLocaleString();}},
+            grid:{color:'rgba(255,255,255,.04)'} }
       }
     }
   });
@@ -1789,7 +1833,8 @@ function renderMonthlyChart(byMonth={}) {
   const borders= vals.map(v=>v>=0?'#13d68f':'#f04f5a');
   const labels = months.map(m=>{const [y,mo]=m.split('-');return new Date(+y,+mo-1).toLocaleDateString('es-CO',{month:'short',year:'2-digit'});});
 
-  const ctx=$('monthlyChart').getContext('2d');
+  const _mEl=$('monthlyChart'); if(!_mEl) return;
+  const ctx=_mEl.getContext('2d');
   if (S.charts.monthly) S.charts.monthly.destroy();
   // En mobile, ajustar ancho del canvas según cantidad de meses
   const isMobile = window.innerWidth <= 1024;
@@ -6049,6 +6094,101 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+
+
+// ══ CURVA — CONTROLES ══════════════════
+var _cData   = null;
+var _cTipo   = 'acumulado';
+var _cPeriod = 'daily';
+var _cType   = 'bar';
+
+function _chRedraw() {
+  if (!_cData) return;
+  var curve       = _cData.curve;
+  var nlvSnaps    = _cData.nlvSnapshots;
+  var byWeek      = _cData.byWeek      || {};
+  var byMonth     = _cData.byMonth     || {};
+  var nlvByMonth  = _cData.nlvByMonth  || byMonth;
+  var nlvByWeek   = _cData.nlvByWeek   || byWeek;
+  var initial     = curve.initial || 10644;
+  var labels, vals, snaps;
+
+  if (_cPeriod === 'daily') {
+    labels = curve.labels;
+    snaps  = nlvSnaps;
+    if (_cTipo === 'periodo') {
+      var byDay = {};
+      (nlvSnaps||[]).forEach(function(e){ byDay[e[0].slice(0,10)] = e[1]; });
+      var prev = initial;
+      vals = labels.map(function(l) {
+        var v = byDay[l.slice(0,10)];
+        if (v != null) { var d=+(v-prev).toFixed(2); prev=v; return d; }
+        return 0;
+      });
+      snaps = null;
+    }
+  } else if (_cPeriod === 'weekly') {
+    var src = Object.keys(nlvByWeek).length ? nlvByWeek : byWeek;
+    var weeks = Object.keys(src).sort();
+    labels = weeks;
+    var run = initial;
+    var accum = weeks.map(function(w){ run += (src[w]||0); return +run.toFixed(2); });
+    vals  = _cTipo==='acumulado' ? accum : weeks.map(function(w){ return +(src[w]||0).toFixed(2); });
+    snaps = null;
+  } else if (_cPeriod === 'monthly') {
+    var src = Object.keys(nlvByMonth).length ? nlvByMonth : byMonth;
+    var months = Object.keys(src).sort();
+    labels = months.map(function(m){ return m+'-15'; });
+    var run = initial;
+    var accum = months.map(function(m){ run += (src[m]||0); return +run.toFixed(2); });
+    vals  = _cTipo==='acumulado' ? accum : months.map(function(m){ return +(src[m]||0).toFixed(2); });
+    snaps = null;
+  }
+
+  renderEquityChart(
+    { labels:labels, values:vals, initial:initial, maxDD:curve.maxDD, maxDDPct:curve.maxDDPct },
+    snaps, _cTipo, _cType
+  );
+}
+
+function cddToggle(id) {
+  var menu = $(id+'-menu');
+  if (!menu) return;
+  ['dd-chart','dd-period','dd-tipo'].forEach(function(d){
+    if (d!==id) { var m=$(d+'-menu'); if(m) m.style.display='none'; }
+  });
+  menu.style.display = menu.style.display==='block' ? 'none' : 'block';
+}
+document.addEventListener('click', function(e){
+  if (!e.target.closest || !e.target.closest('.c-dd')) {
+    ['dd-chart','dd-period','dd-tipo'].forEach(function(d){
+      var m=$(d+'-menu'); if(m) m.style.display='none';
+    });
+  }
+});
+
+function setChType(t) {
+  _cType = t;
+  var lbl=$('dd-chart-lbl'); if(lbl) lbl.textContent=t==='bar'?'Bar':'Line';
+  ['bar','line'].forEach(function(x){ var c=$('chk-'+x); if(c) c.style.opacity=x===t?'1':'0'; });
+  _chRedraw();
+}
+function setChPeriod(p) {
+  _cPeriod = p;
+  var map={daily:'By Daily',weekly:'By Weekly',monthly:'By Monthly'};
+  var lbl=$('dd-period-lbl'); if(lbl) lbl.textContent=map[p]||p;
+  ['daily','weekly','monthly'].forEach(function(x){ var c=$('chk-'+x); if(c) c.style.opacity=x===p?'1':'0'; });
+  _chRedraw();
+}
+function setChTipo(t) {
+  _cTipo = t;
+  var lbl=$('dd-tipo-lbl'); if(lbl) lbl.textContent=t==='acumulado'?'Acumulado':'Periodo';
+  var acumOp=t==='acumulado'?'1':'0', perOp=t==='periodo'?'1':'0';
+  var ca=$('chk-acum'), cp=$('chk-per');
+  if(ca) ca.style.opacity=acumOp;
+  if(cp) cp.style.opacity=perOp;
+  _chRedraw();
+}
 
 </script>
 </body>
