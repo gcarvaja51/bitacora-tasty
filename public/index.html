@@ -759,14 +759,14 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 /* ══ MOBILE RESPONSIVE ══════════════════ */
 @media (max-width: 1024px) {
   .content { padding-top: 56px !important; }
-  .header { padding-left: 56px; padding-top: 56px !important; }
+  .header { padding-left: 56px; padding-left: 56px; padding-top: 56px !important; }
   .sidebar { width: 0; min-width: 0; overflow: hidden; transition: width .25s; position: fixed; z-index: 200; height: 100vh; }
   .sidebar.open { width: 200px; }
   .content { margin-left: 0 !important; width: 100% !important; }
   .kpi-row.cols-4 { grid-template-columns: 1fr 1fr !important; }
   .kpi-row.cols-3 { grid-template-columns: 1fr 1fr !important; }
   .app { flex-direction: column; }
-  .header { padding-left: 56px; padding: 8px 12px; }
+  .header { padding-left: 56px; padding-left: 56px; padding: 8px 12px; }
   .hamburger { display: flex !important; } .content { margin-left: 0 !important; }
 }
 .hamburger {
