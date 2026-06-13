@@ -1688,6 +1688,10 @@ function renderEquityChart(curve, nlvSnapshots) {
 
   // ── Puntos NLV: último día del mes para meses cerrados, último día de cada semana para mes actual ──
   const snapshotData = Array(curve.labels.length).fill(null);
+  // Asegurar que el capital inicial se incluye como primer punto
+  if (curve.labels.length > 0) {
+    snapshotData[0] = curve.initial;
+  }
   if (nlvSnapshots?.length) {
     const today      = new Date(); today.setHours(0,0,0,0);
     const curMonthYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
