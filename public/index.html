@@ -1738,8 +1738,24 @@ function renderEquityChart(curve, nlvSnapshots) {
     data: {
       labels: curve.labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});}),
       datasets: [
-        { label:'P&L Realizado', data:curve.values, borderColor:'#13d68f', borderWidth:2, backgroundColor:grad, fill:true, tension:.3, pointRadius:0, pointHoverRadius:5 },
-        { label:'Net Liq Real', data:snapshotData, borderColor:'#f5c842', borderWidth:0, backgroundColor:'#f5c842', fill:false, tension:0, pointRadius:6, pointHoverRadius:8, showLine:false, pointStyle:'circle' },
+        { label:'Net Liq', data:(()=>{
+            // Interpolación lineal entre snapshots reales de Net Liq
+            const pts = snapshotData.map((v,i)=>v!=null?{i,v}:null).filter(Boolean);
+            if (pts.length < 2) return curve.values;
+            const interp = Array(curve.labels.length).fill(null);
+            // Rellenar con interpolación lineal entre puntos conocidos
+            for (let k=0; k<pts.length-1; k++) {
+              const a=pts[k], b=pts[k+1];
+              for (let i=a.i; i<=b.i; i++) {
+                interp[i] = a.v + (b.v-a.v)*(i-a.i)/(b.i-a.i);
+              }
+            }
+            // Extender primer y último punto
+            for (let i=0; i<pts[0].i; i++) interp[i] = pts[0].v;
+            for (let i=pts[pts.length-1].i; i<interp.length; i++) interp[i] = pts[pts.length-1].v;
+            return interp;
+          })(), borderColor:'#13d68f', borderWidth:2, backgroundColor:grad, fill:true, tension:.3, pointRadius:0, pointHoverRadius:5 },
+        { label:'Net Liq (snapshot)', data:snapshotData, borderColor:'#f5c842', borderWidth:0, backgroundColor:'#f5c842', fill:false, tension:0, pointRadius:6, pointHoverRadius:8, showLine:false, pointStyle:'circle' },
         { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
       ]
     },
