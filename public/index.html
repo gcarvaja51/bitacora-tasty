@@ -1817,7 +1817,8 @@ function renderMonthlyChart(byMonth={}) {
         y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(31,36,51,.5)'} }
       }
     }
-  });
+  })
+  setTimeout(()=>{ if(S.charts.monthly){S.charts.monthly.resize();S.charts.monthly.update();} },400);;
 }
 
 // ══════════════════════════════════════════
