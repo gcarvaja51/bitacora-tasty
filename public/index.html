@@ -1848,9 +1848,18 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
     type: chartType,
     data: {
       labels: curve.labels.map(l=>{
+      if (_curvePeriod==='weekly') {
+        // l es formato "2026-W07" — convertir a fecha legible
+        const m = l.match(/(\d{4})-W(\d{2})/);
+        if (m) {
+          const year = parseInt(m[1]), week = parseInt(m[2]);
+          const d = new Date(year, 0, 1 + (week-1)*7);
+          return 'W'+week+' '+d.toLocaleDateString('es-CO',{month:'short'});
+        }
+        return l;
+      }
       const d=new Date(l+'T12:00:00');
       if (_curvePeriod==='monthly') return d.toLocaleDateString('es-CO',{month:'short',year:'2-digit'});
-      if (_curvePeriod==='weekly')  return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});
       return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});
     }),
       datasets: [
@@ -1869,23 +1878,27 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
             for (let i=pts[pts.length-1].i; i<interp.length; i++) interp[i] = pts[pts.length-1].v;
             return interp;
           })(),
-          backgroundColor: (ctx) => {
-            const v = ctx.dataset.data[ctx.dataIndex];
-            const init = curve.initial || 10644;
-            if (tipo === 'acumulado') return v >= init ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
-            return v >= 0 ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
-          },
-          borderColor: (ctx) => {
-            const v = ctx.dataset.data[ctx.dataIndex];
-            const init = curve.initial || 10644;
-            if (tipo === 'acumulado') return v >= init ? '#13d68f' : '#f04f5a';
-            return v >= 0 ? '#13d68f' : '#f04f5a';
-          },
+          backgroundColor: chartType==='line'
+            ? (tipo==='acumulado' ? 'rgba(19,214,143,.15)' : 'rgba(19,214,143,.15)')
+            : (ctx) => {
+                const v = ctx.dataset.data[ctx.dataIndex];
+                const init = curve.initial || 10644;
+                if (tipo === 'acumulado') return v >= init ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
+                return v >= 0 ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
+              },
+          borderColor: chartType==='line'
+            ? '#13d68f'
+            : (ctx) => {
+                const v = ctx.dataset.data[ctx.dataIndex];
+                const init = curve.initial || 10644;
+                if (tipo === 'acumulado') return v >= init ? '#13d68f' : '#f04f5a';
+                return v >= 0 ? '#13d68f' : '#f04f5a';
+              },
           borderWidth: chartType==='line'?2:0,
           borderRadius: chartType==='bar'?2:0,
           fill: chartType==='line',
           tension: chartType==='line'?.3:0,
-          pointRadius: chartType==='line'?0:0,
+          pointRadius: 0,
           type: chartType },
         { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0, hidden: tipo==='periodo' },
       ]
