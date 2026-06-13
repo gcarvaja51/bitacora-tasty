@@ -887,24 +887,6 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   .kpi-label { font-size: 9px !important; }
 }
 
-
-/* ══ CURVE PERIOD BUTTONS ═══════════════ */
-.curve-period-btn {
-  background: var(--card2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--muted);
-  font-family: var(--syne);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 4px 10px;
-  cursor: pointer;
-  letter-spacing: .04em;
-  transition: all .15s;
-}
-.curve-period-btn:hover { border-color: var(--blue); color: var(--blue); }
-.curve-period-btn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); }
-
 </style>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -1016,32 +998,24 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <div class="kpi-row cols-6" id="dash-kpis">
         <div class="loader"><div class="spinner"></div> Cargando...</div>
       </div>
-      <!-- Chart full width -->
-      <div class="card" style="margin-bottom:16px;">
-          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <span>Curva de Capital <span id="curve-period" style="color:var(--blue);font-size:10px;"></span></span>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <!-- Tipo: Acumulado vs Período -->
-              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
-                <button onclick="setCurveTipo('acumulado')" id="cbt-acumulado" class="curve-period-btn active" style="border:none;">Acumulado</button>
-                <button onclick="setCurveTipo('periodo')"   id="cbt-periodo"   class="curve-period-btn"        style="border:none;">Período</button>
-              </div>
-              <!-- Granularidad -->
-              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
-                <button onclick="setCurvePeriod('daily')"   id="cpb-daily"   class="curve-period-btn active" style="border:none;">Diario</button>
-                <button onclick="setCurvePeriod('weekly')"  id="cpb-weekly"  class="curve-period-btn"        style="border:none;">Semanal</button>
-                <button onclick="setCurvePeriod('monthly')" id="cpb-monthly" class="curve-period-btn"        style="border:none;">Mensual</button>
-              </div>
-              <!-- Tipo de gráfico -->
-              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
-                <button onclick="setCurveChartType('bar')"  id="cct-bar"  class="curve-period-btn active" style="border:none;" title="Barras">▐▐</button>
-                <button onclick="setCurveChartType('line')" id="cct-line" class="curve-period-btn"        style="border:none;" title="Línea">∿</button>
-              </div>
-            </div>
+      <!-- Charts -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            Curva de Capital
+            <span id="curve-period" style="color:var(--blue);font-size:10px;"></span>
           </div>
           <div class="card-body chart-wrap">
-            <canvas id="equityChart" height="260"></canvas>
+            <canvas id="equityChart" height="180"></canvas>
           </div>
+        </div>
+        <div class="card">
+          <div class="card-header">P&amp;L por Mes</div>
+          <div class="card-body chart-wrap">
+            <canvas id="monthlyChart" height="180"></canvas>
+          </div>
+        </div>
+      </div>
       <!-- Bottom row -->
       <div class="grid-2b">
         <div class="card">
@@ -1545,8 +1519,7 @@ async function loadDashboard() {
 
     renderTopBar(ov.balances, ov.positions);
     renderDashKPIs(ov.balances, curveData.curve, txData.metrics);
-    _curveData = curveData;
-    _renderCurveWithState();
+    renderEquityChart(curveData.curve, curveData.nlvSnapshots);
     renderMonthlyChart(curveData.nlvByMonth || txData.metrics.strategyByMonth || curveData.byMonth || calendarToMonthly(curveData.calendar));
     renderDashPositions(ov.positions);
     renderDashRecent(txData.items, txData.metrics?.strategies || []);
@@ -1702,9 +1675,7 @@ function renderDashRecent(items=[], strategies=[]) {
 // ══════════════════════════════════════════
 //  CHARTS
 // ══════════════════════════════════════════
-function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
-  tipo      = tipo      || 'acumulado';
-  chartType = chartType || 'bar';
+function renderEquityChart(curve, nlvSnapshots) {
   if (!curve?.values?.length) return;
   const ctx = $('equityChart').getContext('2d');
   const grad = ctx.createLinearGradient(0,0,0,280);
@@ -1767,43 +1738,28 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
   // ────────────────────────────────────────────────────────────────────────
 
   S.charts.equity = new Chart(ctx, {
-    type: chartType,
+    type: 'line',
     data: {
       labels: curve.labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});}),
       datasets: [
         { label:'Net Liq', data:(()=>{
-            // Valores acumulativos interpolados de Net Liq real
+            // Interpolación lineal entre snapshots reales de Net Liq
             const pts = snapshotData.map((v,i)=>v!=null?{i,v}:null).filter(Boolean);
             if (pts.length < 2) return curve.values;
             const interp = Array(curve.labels.length).fill(null);
+            // Rellenar con interpolación lineal entre puntos conocidos
             for (let k=0; k<pts.length-1; k++) {
               const a=pts[k], b=pts[k+1];
               for (let i=a.i; i<=b.i; i++) {
-                interp[i] = +(a.v + (b.v-a.v)*(i-a.i)/(b.i-a.i)).toFixed(2);
+                interp[i] = a.v + (b.v-a.v)*(i-a.i)/(b.i-a.i);
               }
             }
+            // Extender primer y último punto
             for (let i=0; i<pts[0].i; i++) interp[i] = pts[0].v;
             for (let i=pts[pts.length-1].i; i<interp.length; i++) interp[i] = pts[pts.length-1].v;
             return interp;
-          })(),
-          backgroundColor: (ctx) => {
-            const v = ctx.dataset.data[ctx.dataIndex];
-            const init = curve.initial || 10644;
-            if (tipo === 'acumulado') return v >= init ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
-            return v >= 0 ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
-          },
-          borderColor: (ctx) => {
-            const v = ctx.dataset.data[ctx.dataIndex];
-            const init = curve.initial || 10644;
-            if (tipo === 'acumulado') return v >= init ? '#13d68f' : '#f04f5a';
-            return v >= 0 ? '#13d68f' : '#f04f5a';
-          },
-          borderWidth: chartType==='line'?2:0,
-          borderRadius: chartType==='bar'?2:0,
-          fill: chartType==='line',
-          tension: chartType==='line'?.3:0,
-          pointRadius: chartType==='line'?0:0,
-          type: chartType },
+          })(), borderColor:'#13d68f', borderWidth:2, backgroundColor:grad, fill:true, tension:.3, pointRadius:0, pointHoverRadius:5 },
+        { label:'Net Liq (snapshot)', data:snapshotData, borderColor:'#f5c842', borderWidth:0, backgroundColor:'#f5c842', fill:false, tension:0, pointRadius:6, pointHoverRadius:8, showLine:false, pointStyle:'circle' },
         { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
       ]
     },
@@ -1833,8 +1789,7 @@ function renderMonthlyChart(byMonth={}) {
   const borders= vals.map(v=>v>=0?'#13d68f':'#f04f5a');
   const labels = months.map(m=>{const [y,mo]=m.split('-');return new Date(+y,+mo-1).toLocaleDateString('es-CO',{month:'short',year:'2-digit'});});
 
-  const ctxEl=$('monthlyChart'); if(!ctxEl) return;
-  const ctx=ctxEl.getContext('2d');
+  const ctx=$('monthlyChart').getContext('2d');
   if (S.charts.monthly) S.charts.monthly.destroy();
   // En mobile, ajustar ancho del canvas según cantidad de meses
   const isMobile = window.innerWidth <= 1024;
@@ -6094,134 +6049,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
-
-
-// ══ CURVA DE CAPITAL — SELECTOR DE PERIODO ══
-
-function setCurvePeriod(period) {
-  if (!_curveData) return;
-
-  // Actualizar botones activos
-  ['daily','weekly','monthly'].forEach(p => {
-    const btn = $('cpb-' + p);
-    if (btn) btn.classList.toggle('active', p === period);
-  });
-
-  const { curve, nlvSnapshots, byWeek, nlvByMonth } = _curveData;
-
-  if (period === 'daily') {
-    renderEquityChart(curve, nlvSnapshots);
-  }
-  else if (period === 'weekly') {
-    // Construir curva semanal desde byWeek
-    if (!byWeek || Object.keys(byWeek).length === 0) return;
-    const weeks = Object.keys(byWeek).sort();
-    const initial = curve.initial || 10644;
-    let running = initial;
-    const vals = weeks.map(w => { running += byWeek[w]; return +running.toFixed(2); });
-    // Ajustar último valor al Net Liq actual
-    if (nlvSnapshots && nlvSnapshots.length > 0) {
-      vals[vals.length-1] = nlvSnapshots[nlvSnapshots.length-1][1];
-    }
-    const weekCurve = { labels: weeks, values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
-    renderEquityChart(weekCurve, null);
-  }
-  else if (period === 'monthly') {
-    // Construir curva mensual desde nlvByMonth (fuente real)
-    if (!nlvByMonth || Object.keys(nlvByMonth).length === 0) return;
-    const months = Object.keys(nlvByMonth).sort();
-    const initial = curve.initial || 10644;
-    let running = initial;
-    const vals = months.map(m => { running += nlvByMonth[m]; return +running.toFixed(2); });
-    // Ajustar último valor al Net Liq actual
-    if (nlvSnapshots && nlvSnapshots.length > 0) {
-      vals[vals.length-1] = nlvSnapshots[nlvSnapshots.length-1][1];
-    }
-    const monthCurve = { labels: months.map(m => m + '-15'), values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
-    renderEquityChart(monthCurve, null);
-  }
-}
-
-
-// ══ CURVA DE CAPITAL — CONTROLES ══
-let _curveData    = null;
-let _curveTipo    = 'acumulado';  // 'acumulado' | 'periodo'
-let _curvePeriod  = 'daily';      // 'daily' | 'weekly' | 'monthly'
-let _curveChType  = 'bar';        // 'bar' | 'line'
-
-function _renderCurveWithState() {
-  if (!_curveData) return;
-  const { curve, nlvSnapshots, byWeek, byMonth, nlvByMonth } = _curveData;
-  const initial = curve.initial || 10644;
-
-  let labels, vals, snapshots;
-
-  if (_curvePeriod === 'daily') {
-    labels    = curve.labels;
-    snapshots = nlvSnapshots;
-    if (_curveTipo === 'acumulado') {
-      vals = curve.values;  // ya interpolado con Net Liq
-    } else {
-      // Deltas diarios desde snapshots
-      const pts = (nlvSnapshots||[]).sort((a,b)=>a[0].localeCompare(b[0]));
-      const byDay = {};
-      pts.forEach(([d,v]) => { byDay[d.slice(0,10)] = v; });
-      let prev = initial;
-      vals = labels.map(d => {
-        const v = byDay[d.slice(0,10)];
-        if (v != null) { const delta = +(v-prev).toFixed(2); prev = v; return delta; }
-        return 0;
-      });
-      snapshots = null;
-    }
-  }
-  else if (_curvePeriod === 'weekly') {
-    if (!byWeek || !Object.keys(byWeek).length) return;
-    const weeks = Object.keys(byWeek).sort();
-    labels = weeks;
-    let running = initial;
-    const accumulated = weeks.map(w => { running += byWeek[w]; return +running.toFixed(2); });
-    vals      = _curveTipo === 'acumulado' ? accumulated : weeks.map(w => +byWeek[w].toFixed(2));
-    snapshots = null;
-  }
-  else if (_curvePeriod === 'monthly') {
-    const src = nlvByMonth || byMonth || {};
-    if (!Object.keys(src).length) return;
-    const months = Object.keys(src).sort();
-    labels = months.map(m => m + '-15');
-    let running = initial;
-    const accumulated = months.map(m => { running += src[m]; return +running.toFixed(2); });
-    vals      = _curveTipo === 'acumulado' ? accumulated : months.map(m => +src[m].toFixed(2));
-    snapshots = null;
-  }
-
-  const fakeCurve = { labels, values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
-  renderEquityChart(fakeCurve, snapshots, _curveTipo, _curveChType);
-}
-
-function setCurveTipo(tipo) {
-  _curveTipo = tipo;
-  ['acumulado','periodo'].forEach(t => {
-    const b = $('cbt-'+t); if(b) b.classList.toggle('active', t===tipo);
-  });
-  _renderCurveWithState();
-}
-
-function setCurvePeriod(period) {
-  _curvePeriod = period;
-  ['daily','weekly','monthly'].forEach(p => {
-    const b = $('cpb-'+p); if(b) b.classList.toggle('active', p===period);
-  });
-  _renderCurveWithState();
-}
-
-function setCurveChartType(type) {
-  _curveChType = type;
-  ['bar','line'].forEach(t => {
-    const b = $('cct-'+t); if(b) b.classList.toggle('active', t===type);
-  });
-  _renderCurveWithState();
-}
 
 </script>
 </body>
