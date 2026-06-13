@@ -1020,10 +1020,23 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <div class="card" style="margin-bottom:16px;">
           <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span>Curva de Capital <span id="curve-period" style="color:var(--blue);font-size:10px;"></span></span>
-            <div style="display:flex;gap:4px;" id="curve-period-btns">
-              <button onclick="setCurvePeriod('daily')"   id="cpb-daily"   class="curve-period-btn active">Diario</button>
-              <button onclick="setCurvePeriod('weekly')"  id="cpb-weekly"  class="curve-period-btn">Semanal</button>
-              <button onclick="setCurvePeriod('monthly')" id="cpb-monthly" class="curve-period-btn">Mensual</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <!-- Tipo: Acumulado vs Período -->
+              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
+                <button onclick="setCurveTipo('acumulado')" id="cbt-acumulado" class="curve-period-btn active" style="border:none;">Acumulado</button>
+                <button onclick="setCurveTipo('periodo')"   id="cbt-periodo"   class="curve-period-btn"        style="border:none;">Período</button>
+              </div>
+              <!-- Granularidad -->
+              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
+                <button onclick="setCurvePeriod('daily')"   id="cpb-daily"   class="curve-period-btn active" style="border:none;">Diario</button>
+                <button onclick="setCurvePeriod('weekly')"  id="cpb-weekly"  class="curve-period-btn"        style="border:none;">Semanal</button>
+                <button onclick="setCurvePeriod('monthly')" id="cpb-monthly" class="curve-period-btn"        style="border:none;">Mensual</button>
+              </div>
+              <!-- Tipo de gráfico -->
+              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
+                <button onclick="setCurveChartType('bar')"  id="cct-bar"  class="curve-period-btn active" style="border:none;" title="Barras">▐▐</button>
+                <button onclick="setCurveChartType('line')" id="cct-line" class="curve-period-btn"        style="border:none;" title="Línea">∿</button>
+              </div>
             </div>
           </div>
           <div class="card-body chart-wrap">
@@ -1533,7 +1546,7 @@ async function loadDashboard() {
     renderTopBar(ov.balances, ov.positions);
     renderDashKPIs(ov.balances, curveData.curve, txData.metrics);
     _curveData = curveData;
-    renderEquityChart(curveData.curve, curveData.nlvSnapshots);
+    _renderCurveWithState();
     renderMonthlyChart(curveData.nlvByMonth || txData.metrics.strategyByMonth || curveData.byMonth || calendarToMonthly(curveData.calendar));
     renderDashPositions(ov.positions);
     renderDashRecent(txData.items, txData.metrics?.strategies || []);
@@ -1689,7 +1702,9 @@ function renderDashRecent(items=[], strategies=[]) {
 // ══════════════════════════════════════════
 //  CHARTS
 // ══════════════════════════════════════════
-function renderEquityChart(curve, nlvSnapshots) {
+function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
+  tipo      = tipo      || 'acumulado';
+  chartType = chartType || 'bar';
   if (!curve?.values?.length) return;
   const ctx = $('equityChart').getContext('2d');
   const grad = ctx.createLinearGradient(0,0,0,280);
@@ -1752,7 +1767,7 @@ function renderEquityChart(curve, nlvSnapshots) {
   // ────────────────────────────────────────────────────────────────────────
 
   S.charts.equity = new Chart(ctx, {
-    type: 'bar',
+    type: chartType,
     data: {
       labels: curve.labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});}),
       datasets: [
@@ -1774,14 +1789,21 @@ function renderEquityChart(curve, nlvSnapshots) {
           backgroundColor: (ctx) => {
             const v = ctx.dataset.data[ctx.dataIndex];
             const init = curve.initial || 10644;
-            return v >= init ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
+            if (tipo === 'acumulado') return v >= init ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
+            return v >= 0 ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
           },
           borderColor: (ctx) => {
             const v = ctx.dataset.data[ctx.dataIndex];
             const init = curve.initial || 10644;
-            return v >= init ? '#13d68f' : '#f04f5a';
+            if (tipo === 'acumulado') return v >= init ? '#13d68f' : '#f04f5a';
+            return v >= 0 ? '#13d68f' : '#f04f5a';
           },
-          borderWidth: 0, borderRadius: 2, type: 'bar' },
+          borderWidth: chartType==='line'?2:0,
+          borderRadius: chartType==='bar'?2:0,
+          fill: chartType==='line',
+          tension: chartType==='line'?.3:0,
+          pointRadius: chartType==='line'?0:0,
+          type: chartType },
         { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
       ]
     },
@@ -6075,7 +6097,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 // ══ CURVA DE CAPITAL — SELECTOR DE PERIODO ══
-let _curveData = null;  // guardamos los datos globalmente
 
 function setCurvePeriod(period) {
   if (!_curveData) return;
@@ -6119,6 +6140,87 @@ function setCurvePeriod(period) {
     const monthCurve = { labels: months.map(m => m + '-15'), values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
     renderEquityChart(monthCurve, null);
   }
+}
+
+
+// ══ CURVA DE CAPITAL — CONTROLES ══
+let _curveData    = null;
+let _curveTipo    = 'acumulado';  // 'acumulado' | 'periodo'
+let _curvePeriod  = 'daily';      // 'daily' | 'weekly' | 'monthly'
+let _curveChType  = 'bar';        // 'bar' | 'line'
+
+function _renderCurveWithState() {
+  if (!_curveData) return;
+  const { curve, nlvSnapshots, byWeek, byMonth, nlvByMonth } = _curveData;
+  const initial = curve.initial || 10644;
+
+  let labels, vals, snapshots;
+
+  if (_curvePeriod === 'daily') {
+    labels    = curve.labels;
+    snapshots = nlvSnapshots;
+    if (_curveTipo === 'acumulado') {
+      vals = curve.values;  // ya interpolado con Net Liq
+    } else {
+      // Deltas diarios desde snapshots
+      const pts = (nlvSnapshots||[]).sort((a,b)=>a[0].localeCompare(b[0]));
+      const byDay = {};
+      pts.forEach(([d,v]) => { byDay[d.slice(0,10)] = v; });
+      let prev = initial;
+      vals = labels.map(d => {
+        const v = byDay[d.slice(0,10)];
+        if (v != null) { const delta = +(v-prev).toFixed(2); prev = v; return delta; }
+        return 0;
+      });
+      snapshots = null;
+    }
+  }
+  else if (_curvePeriod === 'weekly') {
+    if (!byWeek || !Object.keys(byWeek).length) return;
+    const weeks = Object.keys(byWeek).sort();
+    labels = weeks;
+    let running = initial;
+    const accumulated = weeks.map(w => { running += byWeek[w]; return +running.toFixed(2); });
+    vals      = _curveTipo === 'acumulado' ? accumulated : weeks.map(w => +byWeek[w].toFixed(2));
+    snapshots = null;
+  }
+  else if (_curvePeriod === 'monthly') {
+    const src = nlvByMonth || byMonth || {};
+    if (!Object.keys(src).length) return;
+    const months = Object.keys(src).sort();
+    labels = months.map(m => m + '-15');
+    let running = initial;
+    const accumulated = months.map(m => { running += src[m]; return +running.toFixed(2); });
+    vals      = _curveTipo === 'acumulado' ? accumulated : months.map(m => +src[m].toFixed(2));
+    snapshots = null;
+  }
+
+  const fakeCurve = { labels, values: vals, initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct };
+  renderEquityChart(fakeCurve, snapshots, _curveTipo, _curveChType);
+}
+
+function setCurveTipo(tipo) {
+  _curveTipo = tipo;
+  ['acumulado','periodo'].forEach(t => {
+    const b = $('cbt-'+t); if(b) b.classList.toggle('active', t===tipo);
+  });
+  _renderCurveWithState();
+}
+
+function setCurvePeriod(period) {
+  _curvePeriod = period;
+  ['daily','weekly','monthly'].forEach(p => {
+    const b = $('cpb-'+p); if(b) b.classList.toggle('active', p===period);
+  });
+  _renderCurveWithState();
+}
+
+function setCurveChartType(type) {
+  _curveChType = type;
+  ['bar','line'].forEach(t => {
+    const b = $('cct-'+t); if(b) b.classList.toggle('active', t===type);
+  });
+  _renderCurveWithState();
 }
 
 </script>
