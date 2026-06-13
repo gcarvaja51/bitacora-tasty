@@ -905,6 +905,51 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 .curve-period-btn:hover { border-color: var(--blue); color: var(--blue); }
 .curve-period-btn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); }
 
+
+/* ══ CURVE DROPDOWNS (TraderSync style) ═ */
+.curve-dropdown { position: relative; }
+.curve-dd-btn {
+  background: var(--card2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--syne);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.curve-dd-btn:hover { border-color: var(--blue); color: var(--blue); }
+.curve-dd-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: #1a1f2e;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 140px;
+  z-index: 200;
+  padding: 6px 0;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+.curve-dd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--text);
+  cursor: pointer;
+}
+.curve-dd-item:hover { background: rgba(79,142,255,.08); color: var(--blue); }
+.curve-dd-check { color: #13d68f; font-size: 13px; width: 14px; }
+
 </style>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -1020,23 +1065,56 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <div class="card" style="margin-bottom:16px;">
           <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span>Curva de Capital <span id="curve-period" style="color:var(--blue);font-size:10px;"></span></span>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <!-- Tipo: Acumulado vs Período -->
-              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
-                <button onclick="setCurveTipo('acumulado')" id="cbt-acumulado" class="curve-period-btn active" style="border:none;">Acumulado</button>
-                <button onclick="setCurveTipo('periodo')"   id="cbt-periodo"   class="curve-period-btn"        style="border:none;">Período</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;position:relative;">
+
+              <!-- Dropdown: Tipo de gráfico (Bar/Line) -->
+              <div class="curve-dropdown" id="dd-chart">
+                <button class="curve-dd-btn" onclick="toggleCurveDD('dd-chart')">
+                  <span id="dd-chart-label">Bar</span> ▾
+                </button>
+                <div class="curve-dd-menu" id="dd-chart-menu" style="display:none;">
+                  <div class="curve-dd-item" onclick="setCurveChartType('bar');toggleCurveDD('dd-chart')">
+                    <span class="curve-dd-check" id="chk-bar">✓</span> BAR
+                  </div>
+                  <div class="curve-dd-item" onclick="setCurveChartType('line');toggleCurveDD('dd-chart')">
+                    <span class="curve-dd-check" id="chk-line" style="opacity:0;">✓</span> LINE
+                  </div>
+                </div>
               </div>
-              <!-- Granularidad -->
-              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
-                <button onclick="setCurvePeriod('daily')"   id="cpb-daily"   class="curve-period-btn active" style="border:none;">Diario</button>
-                <button onclick="setCurvePeriod('weekly')"  id="cpb-weekly"  class="curve-period-btn"        style="border:none;">Semanal</button>
-                <button onclick="setCurvePeriod('monthly')" id="cpb-monthly" class="curve-period-btn"        style="border:none;">Mensual</button>
+
+              <!-- Dropdown: Periodo (Daily/Weekly/Monthly) -->
+              <div class="curve-dropdown" id="dd-period">
+                <button class="curve-dd-btn" onclick="toggleCurveDD('dd-period')">
+                  <span id="dd-period-label">By Daily</span> ▾
+                </button>
+                <div class="curve-dd-menu" id="dd-period-menu" style="display:none;">
+                  <div class="curve-dd-item" onclick="setCurvePeriod('daily');toggleCurveDD('dd-period')">
+                    <span class="curve-dd-check" id="chk-daily">✓</span> DAILY
+                  </div>
+                  <div class="curve-dd-item" onclick="setCurvePeriod('weekly');toggleCurveDD('dd-period')">
+                    <span class="curve-dd-check" id="chk-weekly" style="opacity:0;">✓</span> WEEKLY
+                  </div>
+                  <div class="curve-dd-item" onclick="setCurvePeriod('monthly');toggleCurveDD('dd-period')">
+                    <span class="curve-dd-check" id="chk-monthly" style="opacity:0;">✓</span> MONTHLY
+                  </div>
+                </div>
               </div>
-              <!-- Tipo de gráfico -->
-              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
-                <button onclick="setCurveChartType('bar')"  id="cct-bar"  class="curve-period-btn active" style="border:none;" title="Barras">▐▐</button>
-                <button onclick="setCurveChartType('line')" id="cct-line" class="curve-period-btn"        style="border:none;" title="Línea">∿</button>
+
+              <!-- Dropdown: Tipo acumulado/periodo -->
+              <div class="curve-dropdown" id="dd-tipo">
+                <button class="curve-dd-btn" onclick="toggleCurveDD('dd-tipo')">
+                  <span id="dd-tipo-label">Acumulado</span> ▾
+                </button>
+                <div class="curve-dd-menu" id="dd-tipo-menu" style="display:none;">
+                  <div class="curve-dd-item" onclick="setCurveTipo('acumulado');toggleCurveDD('dd-tipo')">
+                    <span class="curve-dd-check" id="chk-acumulado">✓</span> ACUMULADO
+                  </div>
+                  <div class="curve-dd-item" onclick="setCurveTipo('periodo');toggleCurveDD('dd-tipo')">
+                    <span class="curve-dd-check" id="chk-periodo" style="opacity:0;">✓</span> PERÍODO
+                  </div>
+                </div>
               </div>
+
             </div>
           </div>
           <div class="card-body chart-wrap">
@@ -1819,8 +1897,8 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
         }
       },
       scales:{
-        x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:10}, grid:{color:'rgba(31,36,51,.5)'} },
-        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(31,36,51,.5)'} }
+        x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:10}, grid:{color:'rgba(255,255,255,.04)', lineWidth:1} },
+        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(255,255,255,.04)', lineWidth:1} }
       }
     }
   });
@@ -1859,7 +1937,7 @@ function renderMonthlyChart(byMonth={}) {
       plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}} },
       scales:{
         x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10}}, grid:{display:false} },
-        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(31,36,51,.5)'} }
+        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(255,255,255,.04)', lineWidth:1} }
       }
     }
   })
@@ -6201,27 +6279,51 @@ function _renderCurveWithState() {
 
 function setCurveTipo(tipo) {
   _curveTipo = tipo;
+  const lbl = $('dd-tipo-label'); if(lbl) lbl.textContent = tipo==='acumulado'?'Acumulado':'Período';
   ['acumulado','periodo'].forEach(t => {
-    const b = $('cbt-'+t); if(b) b.classList.toggle('active', t===tipo);
+    const c=$('chk-'+t); if(c) c.style.opacity = t===tipo?'1':'0';
   });
   _renderCurveWithState();
 }
 
 function setCurvePeriod(period) {
   _curvePeriod = period;
+  const labels = {daily:'By Daily', weekly:'By Weekly', monthly:'By Monthly'};
+  const lbl = $('dd-period-label'); if(lbl) lbl.textContent = labels[period]||period;
   ['daily','weekly','monthly'].forEach(p => {
-    const b = $('cpb-'+p); if(b) b.classList.toggle('active', p===period);
+    const c=$('chk-'+p); if(c) c.style.opacity = p===period?'1':'0';
   });
   _renderCurveWithState();
 }
 
 function setCurveChartType(type) {
   _curveChType = type;
+  // Actualizar label y checks
+  const lbl = $('dd-chart-label'); if(lbl) lbl.textContent = type==='bar'?'Bar':'Line';
   ['bar','line'].forEach(t => {
-    const b = $('cct-'+t); if(b) b.classList.toggle('active', t===type);
+    const c=$('chk-'+t); if(c) c.style.opacity = t===type?'1':'0';
   });
   _renderCurveWithState();
 }
+
+
+function toggleCurveDD(id) {
+  const menu = $(id + '-menu');
+  if (!menu) return;
+  // Cerrar todos los otros dropdowns
+  ['dd-chart','dd-period','dd-tipo'].forEach(d => {
+    if (d !== id) { const m=$(d+'-menu'); if(m) m.style.display='none'; }
+  });
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+// Cerrar dropdowns al click fuera
+document.addEventListener('click', e => {
+  if (!e.target.closest('.curve-dropdown')) {
+    ['dd-chart','dd-period','dd-tipo'].forEach(d => {
+      const m=$(d+'-menu'); if(m) m.style.display='none';
+    });
+  }
+});
 
 </script>
 </body>
