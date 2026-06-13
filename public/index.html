@@ -1911,14 +1911,25 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
         tooltip:{
           backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
           titleColor:'#4e5a70', bodyColor:'#c9d3e0',
-          callbacks:{ 
+          callbacks:{
             title: items => items[0]?.label || '',
             label: c => {
-              if (c.parsed.y == null) return '';
+              if (c.parsed.y == null || c.parsed.y === 0) return null;
               const v = c.parsed.y;
-              const sign = v >= 0 ? '+' : '';
-              return ' ' + c.dataset.label + ': ' + sign + '$' + Math.abs(v).toLocaleString('es-CO', {minimumFractionDigits:2, maximumFractionDigits:2});
-            }
+              const init = _curveData?.curve?.initial || 10644;
+              let label = '';
+              if (_curveTipo === 'periodo') {
+                const sign = v >= 0 ? '+' : '';
+                label = sign + '$' + Math.abs(v).toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2});
+              } else {
+                // Acumulado: mostrar valor y diferencia vs capital inicial
+                const diff = v - init;
+                const sign = diff >= 0 ? '+' : '';
+                label = '$' + v.toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2}) + '  (' + sign + '$' + Math.abs(diff).toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2}) + ')';
+              }
+              return ' ' + label;
+            },
+            filter: item => item.dataset.label !== 'Capital Inicial'
           }
         }
       },
