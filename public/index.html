@@ -905,51 +905,6 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 .curve-period-btn:hover { border-color: var(--blue); color: var(--blue); }
 .curve-period-btn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); }
 
-
-/* ══ CURVE DROPDOWNS (TraderSync style) ═ */
-.curve-dropdown { position: relative; }
-.curve-dd-btn {
-  background: var(--card2);
-  border: 1px solid var(--border2);
-  border-radius: 6px;
-  color: var(--text);
-  font-family: var(--syne);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 5px 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-.curve-dd-btn:hover { border-color: var(--blue); color: var(--blue); }
-.curve-dd-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  background: #1a1f2e;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  min-width: 140px;
-  z-index: 200;
-  padding: 6px 0;
-  box-shadow: 0 8px 24px rgba(0,0,0,.4);
-}
-.curve-dd-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  color: var(--text);
-  cursor: pointer;
-}
-.curve-dd-item:hover { background: rgba(79,142,255,.08); color: var(--blue); }
-.curve-dd-check { color: #13d68f; font-size: 13px; width: 14px; }
-
 </style>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -1065,56 +1020,23 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <div class="card" style="margin-bottom:16px;">
           <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span>Curva de Capital <span id="curve-period" style="color:var(--blue);font-size:10px;"></span></span>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;position:relative;">
-
-              <!-- Dropdown: Tipo de gráfico (Bar/Line) -->
-              <div class="curve-dropdown" id="dd-chart">
-                <button class="curve-dd-btn" onclick="toggleCurveDD('dd-chart')">
-                  <span id="dd-chart-label">Bar</span> ▾
-                </button>
-                <div class="curve-dd-menu" id="dd-chart-menu" style="display:none;">
-                  <div class="curve-dd-item" onclick="setCurveChartType('bar');toggleCurveDD('dd-chart')">
-                    <span class="curve-dd-check" id="chk-bar">✓</span> BAR
-                  </div>
-                  <div class="curve-dd-item" onclick="setCurveChartType('line');toggleCurveDD('dd-chart')">
-                    <span class="curve-dd-check" id="chk-line" style="opacity:0;">✓</span> LINE
-                  </div>
-                </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <!-- Tipo: Acumulado vs Período -->
+              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
+                <button onclick="setCurveTipo('acumulado')" id="cbt-acumulado" class="curve-period-btn active" style="border:none;">Acumulado</button>
+                <button onclick="setCurveTipo('periodo')"   id="cbt-periodo"   class="curve-period-btn"        style="border:none;">Período</button>
               </div>
-
-              <!-- Dropdown: Periodo (Daily/Weekly/Monthly) -->
-              <div class="curve-dropdown" id="dd-period">
-                <button class="curve-dd-btn" onclick="toggleCurveDD('dd-period')">
-                  <span id="dd-period-label">By Daily</span> ▾
-                </button>
-                <div class="curve-dd-menu" id="dd-period-menu" style="display:none;">
-                  <div class="curve-dd-item" onclick="setCurvePeriod('daily');toggleCurveDD('dd-period')">
-                    <span class="curve-dd-check" id="chk-daily">✓</span> DAILY
-                  </div>
-                  <div class="curve-dd-item" onclick="setCurvePeriod('weekly');toggleCurveDD('dd-period')">
-                    <span class="curve-dd-check" id="chk-weekly" style="opacity:0;">✓</span> WEEKLY
-                  </div>
-                  <div class="curve-dd-item" onclick="setCurvePeriod('monthly');toggleCurveDD('dd-period')">
-                    <span class="curve-dd-check" id="chk-monthly" style="opacity:0;">✓</span> MONTHLY
-                  </div>
-                </div>
+              <!-- Granularidad -->
+              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
+                <button onclick="setCurvePeriod('daily')"   id="cpb-daily"   class="curve-period-btn active" style="border:none;">Diario</button>
+                <button onclick="setCurvePeriod('weekly')"  id="cpb-weekly"  class="curve-period-btn"        style="border:none;">Semanal</button>
+                <button onclick="setCurvePeriod('monthly')" id="cpb-monthly" class="curve-period-btn"        style="border:none;">Mensual</button>
               </div>
-
-              <!-- Dropdown: Tipo acumulado/periodo -->
-              <div class="curve-dropdown" id="dd-tipo">
-                <button class="curve-dd-btn" onclick="toggleCurveDD('dd-tipo')">
-                  <span id="dd-tipo-label">Acumulado</span> ▾
-                </button>
-                <div class="curve-dd-menu" id="dd-tipo-menu" style="display:none;">
-                  <div class="curve-dd-item" onclick="setCurveTipo('acumulado');toggleCurveDD('dd-tipo')">
-                    <span class="curve-dd-check" id="chk-acumulado">✓</span> ACUMULADO
-                  </div>
-                  <div class="curve-dd-item" onclick="setCurveTipo('periodo');toggleCurveDD('dd-tipo')">
-                    <span class="curve-dd-check" id="chk-periodo" style="opacity:0;">✓</span> PERÍODO
-                  </div>
-                </div>
+              <!-- Tipo de gráfico -->
+              <div style="display:flex;gap:3px;border:1px solid var(--border);border-radius:7px;padding:2px;">
+                <button onclick="setCurveChartType('bar')"  id="cct-bar"  class="curve-period-btn active" style="border:none;" title="Barras">▐▐</button>
+                <button onclick="setCurveChartType('line')" id="cct-line" class="curve-period-btn"        style="border:none;" title="Línea">∿</button>
               </div>
-
             </div>
           </div>
           <div class="card-body chart-wrap">
@@ -1489,12 +1411,6 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 </div>
 
 <script>
-// Variables globales de curva — inicializadas al arranque
-var _curveData   = null;
-var _curveTipo   = 'acumulado';
-var _curvePeriod = 'daily';
-var _curveChType = 'bar';
-
 // ══════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════
@@ -1853,21 +1769,7 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
   S.charts.equity = new Chart(ctx, {
     type: chartType,
     data: {
-      labels: curve.labels.map(l=>{
-      if (_curvePeriod==='weekly') {
-        // l es formato "2026-W07" — convertir a fecha legible
-        const m = l.match(/(\d{4})-W(\d{2})/);
-        if (m) {
-          const year = parseInt(m[1]), week = parseInt(m[2]);
-          const d = new Date(year, 0, 1 + (week-1)*7);
-          return 'W'+week+' '+d.toLocaleDateString('es-CO',{month:'short'});
-        }
-        return l;
-      }
-      const d=new Date(l+'T12:00:00');
-      if (_curvePeriod==='monthly') return d.toLocaleDateString('es-CO',{month:'short',year:'2-digit'});
-      return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});
-    }),
+      labels: curve.labels.map(l=>{const d=new Date(l);return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});}),
       datasets: [
         { label:'Net Liq', data:(()=>{
             // Valores acumulativos interpolados de Net Liq real
@@ -1884,29 +1786,25 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
             for (let i=pts[pts.length-1].i; i<interp.length; i++) interp[i] = pts[pts.length-1].v;
             return interp;
           })(),
-          backgroundColor: chartType==='line'
-            ? (tipo==='acumulado' ? 'rgba(19,214,143,.15)' : 'rgba(19,214,143,.15)')
-            : (ctx) => {
-                const v = ctx.dataset.data[ctx.dataIndex];
-                const init = curve.initial || 10644;
-                if (tipo === 'acumulado') return v >= init ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
-                return v >= 0 ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
-              },
-          borderColor: chartType==='line'
-            ? '#13d68f'
-            : (ctx) => {
-                const v = ctx.dataset.data[ctx.dataIndex];
-                const init = curve.initial || 10644;
-                if (tipo === 'acumulado') return v >= init ? '#13d68f' : '#f04f5a';
-                return v >= 0 ? '#13d68f' : '#f04f5a';
-              },
+          backgroundColor: (ctx) => {
+            const v = ctx.dataset.data[ctx.dataIndex];
+            const init = curve.initial || 10644;
+            if (tipo === 'acumulado') return v >= init ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
+            return v >= 0 ? 'rgba(19,214,143,.75)' : 'rgba(240,79,90,.75)';
+          },
+          borderColor: (ctx) => {
+            const v = ctx.dataset.data[ctx.dataIndex];
+            const init = curve.initial || 10644;
+            if (tipo === 'acumulado') return v >= init ? '#13d68f' : '#f04f5a';
+            return v >= 0 ? '#13d68f' : '#f04f5a';
+          },
           borderWidth: chartType==='line'?2:0,
           borderRadius: chartType==='bar'?2:0,
           fill: chartType==='line',
           tension: chartType==='line'?.3:0,
-          pointRadius: 0,
+          pointRadius: chartType==='line'?0:0,
           type: chartType },
-        { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0, hidden: tipo==='periodo' },
+        { label:'Capital Inicial', data:Array(curve.values.length).fill(initial), borderColor:'rgba(245,200,66,.3)', borderWidth:1, borderDash:[6,4], fill:false, pointRadius:0 },
       ]
     },
     options: {
@@ -1917,35 +1815,12 @@ function renderEquityChart(curve, nlvSnapshots, tipo, chartType) {
         tooltip:{
           backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
           titleColor:'#4e5a70', bodyColor:'#c9d3e0',
-          callbacks:{
-            title: items => items[0]?.label || '',
-            label: c => {
-              if (c.parsed.y == null || c.parsed.y === 0) return null;
-              const v = c.parsed.y;
-              const init = _curveData?.curve?.initial || 10644;
-              let label = '';
-              if (_curveTipo === 'periodo') {
-                const sign = v >= 0 ? '+' : '';
-                label = sign + '$' + Math.abs(v).toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2});
-              } else {
-                // Acumulado: mostrar valor y diferencia vs capital inicial
-                const diff = v - init;
-                const sign = diff >= 0 ? '+' : '';
-                label = '$' + v.toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2}) + '  (' + sign + '$' + Math.abs(diff).toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2}) + ')';
-              }
-              return ' ' + label;
-            },
-            filter: item => item.dataset.label !== 'Capital Inicial'
-          }
+          callbacks:{ label: c=>c.parsed.y!=null?' '+c.dataset.label+': '+fa$(c.parsed.y):'' }
         }
       },
       scales:{
-        x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:10}, grid:{color:'rgba(255,255,255,.04)', lineWidth:1} },
-        y:{ 
-          beginAtZero: tipo==='acumulado',
-          ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, 
-          grid:{color:'rgba(255,255,255,.04)', lineWidth:1} 
-        }
+        x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:10}, grid:{color:'rgba(31,36,51,.5)'} },
+        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(31,36,51,.5)'} }
       }
     }
   });
@@ -1984,11 +1859,7 @@ function renderMonthlyChart(byMonth={}) {
       plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}} },
       scales:{
         x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10}}, grid:{display:false} },
-        y:{ 
-          beginAtZero: tipo==='acumulado',
-          ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, 
-          grid:{color:'rgba(255,255,255,.04)', lineWidth:1} 
-        }
+        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},callback:v=>'$'+Math.round(v).toLocaleString()}, grid:{color:'rgba(31,36,51,.5)'} }
       }
     }
   })
@@ -6273,7 +6144,10 @@ function setCurvePeriod(period) {
 
 
 // ══ CURVA DE CAPITAL — CONTROLES ══
-// Variables de curva declaradas al inicio del script
+let _curveData    = null;
+let _curveTipo    = 'acumulado';  // 'acumulado' | 'periodo'
+let _curvePeriod  = 'daily';      // 'daily' | 'weekly' | 'monthly'
+let _curveChType  = 'bar';        // 'bar' | 'line'
 
 function _renderCurveWithState() {
   if (!_curveData) return;
@@ -6302,13 +6176,12 @@ function _renderCurveWithState() {
     }
   }
   else if (_curvePeriod === 'weekly') {
-    const srcWeek = _curveData.nlvByWeek || byWeek || {};
-    if (!Object.keys(srcWeek).length) return;
-    const weeks = Object.keys(srcWeek).sort();
+    if (!byWeek || !Object.keys(byWeek).length) return;
+    const weeks = Object.keys(byWeek).sort();
     labels = weeks;
     let running = initial;
-    const accumulated = weeks.map(w => { running += srcWeek[w]; return +running.toFixed(2); });
-    vals      = _curveTipo === 'acumulado' ? accumulated : weeks.map(w => +srcWeek[w].toFixed(2));
+    const accumulated = weeks.map(w => { running += byWeek[w]; return +running.toFixed(2); });
+    vals      = _curveTipo === 'acumulado' ? accumulated : weeks.map(w => +byWeek[w].toFixed(2));
     snapshots = null;
   }
   else if (_curvePeriod === 'monthly') {
@@ -6328,51 +6201,27 @@ function _renderCurveWithState() {
 
 function setCurveTipo(tipo) {
   _curveTipo = tipo;
-  const lbl = $('dd-tipo-label'); if(lbl) lbl.textContent = tipo==='acumulado'?'Acumulado':'Período';
   ['acumulado','periodo'].forEach(t => {
-    const c=$('chk-'+t); if(c) c.style.opacity = t===tipo?'1':'0';
+    const b = $('cbt-'+t); if(b) b.classList.toggle('active', t===tipo);
   });
   _renderCurveWithState();
 }
 
 function setCurvePeriod(period) {
   _curvePeriod = period;
-  const labels = {daily:'By Daily', weekly:'By Weekly', monthly:'By Monthly'};
-  const lbl = $('dd-period-label'); if(lbl) lbl.textContent = labels[period]||period;
   ['daily','weekly','monthly'].forEach(p => {
-    const c=$('chk-'+p); if(c) c.style.opacity = p===period?'1':'0';
+    const b = $('cpb-'+p); if(b) b.classList.toggle('active', p===period);
   });
   _renderCurveWithState();
 }
 
 function setCurveChartType(type) {
   _curveChType = type;
-  // Actualizar label y checks
-  const lbl = $('dd-chart-label'); if(lbl) lbl.textContent = type==='bar'?'Bar':'Line';
   ['bar','line'].forEach(t => {
-    const c=$('chk-'+t); if(c) c.style.opacity = t===type?'1':'0';
+    const b = $('cct-'+t); if(b) b.classList.toggle('active', t===type);
   });
   _renderCurveWithState();
 }
-
-
-function toggleCurveDD(id) {
-  const menu = $(id + '-menu');
-  if (!menu) return;
-  // Cerrar todos los otros dropdowns
-  ['dd-chart','dd-period','dd-tipo'].forEach(d => {
-    if (d !== id) { const m=$(d+'-menu'); if(m) m.style.display='none'; }
-  });
-  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-}
-// Cerrar dropdowns al click fuera
-document.addEventListener('click', e => {
-  if (!e.target.closest('.curve-dropdown')) {
-    ['dd-chart','dd-period','dd-tipo'].forEach(d => {
-      const m=$(d+'-menu'); if(m) m.style.display='none';
-    });
-  }
-});
 
 </script>
 </body>
