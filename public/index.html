@@ -762,41 +762,41 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   <nav class="sidebar-nav">
     <div class="nav-section-label">Principal</div>
     <div class="nav-item active" onclick="nav('dashboard',this)">
-      <span class="icon">Γùê</span> Dashboard
+      <span class="icon">📊</span> Dashboard
     </div>
     <div class="nav-item" onclick="nav('calendar',this)">
-      <span class="icon">Γù╖</span> Calendario
+      <span class="icon">📅</span> Calendario
     </div>
     <div class="nav-item" onclick="nav('positions',this)">
-      <span class="icon">Γùë</span> Posiciones
+      <span class="icon">📋</span> Posiciones
     </div>
-    <div class="nav-section-label">An├ílisis</div>
+    <div class="nav-section-label">Análisis</div>
     <div class="nav-item" onclick="nav('history',this)">
-      <span class="icon">Γëí</span> Historial
+      <span class="icon">📈</span> Historial
     </div>
     <div class="nav-item" onclick="nav('reports',this)">
-      <span class="icon">Γùæ</span> Reportes
+      <span class="icon">📄</span> Reportes
     </div>
     <div class="nav-item" onclick="nav('watchlist',this)">
-      <span class="icon">≡ƒæü</span> Watchlist
+      <span class="icon">👀</span> Watchlist
     </div>
     <div class="nav-item" onclick="nav('playbooks',this)">
-      <span class="icon">≡ƒôï</span> Playbooks
+      <span class="icon">📓</span> Playbooks
     </div>
     <div class="nav-item" onclick="nav('ai',this)">
-      <span class="icon">≡ƒñû</span> IA An├ílisis
+      <span class="icon">🤖</span> IA Análisis
     </div>
     <div class="nav-item" onclick="nav('wheel',this)">
-      <span class="icon">≡ƒöä</span> La Rueda
+      <span class="icon">🔄</span> La Rueda
     </div>
     <div class="nav-item" onclick="nav('chain',this)">
-      <span class="icon">≡ƒôè</span> Cadena Opciones
+      <span class="icon">🔗</span> Cadena Opciones
     </div>
     <div class="nav-item" onclick="nav('alejandro',this)">
-      <span class="icon">≡ƒÄ»</span> Playbook Alejandro
+      <span class="icon">🏆</span> Playbook Alejandro
     </div>
     <div class="nav-item" onclick="nav('today',this)">
-      <span class="icon">ΓùÄ</span> Hoy
+      <span class="icon">☀️</span> Hoy
     </div>
   
     <div class="nav-item" onclick="nav('plan',this)">
@@ -808,7 +808,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <div class="dot" id="dot"></div>
       <span id="conn-status">Conectando...</span>
     </div>
-    <div style="margin-top:6px;" id="last-ts">ΓÇö</div>
+    <div style="margin-top:6px;" id="last-ts">—</div>
   </div>
 </aside>
 
@@ -820,28 +820,28 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <div class="topbar-kpis">
       <div class="topbar-kpi">
         <div class="tb-label">Net Liq</div>
-        <div class="tb-val" id="tb-netliq">ΓÇö</div>
+        <div class="tb-val" id="tb-netliq">—</div>
       </div>
       <div class="topbar-kpi">
         <div class="tb-label">P&amp;L Hoy</div>
-        <div class="tb-val" id="tb-today">ΓÇö</div>
+        <div class="tb-val" id="tb-today">—</div>
       </div>
       <div class="topbar-kpi">
         <div class="tb-label">Buying Power</div>
-        <div class="tb-val" id="tb-bp">ΓÇö</div>
+        <div class="tb-val" id="tb-bp">—</div>
       </div>
       <div class="topbar-kpi">
         <div class="tb-label">P&amp;L No Real.</div>
-        <div class="tb-val" id="tb-unrealized">ΓÇö</div>
+        <div class="tb-val" id="tb-unrealized">—</div>
       </div>
       <div class="topbar-kpi">
         <div class="tb-label">Posiciones</div>
-        <div class="tb-val" id="tb-positions">ΓÇö</div>
+        <div class="tb-val" id="tb-positions">—</div>
       </div>
     </div>
     <div class="topbar-actions">
-      <span class="ts-label" id="refresh-ts">ΓÇö</span>
-      <span id="auto-refresh-countdown" style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-right:8px;">Γƒ│ 10:00</span>
+      <span class="ts-label" id="refresh-ts">—</span>
+      <span id="auto-refresh-countdown" style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-right:8px;">│ 10:00</span>
       <button class="btn-refresh" id="btn-refresh" onclick="refreshAll()">Γå║ Actualizar</button>
     </div>
   </div>
@@ -896,14 +896,14 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="card-header">
           <div class="cal-nav">
             <button onclick="calPrev()">ΓÇ╣</button>
-            <div class="cal-month-label" id="cal-label">ΓÇö</div>
+            <div class="cal-month-label" id="cal-label">—</div>
             <button onclick="calNext()">ΓÇ║</button>
           </div>
           <div style="display:flex;gap:16px;font-family:var(--mono);font-size:11px;">
-            <span>Mes: <strong class="pos" id="cal-month-pnl">ΓÇö</strong></span>
+            <span>Mes: <strong class="pos" id="cal-month-pnl">—</strong></span>
             <span class="dim">|</span>
-            <span>D├¡as +: <strong class="pos" id="cal-pos-days">ΓÇö</strong></span>
-            <span>D├¡as -: <strong class="neg" id="cal-neg-days">ΓÇö</strong></span>
+            <span>D├¡as +: <strong class="pos" id="cal-pos-days">—</strong></span>
+            <span>D├¡as -: <strong class="neg" id="cal-neg-days">—</strong></span>
           </div>
         </div>
         <div class="card-body">
@@ -931,7 +931,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
           <span>Posiciones Abiertas <span id="pos-count" style="color:var(--blue);"></span></span>
           <div style="display:flex;gap:6px;">
             <button id="pos-filter-all"     onclick="setPosFilter('all')"     style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--green);color:#000;">Todos</button>
-            <button id="pos-filter-options" onclick="setPosFilter('options')" style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--card2);color:var(--text);">≡ƒôè Opciones</button>
+            <button id="pos-filter-options" onclick="setPosFilter('options')" style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--card2);color:var(--text);">🔗 Opciones</button>
             <button id="pos-filter-stocks"  onclick="setPosFilter('stocks')"  style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--card2);color:var(--text);">≡ƒôê Acciones</button>
           </div>
         </div>
@@ -978,13 +978,13 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <span class="filter-label">Hasta</span>
         <input type="date" id="hist-to">
         <button class="btn btn-primary" onclick="loadHistory()">Filtrar</button>
-        <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);" id="hist-summary">ΓÇö</span>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);" id="hist-summary">—</span>
       </div>
       <div class="card">
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th onclick="sortHist('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hh-closeDate">Γû╝</span></th>
+              <th onclick="sortHist('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hh-closeDate">↩</span></th>
               <th onclick="sortHist('openDate')"    style="cursor:pointer;user-select:none;">Apertura <span id="hh-openDate"></span></th>
               <th onclick="sortHist('underlying')"  style="cursor:pointer;user-select:none;">S├¡mbolo <span id="hh-underlying"></span></th>
               <th onclick="sortHist('stratType')"   style="cursor:pointer;user-select:none;">Estrategia <span id="hh-stratType"></span></th>
@@ -1025,7 +1025,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
             <div class="gauge-wrap">
               <div class="gauge-ring" id="gauge-ring" style="--pct:0%">
                 <div class="gauge-inner">
-                  <div class="gauge-pct" id="gauge-pct">ΓÇö</div>
+                  <div class="gauge-pct" id="gauge-pct">—</div>
                   <div class="gauge-lbl">WIN RATE</div>
                 </div>
               </div>
@@ -1062,7 +1062,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
           </div>
         </div>
         <div class="card">
-          <div class="card-header">An├ílisis Broker vs Tu P&amp;L</div>
+          <div class="card-header">Análisis Broker vs Tu P&amp;L</div>
           <div class="card-body" id="broker-analysis"></div>
         </div>
       </div>
@@ -1142,7 +1142,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <input type="date" id="ai-from" value="2026-02-01" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--bright);font-family:var(--mono);font-size:12px;">
         <span class="filter-label">al</span>
         <input type="date" id="ai-to" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--bright);font-family:var(--mono);font-size:12px;">
-        <button onclick="runAI()" class="btn btn-primary" style="padding:6px 16px;">ΓÜí An├ílisis General</button>
+        <button onclick="runAI()" class="btn btn-primary" style="padding:6px 16px;">⚡ Análisis General</button>
         <button onclick="clearChat()" class="btn" style="padding:6px 12px;font-size:11px;">≡ƒùæ Limpiar</button>
       </div>
 
@@ -1235,7 +1235,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 <div class="journal-panel" id="journal-panel">
   <div class="journal-header">
     <div class="journal-title" id="journal-trade-title">Trade Journal</div>
-    <button onclick="closeJournal()" class="btn" style="padding:4px 10px;font-size:12px;">Γ£ò</button>
+    <button onclick="closeJournal()" class="btn" style="padding:4px 10px;font-size:12px;">✓</button>
   </div>
   <div class="journal-body" id="journal-body">
   </div>
@@ -1274,14 +1274,14 @@ const f$ = (n, d=2) => {
 const fa$ = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fp  = n => { const v=parseFloat(n)||0; return (v>=0?'+':'')+v.toFixed(2)+'%'; };
 const cc  = n => parseFloat(n)>0?'pos':parseFloat(n)<0?'neg':'dim';
-const fTime = iso => { if(!iso)return'ΓÇö'; const d=new Date(iso); return d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',hour12:false}); };
-const fDate = iso => { if(!iso)return'ΓÇö'; const d=new Date(iso.length===10?iso+'T12:00:00':iso); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric',timeZone:'America/Bogota'}); };
-const fDateShort = iso => { if(!iso)return'ΓÇö'; const d=new Date(iso.length===10?iso+'T12:00:00':iso); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',timeZone:'America/Bogota'}); };
+const fTime = iso => { if(!iso)return'—'; const d=new Date(iso); return d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',hour12:false}); };
+const fDate = iso => { if(!iso)return'—'; const d=new Date(iso.length===10?iso+'T12:00:00':iso); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric',timeZone:'America/Bogota'}); };
+const fDateShort = iso => { if(!iso)return'—'; const d=new Date(iso.length===10?iso+'T12:00:00':iso); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',timeZone:'America/Bogota'}); };
 
 function parseOCC(sym='') {
   const s = sym.replace(/\s+/g,' ').trim();
   const m = s.match(/^([A-Z./]+)\s+(\d{6})([CP])(\d{8})$/);
-  if (!m) return { underlying: s.split(' ')[0], expiry:'ΓÇö', type:'?', strike:'ΓÇö', dte: null };
+  if (!m) return { underlying: s.split(' ')[0], expiry:'—', type:'?', strike:'—', dte: null };
   const [,und,date,type,sp] = m;
   const yy=date.slice(0,2),mm=date.slice(2,4),dd=date.slice(4,6);
   const expDate = new Date(`20${yy}-${mm}-${dd}`);
@@ -1297,7 +1297,7 @@ function parseOCC(sym='') {
 }
 
 function dteChip(dte) {
-  if (dte===null||dte===undefined) return 'ΓÇö';
+  if (dte===null||dte===undefined) return '—';
   const cls = dte<=7?'dte-near':dte<=30?'dte-medium':'dte-far';
   return `<span class="dte-chip ${cls}">${dte}d</span>`;
 }
@@ -1353,7 +1353,7 @@ function renderTopBar(b, positions=[]) {
   $('sb-account').textContent = `Cta. ${b['account-number']||''}`;
 
   // Unrealized
-  // P&L No Realizado ΓÇö usa groupPositions para respetar direcci├│n SHORT/LONG
+  // P&L No Realizado — usa groupPositions para respetar direcci├│n SHORT/LONG
   const groups = groupPositions(positions);
   const unreal = groups.reduce((sum, g) => sum + g.unrealizedPnL, 0);
   const tbU = $('tb-unrealized');
@@ -1405,8 +1405,8 @@ function renderDashKPIs(b, curve, m) {
     kpiCard('Net Liq', fa$(nlv), fp(pctPnL), cc(totalPnL), winRate, 100),
     kpiCard('P&L Total', f$(totalPnL), `vs $${Math.round(initial).toLocaleString()} inicial`, cc(totalPnL)),
     kpiCard('P&L Realizado', f$(realPnL), `${m?.totalStrategies||0} estrategias`, cc(realPnL)),
-    kpiCard('Win Rate', winRate+'%', benchmark(winRate,'ΓëÑ55% Γ£ô','<55% Γ£ù',55), winRate>=55?'pos':'neg', winRate, 100),
-    kpiCard('Profit Factor', (pf===999?'Γê₧':pf)+'x', benchmark(pf,'ΓëÑ1.5x Γ£ô','<1.5x Γ£ù',1.5), pf>=1.5?'pos':'neg'),
+    kpiCard('Win Rate', winRate+'%', benchmark(winRate,'ΓëÑ55% ✔','<55% Γ£ù',55), winRate>=55?'pos':'neg', winRate, 100),
+    kpiCard('Profit Factor', (pf===999?'Γê₧':pf)+'x', benchmark(pf,'ΓëÑ1.5x ✔','<1.5x Γ£ù',1.5), pf>=1.5?'pos':'neg'),
     kpiCard('Max Drawdown', f$(-dd), `-${ddPct.toFixed(1)}% desde pico`, 'neg'),
   ].join('');
 }
@@ -1430,9 +1430,9 @@ function groupPositions(positions) {
     const isStock = p['instrument-type'] === 'Equity';
     const exp  = isStock ? '' : (p['expires-at'] ? new Date(p['expires-at']).toISOString().slice(0,10) : '');
     // FIX Iron Condor: agrupar por subyacente+fecha sin distinguir C/P
-    // As├¡ Put Spread + Call Spread del mismo vencimiento ΓåÆ una sola fila
+    // As├¡ Put Spread + Call Spread del mismo vencimiento ✅ una sola fila
     const key  = isStock ? `${und}::stock` : `${und}::${exp}`;
-    const openDate = p['opened-at'] ? new Date(p['opened-at']).toLocaleDateString('es-CO',{timeZone:'America/Bogota'}) : (p['created-at'] ? new Date(p['created-at']).toLocaleDateString('es-CO',{timeZone:'America/Bogota'}) : 'ΓÇö');
+    const openDate = p['opened-at'] ? new Date(p['opened-at']).toLocaleDateString('es-CO',{timeZone:'America/Bogota'}) : (p['created-at'] ? new Date(p['created-at']).toLocaleDateString('es-CO',{timeZone:'America/Bogota'}) : '—');
     if (!map.has(key)) map.set(key, { underlying:und, expiry:exp||null, isStock, legs:[], unrealizedPnL:0, premiumNet:0, delta:0, theta:0, openDate });
     const g = map.get(key);
     const qty=parseFloat(p.quantity||0), op=parseFloat(p['average-open-price']||0),
@@ -1451,8 +1451,8 @@ function groupPositions(positions) {
     else                                    g.premiumNet -= op*Math.abs(qty)*mul;
     // Greeks (acumular delta y theta de todas las patas)
     // Theta: la API devuelve theta desde perspectiva LONG (negativo para el holder).
-    // Pata SHORT: el vendedor cobra theta ΓåÆ invertimos el signo (multiplicamos por -1).
-    // Pata LONG:  el comprador paga theta ΓåÆ usamos el signo tal como viene (negativo).
+    // Pata SHORT: el vendedor cobra theta ✅ invertimos el signo (multiplicamos por -1).
+    // Pata LONG:  el comprador paga theta ✅ usamos el signo tal como viene (negativo).
     if (p.greeks) {
       g.delta += posDir * (p.greeks.delta || 0) * qty;
       const thetaSign = p['quantity-direction'] === 'Short' ? -1 : 1;
@@ -1529,7 +1529,7 @@ function renderDashRecent(items=[], strategies=[]) {
     <div class="stat-row">
       <div>
         <span class="td-bright" style="font-size:12px;">${s.underlying}</span>
-        <span class="dim" style="font-size:10px;margin-left:6px;">${s.stratType||'ΓÇö'}</span>
+        <span class="dim" style="font-size:10px;margin-left:6px;">${s.stratType||'—'}</span>
         <span class="dim" style="font-size:10px;margin-left:6px;">${s.closeDate}</span>
       </div>
       <div class="${cc(s.pnl)} td-mono" style="font-size:12px;">${f$(s.pnl)}</div>
@@ -1548,7 +1548,7 @@ function renderEquityChart(curve, nlvSnapshots) {
 
   if (S.charts.equity) S.charts.equity.destroy();
   const initial = curve.initial;
-  $('curve-period').textContent = `${curve.labels[0]} ΓåÆ ${curve.labels[curve.labels.length-1]}`;
+  $('curve-period').textContent = `${curve.labels[0]} ✅ ${curve.labels[curve.labels.length-1]}`;
 
   // ΓöÇΓöÇ Puntos NLV: ├║ltimo d├¡a del mes para meses cerrados, ├║ltimo d├¡a de cada semana para mes actual ΓöÇΓöÇ
   const snapshotData = Array(curve.labels.length).fill(null);
@@ -1713,7 +1713,7 @@ async function calDayClick(dateStr, pnl) {
   if (!detail) { console.error('cal-detail no encontrado'); return; }
   detail.style.display='block';
   detail.scrollIntoView({ behavior:'smooth', block:'start' });
-  title.textContent=`${fDate(dateStr)}  ΓÇö  P&L: ${f$(pnl)}`;
+  title.textContent=`${fDate(dateStr)}  —  P&L: ${f$(pnl)}`;
   tbody.innerHTML='<tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr>';
 
   try {
@@ -1746,11 +1746,11 @@ async function calDayClick(dateStr, pnl) {
         return `<tr style="cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
           <td><span class="badge badge-gold" style="font-size:9px;">Cierre</span></td>
           <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
-          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'ΓÇö'}</span></td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">${s.durationDays===0?'Intrad├¡a':s.durationDays+'d'}</td>
-          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'ΓÇö'}</td>
+          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
           <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
-          <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'ΓÇö'}</td>
+          <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
         </tr>`;
       }),
       ...opened.map((s,oi) => {
@@ -1760,11 +1760,11 @@ async function calDayClick(dateStr, pnl) {
         return `<tr style="opacity:.8;cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
           <td><span class="badge badge-blue" style="font-size:9px;">Apertura</span></td>
           <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
-          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'ΓÇö'}</span></td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">Abierto</td>
-          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'ΓÇö'}</td>
+          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
           <td class="td-mono dim">En curso</td>
-          <td class="dim">ΓÇö</td>
+          <td class="dim">—</td>
         </tr>`;
       }),
     ];
@@ -1786,13 +1786,13 @@ function calShowTradeDetail(tkey) {
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
   modal.innerHTML = `
     <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:500px;width:100%;position:relative;">
-      <button onclick="document.getElementById('cal-trade-modal').remove()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,.08);border:none;color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">Γ£ò</button>
+      <button onclick="document.getElementById('cal-trade-modal').remove()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,.08);border:none;color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✓</button>
 
       <!-- Header -->
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
         <div style="font-size:24px;font-weight:800;color:var(--bright);font-family:var(--mono);">${s.underlying}</div>
         <span class="badge ${s.closeDate?'badge-gold':'badge-blue'}" style="font-size:11px;">${s.closeDate?'Cerrado':'Abierto'}</span>
-        <span class="badge badge-muted" style="font-size:11px;">${s.stratType||'ΓÇö'}</span>
+        <span class="badge badge-muted" style="font-size:11px;">${s.stratType||'—'}</span>
       </div>
 
       <!-- Grid de datos -->
@@ -1807,7 +1807,7 @@ function calShowTradeDetail(tkey) {
         </div>
         <div style="background:var(--bg);border-radius:8px;padding:10px;">
           <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">APERTURA</div>
-          <div style="font-size:13px;font-weight:600;color:var(--bright);">${s.openDate||'ΓÇö'}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--bright);">${s.openDate||'—'}</div>
         </div>
         <div style="background:var(--bg);border-radius:8px;padding:10px;">
           <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">${s.closeDate?'CIERRE':'ESTADO'}</div>
@@ -1828,7 +1828,7 @@ function calShowTradeDetail(tkey) {
       <!-- Bot├│n Playbook -->
       <button onclick="document.getElementById('cal-trade-modal').remove();wlOpenPlaybook('${s.underlying}')"
         style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--green);background:rgba(19,214,143,.1);color:var(--green);font-size:13px;font-weight:700;cursor:pointer;">
-        ≡ƒôï Abrir en Playbook Alejandro
+        📓 Abrir en Playbook Alejandro
       </button>
     </div>
   `;
@@ -1847,7 +1847,7 @@ async function renderPosSectorChart(groups) {
   const card = $('pos-sector-card');
   if (!card || !groups.length) return;
 
-  // Obtener sector para cada subyacente ├║nico ΓÇö endpoint gen├⌐rico
+  // Obtener sector para cada subyacente ├║nico — endpoint gen├⌐rico
   const syms = [...new Set(groups.map(g => g.underlying))];
   const sectorMap = {};
 
@@ -2018,13 +2018,13 @@ function buildPosRow(g) {
   g.direction = dir;
   const dirBadge = dir==='SHORT'?'badge-red':'badge-green';
   const fl = g.legs[0];
-  let dte=null, expStr='ΓÇö';
+  let dte=null, expStr='—';
   if (!g.isStock && fl['expires-at']) {
     dte = Math.ceil((new Date(fl['expires-at'])-new Date())/86400000);
     expStr = new Date(fl['expires-at']).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'});
   }
   g.dte = dte;
-  const strikes = g.isStock ? 'ΓÇö' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
+  const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
   const strikeFs = strat === 'Iron Condor' ? '9px' : '11px';
   const absPrem = Math.abs(g.premiumNet);
   // Para credit spreads (premiumNet > 0): % capturado = P&L / premium cobrado
@@ -2037,14 +2037,14 @@ function buildPosRow(g) {
     <td><span class="badge ${dirBadge}">${dir}</span></td>
     <td class="td-mono dim" style="font-size:${strikeFs};white-space:nowrap;">${strikes}</td>
     <td class="td-mono dim">${expStr}</td>
-    <td>${dte!==null?dteChip(dte):'ΓÇö'}</td>
+    <td>${dte!==null?dteChip(dte):'—'}</td>
     <td class="td-mono">${Math.abs(g.totalQty||0) || g.legs.length}</td>
     <td class="td-mono ${cc(g.unrealizedPnL)}" style="font-weight:700">${f$(g.unrealizedPnL)}</td>
     <td class="td-mono ${g.premiumNet>=0?'pos':'neg'}">${g.premiumNet>=0?fa$(g.premiumNet):'-'+fa$(Math.abs(g.premiumNet))}</td>
-    <td class="td-mono dim">${g.underlyingPrice > 0 ? '$'+g.underlyingPrice.toFixed(2) : (g.currentPrice ? '$'+g.currentPrice.toFixed(2) : 'ΓÇö')}</td>
-    <td class="td-mono dim">${g.delta!==0?g.delta.toFixed(2):'ΓÇö'}</td>
-    <td class="td-mono ${g.theta>0?'pos':g.theta<0?'neg':'dim'}">${g.theta!==0?'$'+g.theta.toFixed(2):'ΓÇö'}</td>
-    <td class="td-mono dim" style="font-size:11px;">${g.openDate||'ΓÇö'}</td>
+    <td class="td-mono dim">${g.underlyingPrice > 0 ? '$'+g.underlyingPrice.toFixed(2) : (g.currentPrice ? '$'+g.currentPrice.toFixed(2) : '—')}</td>
+    <td class="td-mono dim">${g.delta!==0?g.delta.toFixed(2):'—'}</td>
+    <td class="td-mono ${g.theta>0?'pos':g.theta<0?'neg':'dim'}">${g.theta!==0?'$'+g.theta.toFixed(2):'—'}</td>
+    <td class="td-mono dim" style="font-size:11px;">${g.openDate||'—'}</td>
     <td>
       <div class="pct-bar">
         <div class="pct-track"><div class="pct-fill" style="width:${Math.min(100,Math.abs(pct)).toFixed(0)}%;background:${pct>=20?'var(--green)':pct>=0?'var(--gold)':'var(--red)'}"></div></div>
@@ -2153,8 +2153,8 @@ async function loadPositions() {
 
       const strat   = strategyType(g);
       // Direcci├│n del spread: depende del tipo de opci├│n de la pata vendida
-      // Bear Call Spread ΓåÆ pata Short es Call ΓåÆ estrategia bajista ΓåÆ SHORT
-      // Bull Put Spread  ΓåÆ pata Short es Put  ΓåÆ estrategia alcista ΓåÆ LONG
+      // Bear Call Spread ✅ pata Short es Call ✅ estrategia bajista ✅ SHORT
+      // Bull Put Spread  ✅ pata Short es Put  ✅ estrategia alcista ✅ LONG
       let dir;
       if (g.isStock) {
         dir = 'LONG';
@@ -2175,14 +2175,14 @@ async function loadPositions() {
 
       // DTE desde la primera pata
       const fl = g.legs[0];
-      let dte=null, expStr='ΓÇö';
+      let dte=null, expStr='—';
       if (!g.isStock && fl['expires-at']) {
         dte = Math.ceil((new Date(fl['expires-at'])-new Date())/86400000);
         expStr = new Date(fl['expires-at']).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'});
       }
 
       // Resumen de strikes
-      const strikes = g.isStock ? 'ΓÇö' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
+      const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
 
       // % premium capturado
       const absPrem = Math.abs(g.premiumNet);
@@ -2248,7 +2248,7 @@ async function loadHistory() {
       else { window._histSortCol = col; window._histSortAsc = false; }
       ['closeDate','openDate','underlying','stratType','durationDays','pnl','capPct','openValue','closeValue'].forEach(c => {
         const el = document.getElementById('hh-'+c);
-        if (el) el.textContent = c === col ? (window._histSortAsc ? 'Γû▓' : 'Γû╝') : '';
+        if (el) el.textContent = c === col ? (window._histSortAsc ? 'Γû▓' : '↩') : '';
       });
       window.renderHistRows(window._histData, window._histSortCol, window._histSortAsc);
     };
@@ -2267,19 +2267,19 @@ async function loadHistory() {
             const key     = tradeKey(s);
             const hasNote = jNotes[key];
             const capHtml = s.capPct !== null && s.capPct !== undefined
-              ? `<span class="${s.capPct >= 0 ? 'pos' : 'neg'}">${s.capPct > 0 ? '+' : ''}${s.capPct}%</span>` : 'ΓÇö';
+              ? `<span class="${s.capPct >= 0 ? 'pos' : 'neg'}">${s.capPct > 0 ? '+' : ''}${s.capPct}%</span>` : '—';
             const durLabel = s.durationDays === 0 ? 'Intrad├¡a' : s.durationDays === 1 ? '1 d├¡a' : `${s.durationDays}d`;
             return `<tr>
-              <td class="td-mono dim">${s.closeDate||'ΓÇö'}</td>
-              <td class="td-mono dim">${s.openDate||'ΓÇö'}</td>
-              <td class="td-bright">${s.underlying||'ΓÇö'}</td>
-              <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType||'ΓÇö'}</span></td>
+              <td class="td-mono dim">${s.closeDate||'—'}</td>
+              <td class="td-mono dim">${s.openDate||'—'}</td>
+              <td class="td-bright">${s.underlying||'—'}</td>
+              <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType||'—'}</span></td>
               <td class="td-mono dim">${durLabel}</td>
               <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
               <td>${capHtml}</td>
-              <td class="td-mono pos">${s.openValue ? '+'+fa$(Math.abs(s.openValue)) : 'ΓÇö'}</td>
-              <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : 'ΓÇö'}</td>
-              <td><button onclick='openJournal(${JSON.stringify(s)})' class="btn" style="padding:4px 8px;font-size:11px;">${hasNote ? '≡ƒôôΓ£à' : '≡ƒôô'}</button></td>
+              <td class="td-mono pos">${s.openValue ? '+'+fa$(Math.abs(s.openValue)) : '—'}</td>
+              <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : '—'}</td>
+              <td><button onclick='openJournal(${JSON.stringify(s)})' class="btn" style="padding:4px 8px;font-size:11px;">${hasNote ? '≡ƒôô✗' : '≡ƒôô'}</button></td>
             </tr>`;
           }).join('');
     };
@@ -2304,7 +2304,7 @@ async function loadReports(forceRefresh) {
     const ed = $('rep-to').value   || new Date().toISOString().slice(0,10);
     if (!$('rep-to').value) $('rep-to').value = ed;
 
-    $('rep-period-label').textContent = `${sd} ΓåÆ ${ed}`;
+    $('rep-period-label').textContent = `${sd} ✅ ${ed}`;
 
     // Siempre pedimos desde el inicio de la cuenta para que el FIFO
     // empareje aperturas antiguas con cierres dentro del rango.
@@ -2403,7 +2403,7 @@ async function loadReports(forceRefresh) {
         <span class="td-mono ${cc(d.pnl)}" style="font-size:12px;">${f$(d.pnl)}</span>
       </div>`).join('') : '<div class="dim">Sin datos</div>';
 
-    // Weekly chart ΓÇö misma fuente que calendario: strategyByWeek
+    // Weekly chart — misma fuente que calendario: strategyByWeek
     const curveByWeek = m.strategyByWeek || m.byWeek || {};
     const weeks=Object.keys(curveByWeek).sort().slice(-16);
     const wVals=weeks.map(w=>curveByWeek[w]);
@@ -2429,7 +2429,7 @@ async function loadReports(forceRefresh) {
       <td class="td-mono neg">-${fa$(Math.abs(d.avgLoss))}</td>
     </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--muted);">Sin datos</td></tr>';
 
-    // ΓöÇΓöÇ An├ílisis broker ΓöÇΓöÇ
+    // ΓöÇΓöÇ Análisis broker ΓöÇΓöÇ
     const totalPnL   = m.totalPnL || 0;
     const totalComm  = m.totalComm || 0;
     const grossPnL   = totalPnL + totalComm; // P&L bruto antes de comisiones
@@ -2478,7 +2478,7 @@ async function loadReports(forceRefresh) {
       </tr>`;
     }).join('') : '<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--muted);">Sin datos</td></tr>';
 
-    // Strategies table ΓÇö consolidada (un spread = una fila)
+    // Strategies table — consolidada (un spread = una fila)
     const stratList = consolidateStrategies(m.strategies||[])
       .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
       .slice(0, 50);
@@ -2493,7 +2493,7 @@ async function loadReports(forceRefresh) {
       // Actualizar indicadores
       ['openDate','closeDate','stratType','underlying','openValue','closeValue','pnl','durationDays','win'].forEach(c => {
         const el = document.getElementById('hs-'+c);
-        if (el) el.textContent = c === col ? (window._stratSortAsc ? ' Γû▓' : ' Γû╝') : '';
+        if (el) el.textContent = c === col ? (window._stratSortAsc ? ' Γû▓' : ' ↩') : '';
       });
       const asc = window._stratSortAsc;
       const sorted = [...window._stratList].sort((a,b) => {
@@ -2506,20 +2506,20 @@ async function loadReports(forceRefresh) {
 
     function renderStratRows(list) {
       $('strat-tbody').innerHTML = list.length ? list.map(s=>`<tr>
-      <td class="td-mono dim">${s.openDate||'ΓÇö'}</td>
-      <td class="td-mono dim">${s.closeDate||'ΓÇö'}</td>
-      <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'ΓÇö'}</span></td>
-      <td class="td-bright">${s.underlying||'ΓÇö'}</td>
-      <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'ΓÇö'}</td>
-      <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'ΓÇö'}</td>
+      <td class="td-mono dim">${s.openDate||'—'}</td>
+      <td class="td-mono dim">${s.closeDate||'—'}</td>
+      <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+      <td class="td-bright">${s.underlying||'—'}</td>
+      <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+      <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
       <td class="td-mono ${cc(s.pnl)}" style="font-weight:700">${f$(s.pnl)}</td>
       <td class="dim td-mono" style="font-size:10px;">${s.durationDays===0?'Intrad├¡a':s.durationDays===1?'1d':`${s.durationDays}d`}</td>
-      <td><span class="badge ${s.pnl>0?'badge-green':'badge-red'}">${s.pnl>0?'Γ£ô WIN':'Γ£ù LOSS'}</span></td>
+      <td><span class="badge ${s.pnl>0?'badge-green':'badge-red'}">${s.pnl>0?'✔ WIN':'Γ£ù LOSS'}</span></td>
     </tr>`).join('') : '<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
     }
     renderStratRows(stratList);
 
-    // Monthly table ΓÇö NLV change como fuente principal (coincide con TastyTrade)
+    // Monthly table — NLV change como fuente principal (coincide con TastyTrade)
     const curveByMonth = S.curve?.nlvByMonth || m.strategyByMonth || m.byMonth || {};
     const months = Object.keys(curveByMonth).sort().reverse();
     const byDay  = m.stratByDay || m.byDay || {};
@@ -2569,7 +2569,7 @@ function openJournal(trade) {
   const panel = $('journal-panel');
   const overlay = $('journal-overlay');
 
-  $('journal-trade-title').textContent = `${trade.underlying} ΓÇö ${trade.stratType||'ΓÇö'} ΓÇö ${f$(trade.pnl)}`;
+  $('journal-trade-title').textContent = `${trade.underlying} — ${trade.stratType||'—'} — ${f$(trade.pnl)}`;
 
   $('journal-body').innerHTML = `
     <!-- Tiempos -->
@@ -2607,7 +2607,7 @@ function openJournal(trade) {
             <label class="btn" style="padding:5px 8px;font-size:10px;cursor:pointer;flex:1;text-align:center;">
               ≡ƒôü Subir<input type="file" id="input-entry" accept="image/*" style="display:none" onchange="uploadPhoto('entry',this)">
             </label>
-            <button class="btn" style="padding:5px 8px;font-size:10px;flex:1;" onclick="captureTV('entry')">≡ƒôí TV</button>
+            <button class="btn" style="padding:5px 8px;font-size:10px;flex:1;" onclick="captureTV('entry')">📍 TV</button>
           </div>
         </div>
         <div>
@@ -2621,11 +2621,11 @@ function openJournal(trade) {
             <label class="btn" style="padding:5px 8px;font-size:10px;cursor:pointer;flex:1;text-align:center;">
               ≡ƒôü Subir<input type="file" id="input-exit" accept="image/*" style="display:none" onchange="uploadPhoto('exit',this)">
             </label>
-            <button class="btn" style="padding:5px 8px;font-size:10px;flex:1;" onclick="captureTV('exit')">≡ƒôí TV</button>
+            <button class="btn" style="padding:5px 8px;font-size:10px;flex:1;" onclick="captureTV('exit')">📍 TV</button>
           </div>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px;">≡ƒôí TV = captura lo que est├í en TradingView ahora (Edge debe estar abierto)</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;">📍 TV = captura lo que est├í en TradingView ahora (Edge debe estar abierto)</div>
     </div>
 
     <!-- Nota -->
@@ -2645,11 +2645,11 @@ function openJournal(trade) {
 
     <!-- ┬┐Seguiste el plan? -->
     <div class="journal-section">
-      <div class="journal-section-title">Γ£à ┬┐Seguiste el Playbook?</div>
+      <div class="journal-section-title">✗ ┬┐Seguiste el Playbook?</div>
       <div style="display:flex;gap:8px;">
         <button id="btn-yes" onclick="setFollowed(true)"
           class="btn ${note.followedPlan===true?'btn-primary':''}" style="flex:1;padding:8px;">
-          Γ£à S├¡
+          ✗ S├¡
         </button>
         <button id="btn-no" onclick="setFollowed(false)"
           class="btn ${note.followedPlan===false?'btn btn-danger':''}" style="flex:1;padding:8px;${note.followedPlan===false?'background:rgba(240,79,90,.2);border-color:var(--red);':''}">
@@ -2697,7 +2697,7 @@ function closeJournal() {
 }
 
 function scoreLabel(n) {
-  return ['','1 ΓÇö Muy mal ejecutado','2 ΓÇö Mal ejecutado','3 ΓÇö Regular','4 ΓÇö Bien ejecutado','5 ΓÇö Perfecto'][n]||'Sin calificar';
+  return ['','1 — Muy mal ejecutado','2 — Mal ejecutado','3 — Regular','4 — Bien ejecutado','5 — Perfecto'][n]||'Sin calificar';
 }
 
 function setScore(n) {
@@ -2762,7 +2762,7 @@ function uploadPhoto(slot, input) {
 
 async function captureTV(slot) {
   const btn = event.target;
-  btn.textContent = 'ΓÅ│';
+  btn.textContent = '│';
   btn.disabled = true;
   try {
     const data = await api('/api/tv-screenshot', 'POST');
@@ -2772,10 +2772,10 @@ async function captureTV(slot) {
     jNotes[jCurrent] = cur;
     const slotEl = $(`slot-${slot}`);
     slotEl.innerHTML = `<img src="${data.screenshot}" alt="${slot}" style="width:100%;border-radius:10px;">`;
-    btn.textContent = 'Γ£à';
+    btn.textContent = '✗';
   } catch(e) {
     alert('Error capturando TradingView: ' + e.message);
-    btn.textContent = '≡ƒôí TV';
+    btn.textContent = '📍 TV';
   } finally {
     btn.disabled = false;
   }
@@ -2817,7 +2817,7 @@ async function loadWatchlist() {
       try {
         const pb = await api('/api/watchlist/'+s.symbol+'/playbook-score');
         if (pb && pb.checks) {
-          // Recalcular score ΓÇö usar direction del checklist, fallback 'alcista'
+          // Recalcular score — usar direction del checklist, fallback 'alcista'
           const tesis = pb.direction || pb.tesis || 'alcista';
           const { scoreGlobal, modScores } = calcAlejandroScore(pb.checks, tesis);
           wlPbCache[s.symbol] = { ...pb, score: scoreGlobal, modScores };
@@ -2851,7 +2851,7 @@ function renderWatchlistMain() {
     <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px;">
       <button onclick="wlSetTab('watchlist')" style="padding:6px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;
         background:${wlTab==='watchlist'?'rgba(91,130,230,.2)':'rgba(255,255,255,.04)'};
-        color:${wlTab==='watchlist'?'var(--bright)':'var(--muted)'};">≡ƒæü Mi Watchlist</button>
+        color:${wlTab==='watchlist'?'var(--bright)':'var(--muted)'};">👀 Mi Watchlist</button>
       <button onclick="wlSetTab('screeners')" style="padding:6px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;
         background:${wlTab==='screeners'?'rgba(19,214,143,.2)':'rgba(255,255,255,.04)'};
         color:${wlTab==='screeners'?'var(--green)':'var(--muted)'};">≡ƒöì Screeners Paradigma</button>
@@ -2918,14 +2918,14 @@ function renderWatchlistTable() {
     const st   = WL_STATUS[s.status] || WL_STATUS.orange;
     const fund = wlFundCache[s.symbol];
     const pb   = wlPbCache[s.symbol];
-    const priceStr = fund ? fa$(fund.price) : 'ΓÇö';
-    const chgStr   = fund ? `<span class="${fund.chg>=0?'pos':'neg'}">${fund.chg>=0?'+':''}${fund.chgPct}%</span>` : 'ΓÇö';
-    const rsiStr   = fund?.rsi ? `<span style="color:${fund.rsi<40?'#f04f5a':fund.rsi>70?'#f5c842':'#8b96a8'}">${Math.round(fund.rsi)}</span>` : 'ΓÇö';
-    const faseStr  = pb?.fase ? `<span class="wl-fase wl-fase-${pb.fase.toLowerCase()}">${pb.fase}</span>` : '<span style="color:var(--muted)">ΓÇö</span>';
+    const priceStr = fund ? fa$(fund.price) : '—';
+    const chgStr   = fund ? `<span class="${fund.chg>=0?'pos':'neg'}">${fund.chg>=0?'+':''}${fund.chgPct}%</span>` : '—';
+    const rsiStr   = fund?.rsi ? `<span style="color:${fund.rsi<40?'#f04f5a':fund.rsi>70?'#f5c842':'#8b96a8'}">${Math.round(fund.rsi)}</span>` : '—';
+    const faseStr  = pb?.fase ? `<span class="wl-fase wl-fase-${pb.fase.toLowerCase()}">${pb.fase}</span>` : '<span style="color:var(--muted)">—</span>';
     const scoreStr = pb?.score != null
       ? `<span style="font-weight:700;color:${pb.score>=95?'#13d68f':pb.score>=85?'#f5c842':'#f04f5a'}">${pb.score}%</span>
          <div class="wl-score-bar"><div style="width:${pb.score}%;height:100%;background:${pb.score>=95?'#13d68f':pb.score>=85?'#f5c842':'#f04f5a'};border-radius:2px;"></div></div>`
-      : '<span style="color:var(--muted)">ΓÇö</span>';
+      : '<span style="color:var(--muted)">—</span>';
     const scTag = s.screener ? `<span style="font-size:9px;color:#5b82e6;background:rgba(91,130,230,.15);padding:1px 5px;border-radius:3px;">${s.screener}</span>` : '';
     // Fase Auto
     const fp = wlFaseCache[s.symbol];
@@ -2933,12 +2933,12 @@ function renderWatchlistTable() {
       ? '<div style="display:flex;align-items:center;gap:4px;">'
         + '<span style="font-weight:700;font-size:11px;color:'+(fp.fase?.startsWith('F2')?'#13d68f':fp.fase?.startsWith('F4')?'#f04f5a':'#6b7280')+';font-family:var(--mono);">'+fp.fase+'</span>'
         + wlRenderDots(fp.fase, fp.dots)
-        + (fp.confirmado?'<span style="font-size:9px;color:#13d68f;">Γ£à</span>':'')
+        + (fp.confirmado?'<span style="font-size:9px;color:#13d68f;">✗</span>':'')
         + '</div>'
-      : '<span style="color:var(--muted);font-size:10px;">ΓÅ│</span>';
+      : '<span style="color:var(--muted);font-size:10px;">│</span>';
     const sectorHtml = fund?.sector
       ? '<span style="font-size:10px;color:var(--muted);" title="'+(fund.industry||'')+'">'+fund.sector+'</span>'
-      : '<span style="color:var(--muted);font-size:10px;">ΓÅ│</span>';
+      : '<span style="color:var(--muted);font-size:10px;">│</span>';
     return `<tr>
       <td style="font-weight:700;font-family:var(--mono);color:var(--bright);cursor:pointer;" data-wl-action="detail" data-wl-sym="${s.symbol}">${s.symbol}</td>
       <td><span class="wl-badge ${st.badge}" style="cursor:pointer;" onclick="wlCycleStatus('${s.symbol}','${s.status}')"><span class="wl-dot ${st.dot}"></span>${st.label}</span></td>
@@ -2948,9 +2948,9 @@ function renderWatchlistTable() {
       <td>${faseAutoHtml}</td>
       <td>${faseStr}</td>
       <td>${scoreStr}</td>
-      <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${pb?.date||'ΓÇö'}</td>
+      <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${pb?.date||'—'}</td>
       <td style="text-align:center;white-space:nowrap;">
-        <button data-wl-action="pb"     data-wl-sym="${s.symbol}" title="Playbook" style="background:rgba(19,214,143,.1);border:1px solid rgba(19,214,143,.3);color:#13d68f;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;">≡ƒôï</button>
+        <button data-wl-action="pb"     data-wl-sym="${s.symbol}" title="Playbook" style="background:rgba(19,214,143,.1);border:1px solid rgba(19,214,143,.3);color:#13d68f;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;">📓</button>
         <button data-wl-action="detail" data-wl-sym="${s.symbol}" title="Detalle"  style="background:rgba(91,130,230,.1);border:1px solid rgba(91,130,230,.3);color:#5b82e6;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:3px;">≡ƒöì</button>
         <button data-wl-action="del"    data-wl-sym="${s.symbol}" title="Eliminar" style="background:rgba(240,79,90,.1);border:1px solid rgba(240,79,90,.3);color:#f04f5a;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:3px;">≡ƒùæ</button>
       </td>
@@ -2963,7 +2963,7 @@ function renderWatchlistTable() {
       <span style="font-size:11px;color:var(--muted);">Filtrar:</span>
       <div id="wl-sector-filters" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
       <div id="wl-origen-filters" style="display:flex;gap:4px;flex-wrap:wrap;margin-left:8px;"></div>
-      <button onclick="wlClearFilters()" style="padding:3px 10px;border-radius:5px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;">Γ£ò Limpiar</button>
+      <button onclick="wlClearFilters()" style="padding:3px 10px;border-radius:5px;font-size:10px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;">✓ Limpiar</button>
     </div>
 
     <!-- Agregar activo -->
@@ -2982,7 +2982,7 @@ function renderWatchlistTable() {
     </div>
 
     ${stocks.length === 0
-      ? `<div style="text-align:center;padding:60px;color:var(--muted);"><div style="font-size:40px;margin-bottom:12px;">≡ƒæü</div><div>Agrega tu primer activo</div></div>`
+      ? `<div style="text-align:center;padding:60px;color:var(--muted);"><div style="font-size:40px;margin-bottom:12px;">👀</div><div>Agrega tu primer activo</div></div>`
       : `<div style="overflow-x:auto;">
           <table class="wl-table">
             <thead><tr>
@@ -2990,7 +2990,7 @@ function renderWatchlistTable() {
               ${th('status','Estado')}
               ${th('price','Precio')}${th('chg','Chg%')}${th('rsi','RSI')}
               ${th('fasePrel','Fase Auto')}${th('fase','Fase PB')}
-              ${th('score','Score PA')}${th('date','├Ült. An├ílisis')}
+              ${th('score','Score PA')}${th('date','├Ült. Análisis')}
               <th>Acciones</th>
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -3010,7 +3010,7 @@ async function wlDeleteStock(sym) {
 }
 
 function wlRenderDots(fase, dots) {
-  if (!dots || !fase) return '<span style="color:var(--muted);font-size:10px;">ΓÇö</span>';
+  if (!dots || !fase) return '<span style="color:var(--muted);font-size:10px;">—</span>';
 
   const isF2 = fase.startsWith('F2');
   const isF4 = fase.startsWith('F4');
@@ -3022,16 +3022,16 @@ function wlRenderDots(fase, dots) {
     let bg, border;
 
     if (!d.ok) {
-      // No confirmado ΓÇö gris
+      // No confirmado — gris
       bg = 'rgba(107,114,128,0.2)';
       border = '#4b5563';
     } else if (isF2 || (isF1 && isLast)) {
-      // Verde ΓÇö F2 o ├║ltima bolita de F1 (saliendo hacia F2)
+      // Verde — F2 o ├║ltima bolita de F1 (saliendo hacia F2)
       const opacity = (isF1 && isLast) ? '0.4' : '1';
       bg = `rgba(19,214,143,${isF1?0.15:0.25})`;
       border = isF1 ? 'rgba(19,214,143,0.4)' : '#13d68f';
     } else if (isF4 || (isF3 && isLast)) {
-      // Rojo ΓÇö F4 o ├║ltima bolita de F3 (saliendo hacia F4)
+      // Rojo — F4 o ├║ltima bolita de F3 (saliendo hacia F4)
       bg = `rgba(240,79,90,${isF3?0.15:0.25})`;
       border = isF3 ? 'rgba(240,79,90,0.4)' : '#f04f5a';
     } else {
@@ -3077,7 +3077,7 @@ function wlRenderFilters() {
       +'color:'+(sel?'#5b82e6':'var(--muted)')+';">'+orig+'</span>';
   }).join('');
 
-  // Event delegation ΓÇö registrar una sola vez
+  // Event delegation — registrar una sola vez
   if (!sEl._hasListener) {
     sEl._hasListener = true;
     sEl.addEventListener('click', e => {
@@ -3151,7 +3151,7 @@ function wlOpenPlaybook(sym) {
 // ΓöÇΓöÇ Screeners Paradigma ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 let scInfo = [];
 async function renderScreeners() {
-  $('wl-tab-content').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);">ΓÅ│ Cargando screeners...</div>';
+  $('wl-tab-content').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);">│ Cargando screeners...</div>';
   if (!scInfo.length) {
     try { scInfo = await api('/api/screeners'); } catch(e) { scInfo = []; }
   }
@@ -3165,7 +3165,7 @@ async function renderScreeners() {
       const clickFn = already ? '' : `onclick="scAddSingle('${ticker}','${safeLabel}')"`;
       return `<span class="sc-chip ${already?'added':''}" ${clickFn}
         style="border-color:${already?'var(--border)':'#5b82e6'};color:${already?'var(--muted)':'#5b82e6'};background:${already?'rgba(255,255,255,.03)':'rgba(91,130,230,.1)'};">
-        ${ticker}${already?' Γ£ô':''}
+        ${ticker}${already?' ✔':''}
       </span>`;
     }).join('');
 
@@ -3183,7 +3183,7 @@ async function renderScreeners() {
           ${hasResults ? `<span style="font-size:10px;color:var(--muted);">${results.length} tickers ┬╖ ${newCount} nuevos</span>` : ''}
           <button onclick="scRun('${sc.id}')" ${isLoading?'disabled':''} style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;
             border:1px solid var(--green);background:rgba(19,214,143,.1);color:var(--green);">
-            ${isLoading?'ΓÅ│ Cargando...':'Γû╢ Ejecutar'}
+            ${isLoading?'│ Cargando...':'Γû╢ Ejecutar'}
           </button>
           <a href="${sc.url}" target="_blank" style="padding:5px 10px;border-radius:7px;font-size:11px;border:1px solid var(--border);color:var(--muted);text-decoration:none;">Γåù Finviz</a>
           ${hasResults&&newCount>0 ? `<button onclick="scImportAll('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #5b82e6;background:rgba(91,130,230,.15);color:#5b82e6;">Γ¼ç Importar ${newCount}</button>` : ''}
@@ -3215,7 +3215,7 @@ async function scAddSingle(ticker, screenerLabel) {
     wlData = await api('/api/watchlist');
     // Feedback visual r├ípido
     const chips = document.querySelectorAll('.sc-chip');
-    chips.forEach(c => { if (c.textContent.trim()===ticker) { c.classList.add('added'); c.removeAttribute('onclick'); c.textContent=ticker+' Γ£ô'; c.style.borderColor='var(--border)'; c.style.color='var(--muted)'; } });
+    chips.forEach(c => { if (c.textContent.trim()===ticker) { c.classList.add('added'); c.removeAttribute('onclick'); c.textContent=ticker+' ✔'; c.style.borderColor='var(--border)'; c.style.color='var(--muted)'; } });
     // Actualizar contador
     renderScreeners();
   } catch(e) {
@@ -3273,7 +3273,7 @@ async function openWatchlistDetail(symbol) {
         <div id="wl-fund-${symbol}" class="wl-fund-card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
             <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;">DATOS AUTOM├üTICOS</div>
-            <button onclick="loadWlFundamentals('${symbol}')" class="btn" style="padding:4px 10px;font-size:10px;">Γƒ│ Actualizar</button>
+            <button onclick="loadWlFundamentals('${symbol}')" class="btn" style="padding:4px 10px;font-size:10px;">│ Actualizar</button>
           </div>
           <div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">Cargando datos...</div>
         </div>
@@ -3307,7 +3307,7 @@ async function openWatchlistDetail(symbol) {
 }
 
 function renderWlTimeline(s) {
-  if (!s.notes.length) return `<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px;">Sin notas a├║n ΓÇö agrega la primera observaci├│n</div>`;
+  if (!s.notes.length) return `<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px;">Sin notas a├║n — agrega la primera observaci├│n</div>`;
   return s.notes.map(n => {
     const st = WL_STATUS[n.status] || WL_STATUS.orange;
     return `<div class="wl-note">
@@ -3336,12 +3336,12 @@ async function loadWlFundamentals(symbol) {
         : `<span class="wl-fund-val ${d.earningsDays<14?'neg':d.earningsDays<30?'warn':'pos'}">${d.earningsDays} d├¡as</span>`;
 
     const rsiClass = d.rsi < 30 ? 'pos' : d.rsi > 70 ? 'neg' : 'wl-fund-val';
-    const rsiNote  = d.rsi < 30 ? ' (sobrevendido)' : d.rsi > 70 ? ' (sobrecomprado)' : d.rsi > 45 && d.rsi < 55 ? ' Γ£à lateral' : '';
+    const rsiNote  = d.rsi < 30 ? ' (sobrevendido)' : d.rsi > 70 ? ' (sobrecomprado)' : d.rsi > 45 && d.rsi < 55 ? ' ✗ lateral' : '';
 
     el.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;">DATOS AUTOM├üTICOS</div>
-        <button onclick="loadWlFundamentals('${symbol}')" class="btn" style="padding:4px 10px;font-size:10px;">Γƒ│</button>
+        <button onclick="loadWlFundamentals('${symbol}')" class="btn" style="padding:4px 10px;font-size:10px;">│</button>
       </div>
       <div style="font-size:22px;font-weight:700;color:var(--bright);font-family:var(--mono);margin-bottom:4px;">
         ${fa$(d.price)}
@@ -3351,9 +3351,9 @@ async function loadWlFundamentals(symbol) {
       ${row('RSI 14d',`<span class="wl-fund-val ${rsiClass}">${d.rsi}${rsiNote}</span>`)}
       ${row('IV Rank',`<span class="wl-fund-val ${d.ivRank>40&&d.ivRank<70?'pos':''}">${d.ivRank}%</span>`)}
       ${row('VIX',`<span class="wl-fund-val">${d.vix}</span>`)}
-      ${row('52W Rango',`<span class="wl-fund-val">${fa$(d.fmpYearLow||d.lo52)} ΓÇö ${fa$(d.fmpYearHigh||d.hi52)}</span>`)}
-      ${row('MA 50d',d.fmpAvg50?`<span class="wl-fund-val ${d.price>d.fmpAvg50?'pos':'neg'}">${fa$(d.fmpAvg50)} ${d.price>d.fmpAvg50?'Γû▓ encima':'Γû╝ debajo'}</span>`:'<span class="dim">ΓÇö</span>')}
-      ${row('MA 200d',d.fmpAvg200?`<span class="wl-fund-val ${d.price>d.fmpAvg200?'pos':'neg'}">${fa$(d.fmpAvg200)} ${d.price>d.fmpAvg200?'Γû▓ encima':'Γû╝ debajo'}</span>`:'<span class="dim">ΓÇö</span>')}
+      ${row('52W Rango',`<span class="wl-fund-val">${fa$(d.fmpYearLow||d.lo52)} — ${fa$(d.fmpYearHigh||d.hi52)}</span>`)}
+      ${row('MA 50d',d.fmpAvg50?`<span class="wl-fund-val ${d.price>d.fmpAvg50?'pos':'neg'}">${fa$(d.fmpAvg50)} ${d.price>d.fmpAvg50?'Γû▓ encima':'↩ debajo'}</span>`:'<span class="dim">—</span>')}
+      ${row('MA 200d',d.fmpAvg200?`<span class="wl-fund-val ${d.price>d.fmpAvg200?'pos':'neg'}">${fa$(d.fmpAvg200)} ${d.price>d.fmpAvg200?'Γû▓ encima':'↩ debajo'}</span>`:'<span class="dim">—</span>')}
       ${d.pe?row('P/E',`<span class="wl-fund-val">${d.pe}x</span>`):''}
       ${d.mktCap?row('Market Cap',`<span class="wl-fund-val">$${d.mktCap}</span>`):''}
       ${d.beta?row('Beta',`<span class="wl-fund-val">${d.beta}</span>`):''}
@@ -3376,7 +3376,7 @@ function previewWlImg(input) {
   const reader = new FileReader();
   reader.onload = e => {
     wlImgData = e.target.result;
-    $('wl-img-preview').textContent = 'Γ£à ' + file.name;
+    $('wl-img-preview').textContent = '✗ ' + file.name;
   };
   reader.readAsDataURL(file);
 }
@@ -3478,7 +3478,7 @@ async function loadPlaybooks() {
   $('playbooks-content').innerHTML = `
     <!-- Validador Pre-Trade -->
     <div class="validator-wrap">
-      <div class="validator-title">ΓÜí Validador Pre-Trade ΓÇö ┬┐Cumple el playbook?</div>
+      <div class="validator-title">⚡ Validador Pre-Trade — ┬┐Cumple el playbook?</div>
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
         <select id="val-pb" onchange="renderValidatorFields()"
           style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-size:13px;">
@@ -3488,13 +3488,13 @@ async function loadPlaybooks() {
           style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--bright);font-family:var(--mono);font-size:13px;width:120px;text-transform:uppercase;"
           oninput="this.value=this.value.toUpperCase()">
         <button onclick="autoLoadMarketData()" id="btn-autoload" class="btn btn-primary" style="padding:8px 16px;font-size:12px;">
-          ≡ƒôí Auto-cargar datos
+          📍 Auto-cargar datos
         </button>
         <span id="autoload-status" style="font-size:11px;color:var(--muted);"></span>
       </div>
       </div>
       <div id="val-fields" class="validator-grid"></div>
-      <button onclick="validateTrade()" class="btn btn-primary" style="margin-top:12px;">Γ£à Validar Trade</button>
+      <button onclick="validateTrade()" class="btn btn-primary" style="margin-top:12px;">✗ Validar Trade</button>
       <div id="val-results" style="margin-top:16px;"></div>
     </div>
 
@@ -3515,13 +3515,13 @@ async function autoLoadMarketData() {
   const btn    = $('btn-autoload');
   const status = $('autoload-status');
   btn.disabled = true;
-  btn.textContent = 'ΓÅ│ Cargando...';
+  btn.textContent = '│ Cargando...';
   status.textContent = '';
   try {
     const data = await api(`/api/market-data/${symbol}`);
     if (data.error) throw new Error(data.error);
 
-    // Mapeo: id del criterio ΓåÆ valor del endpoint
+    // Mapeo: id del criterio ✅ valor del endpoint
     const map = {
       ivrank:   data.ivRank,
       rsi:      data.rsi,
@@ -3539,14 +3539,14 @@ async function autoLoadMarketData() {
       }
     });
 
-    status.textContent = `Γ£à ${symbol} ΓÇö Precio: $${data.price} | VIX: ${data.vix} | RSI: ${data.rsi} | IV Rank: ${data.ivRank}% | ${data.earningsDays === 999 ? 'Sin earnings pr├│ximos' : `Earnings en ${data.earningsDays}d`}`;
+    status.textContent = `✗ ${symbol} — Precio: $${data.price} | VIX: ${data.vix} | RSI: ${data.rsi} | IV Rank: ${data.ivRank}% | ${data.earningsDays === 999 ? 'Sin earnings pr├│ximos' : `Earnings en ${data.earningsDays}d`}`;
     status.style.color = 'var(--green)';
   } catch(e) {
     status.textContent = `Γ¥î ${e.message}`;
     status.style.color = 'var(--red)';
   } finally {
     btn.disabled = false;
-    btn.textContent = '≡ƒôí Auto-cargar datos';
+    btn.textContent = '📍 Auto-cargar datos';
   }
 }
 
@@ -3585,7 +3585,7 @@ function validateTrade() {
     const ok = val >= c.min && val <= c.max;
     const close = !ok && (val >= c.min * 0.85 && val <= c.max * 1.15);
     const status = ok ? 'ok' : close ? 'warn' : 'fail';
-    const icon = ok ? 'Γ£à' : close ? 'ΓÜá∩╕Å' : 'Γ¥î';
+    const icon = ok ? '✗' : close ? '⚠️' : 'Γ¥î';
     const rangeStr = c.max >= 999 ? `ΓëÑ${c.min}${c.unit}` : `${c.min}ΓÇô${c.max}${c.unit}`;
 
     if (ok) passed++;
@@ -3609,9 +3609,9 @@ function validateTrade() {
   let verdictHtml;
   if (failed === 0 && warned === 0) {
     verdictHtml = `<div class="verdict-ok">
-      <div style="font-size:20px;">Γ£à</div>
+      <div style="font-size:20px;">✗</div>
       <div style="font-size:15px;font-weight:700;color:var(--green);margin-top:4px;">TRADE V├üLIDO</div>
-      <div style="font-size:12px;color:var(--muted);">${symbol ? symbol+' ΓÇö ' : ''}${passed}/${total} criterios cumplidos</div>
+      <div style="font-size:12px;color:var(--muted);">${symbol ? symbol+' — ' : ''}${passed}/${total} criterios cumplidos</div>
     </div>`;
   } else if (critFailed) {
     verdictHtml = `<div class="verdict-fail">
@@ -3621,9 +3621,9 @@ function validateTrade() {
     </div>`;
   } else {
     verdictHtml = `<div class="verdict-warn">
-      <div style="font-size:20px;">ΓÜá∩╕Å</div>
+      <div style="font-size:20px;">⚠️</div>
       <div style="font-size:15px;font-weight:700;color:var(--gold);margin-top:4px;">PROCEDER CON PRECAUCI├ôN</div>
-      <div style="font-size:12px;color:var(--muted);">${passed}/${total} criterios ΓÇö ${failed + warned} fuera de rango. Eval├║a si vale el riesgo.</div>
+      <div style="font-size:12px;color:var(--muted);">${passed}/${total} criterios — ${failed + warned} fuera de rango. Eval├║a si vale el riesgo.</div>
     </div>`;
   }
 
@@ -3636,7 +3636,7 @@ function loadAI() {
   if (!$('ai-to').value) $('ai-to').value = new Date().toISOString().slice(0,10);
   // Mensaje de bienvenida si no hay historial
   if (aiHistory.length === 0) {
-    addAIMsg('bot', `┬íHola Guillermo! ≡ƒæï Soy tu coach de trading con IA.\n\nTengo acceso a todos tus datos de operaciones. Puedes preguntarme cualquier cosa:\n\nΓÇó **"Analiza solo mayo"**\nΓÇó **"┬┐Por qu├⌐ mis Bull Put Spreads fallan?"**\nΓÇó **"┬┐Debo cerrar la put de NU hoy?"**\nΓÇó **"Compara mi semana 1 vs semana 2"**\nΓÇó **"┬┐Cu├ínto necesito ganar en junio para recuperar marzo?"**\n\nO usa el bot├│n **ΓÜí An├ílisis General** para un diagn├│stico completo.`);
+    addAIMsg('bot', `┬íHola Guillermo! ≡ƒæï Soy tu coach de trading con IA.\n\nTengo acceso a todos tus datos de operaciones. Puedes preguntarme cualquier cosa:\n\n• **"Analiza solo mayo"**\n• **"┬┐Por qu├⌐ mis Bull Put Spreads fallan?"**\n• **"┬┐Debo cerrar la put de NU hoy?"**\n• **"Compara mi semana 1 vs semana 2"**\n• **"┬┐Cu├ínto necesito ganar en junio para recuperar marzo?"**\n\nO usa el bot├│n **⚡ Análisis General** para un diagn├│stico completo.`);
   }
 }
 
@@ -3649,7 +3649,7 @@ function clearChat() {
 function addAIMsg(role, text, isLoading=false) {
   const area = $('ai-chat-area');
   const id = 'ai-msg-' + Date.now();
-  const avatar = role==='bot' ? '≡ƒñû' : '≡ƒæñ';
+  const avatar = role==='bot' ? '🤖' : '≡ƒæñ';
   const html = isLoading
     ? `<div class="ai-typing"><span></span><span></span><span></span></div>`
     : marked(text);
@@ -3672,7 +3672,7 @@ function addAIMsg(role, text, isLoading=false) {
 function marked(text) {
   return text
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^ΓÇó (.+)$/gm, '<li>$1</li>')
+    .replace(/^• (.+)$/gm, '<li>$1</li>')
     .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
     .replace(/\n/g, '<br>');
 }
@@ -3722,7 +3722,7 @@ async function sendAIChat() {
 async function runAI() {
   const sd = $('ai-from').value || '2026-02-01';
   const ed = $('ai-to').value   || new Date().toISOString().slice(0,10);
-  $('ai-input').value = `Dame un an├ílisis completo del per├¡odo ${sd} al ${ed}`;
+  $('ai-input').value = `Dame un análisis completo del per├¡odo ${sd} al ${ed}`;
   sendAIChat();
 }
 
@@ -3744,7 +3744,7 @@ async function loadWheel() {
 
     const phaseLabel = { CSP_ACTIVA:'≡ƒö╡ CSP Activa', CC_ACTIVA:'≡ƒƒó Covered Call', ACCIONES:'≡ƒƒí Acciones', IDLE:'ΓÜ¬ Sin actividad' };
     const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
-    const evIcon     = { STO_PUT:'Γ¼ç∩╕Å', BTC_PUT:'Γ¼å∩╕Å', STO_CALL:'≡ƒô₧', BTC_CALL:'Γ¼å∩╕Å', ROLL:'≡ƒöä', STOCK_BUY:'≡ƒ¢Æ', STOCK_SELL:'≡ƒÆ░', ASSIGNED:'≡ƒÄ»' };
+    const evIcon     = { STO_PUT:'Γ¼ç∩╕Å', BTC_PUT:'Γ¼å∩╕Å', STO_CALL:'≡ƒô₧', BTC_CALL:'Γ¼å∩╕Å', ROLL:'🔄', STOCK_BUY:'≡ƒ¢Æ', STOCK_SELL:'≡ƒÆ░', ASSIGNED:'🏆' };
     const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado' };
 
     // ΓöÇΓöÇ VISTA CARDS ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -3755,7 +3755,7 @@ async function loadWheel() {
       const ctrLabel = (n) => n > 1 ? ` ┬╖ ${n} ctr` : ``;
       const openInfo = w.activePut  ? `Strike $${w.activePut.strike.toFixed(2)} ┬╖ ${w.activePut.expiry.slice(5)}${ctrLabel(w.contractsPut)}`
                      : w.activeCall ? `Call $${w.activeCall.strike.toFixed(2)} ┬╖ ${w.activeCall.expiry.slice(5)}${ctrLabel(w.contractsCall)}`
-                     : w.shares > 0 ? `${w.shares} acciones` : 'ΓÇö';
+                     : w.shares > 0 ? `${w.shares} acciones` : '—';
 
       const mkt = priceMap[w.underlying] || { price:0, chg:0, chgPct:0 };
       const currentPrice = mkt.price || 0;
@@ -3776,27 +3776,27 @@ async function loadWheel() {
           <div class="wheel-price-divider"></div>
           <div class="wheel-price-col">
             <div class="wheel-price-label">Costo Base${w.isProjected?' <span style="color:var(--gold);font-size:9px;">PROY.</span>':''}</div>
-            <div class="wheel-price-main">${costBase !== null ? '$'+costBase.toFixed(2) : 'ΓÇö'}</div>
+            <div class="wheel-price-main">${costBase !== null ? '$'+costBase.toFixed(2) : '—'}</div>
             <div class="wheel-price-sub dim">Prima cobrada: +$${w.totalPremium.toFixed(2)}</div>
           </div>
           <div class="wheel-price-divider"></div>
           <div class="wheel-price-col">
             <div class="wheel-price-label">Margen vs Costo</div>
-            <div class="wheel-price-main ${diffCls}">${priceDiff !== null ? (priceDiff>=0?'+':'')+priceDiff.toFixed(2) : 'ΓÇö'}</div>
+            <div class="wheel-price-main ${diffCls}">${priceDiff !== null ? (priceDiff>=0?'+':'')+priceDiff.toFixed(2) : '—'}</div>
             <div class="wheel-price-sub ${diffCls}">${priceDiffPct !== null ? (priceDiffPct>=0?'+':'')+priceDiffPct.toFixed(1)+'%' : ''}</div>
           </div>
         </div>` : '';
 
       const timelineHtml = w.events.map(e => {
         const isRoll = e.type === 'ROLL';
-        const desc   = isRoll ? `Roll: $${e.fromStrike}ΓåÆ$${e.toStrike} | ${e.fromExpiry?.slice(5)}ΓåÆ${e.toExpiry?.slice(5)}`
+        const desc   = isRoll ? `Roll: $${e.fromStrike}✅$${e.toStrike} | ${e.fromExpiry?.slice(5)}✅${e.toExpiry?.slice(5)}`
           : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
           : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : `${evLabel[e.type]||e.type}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
         const amt = e.amount||0;
         return `<div class="wheel-event">
-          <div class="wheel-event-icon">${evIcon[e.type]||'ΓÇó'}</div>
+          <div class="wheel-event-icon">${evIcon[e.type]||'•'}</div>
           <div class="wheel-event-body">
             <div class="wheel-event-date">${e.date}</div>
             <div class="wheel-event-desc">${desc}</div>
@@ -3810,7 +3810,7 @@ async function loadWheel() {
           <div class="wheel-und">${w.underlying}</div>
           <div style="display:flex;gap:8px;align-items:center;">
             <div class="wheel-phase ${phaseCls[w.phase]||'phase-idle'}">${phaseLabel[w.phase]||w.phase}</div>
-            <button onclick="removeWheel('${w.underlying}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;" title="Quitar de La Rueda">Γ£ò</button>
+            <button onclick="removeWheel('${w.underlying}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;" title="Quitar de La Rueda">✓</button>
           </div>
         </div>
         ${pricePanelHtml}
@@ -3826,11 +3826,11 @@ async function loadWheel() {
           </div>
           <div class="wheel-stat">
             <div class="wheel-stat-label">Contratos</div>
-            <div class="wheel-stat-val">${w.contracts > 0 ? w.contracts+' ctr' : 'ΓÇö'}</div>
+            <div class="wheel-stat-val">${w.contracts > 0 ? w.contracts+' ctr' : '—'}</div>
           </div>
           <div class="wheel-stat">
             <div class="wheel-stat-label">Acciones</div>
-            <div class="wheel-stat-val dim">${w.shares > 0 ? w.shares+' acc' : (w.contracts > 0 ? (w.contracts*100)+' proy.' : 'ΓÇö')}</div>
+            <div class="wheel-stat-val dim">${w.shares > 0 ? w.shares+' acc' : (w.contracts > 0 ? (w.contracts*100)+' proy.' : '—')}</div>
           </div>
           <div class="wheel-stat" style="grid-column:span 2;">
             <div class="wheel-stat-label">Posici├│n Actual</div>
@@ -3872,11 +3872,11 @@ async function loadWheel() {
           ? w.marginRequired
           : w.costBasis > 0 ? w.costBasis * shares * 0.45 : 0;
 
-        // Fechas ΓÇö usar SOLO eventos de prima (no compras de acciones)
+        // Fechas — usar SOLO eventos de prima (no compras de acciones)
         const premTypes  = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
         const premEvents = w.events.filter(e => premTypes.has(e.type));
         const firstDate  = premEvents.length > 0 ? new Date(premEvents[0].date) : null;
-        // Meses transcurridos desde primera prima ΓÇö m├¡nimo 1 mes completo para no inflar
+        // Meses transcurridos desde primera prima — m├¡nimo 1 mes completo para no inflar
         const mesesRaw   = firstDate ? (todayD - firstDate) / (1000*60*60*24*30.44) : 1;
         const meses      = Math.max(1, mesesRaw); // floor 1 mes
 
@@ -3922,7 +3922,7 @@ async function loadWheel() {
       const tRows = rows.map(r => {
         const anualStr = r.rentAnual !== null
           ? `<span class="${r.rentAnual>=60?'meta-warn':''}">${r.rentAnual.toFixed(1)}%</span>`
-          : `<span class="dim" title="< 1 mes de historia">ΓÇö</span>`;
+          : `<span class="dim" title="< 1 mes de historia">—</span>`;
         const metaCell = `
           <div style="font-size:11px;" class="${r.metaCls}">
             $${r.primaMesActual.toFixed(0)} / $${r.metaMes.toFixed(0)}
@@ -3935,7 +3935,7 @@ async function loadWheel() {
         <tr>
           <td class="td-sym">${r.w.underlying}</td>
           <td class="td-phase" style="color:${r.phaseCss[r.w.phase]||'var(--muted)'};">${r.estrategia}</td>
-          <td>${r.marginReal > 0 ? '$'+r.marginReal.toFixed(0) : '<span class="dim">ΓÇö</span>'}</td>
+          <td>${r.marginReal > 0 ? '$'+r.marginReal.toFixed(0) : '<span class="dim">—</span>'}</td>
           <td class="pos">+$${r.w.totalPremium.toFixed(2)}</td>
           <td class="pos">${r.rentAcum.toFixed(1)}%</td>
           <td class="pos">${r.rentMes.toFixed(2)}%/m</td>
@@ -3986,15 +3986,15 @@ async function loadWheel() {
                 <td class="pos">+$${totalPrem.toFixed(2)}</td>
                 <td class="pos">${(totalMargin>0?(totalPrem/totalMargin*100):0).toFixed(1)}%</td>
                 <td class="pos">${avgRentMes.toFixed(2)}%/m</td>
-                <td>ΓÇö</td>
+                <td>—</td>
                 <td>${metaTotalCell}</td>
-                <td>ΓÇö</td>
+                <td>—</td>
               </tr>
             </tfoot>
           </table>
         </div>
         <div style="font-size:10px;color:var(--muted);margin-top:-8px;margin-bottom:16px;">
-          ΓÜá∩╕Å Margen Inv. = dato real de TastyTrade ┬╖ fallback: 45% del nocional (costBasis ├ù acciones) si la API no lo devuelve.
+          ⚠️ Margen Inv. = dato real de TastyTrade ┬╖ fallback: 45% del nocional (costBasis ├ù acciones) si la API no lo devuelve.
           Tasa Anual se oculta si hay menos de 1 mes de historia.
         </div>`;
     })();
@@ -4031,14 +4031,14 @@ async function loadWheel() {
       const thWeeks = allWeeks.map(wk => {
         const fri = new Date(wk + 'T12:00:00Z');
         fri.setUTCDate(fri.getUTCDate() + 4);
-        return `<th style="font-size:9px;">${wk.slice(5)}<br><span style="color:var(--muted);font-weight:400;">ΓåÆ${fri.toISOString().slice(5,10)}</span></th>`;
+        return `<th style="font-size:9px;">${wk.slice(5)}<br><span style="color:var(--muted);font-weight:400;">✅${fri.toISOString().slice(5,10)}</span></th>`;
       }).join('');
 
       // Filas: un ticker por fila
       const tRows = allTickers.map(t => {
         const weekCells = allWeeks.map(wk => {
           const v = tickerMap[t]?.[wk] || 0;
-          if (v === 0) return '<td class="dim">ΓÇö</td>';
+          if (v === 0) return '<td class="dim">—</td>';
           return `<td class="${v>=0?'pos':'neg'}">${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}</td>`;
         }).join('');
         const tickerTotal = allWeeks.reduce((s,wk) => s + (tickerMap[t]?.[wk]||0), 0);
@@ -4096,7 +4096,7 @@ async function loadWheel() {
         <div class="kpi-row cols-3">
           ${kpiCard('Ruedas Activas', wheels.filter(w=>w.phase!=='IDLE').length, 'subyacentes en curso','dim')}
           ${kpiCard('Prima Total Cobrada', fa$(totalPrem), 'todas las ruedas','pos')}
-          ${kpiCard('Estrategia', 'The Wheel', 'CSP ΓåÆ Acciones ΓåÆ CC','dim')}
+          ${kpiCard('Estrategia', 'The Wheel', 'CSP ✅ Acciones ✅ CC','dim')}
         </div>
       </div>
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
@@ -4149,7 +4149,7 @@ async function loadToday() {
     }
     const legs = S.txns.metrics?.strategies || [];
 
-    // Solo trades cerrados HOY ΓÇö consolidados (un spread = una fila)
+    // Solo trades cerrados HOY — consolidados (un spread = una fila)
     const todayLegs  = legs.filter(s => s.closeDate === today);
     const strategies = consolidateStrategies(todayLegs);
     const wins       = strategies.filter(s=>s.pnl>0).length;
@@ -4158,7 +4158,7 @@ async function loadToday() {
     $('today-kpis').innerHTML = [
       kpiCard('P&L Hoy',  f$(totalPnl), 'trades cerrados hoy', cc(totalPnl)),
       kpiCard('Trades',   strategies.length, 'cerrados hoy', 'dim'),
-      kpiCard('Win Rate', strategies.length ? Math.round(wins/strategies.length*100)+'%' : 'ΓÇö', 'hoy', wins>0&&wins===strategies.length?'pos':'dim'),
+      kpiCard('Win Rate', strategies.length ? Math.round(wins/strategies.length*100)+'%' : '—', 'hoy', wins>0&&wins===strategies.length?'pos':'dim'),
     ].join('');
 
     $('today-tbody').innerHTML = !strategies.length
@@ -4169,12 +4169,12 @@ async function loadToday() {
           return `<tr>
             <td class="td-mono dim">${s.closeDate}</td>
             <td class="td-bright">${s.underlying}</td>
-            <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'ΓÇö'}</span></td>
+            <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
             <td class="td-mono dim">${dur}</td>
             <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
-            <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'ΓÇö'}</td>
-            <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'ΓÇö'}</td>
-            <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'ΓÇö'}</td>
+            <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
+            <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+            <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
           </tr>`;
         }).join('');
   } catch(e) {
@@ -4216,7 +4216,7 @@ function updateCountdown() {
   const m = Math.floor(arSecsLeft / 60);
   const s = arSecsLeft % 60;
   const el = $('auto-refresh-countdown');
-  if (el) el.textContent = `Γƒ│ ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  if (el) el.textContent = `│ ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   arSecsLeft--;
   if (arSecsLeft < 0) {
     arSecsLeft = AUTO_REFRESH_SECS;
@@ -4246,13 +4246,13 @@ const ALEJANDRO_FRAMEWORK = [
           { id:'tend_tim',  label:'Timing',       desc:'┬┐Es el momento correcto dentro de la fase? ┬┐Extendido o fresco?' },
         ]
       },
-      { id:'ciclo', label:'Ciclo / Fase', icon:'≡ƒöä',
+      { id:'ciclo', label:'Ciclo / Fase', icon:'🔄',
         auto: false,
         subs:[
-          { id:'ciclo_f1', label:'Fase 1 ΓÇö Neutral alcista', desc:'Acumulaci├│n. Precio en rango, media plana. Esperar rompimiento.' },
-          { id:'ciclo_f2', label:'Fase 2 ΓÇö Alcista',         desc:'Tendencia alcista activa. M├¡nimos crecientes sobre la media. Zona de compra.' },
-          { id:'ciclo_f3', label:'Fase 3 ΓÇö Neutral bajista', desc:'Distribuci├│n. Precio en rango, media girando. Precauci├│n.' },
-          { id:'ciclo_f4', label:'Fase 4 ΓÇö Bajista',         desc:'Tendencia bajista activa. M├íximos decrecientes bajo la media. Zona de venta.' },
+          { id:'ciclo_f1', label:'Fase 1 — Neutral alcista', desc:'Acumulaci├│n. Precio en rango, media plana. Esperar rompimiento.' },
+          { id:'ciclo_f2', label:'Fase 2 — Alcista',         desc:'Tendencia alcista activa. M├¡nimos crecientes sobre la media. Zona de compra.' },
+          { id:'ciclo_f3', label:'Fase 3 — Neutral bajista', desc:'Distribuci├│n. Precio en rango, media girando. Precauci├│n.' },
+          { id:'ciclo_f4', label:'Fase 4 — Bajista',         desc:'Tendencia bajista activa. M├íximos decrecientes bajo la media. Zona de venta.' },
         ]
       },
       { id:'estructura', label:'Estructura', icon:'≡ƒÅù',
@@ -4260,13 +4260,13 @@ const ALEJANDRO_FRAMEWORK = [
         subs:[
           { id:'est_poc',  label:'POC / Fractal',   desc:'┬┐En qu├⌐ pivote estoy? Punto de control de precio y niveles fractales clave.' },
           { id:'est_giro', label:'M├│dulo de Giro',  desc:'Giro por Fallo, Doble llegada, Directo o Manipulaci├│n. ┬┐Qu├⌐ tengo a la izquierda?' },
-          { id:'est_trig', label:'Trigger',          desc:'El detonante estructural ΓÇö rompimiento de nivel, pullback a soporte/resistencia.' },
+          { id:'est_trig', label:'Trigger',          desc:'El detonante estructural — rompimiento de nivel, pullback a soporte/resistencia.' },
         ]
       },
     ]
   },
   {
-    id:'trigger', bloque:2, label:'Trigger', color:'#5b82e6', icon:'ΓÜí',
+    id:'trigger', bloque:2, label:'Trigger', color:'#5b82e6', icon:'⚡',
     vars:[
       { id:'emas', label:'Cruce de EMAs', icon:'≡ƒôë',
         auto: 'ema',
@@ -4284,7 +4284,7 @@ const ALEJANDRO_FRAMEWORK = [
           { id:'romp_ret',  label:'Retesteo del nivel',      desc:'Precio vuelve a testear el nivel roto como soporte/resistencia.' },
         ]
       },
-      { id:'validacion', label:'Validaci├│n', icon:'Γ£à',
+      { id:'validacion', label:'Validaci├│n', icon:'✗',
         auto: false,
         subs:[
           { id:'val_hlh',  label:'Impulso HL/LH (1-2-3)',  desc:'Higher Low alcista o Lower High bajista. Tercer impulso = tendencia extendida.' },
@@ -4297,7 +4297,7 @@ const ALEJANDRO_FRAMEWORK = [
   {
     id:'fuerza', bloque:3, label:'Fuerza', color:'#13d68f', icon:'≡ƒÆ¬',
     vars:[
-      { id:'macd', label:'MACD Alineado', icon:'ΓÜí',
+      { id:'macd', label:'MACD Alineado', icon:'⚡',
         auto: 'macd', critical: true,
         subs:[
           { id:'macd_cruce',  label:'Cruce de l├¡neas',  desc:'L├¡nea r├ípida cruza se├▒al en direcci├│n del trade.' },
@@ -4305,7 +4305,7 @@ const ALEJANDRO_FRAMEWORK = [
           { id:'macd_cero',   label:'Distancia a cero', desc:'Alejado de cero = sobrecompra/sobreventa. Cerca = momentum fresco.' },
         ]
       },
-      { id:'algoritmo', label:'Algoritmo CIAR v3', icon:'≡ƒñû',
+      { id:'algoritmo', label:'Algoritmo CIAR v3', icon:'🤖',
         auto: 'ciar', critical: true,
         subs:[
           { id:'algo_compra', label:'Se├▒al Compra (BUY)',      desc:'CIAR v3 gener├│ se├▒al BUY activa en TradingView.' },
@@ -4313,7 +4313,7 @@ const ALEJANDRO_FRAMEWORK = [
           { id:'algo_trend',  label:'Alejo Trend confirmado',  desc:'El indicador Alejo Trend apunta en la direcci├│n del trade.' },
         ]
       },
-      { id:'ingresarios', label:'Niveles Ingresarios', icon:'≡ƒôè',
+      { id:'ingresarios', label:'Niveles Ingresarios', icon:'📊',
         auto: false,
         subs:[
           { id:'ing_cluster', label:'Validaci├│n cluster diario/semanal', desc:'Cluster de Ingresarios activo y confirmado en temporalidad diaria o semanal.' },
@@ -4328,7 +4328,7 @@ const ALEJANDRO_VARS = ALEJANDRO_FRAMEWORK.flatMap(b => b.vars.map(v => ({
   ...v, bloque: b.bloque, bloqueId: b.id
 })));
 
-const BLOQUE_LABELS = { 1:'≡ƒôì Direcci├│n', 2:'ΓÜí Trigger', 3:'≡ƒÆ¬ Fuerza' };
+const BLOQUE_LABELS = { 1:'≡ƒôì Direcci├│n', 2:'⚡ Trigger', 3:'≡ƒÆ¬ Fuerza' };
 const BLOQUE_COLORS = { 1:'#e06060', 2:'#5b82e6', 3:'#13d68f' };
 
 let aleState = {
@@ -4364,10 +4364,10 @@ async function loadAlejandro() {
 async function aleCargarTicker() {
   const input = $('ale-ticker-input');
   if (input) aleState.ticker = input.value.toUpperCase().trim();
-  // NO borrar checks ni tesis ΓÇö solo actualizar indicadores autom├íticos
+  // NO borrar checks ni tesis — solo actualizar indicadores autom├íticos
   aleState.autoData = null;
   const banner = $('ale-auto-banner');
-  if (banner) banner.innerHTML = `<div class="ale-auto-banner dim" style="text-align:center;padding:10px;">ΓÅ│ Cargando datos de ${aleState.ticker}...</div>`;
+  if (banner) banner.innerHTML = `<div class="ale-auto-banner dim" style="text-align:center;padding:10px;">│ Cargando datos de ${aleState.ticker}...</div>`;
   await aleLoadMarketData();
   renderAlejandroChecks();
   // Esperar DOM antes de crear el chart
@@ -4473,7 +4473,7 @@ const ALE_SUBS_TESIS = {
 const ALE_EXCLUYENTES = new Set(['ciclo','emas','romp_niveles','validacion']); // radio: 1 sub = 100%
 
 // ΓöÇΓöÇ Tabla scoring ciclo TM+Tm ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-// Formato: 'TM_Tm' ΓåÆ factor (0=minimo, 0.4=minima, 0.6=media, 0.8=maxima_aprox, 1.0=maxima)
+// Formato: 'TM_Tm' ✅ factor (0=minimo, 0.4=minima, 0.6=media, 0.8=maxima_aprox, 1.0=maxima)
 function getCicloFactor(checks) {
   const tm  = checks['ciclo_tm']  || '';
   const tm2 = checks['ciclo_tm2'] || '';
@@ -4599,9 +4599,9 @@ function osShowPopup(sym, e) {
   popup.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;';
   popup.innerHTML = `
     <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:22px;max-width:420px;width:100%;position:relative;">
-      <button onclick="document.getElementById('os-popup').remove()" style="position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;">Γ£ò</button>
-      <div style="font-size:16px;font-weight:800;color:var(--bright);margin-bottom:4px;">≡ƒôè ${sym} ΓÇö OptionStrat</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Guarda o edita el link de an├ílisis para este ticker</div>
+      <button onclick="document.getElementById('os-popup').remove()" style="position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;">✓</button>
+      <div style="font-size:16px;font-weight:800;color:var(--bright);margin-bottom:4px;">🔗 ${sym} — OptionStrat</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Guarda o edita el link de análisis para este ticker</div>
 
       <input id="os-url-input" type="text" value="${curUrl}"
         placeholder="https://optionstrat.com/..."
@@ -4636,7 +4636,7 @@ function aleToggleEvol(uid) {
   const open = el.style.display === 'block';
   el.style.display = open ? 'none' : 'block';
   const arrow = document.getElementById(uid + '_arrow');
-  if (arrow) arrow.textContent = open ? 'Γû╢' : 'Γû╝';
+  if (arrow) arrow.textContent = open ? 'Γû╢' : '↩';
 }
 
 function renderAlejandro() {
@@ -4690,7 +4690,7 @@ function renderAlejandro() {
       const detalles = [...regs].reverse().map(h => {
         const { scoreGlobal: pct } = calcAlejandroScore(h.checks || {}, h.direction || h.tesis || 'alcista');
         const col  = pct >= 95 ? 'var(--green)' : pct >= 85 ? 'var(--gold)' : 'var(--red)';
-        const icon = pct >= 95 ? '≡ƒÜÇ' : pct >= 85 ? 'ΓÜá∩╕Å' : '≡ƒ¢æ';
+        const icon = pct >= 95 ? '≡ƒÜÇ' : pct >= 85 ? '⚠️' : '≡ƒ¢æ';
         const hChecks = h.checks || {};
         const hTesis  = h.direction || h.tesis || 'alcista';
         const hSubs   = ALE_SUBS_TESIS[hTesis] || ALE_SUBS_TESIS['alcista'];
@@ -4710,7 +4710,7 @@ function renderAlejandro() {
           + '<span style="font-family:var(--mono);font-size:11px;font-weight:700;color:' + col + ';">' + pct + '% ' + icon + '</span>'
           + '</div>'
           + '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;">'
-          + (malas || '<span style="font-size:9px;color:var(--green);">Γ£ô Todo alineado</span>')
+          + (malas || '<span style="font-size:9px;color:var(--green);">✔ Todo alineado</span>')
           + '</div></div>';
       }).join('');
 
@@ -4749,12 +4749,12 @@ function renderAlejandro() {
         <!-- Header -->
         <div class="ale-header">
           <div>
-            <div class="ale-title">≡ƒÄ» Playbook Alejandro</div>
+            <div class="ale-title">🏆 Playbook Alejandro</div>
             <div class="ale-subtitle">Framework Paradigma Investments ┬╖ 9 variables ┬╖ 3 m├│dulos</div>
           </div>
           <div class="ale-score-ring ${canTrade?'can-trade':cautela?'almost':''}">
             <div class="ale-score-num">${score}%</div>
-            <div class="ale-score-label">${canTrade?'≡ƒÜÇ OPERAR':cautela?'ΓÜá∩╕Å CAUTELA':'≡ƒ¢æ NO OPERAR'}</div>
+            <div class="ale-score-label">${canTrade?'≡ƒÜÇ OPERAR':cautela?'⚠️ CAUTELA':'≡ƒ¢æ NO OPERAR'}</div>
           </div>
         </div>
 
@@ -4762,7 +4762,7 @@ function renderAlejandro() {
         <div style="background:var(--card);border:1px solid var(--border2);border-radius:10px;padding:12px 16px;">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Γæá Definir Tesis del Trade</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">${tesisBtns}</div>
-          ${aleState.tesis?`<div style="font-size:11px;color:var(--muted);margin-top:8px;">Tesis <strong style="color:var(--bright);">${aleState.tesis}</strong> seleccionada ΓÇö el checklist se ajusta autom├íticamente</div>`:'<div style="font-size:11px;color:var(--gold);margin-top:8px;">ΓÜá∩╕Å Selecciona una tesis para activar el checklist</div>'}
+          ${aleState.tesis?`<div style="font-size:11px;color:var(--muted);margin-top:8px;">Tesis <strong style="color:var(--bright);">${aleState.tesis}</strong> seleccionada — el checklist se ajusta autom├íticamente</div>`:'<div style="font-size:11px;color:var(--gold);margin-top:8px;">⚠️ Selecciona una tesis para activar el checklist</div>'}
         </div>
 
         <!-- Ticker -->
@@ -4773,7 +4773,7 @@ function renderAlejandro() {
             onkeydown="if(event.key==='Enter')aleCargarTicker();">
           <button onclick="aleCargarTicker()" class="btn btn-primary">Γæí Cargar datos</button>
           <button onclick="aleSaveChecklist()" class="btn" style="background:rgba(19,214,143,.15);color:var(--green);border:1px solid var(--green);">≡ƒÆ╛ Guardar</button>
-          <button onclick="aleReset()" class="btn" style="background:rgba(240,79,90,.1);color:var(--red);border:1px solid var(--red);">Γ£ò Limpiar</button>
+          <button onclick="aleReset()" class="btn" style="background:rgba(240,79,90,.1);color:var(--red);border:1px solid var(--red);">✓ Limpiar</button>
         </div>
 
         <!-- Banner auto -->
@@ -4801,7 +4801,7 @@ function renderAlejandro() {
               ${aleState.imagen
                 ? `<div style="position:relative;display:inline-block;width:100%;">
                     <img src="${aleState.imagen}" style="width:100%;border-radius:8px;border:1px solid var(--border2);cursor:pointer;" onclick="aleVerImagen()" />
-                    <button onclick="aleState.imagen='';renderAlejandro();" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.7);border:none;color:#f04f5a;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:11px;">Γ£ò</button>
+                    <button onclick="aleState.imagen='';renderAlejandro();" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.7);border:none;color:#f04f5a;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:11px;">✓</button>
                    </div>`
                 : `<label style="display:flex;align-items:center;justify-content:center;gap:6px;padding:10px;border:1px dashed var(--border2);border-radius:8px;cursor:pointer;color:var(--muted);font-size:12px;background:rgba(255,255,255,.02);">
                     <input type="file" accept="image/*" style="display:none;" onchange="aleCargarImagen(this)">
@@ -4818,7 +4818,7 @@ function renderAlejandro() {
               ${aleState.audio
                 ? `<div style="display:flex;align-items:center;gap:6px;">
                     <audio controls src="${aleState.audio}" style="flex:1;height:32px;"></audio>
-                    <button onclick="aleState.audio='';renderAlejandro();" style="background:rgba(240,79,90,.15);border:1px solid #f04f5a;color:#f04f5a;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px;">Γ£ò</button>
+                    <button onclick="aleState.audio='';renderAlejandro();" style="background:rgba(240,79,90,.15);border:1px solid #f04f5a;color:#f04f5a;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px;">✓</button>
                    </div>`
                 : `<div style="display:flex;gap:6px;">
                     <button id="ale-rec-btn" onclick="aleToggleGrabacion()" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border2);background:rgba(255,255,255,.03);color:var(--muted);cursor:pointer;font-size:12px;">
@@ -4848,7 +4848,7 @@ function renderAlejandro() {
         <div id="ale-charts" style="margin-top:12px;display:none;">
           <div style="background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:14px;">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
-              <span style="font-size:12px;font-weight:600;color:var(--bright);">≡ƒôè TradingView</span>
+              <span style="font-size:12px;font-weight:600;color:var(--bright);">🔗 TradingView</span>
               <div style="display:flex;gap:4px;flex-wrap:wrap;" id="ale-tf1-btns"></div>
             </div>
             <div id="ale-tv-chart1" style="height:450px;border-radius:8px;overflow:hidden;"></div>
@@ -4859,7 +4859,7 @@ function renderAlejandro() {
 
       <!-- Historial -->
       <div class="ale-sidebar">
-        <div class="ale-sidebar-title">≡ƒôï Historial</div>
+        <div class="ale-sidebar-title">📓 Historial</div>
 
         <!-- B├║squeda -->
         <input id="hist-busca" type="text" placeholder="≡ƒöì Buscar ticker..."
@@ -4879,7 +4879,7 @@ function renderAlejandro() {
 
         <!-- Ordenar -->
         <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">
-          ${[['reciente','≡ƒòÉ'],['pct_d','%Γåô'],['pct_a','%Γåæ'],['az','AΓåÆZ'],['za','ZΓåÆA']].map(([k,l])=>{
+          ${[['reciente','≡ƒòÉ'],['pct_d','%Γåô'],['pct_a','%Γåæ'],['az','A✅Z'],['za','Z✅A']].map(([k,l])=>{
             const sel=aleState.histFiltro.orden===k;
             return '<span onclick="aleHistFiltro(\'orden\',\''+k+'\')" style="padding:3px 7px;border-radius:5px;border:1px solid '+(sel?'var(--gold)':'var(--border2)')+';background:'+(sel?'rgba(245,200,66,.15)':'rgba(255,255,255,.03)')+';font-size:10px;font-weight:600;color:'+(sel?'var(--gold)':'var(--muted)')+';cursor:pointer;">'+l+'</span>';
           }).join('')}
@@ -4957,13 +4957,13 @@ function renderAlejandroChecks() {
     const chgCls  = (ad.chg||0)>=0?'pos':'neg';
     bannerEl.innerHTML = `
       <div class="ale-auto-banner" style="margin-bottom:10px;">
-        <div class="ale-auto-item"><span class="dim">Precio</span><span class="ale-auto-val">$${ad.price?.toFixed(2)||'ΓÇö'}</span><span class="${chgCls}" style="font-size:10px;">${chgSign}${ad.chg?.toFixed(2)||''}</span></div>
-        <div class="ale-auto-item"><span class="dim">RSI</span><span class="ale-auto-val ${ad.rsi>70?'neg':ad.rsi<30?'pos':''}">${ad.rsi?.toFixed(1)||'ΓÇö'}</span></div>
-        <div class="ale-auto-item"><span class="dim">MACD</span><span class="ale-auto-val ${macdOk?'pos':'neg'}">${ad.macdLine!=null?(ad.macdLine>0?'+':'')+ad.macdLine.toFixed(3):'ΓÇö'}</span></div>
-        <div class="ale-auto-item"><span class="dim">EMA10</span><span class="ale-auto-val ${ema10Ok?'pos':'neg'}">${ad.ema10?'$'+ad.ema10.toFixed(2):'ΓÇö'}</span></div>
-        <div class="ale-auto-item"><span class="dim">EMA20</span><span class="ale-auto-val ${ema20Ok?'pos':'neg'}">${ad.ema20?'$'+ad.ema20.toFixed(2):'ΓÇö'}</span></div>
+        <div class="ale-auto-item"><span class="dim">Precio</span><span class="ale-auto-val">$${ad.price?.toFixed(2)||'—'}</span><span class="${chgCls}" style="font-size:10px;">${chgSign}${ad.chg?.toFixed(2)||''}</span></div>
+        <div class="ale-auto-item"><span class="dim">RSI</span><span class="ale-auto-val ${ad.rsi>70?'neg':ad.rsi<30?'pos':''}">${ad.rsi?.toFixed(1)||'—'}</span></div>
+        <div class="ale-auto-item"><span class="dim">MACD</span><span class="ale-auto-val ${macdOk?'pos':'neg'}">${ad.macdLine!=null?(ad.macdLine>0?'+':'')+ad.macdLine.toFixed(3):'—'}</span></div>
+        <div class="ale-auto-item"><span class="dim">EMA10</span><span class="ale-auto-val ${ema10Ok?'pos':'neg'}">${ad.ema10?'$'+ad.ema10.toFixed(2):'—'}</span></div>
+        <div class="ale-auto-item"><span class="dim">EMA20</span><span class="ale-auto-val ${ema20Ok?'pos':'neg'}">${ad.ema20?'$'+ad.ema20.toFixed(2):'—'}</span></div>
         <div class="ale-auto-item"><span class="dim">Earnings</span><span class="ale-auto-val ${earOk?'pos':'neg'}">${ad.earnings>900?'Sin fecha':ad.earnings+'d'}</span></div>
-        <div class="ale-auto-item"><span class="dim">CIAR v3</span><span class="ale-auto-val ${ciar?.signal==='BUY'?'pos':ciar?.signal==='SELL'?'neg':''}">${ciar?ciar.signal+' '+ciarAge+'m':'ΓÇö'}</span></div>
+        <div class="ale-auto-item"><span class="dim">CIAR v3</span><span class="ale-auto-val ${ciar?.signal==='BUY'?'pos':ciar?.signal==='SELL'?'neg':''}">${ciar?ciar.signal+' '+ciarAge+'m':'—'}</span></div>
       </div>`;
   } else {
     bannerEl.innerHTML = '';
@@ -4988,7 +4988,7 @@ function renderAlejandroChecks() {
     return '';
   };
   const varColor = id => { const s=getVarEstado(id); return s==='si'?'#13d68f':s==='no'?'#f04f5a':s==='parcial'?'#f5c842':'#4e5a70'; };
-  const varIcon  = id => { const s=getVarEstado(id); return s==='si'?'Γ£ô':s==='no'?'Γ£ù':s==='parcial'?'~':'?'; };
+  const varIcon  = id => { const s=getVarEstado(id); return s==='si'?'✔':s==='no'?'Γ£ù':s==='parcial'?'~':'?'; };
 
   const bloqueVarIds = b => ALEJANDRO_FRAMEWORK.find(x=>x.id===b)?.vars.map(v=>v.id)||[];
   const bloqueScore  = b => { const ids=bloqueVarIds(b); return {ok:ids.filter(id=>getVarEstado(id)==='si').length, total:ids.length}; };
@@ -4997,7 +4997,7 @@ function renderAlejandroChecks() {
   const renderSubs = (varObj, bColor) => {
     if (!aleState.expanded[varObj.id]) return '';
     const imp3Warning = varObj.id==='validacion' && aleState.checks['val_sel']==='imp3'
-      ? `<div style="background:rgba(240,79,90,.15);border:1px solid #f04f5a;border-radius:6px;padding:6px 10px;font-size:11px;color:#f04f5a;margin-bottom:6px;">ΓÜá∩╕Å Impulso 3 ΓÇö Tendencia posiblemente agotada. Eval├║a con extrema cautela.</div>` : '';
+      ? `<div style="background:rgba(240,79,90,.15);border:1px solid #f04f5a;border-radius:6px;padding:6px 10px;font-size:11px;color:#f04f5a;margin-bottom:6px;">⚠️ Impulso 3 — Tendencia posiblemente agotada. Eval├║a con extrema cautela.</div>` : '';
 
     if (varObj.id === 'ciclo') {
       const t = aleState.tesis || 'alcista';
@@ -5008,7 +5008,7 @@ function renderAlejandroChecks() {
         {id:'f3',label:'F3',desc:'Neutral bajista'},
         {id:'f4',label:'F4',desc:'Bajista'},
       ];
-      // TM: las 4 fases disponibles ΓÇö el trader marca lo que ve
+      // TM: las 4 fases disponibles — el trader marca lo que ve
       const TM_FASES = FASES_ALL;
 
       const tmSel   = aleState.checks['ciclo_tm']   || '';
@@ -5034,22 +5034,22 @@ function renderAlejandroChecks() {
 
       // Etiqueta de combo
       const comboLabel = tmSel && tm2Sel
-        ? (factor>=1?'≡ƒÜÇ M├íximo ΓÇö TM y Tm coinciden':factor>0?'ΓÜá∩╕Å Combinaci├│n parcial ΓÇö Seguir observando':'ΓÇö Marca ambas temporalidades')
-        : 'ΓÇö Completa TM y Tm';
+        ? (factor>=1?'≡ƒÜÇ M├íximo — TM y Tm coinciden':factor>0?'⚠️ Combinaci├│n parcial — Seguir observando':'— Marca ambas temporalidades')
+        : '— Completa TM y Tm';
       const comboCol = factor>=1?'#13d68f':factor>=0.5?'#f5c842':'#4e5a70';
 
       return '<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:3px solid '+cicloCol+';">'
 
         // TM
         +'<div style="margin-bottom:10px;">'
-        +'<div style="font-size:10px;font-weight:700;color:#5b82e6;margin-bottom:4px;">≡ƒôè TEMPORALIDAD MAYOR</div>'
+        +'<div style="font-size:10px;font-weight:700;color:#5b82e6;margin-bottom:4px;">🔗 TEMPORALIDAD MAYOR</div>'
         +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">'+tfBtns('ciclo_tmTf','')+'</div>'
         +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">'+faseGrid(TM_FASES,'ciclo_tm')+'</div>'
         +'</div>'
 
         // Tm
         +'<div>'
-        +'<div style="font-size:10px;font-weight:700;color:#e06060;margin-bottom:4px;">≡ƒôè TEMPORALIDAD MENOR</div>'
+        +'<div style="font-size:10px;font-weight:700;color:#e06060;margin-bottom:4px;">🔗 TEMPORALIDAD MENOR</div>'
         +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">'+tfBtns('ciclo_tm2Tf','')+'</div>'
         +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">'+faseGrid(FASES_ALL,'ciclo_tm2')+'</div>'
         +'</div>'
@@ -5063,11 +5063,11 @@ function renderAlejandroChecks() {
       const todasOptsEma=[{id:'ema_alcista',label:'Alcista',icon:'≡ƒôê',ok:ema10Ok&&ema20Ok&&emaAlign},{id:'ema_bajista',label:'Bajista',icon:'≡ƒôë',ok:!ema10Ok&&!ema20Ok},{id:'ema_neutral',label:'Neutral',icon:'Γ₧í∩╕Å',ok:false}];
       const emaVisibles=getSubsVisibles('emas');
       const opts=todasOptsEma.filter(o=>emaVisibles.includes(o.id));
-      const hint = autoData?`<div style="font-size:10px;color:#5b82e6;margin-bottom:6px;">≡ƒñû EMA10 $${ad.ema10?.toFixed(2)||'ΓÇö'} ┬╖ EMA20 $${ad.ema20?.toFixed(2)||'ΓÇö'}</div>`:'';
+      const hint = autoData?`<div style="font-size:10px;color:#5b82e6;margin-bottom:6px;">🤖 EMA10 $${ad.ema10?.toFixed(2)||'—'} ┬╖ EMA20 $${ad.ema20?.toFixed(2)||'—'}</div>`:'';
       const emasCol=varColor('emas');
       return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:3px solid ${emasCol};">${hint}
         <div style="display:flex;gap:6px;">
-          ${opts.map(o=>{const sel=aleState.checks[o.id]==='si';const col=sel?'#13d68f':'#4e5a70';return `<div onclick="aleEmaSelect('${o.id}')" style="flex:1;border:2px solid ${col};border-radius:8px;padding:8px;cursor:pointer;text-align:center;background:${sel?col+'22':'rgba(255,255,255,.02)'}"><div style="font-size:16px;">${o.icon}</div><div style="font-size:11px;font-weight:700;color:${sel?col:'var(--text)'};">${o.label}</div>${o.ok?`<div style="font-size:9px;color:#5b82e6;">≡ƒñû</div>`:''}</div>`;}).join('')}
+          ${opts.map(o=>{const sel=aleState.checks[o.id]==='si';const col=sel?'#13d68f':'#4e5a70';return `<div onclick="aleEmaSelect('${o.id}')" style="flex:1;border:2px solid ${col};border-radius:8px;padding:8px;cursor:pointer;text-align:center;background:${sel?col+'22':'rgba(255,255,255,.02)'}"><div style="font-size:16px;">${o.icon}</div><div style="font-size:11px;font-weight:700;color:${sel?col:'var(--text)'};">${o.label}</div>${o.ok?`<div style="font-size:9px;color:#5b82e6;">🤖</div>`:''}</div>`;}).join('')}
         </div>
       </div>`;
     }
@@ -5087,7 +5087,7 @@ function renderAlejandroChecks() {
     }
     if (varObj.id === 'algoritmo') {
       const ciarSig = ciar?.signal;
-      const hint2   = ciar ? `<div style="font-size:10px;color:#5b82e6;margin-bottom:6px;">≡ƒñû CIAR v3: ${ciar.signal} @ $${ciar.price?.toFixed(2)} ┬╖ hace ${ciarAge}min</div>` : `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Sin se├▒al CIAR v3 reciente</div>`;
+      const hint2   = ciar ? `<div style="font-size:10px;color:#5b82e6;margin-bottom:6px;">🤖 CIAR v3: ${ciar.signal} @ $${ciar.price?.toFixed(2)} ┬╖ hace ${ciarAge}min</div>` : `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Sin se├▒al CIAR v3 reciente</div>`;
       const todasOpts=[
         {id:'algo_compra',label:'Se├▒al Compra',icon:'≡ƒôê',autoPick:ciarSig==='BUY'},
         {id:'algo_venta', label:'Se├▒al Venta', icon:'≡ƒôë',autoPick:ciarSig==='SELL'},
@@ -5100,10 +5100,10 @@ function renderAlejandroChecks() {
       const algoCol=varColor('algoritmo');
       return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:3px solid ${algoCol};">${hint2}
         <div style="display:flex;gap:8px;margin-bottom:8px;">
-          ${opts.map(o=>{const sel=aleState.checks[o.id]==='si';const col=sel?bColor:'#4e5a70';return `<div onclick="aleAlgoSelect('${o.id}')" style="flex:1;border:2px solid ${col};border-radius:8px;padding:10px;cursor:pointer;text-align:center;background:${sel?col+'22':'rgba(255,255,255,.02)'};transition:all .15s;"><div style="font-size:22px;">${o.icon}</div><div style="font-weight:700;font-size:12px;color:${sel?col:'var(--text)'};">${o.label}</div>${o.autoPick?`<div style="font-size:9px;color:#5b82e6;margin-top:2px;">≡ƒñû detectado</div>`:''}</div>`;}).join('')}
+          ${opts.map(o=>{const sel=aleState.checks[o.id]==='si';const col=sel?bColor:'#4e5a70';return `<div onclick="aleAlgoSelect('${o.id}')" style="flex:1;border:2px solid ${col};border-radius:8px;padding:10px;cursor:pointer;text-align:center;background:${sel?col+'22':'rgba(255,255,255,.02)'};transition:all .15s;"><div style="font-size:22px;">${o.icon}</div><div style="font-weight:700;font-size:12px;color:${sel?col:'var(--text)'};">${o.label}</div>${o.autoPick?`<div style="font-size:9px;color:#5b82e6;margin-top:2px;">🤖 detectado</div>`:''}</div>`;}).join('')}
         </div>
         <div onclick="aleSubCycle('algo_trend')" style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;background:rgba(255,255,255,.02);border:1px solid var(--border);cursor:pointer;">
-          <div style="width:20px;height:20px;border-radius:50%;border:2px solid ${trendCol};background:${trendVal?trendCol+'33':'transparent'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:${trendCol};flex-shrink:0;">${trendVal==='si'?'Γ£ô':trendVal==='no'?'Γ£ù':trendVal==='parcial'?'~':''}</div>
+          <div style="width:20px;height:20px;border-radius:50%;border:2px solid ${trendCol};background:${trendVal?trendCol+'33':'transparent'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:${trendCol};flex-shrink:0;">${trendVal==='si'?'✔':trendVal==='no'?'Γ£ù':trendVal==='parcial'?'~':''}</div>
           <div><div style="font-size:12px;font-weight:600;color:var(--bright);">Alejo Trend confirmado</div><div style="font-size:10px;color:var(--muted);">El indicador Alejo Trend apunta en la direcci├│n del trade</div></div>
         </div>
       </div>`;
@@ -5113,7 +5113,7 @@ function renderAlejandroChecks() {
       const col=val==='si'?'#13d68f':val==='no'?'#f04f5a':'#4e5a70';
       return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:2px solid ${bColor};">
         <div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;background:rgba(255,255,255,.02);border:1px solid var(--border);cursor:pointer;" onclick="aleSubCycle('ing_cluster')">
-          <div style="width:22px;height:22px;border-radius:50%;border:2px solid ${col};background:${val?col+'33':'transparent'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:${col};flex-shrink:0;">${val==='si'?'Γ£ô':val==='no'?'Γ£ù':val==='parcial'?'~':''}</div>
+          <div style="width:22px;height:22px;border-radius:50%;border:2px solid ${col};background:${val?col+'33':'transparent'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:${col};flex-shrink:0;">${val==='si'?'✔':val==='no'?'Γ£ù':val==='parcial'?'~':''}</div>
           <div><div style="font-size:13px;font-weight:600;color:var(--bright);">Validaci├│n cluster diario/semanal</div><div style="font-size:10px;color:var(--muted);">Cluster de Ingresarios activo y confirmado en temporalidad diaria o semanal</div></div>
         </div>
       </div>`;
@@ -5122,9 +5122,9 @@ function renderAlejandroChecks() {
       const opts=[
         {id:'val_imp1',label:'Impulso 1',icon:'1∩╕ÅΓâú',desc:'Tendencia fresca ┬╖ Mejor R/R',warn:false,excl:true},
         {id:'val_imp2',label:'Impulso 2',icon:'2∩╕ÅΓâú',desc:'Tendencia activa ┬╖ Buena entrada',warn:false,excl:true},
-        {id:'val_imp3',label:'Impulso 3',icon:'3∩╕ÅΓâú',desc:'ΓÜá∩╕Å Extendida ┬╖ Alto riesgo',warn:true,excl:true},
+        {id:'val_imp3',label:'Impulso 3',icon:'3∩╕ÅΓâú',desc:'⚠️ Extendida ┬╖ Alto riesgo',warn:true,excl:true},
         {id:'val_cons',label:'Consolidaci├│n',icon:'≡ƒôª',desc:'Base form├índose ┬╖ Esperar',warn:false,excl:true},
-        {id:'val_ibp', label:'Ideal Buy Point',icon:'≡ƒÄ»',desc:'Punto ├│ptimo confirmado',warn:false,excl:false},
+        {id:'val_ibp', label:'Ideal Buy Point',icon:'🏆',desc:'Punto ├│ptimo confirmado',warn:false,excl:false},
       ];
       const valCol=varColor('validacion');
       return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:3px solid ${valCol};">${imp3Warning}
@@ -5135,7 +5135,7 @@ function renderAlejandroChecks() {
     }
     // Default: sub-items toggle
     return `<div style="margin-top:8px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:2px solid ${bColor};display:flex;flex-direction:column;gap:5px;">
-      ${(varObj.subs||[]).filter(s=>getSubsVisibles(varObj.id).includes(s.id)).map(s=>{const val=aleState.checks[s.id]||'';const col=val==='si'?'#13d68f':val==='no'?'#f04f5a':val==='parcial'?'#f5c842':'#4e5a70';return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;background:rgba(255,255,255,.02);border:1px solid var(--border);cursor:pointer;" onclick="aleSubCycle('${s.id}')"><div style="width:20px;height:20px;border-radius:50%;border:2px solid ${col};background:${val?col+'33':'transparent'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:${col};flex-shrink:0;">${val==='si'?'Γ£ô':val==='no'?'Γ£ù':val==='parcial'?'~':''}</div><div><div style="font-size:12px;font-weight:600;color:var(--bright);">${s.label}</div><div style="font-size:10px;color:var(--muted);">${s.desc}</div></div></div>`;}).join('')}
+      ${(varObj.subs||[]).filter(s=>getSubsVisibles(varObj.id).includes(s.id)).map(s=>{const val=aleState.checks[s.id]||'';const col=val==='si'?'#13d68f':val==='no'?'#f04f5a':val==='parcial'?'#f5c842':'#4e5a70';return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;background:rgba(255,255,255,.02);border:1px solid var(--border);cursor:pointer;" onclick="aleSubCycle('${s.id}')"><div style="width:20px;height:20px;border-radius:50%;border:2px solid ${col};background:${val?col+'33':'transparent'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:${col};flex-shrink:0;">${val==='si'?'✔':val==='no'?'Γ£ù':val==='parcial'?'~':''}</div><div><div style="font-size:12px;font-weight:600;color:var(--bright);">${s.label}</div><div style="font-size:10px;color:var(--muted);">${s.desc}</div></div></div>`;}).join('')}
     </div>`;
   };
 
@@ -5154,7 +5154,7 @@ function renderAlejandroChecks() {
       const hasSubs  = v.subs && v.subs.length > 0;
       let autoHint   = '';
       if (v.auto==='macd'&&ad.macdLine!=null) autoHint=`MACD ${ad.macdLine>0?'+':''}${ad.macdLine.toFixed(3)} ┬╖ Hist ${(ad.macdHist||0)>0?'+':''}${(ad.macdHist||0).toFixed(3)}`;
-      if (v.auto==='ema'&&ad.ema10)           autoHint=`EMA10 $${ad.ema10.toFixed(2)} ┬╖ EMA20 $${ad.ema20?.toFixed(2)||'ΓÇö'}`;
+      if (v.auto==='ema'&&ad.ema10)           autoHint=`EMA10 $${ad.ema10.toFixed(2)} ┬╖ EMA20 $${ad.ema20?.toFixed(2)||'—'}`;
       if (v.auto==='ciar')                    autoHint=ciar?`${ciar.signal} @ $${ciar.price?.toFixed(2)} ┬╖ ${ciarAge}m`:'Sin se├▒al CIAR v3';
 
       return `<div style="border:2px solid ${col};border-radius:10px;background:rgba(255,255,255,.03);overflow:visible;transition:border-color .2s;">
@@ -5164,8 +5164,8 @@ function renderAlejandroChecks() {
             <div style="font-weight:700;font-size:13px;color:var(--bright);">${v.icon} ${v.label}${v.critical?' <span style="font-size:9px;background:rgba(240,79,90,.2);color:#f04f5a;border-radius:3px;padding:1px 4px;">CR├ìTICO</span>':''}</div>
             ${autoHint?`<div style="font-size:9px;color:#5b82e6;margin-top:1px;font-family:monospace;">${autoHint}</div>`:''}
           </div>
-          ${hasSubs?`<div style="font-size:12px;color:var(--muted);">${isExpand?'Γû▓':'Γû╝'}</div>`:`<div style="display:flex;gap:3px;">
-            <button onclick="event.stopPropagation();aleCheck('${v.id}','si')"      style="padding:3px 7px;border-radius:5px;font-size:10px;border:1px solid ${col==='#13d68f'?'#13d68f':'var(--border2)'};background:${col==='#13d68f'?'rgba(19,214,143,.2)':'rgba(255,255,255,.04)'};color:${col==='#13d68f'?'#13d68f':'var(--muted)'};cursor:pointer;">Γ£ô</button>
+          ${hasSubs?`<div style="font-size:12px;color:var(--muted);">${isExpand?'Γû▓':'↩'}</div>`:`<div style="display:flex;gap:3px;">
+            <button onclick="event.stopPropagation();aleCheck('${v.id}','si')"      style="padding:3px 7px;border-radius:5px;font-size:10px;border:1px solid ${col==='#13d68f'?'#13d68f':'var(--border2)'};background:${col==='#13d68f'?'rgba(19,214,143,.2)':'rgba(255,255,255,.04)'};color:${col==='#13d68f'?'#13d68f':'var(--muted)'};cursor:pointer;">✔</button>
             <button onclick="event.stopPropagation();aleCheck('${v.id}','parcial')" style="padding:3px 7px;border-radius:5px;font-size:10px;border:1px solid ${col==='#f5c842'?'#f5c842':'var(--border2)'};background:${col==='#f5c842'?'rgba(245,200,66,.2)':'rgba(255,255,255,.04)'};color:${col==='#f5c842'?'#f5c842':'var(--muted)'};cursor:pointer;">~</button>
             <button onclick="event.stopPropagation();aleCheck('${v.id}','no')"      style="padding:3px 7px;border-radius:5px;font-size:10px;border:1px solid ${col==='#f04f5a'?'#f04f5a':'var(--border2)'};background:${col==='#f04f5a'?'rgba(240,79,90,.2)':'rgba(255,255,255,.04)'};color:${col==='#f04f5a'?'#f04f5a':'var(--muted)'};cursor:pointer;">Γ£ù</button>
           </div>`}
@@ -5178,7 +5178,7 @@ function renderAlejandroChecks() {
       <div style="background:${bCol}22;border:2px solid ${bCol};border-radius:12px;padding:10px 14px;text-align:center;margin-bottom:10px;width:100%;">
         <div style="font-size:22px;">${bloque.icon}</div>
         <div style="font-size:13px;font-weight:700;color:${bCol};">${bloque.label}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${sc.ok}/${sc.total} Γ£ô</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${sc.ok}/${sc.total} ✔</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;width:100%;">${varsHtml}</div>
     </div>`;
@@ -5192,30 +5192,30 @@ function renderAlejandroChecks() {
 
   checksEl.innerHTML = !tesis ? `<div style="text-align:center;padding:40px;color:var(--muted);"><div style="font-size:32px;margin-bottom:12px;">Γÿ¥∩╕Å</div><div style="font-size:14px;">Selecciona una <strong>Tesis</strong> arriba para activar el checklist</div></div>` : `
     <div style="font-size:11px;color:var(--muted);background:rgba(255,255,255,.03);border-radius:8px;padding:8px 12px;margin-bottom:10px;">
-      ≡ƒôï Tesis <strong style="color:var(--bright);">${tesis}</strong> ΓÇö ${tesisMsgs[tesis]||''}
+      📓 Tesis <strong style="color:var(--bright);">${tesis}</strong> — ${tesisMsgs[tesis]||''}
     </div>
     <div class="ale-tree-row">${ALEJANDRO_FRAMEWORK.map(b=>renderColumna(b)).join('')}</div>
     <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;font-size:10px;color:var(--muted);flex-wrap:wrap;">
-      <span>Γû╝ Clic para desplegar sub-variables</span><span>┬╖</span>
-      <span style="color:#13d68f;">Γ£ô Confirmado</span><span style="color:#f5c842;">~ Parcial</span>
+      <span>↩ Clic para desplegar sub-variables</span><span>┬╖</span>
+      <span style="color:#13d68f;">✔ Confirmado</span><span style="color:#f5c842;">~ Parcial</span>
       <span style="color:#f04f5a;">Γ£ù No cumple</span><span style="color:#4e5a70;">? Sin evaluar</span>
     </div>`;
 
   let vcolor, vicon, vlabel, vmsg;
   if (!tesis)       { vcolor='#4e5a70';vicon='Γÿ¥∩╕Å';vlabel='DEFINE LA TESIS';vmsg='Selecciona Alcista, Bajista o Neutral.'; }
   else if (canTrade){ vcolor='var(--green)';vicon='≡ƒÜÇ';vlabel='OPERAR';vmsg='Setup completo. Todas las condiciones alineadas.'; }
-  else if (cautela) { vcolor='var(--gold)';vicon='ΓÜá∩╕Å';vlabel='ENTRAR CON CAUTELA';vmsg='Setup parcial. Considera tama├▒o reducido y stop ajustado.'; }
+  else if (cautela) { vcolor='var(--gold)';vicon='⚠️';vlabel='ENTRAR CON CAUTELA';vmsg='Setup parcial. Considera tama├▒o reducido y stop ajustado.'; }
   else              { vcolor='var(--red)';vicon='≡ƒ¢æ';vlabel='NO OPERAR';vmsg='Setup incompleto. Espera mejores condiciones.'; }
 
   verEl.innerHTML = `<div class="ale-veredicto-box" style="border-color:${vcolor};">
     <div style="font-size:28px;">${vicon}</div>
     <div style="flex:1;">
-      <div style="font-size:18px;font-weight:700;color:${vcolor};">${tesis?score+'% ΓÇö ':''}${vlabel}</div>
+      <div style="font-size:18px;font-weight:700;color:${vcolor};">${tesis?score+'% — ':''}${vlabel}</div>
       <div style="font-size:12px;color:var(--text);margin-top:4px;">${vmsg}</div>
-      ${criticalsFailed.length?`<div style="font-size:11px;color:#f04f5a;margin-top:4px;">ΓÜá∩╕Å Cr├¡ticos: ${criticalsFailed.join(', ')}</div>`:''}
+      ${criticalsFailed.length?`<div style="font-size:11px;color:#f04f5a;margin-top:4px;">⚠️ Cr├¡ticos: ${criticalsFailed.join(', ')}</div>`:''}
       <div style="display:flex;gap:10px;margin-top:8px;font-size:11px;font-family:var(--mono);">
         <span style="color:#e06060;">≡ƒôì Dir: ${modScores.direccion}%</span>
-        <span style="color:#5b82e6;">ΓÜí Trig: ${modScores.trigger}%</span>
+        <span style="color:#5b82e6;">⚡ Trig: ${modScores.trigger}%</span>
         <span style="color:#13d68f;">≡ƒÆ¬ Fuerza: ${modScores.fuerza}%</span>
       </div>
     </div>
@@ -5230,8 +5230,8 @@ function renderAlejandroChecks() {
   const ring = document.querySelector('.ale-score-ring');
   if (ring) {
     ring.className=`ale-score-ring ${canTrade?'can-trade':cautela?'almost':''}`;
-    ring.querySelector('.ale-score-num').textContent=tesis?score+'%':'ΓÇö';
-    ring.querySelector('.ale-score-label').textContent=canTrade?'≡ƒÜÇ OPERAR':cautela?'ΓÜá∩╕Å CAUTELA':'≡ƒ¢æ NO OPERAR';
+    ring.querySelector('.ale-score-num').textContent=tesis?score+'%':'—';
+    ring.querySelector('.ale-score-label').textContent=canTrade?'≡ƒÜÇ OPERAR':cautela?'⚠️ CAUTELA':'≡ƒ¢æ NO OPERAR';
   }
 }
 
@@ -5244,7 +5244,7 @@ function aleSubCycle(id){
   renderAlejandroChecks();
 }
 function aleCicloSelect(faseId){
-  // Legacy ΓÇö mantener por compatibilidad con historial viejo
+  // Legacy — mantener por compatibilidad con historial viejo
   renderAlejandroChecks();
 }
 function aleCicloFase(checkKey, faseId){
@@ -5349,7 +5349,7 @@ function aleLoadChart(n, sym, tv) {
   container.innerHTML = '';
 
   // Usar TradingView widget embed via iframe
-  const exchange = 'NASDAQ'; // default ΓÇö TV lo resuelve solo si est├í mal
+  const exchange = 'NASDAQ'; // default — TV lo resuelve solo si est├í mal
   const iframe = document.createElement('iframe');
   iframe.style.cssText = 'width:100%;height:100%;border:none;border-radius:8px;';
   iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=ale_tv_${n}&symbol=${encodeURIComponent(sym)}&interval=${tv}&theme=dark&style=1&locale=es&toolbar_bg=%230d1117&enable_publishing=0&hide_top_toolbar=0&hide_legend=0&saveimage_showing=0&studies=[]&show_popup_button=0`;
@@ -5522,7 +5522,7 @@ async function renderEvalChart(ticker) {
   });
   _evalSeries.setData(priceData);
 
-  // EMA 10 y 20 ΓÇö mismo panel que precio
+  // EMA 10 y 20 — mismo panel que precio
   _evalChart.addLineSeries({
     color:'#f5c842', lineWidth:1, priceLineVisible:false, lastValueVisible:false,
   }).setData(calcEMALocal(priceData,10));
@@ -5530,13 +5530,13 @@ async function renderEvalChart(ticker) {
     color:'#5b82e6', lineWidth:1, priceLineVisible:false, lastValueVisible:false,
   }).setData(calcEMALocal(priceData,20));
 
-  // MACD removido ΓÇö solo velas + EMAs
+  // MACD removido — solo velas + EMAs
 
   // ΓöÇΓöÇ Marcadores ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   const evals = aleState.history.filter(h=>h.ticker===ticker);
   _evalMarkers = evals;
   if (evals.length) {
-    // Construir mapa de fecha ΓåÆ timestamp exacto del precio
+    // Construir mapa de fecha ✅ timestamp exacto del precio
     // para que el marcador caiga exactamente en la vela correcta
     const priceTimeMap = {};
     priceData.forEach(d => {
@@ -5721,7 +5721,7 @@ function renderMonthAccordions() {
           <span>${label}</span>
           <span style="display:flex;align-items:center;gap:8px;">
             <span style="font-size:10px;color:var(--muted);">${exps.length} fecha${exps.length>1?'s':''}</span>
-            <span class="chain-month-arrow">${isOpen ? 'Γû▓' : 'Γû╝'}</span>
+            <span class="chain-month-arrow">${isOpen ? 'Γû▓' : '↩'}</span>
           </span>
         </div>
         <div class="chain-month-dates" style="display:${isOpen?'flex':'none'};">
@@ -5796,10 +5796,10 @@ function renderStrikeByDates() {
     return;
   }
 
-  const fmt  = (v, d=2) => (v != null && !isNaN(v) && v != 0) ? Number(v).toFixed(d) : 'ΓÇö';
-  const fmtD = (v) => (v != null && !isNaN(v) && v != 0) ? (v>0?'+':'')+Number(v).toFixed(3) : 'ΓÇö';
-  const fmtIV = (v) => (v > 0) ? Number(v).toFixed(1)+'%' : 'ΓÇö';
-  const fmtT  = (v) => (v != null && !isNaN(v) && v != 0) ? Number(v).toFixed(4) : 'ΓÇö';
+  const fmt  = (v, d=2) => (v != null && !isNaN(v) && v != 0) ? Number(v).toFixed(d) : '—';
+  const fmtD = (v) => (v != null && !isNaN(v) && v != 0) ? (v>0?'+':'')+Number(v).toFixed(3) : '—';
+  const fmtIV = (v) => (v > 0) ? Number(v).toFixed(1)+'%' : '—';
+  const fmtT  = (v) => (v != null && !isNaN(v) && v != 0) ? Number(v).toFixed(4) : '—';
 
   const callMoney = chainStrike < price ? 'ITM' : chainStrike > price ? 'OTM' : 'ATM';
   const putMoney  = chainStrike > price ? 'ITM' : chainStrike < price ? 'OTM' : 'ATM';
@@ -5825,8 +5825,8 @@ function renderStrikeByDates() {
       <td style="color:var(--muted);">${fmtT(d.theta)}</td>
       <td style="color:var(--muted);">${fmtT(d.gamma)}</td>
       <td style="color:var(--muted);">${fmtT(d.vega)}</td>
-      <td class="chain-oi">${d.oi > 0 ? Number(d.oi).toLocaleString() : 'ΓÇö'}</td>
-      <td class="chain-oi">${d.volume > 0 ? Number(d.volume).toLocaleString() : 'ΓÇö'}</td>
+      <td class="chain-oi">${d.oi > 0 ? Number(d.oi).toLocaleString() : '—'}</td>
+      <td class="chain-oi">${d.volume > 0 ? Number(d.volume).toLocaleString() : '—'}</td>
     </tr>`;
   }).join('');
 
