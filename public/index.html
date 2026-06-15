@@ -4027,6 +4027,7 @@ async function loadWheel() {
           <div class="wheel-und">${w.underlying}</div>
           <div style="display:flex;gap:8px;align-items:center;">
             <div class="wheel-phase ${phaseCls[w.phase]||'phase-idle'}">${phaseLabel[w.phase]||w.phase}</div>
+            <button onclick="setWheelStartDate('${w.underlying}','${w.startDate||''}')" style="background:none;border:none;color:${w.startDate?'var(--gold)':'var(--muted2)'};cursor:pointer;font-size:13px;padding:0 4px;" title="${w.startDate?'Ciclo desde '+w.startDate:'Sin filtro de fecha — click para definir inicio del ciclo'}">📅</button>
             <button onclick="removeWheel('${w.underlying}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;" title="Quitar de La Rueda">✕</button>
           </div>
         </div>
@@ -4320,6 +4321,9 @@ async function loadWheel() {
         <input id="wheel-add-input" type="text" placeholder="Ticker (ej: BABA)"
           style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-family:var(--mono);font-size:13px;width:160px;text-transform:uppercase;"
           onkeydown="if(event.key==='Enter') addWheel()">
+        <input id="wheel-add-startdate" type="date"
+          style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--muted);font-family:var(--mono);font-size:12px;"
+          title="Fecha inicio ciclo (opcional — ignora trades anteriores)">
         <button onclick="addWheel()" class="btn btn-primary" style="padding:8px 18px;">+ Agregar Rueda</button>
         <span class="dim" style="font-size:11px;">Activos: ${underlyings.join(', ')}</span>
       </div>
@@ -4341,8 +4345,21 @@ async function addWheel() {
   const input = $('wheel-add-input');
   const sym = (input?.value||'').toUpperCase().trim();
   if (!sym) return;
-  await fetch('/api/wheel-config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'add',underlying:sym}) });
+  const startDate = ($('wheel-add-startdate')?.value || '') || null;
+  await fetch('/api/wheel-config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'add',underlying:sym,startDate}) });
   input.value = '';
+  if ($('wheel-add-startdate')) $('wheel-add-startdate').value = '';
+  loadWheel();
+}
+
+async function setWheelStartDate(sym, currentDate) {
+  const d = prompt(`Fecha inicio ciclo para ${sym} (YYYY-MM-DD)
+Trades anteriores a esta fecha serán ignorados.
+Dejar vacío para incluir todos.`, currentDate || '');
+  if (d === null) return; // cancelled
+  const startDate = d.trim() || null;
+  await fetch('/api/wheel-config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'setStartDate',underlying:sym,startDate}) });
+  await fetch('/api/refresh', { method:'POST' });
   loadWheel();
 }
 

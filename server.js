@@ -34,32 +34,6 @@ function saveNlvSnapshot(dateStr, nlv) {
   fs.writeFileSync(NLV_FILE, JSON.stringify(history, null, 2), 'utf8');
 }
 
-function computeWeeklyNlv(nlvHistory, currentNlv) {
-  const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
-  const today = new Date().toISOString().slice(0,10);
-  const allEntries = [...entries, [today, currentNlv]];
-
-  const byWeek = {};
-  for (let i = 1; i < allEntries.length; i++) {
-    const [prevDate, prevNlv] = allEntries[i-1];
-    const [curDate,  curNlv]  = allEntries[i];
-    const prevWk = weekKey(prevDate);
-    const curWk  = weekKey(curDate);
-    if (prevWk !== curWk) {
-      // Cruce de semana — asignar el cambio completo a la semana actual
-      if (!byWeek[curWk]) byWeek[curWk] = 0;
-      byWeek[curWk] += curNlv - prevNlv;
-    } else {
-      // Misma semana
-      if (!byWeek[curWk]) byWeek[curWk] = 0;
-      byWeek[curWk] += curNlv - prevNlv;
-    }
-  }
-  // Redondear
-  Object.keys(byWeek).forEach(k => { byWeek[k] = +byWeek[k].toFixed(2); });
-  return byWeek;
-}
-
 function computeMonthlyNlv(nlvHistory, currentNlv) {
   const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
   // Agregar snapshot de hoy
@@ -98,13 +72,13 @@ function computeMonthlyNlv(nlvHistory, currentNlv) {
 
 // ── Cliente TastyTrade ─────────────────────────────────────────
 const tt = new TastytradeClient({
-  clientSecret:  process.env.TT_CLIENT_SECRET,
-  refreshToken:  process.env.TT_REFRESH_TOKEN,
-  // legacy fallback por si acaso
+  username:      process.env.TT_USERNAME,
+  password:      process.env.TT_PASSWORD,
+  rememberToken: process.env.TT_REMEMBER_TOKEN,
   sessionToken:  process.env.TT_SESSION_TOKEN,
   accountNumber: process.env.TT_ACCOUNT_NUMBER,
 });
-tt.startAutoRefresh();
+if (process.env.TT_SESSION_TOKEN) tt.sessionToken = process.env.TT_SESSION_TOKEN;
 
 const _cache = new Map();
 function cached(k, s, fn) {
@@ -126,32 +100,15 @@ app.get('/api/overview', async (req, res) => {
   try {
     const data = await cached('overview', 60, async () => {
       const [balances, positions] = await Promise.all([tt.getBalances(), tt.getPositions()]);
-      // Obtener Greeks + mark en tiempo real para posiciones de opciones
+      // Obtener Greeks para posiciones de opciones
       const optionSymbols = positions
         .filter(p => p['instrument-type'] === 'Equity Option')
         .map(p => p.symbol);
       const greeks = await tt.getGreeks(optionSymbols);
-
-      // Obtener mark-price en tiempo real via /market-data
-      const markMap = {};
-      try {
-        const BATCH = 50;
-        for (let i = 0; i < optionSymbols.length; i += BATCH) {
-          const batch = optionSymbols.slice(i, i + BATCH);
-          const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
-          const d = await tt._req(`/market-data?${params}`);
-          for (const item of (d.data?.items || [])) {
-            const mk = parseFloat(item.mark || item.mid || 0);
-            if (mk > 0) markMap[item.symbol] = mk;
-          }
-        }
-      } catch(e) { /* si falla, usará average-daily como fallback */ }
-
-      // Adjuntar Greeks y mark-price a cada posición
+      // Adjuntar Greeks a cada posición
       const posWithGreeks = positions.map(p => ({
         ...p,
         greeks: greeks[p.symbol] || null,
-        'mark-price': markMap[p.symbol] || null,
       }));
       return { balances, positions: posWithGreeks, ts: new Date().toISOString() };
     });
@@ -219,12 +176,8 @@ app.get('/api/curve', async (req, res) => {
       const calendar = {};
       Object.keys(calByDay).forEach(d => { calendar[d] = +calByDay[d].toFixed(2); });
 
-      // Calcular drawdown sobre Net Liq real (snapshots), no sobre P&L acumulado
       let peak = initial, maxDD = 0, maxDDPct = 0;
-      const nlvPoints = Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).map(([,v])=>v);
-      if (currentNlv > 0) nlvPoints.push(currentNlv);
-      const ddSource = nlvPoints.length >= 2 ? nlvPoints : values;
-      ddSource.forEach(v => {
+      values.forEach(v => {
         if (v > peak) peak = v;
         const dd = peak - v;
         if (dd > maxDD) { maxDD = dd; maxDDPct = dd / peak * 100; }
@@ -243,12 +196,10 @@ app.get('/api/curve', async (req, res) => {
       // NLV-based monthly P&L (fuente de verdad = Net Liq real)
       const nlvByMonth = computeMonthlyNlv(nlvHistory, currentNlv);
 
-      const nlvByWeek = computeWeeklyNlv(nlvHistory, currentNlv);
-
       return {
         curve: { labels, values, initial, maxDD: +maxDD.toFixed(2), maxDDPct: +maxDDPct.toFixed(2) },
         calendar, byMonth, byWeek,
-        nlvByMonth, nlvByWeek,
+        nlvByMonth,
         nlvSnapshots: Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).concat([[todayStr(), currentNlv]]),
         ts: new Date().toISOString()
       };
@@ -265,11 +216,8 @@ app.get('/api/transactions', async (req, res) => {
     const ck = `txns_${sd}_${ed}`;
     const data = await cached(ck, 120, async () => {
       const allItems = await tt.getAllTransactions(sd, ed);
-      // Pasar Trade + Receive Deliver al metrics (cash settlements, assignments, exercises)
-      const tradeItems = allItems.filter(tx =>
-        tx['transaction-type'] === 'Trade' ||
-        tx['transaction-type'] === 'Receive Deliver'
-      );
+      // Para métricas usar solo Trade; para display mostrar todo
+      const tradeItems = allItems.filter(tx => tx['transaction-type'] === 'Trade');
       const metrics = buildMetrics(tradeItems);
       return { items: allItems, metrics, ts: new Date().toISOString() };
     });
@@ -306,12 +254,27 @@ function saveWheelConfig(cfg) {
 app.get('/api/wheel-config', (req, res) => res.json(loadWheelConfig()));
 
 app.post('/api/wheel-config', (req, res) => {
-  const { action, underlying } = req.body;
+  const { action, underlying, startDate } = req.body;
   const cfg = loadWheelConfig();
   const sym = (underlying||'').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'Ticker requerido' });
-  if (action === 'add' && !cfg.underlyings.includes(sym)) cfg.underlyings.push(sym);
-  if (action === 'remove') cfg.underlyings = cfg.underlyings.filter(u => u !== sym);
+  if (action === 'add') {
+    const exists = cfg.underlyings.find(u => (typeof u === 'string' ? u : u.symbol) === sym);
+    if (!exists) {
+      cfg.underlyings.push(startDate ? { symbol: sym, startDate } : sym);
+    } else if (startDate && typeof exists === 'string') {
+      // Upgrade plain string to object with startDate
+      const idx = cfg.underlyings.indexOf(exists);
+      cfg.underlyings[idx] = { symbol: sym, startDate };
+    }
+  }
+  if (action === 'remove') cfg.underlyings = cfg.underlyings.filter(u => (typeof u === 'string' ? u : u.symbol) !== sym);
+  if (action === 'setStartDate') {
+    const idx = cfg.underlyings.findIndex(u => (typeof u === 'string' ? u : u.symbol) === sym);
+    if (idx >= 0) {
+      cfg.underlyings[idx] = { symbol: sym, startDate: startDate || null };
+    }
+  }
   saveWheelConfig(cfg);
   bustCache();
   res.json(cfg);
@@ -327,7 +290,8 @@ app.get('/api/wheel', async (req, res) => {
         tt.getAllTransactions('2026-02-01', todayStr()),
         tt.getPositions(),
       ]);
-      return { wheels: buildWheelData(items, positions, cfg.underlyings), underlyings: cfg.underlyings, ts: new Date().toISOString() };
+      const underlyingSymbols = cfg.underlyings.map(u => typeof u === 'string' ? u : u.symbol);
+      return { wheels: buildWheelData(items, positions, cfg.underlyings), underlyings: underlyingSymbols, ts: new Date().toISOString() };
     });
     res.json(data);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -342,8 +306,8 @@ app.get('/api/nlv-history', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => res.json({
-  ok: true, auth: !!tt.accessToken,
-  tokenLen: (tt.accessToken || '').length,
+  ok: true, auth: !!tt.sessionToken,
+  tokenLen: (tt.sessionToken || '').length,
   account: tt.accountNumber,
   ts: new Date().toISOString()
 }));
@@ -398,7 +362,7 @@ app.get('/report', async (req, res) => {
       const und = p['underlying-symbol'];
       if (!posMap.has(und)) posMap.set(und, { underlying:und, legs:[], pnlNoReal:0 });
       const op  = parseFloat(p['average-open-price']||0);
-      const cp  = parseFloat(p['mark-price'] || p['average-daily-market-close-price'] || p['close-price']||0);
+      const cp  = parseFloat(p['close-price']||0);
       const qty = parseFloat(p.quantity||0);
       const mul = parseFloat(p.multiplier||1);
       const dir = p['quantity-direction']==='Short' ? -1 : 1;
@@ -622,7 +586,6 @@ app.get('/report', async (req, res) => {
 });
 // ── Trade Journal ─────────────────────────────────────────────
 const TN_FILE = path.join(__dirname, 'trade_notes.json');
-const WL_FILE = path.join(__dirname, 'watchlist.json');
 function loadNotes()  { try { return JSON.parse(fs.readFileSync(TN_FILE,'utf8')); } catch(e) { return {}; } }
 function saveNotes(d) { fs.writeFileSync(TN_FILE, JSON.stringify(d,null,2),'utf8'); }
 
@@ -685,17 +648,14 @@ function saveWatchlist(d) { fs.writeFileSync(WL_FILE, JSON.stringify(d,null,2),'
 app.get('/api/watchlist', (req, res) => res.json(loadWatchlist()));
 
 app.post('/api/watchlist', (req, res) => {
-  try {
-    const wl = loadWatchlist();
-    const { symbol, name, status, screener } = req.body;
-    if (!symbol) return res.status(400).json({ error:'Symbol requerido' });
-    const sym = symbol.toUpperCase();
-    if (wl.stocks.find(s => s.symbol === sym)) return res.status(409).json({ error:'Ya existe' });
-    const stock = { symbol:sym, name:name||sym, status:status||'orange', screener:screener||'', addedDate:todayStr(), notes:[] };
-    wl.stocks.push(stock);
-    saveWatchlist(wl);
-    res.json(stock);
-  } catch(e) { res.status(500).json({ error:e.message }); }
+  const wl = loadWatchlist();
+  const { symbol, name, status } = req.body;
+  const sym = symbol.toUpperCase();
+  if (wl.stocks.find(s => s.symbol === sym)) return res.status(409).json({ error:'Ya existe' });
+  const stock = { symbol:sym, name:name||sym, status:status||'orange', addedDate:todayStr(), notes:[] };
+  wl.stocks.push(stock);
+  saveWatchlist(wl);
+  res.json(stock);
 });
 
 app.put('/api/watchlist/:symbol', (req, res) => {
@@ -749,7 +709,7 @@ app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
     // Precio + datos básicos de Yahoo Finance
     const [prR, earR, vixR] = await Promise.all([
       fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=45d`, { headers:{'User-Agent':'Mozilla/5.0'} }),
-      fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=summaryDetail,defaultKeyStatistics,calendarEvents,assetProfile`, { headers:{'User-Agent':'Mozilla/5.0'} }),
+      fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=summaryDetail,defaultKeyStatistics,calendarEvents`, { headers:{'User-Agent':'Mozilla/5.0'} }),
       fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1y', { headers:{'User-Agent':'Mozilla/5.0'} }),
     ]);
 
@@ -769,7 +729,6 @@ app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
 
     // Fundamentales
     const sd  = earJ.quoteSummary?.result?.[0]?.summaryDetail || {};
-    const ap  = earJ.quoteSummary?.result?.[0]?.assetProfile || {};
     const ks  = earJ.quoteSummary?.result?.[0]?.defaultKeyStatistics || {};
     const cal = earJ.quoteSummary?.result?.[0]?.calendarEvents || {};
     const pe       = sd.trailingPE?.raw  || sd.forwardPE?.raw  || null;
@@ -801,7 +760,6 @@ app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
 
     res.json({
       symbol: sym, price, chg, chgPct, rsi, vix, ivRank,
-      sector: ap.sector||null, industry: ap.industry||null,
       hi52, lo52, earningsDays,
       pe:        pe        ? Math.round(pe*10)/10   : null,
       mktCap:    mktCap    ? (mktCap/1e9).toFixed(1)+'B' : null,
@@ -816,31 +774,6 @@ app.get('/api/watchlist/:symbol/fundamentals', async (req, res) => {
     });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
-function calcEMA(closes, period) {
-  if (closes.length < period) return null;
-  const k = 2 / (period + 1);
-  let ema = closes.slice(0, period).reduce((a,b)=>a+b,0) / period;
-  for (let i = period; i < closes.length; i++) ema = closes[i]*k + ema*(1-k);
-  return +ema.toFixed(4);
-}
-
-function calcMACD(closes) {
-  if (closes.length < 35) return { line: null, signal: null, hist: null };
-  const ema12 = calcEMA(closes, 12);
-  const ema26 = calcEMA(closes, 26);
-  const line  = +(ema12 - ema26).toFixed(4);
-  // Signal: EMA9 de los últimos valores MACD
-  const macdSeries = [];
-  for (let i = 25; i < closes.length; i++) {
-    const e12 = calcEMA(closes.slice(0, i+1), 12);
-    const e26 = calcEMA(closes.slice(0, i+1), 26);
-    macdSeries.push(e12 - e26);
-  }
-  const signal = macdSeries.length >= 9 ? +calcEMA(macdSeries, 9).toFixed(4) : null;
-  const hist   = signal !== null ? +(line - signal).toFixed(4) : null;
-  return { line, signal, hist };
-}
-
 function calcRSI(closes, period = 14) {
   if (closes.length < period + 1) return 50;
   let gains = 0, losses = 0;
@@ -877,38 +810,18 @@ app.get('/api/market-data/:symbol', async (req, res) => {
     const vix52L   = Math.round(Math.min(...vixPrices) * 100) / 100;
     const ivRank   = Math.round((vix - vix52L) / (vix52H - vix52L) * 100);
 
-    // RSI, EMA, MACD — 90 días para tener suficiente historia
-    const prR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=6mo`,
+    // RSI 14d del símbolo
+    const prR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=45d`,
       { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const prJ = await prR.json();
-    const result0    = prJ.chart.result[0];
-    const timestamps = result0.timestamp;
-    const quote      = result0.indicators.quote[0];
-    const rawCloses  = quote.close;
-    const closes     = rawCloses.filter(v => v != null);
-    // OHLC para candlestick chart
-    const priceHistory = timestamps.map((t, i) => ({
-      time:  t,
-      open:  quote.open[i]  ? +quote.open[i].toFixed(2)  : null,
-      high:  quote.high[i]  ? +quote.high[i].toFixed(2)  : null,
-      low:   quote.low[i]   ? +quote.low[i].toFixed(2)   : null,
-      close: quote.close[i] ? +quote.close[i].toFixed(2) : null,
-    })).filter(d => d.close !== null);
-    const rsi       = calcRSI(closes);
-    const price     = Math.round(closes.at(-1) * 100) / 100;
-    const prev      = closes.at(-2) || price;
-    const chg       = Math.round((price - prev) * 100) / 100;
-    const chgPct    = Math.round((chg / prev) * 10000) / 100;
-    const ema10     = calcEMA(closes, 10);
-    const ema20     = calcEMA(closes, 20);
-    const macd      = calcMACD(closes);
+    const closes = prJ.chart.result[0].indicators.quote[0].close.filter(v => v != null);
+    const rsi    = calcRSI(closes);
+    const price  = Math.round(closes.at(-1) * 100) / 100;
 
-    // Earnings + Sector — solo acciones individuales
+    // Earnings — solo acciones individuales
     let earningsDays = 999;
-    let sector = null, industry = null;
     if (!isIndex) {
       try {
-        // Earnings desde calendarEvents
         const eR = await fetch(
           `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=calendarEvents`,
           { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -916,25 +829,9 @@ app.get('/api/market-data/:symbol', async (req, res) => {
         const eTs = eJ.quoteSummary?.result?.[0]?.calendarEvents?.earnings?.earningsDate?.[0]?.raw;
         if (eTs) earningsDays = Math.round((eTs * 1000 - Date.now()) / 86400000);
       } catch(e) {}
-      try {
-        // Sector e Industry desde search endpoint (más confiable)
-        const sR = await fetch(
-          `https://query1.finance.yahoo.com/v1/finance/search?q=${yhSym}&quotesCount=1&newsCount=0`,
-          { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.yahoo.com' } });
-        const sJ = await sR.json();
-        const sq = sJ.quotes?.[0];
-        if (sq?.quoteType === 'EQUITY') {
-          sector   = sq.sector   || null;
-          industry = sq.industry || null;
-        }
-      } catch(e) {}
     }
 
-    res.json({
-      symbol, price, chg, chgPct, vix, ivRank, rsi, earningsDays,
-      ema10, ema20, priceHistory, sector, industry,
-      macdLine: macd.line, macdSignal: macd.signal, macdHist: macd.hist,
-    });
+    res.json({ symbol, price, vix, ivRank, rsi, earningsDays });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -963,481 +860,6 @@ app.delete('/api/playbooks/:id', (req, res) => {
   data.playbooks = data.playbooks.filter(p=>p.id!==req.params.id);
   savePlaybooksData(data);
   res.json({ok:true});
-});
-
-// ── Screeners Paradigma (Finviz scraping) ────────────────────
-const SCREENERS = {
-  fuerza: {
-    label: '💪 Fuerza',
-    desc:  'Mercado baja pero estos suben hoy',
-    url:   'https://finviz.com/screener.ashx?v=111&f=an_recom_buybetter,sh_avgvol_o500,sh_price_o20,ta_perf2_dp&ft=4',
-  },
-  x2: {
-    label: '🚀 X2',
-    desc:  'Doblan en el año (+100% YTD)',
-    url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o500,sh_price_o20,ta_perf_ytd100o&ft=4',
-  },
-  maximos: {
-    label: '📈 Máximos Anuales',
-    desc:  'Nuevos máximos de 52 semanas',
-    url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o500,sh_price_o20,ta_highlow52w_nh&ft=4',
-  },
-  gangas: {
-    label: '🎯 Gangas',
-    desc:  'P/E bajo, dividendo, oversold',
-    url:   'https://finviz.com/screener.ashx?v=111&f=fa_div_o1,fa_pe_u25,op_option_optionshort,sh_opt_option,sh_price_u30,ta_beta_u1,ta_rsi_os40&ft=4',
-  },
-  volumazo: {
-    label: '💥 Volumazo',
-    desc:  'Volumen relativo +5x en alza',
-    url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o1000,sh_price_o10,sh_relvol_o5,ta_perf2_dp&ft=4',
-  },
-  gapeadoras: {
-    label: '⚡ Gapeadoras',
-    desc:  'Gap up +3% con volumen',
-    url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o500,sh_gap_u3,sh_price_o20,sh_relvol_o3,ta_perf2_dp&ft=4',
-  },
-};
-
-const _screenerCache = {};
-const CACHE_TTL = 15 * 60 * 1000; // 15 min
-
-app.get('/api/screeners', (req, res) => {
-  const info = Object.entries(SCREENERS).map(([id, s]) => ({
-    id, label: s.label, desc: s.desc, url: s.url,
-    cached: !!(_screenerCache[id] && Date.now() - _screenerCache[id].ts < CACHE_TTL),
-  }));
-  res.json(info);
-});
-
-app.get('/api/screener/:id', async (req, res) => {
-  const id = req.params.id;
-  const sc = SCREENERS[id];
-  if (!sc) return res.status(404).json({ error: 'Screener no encontrado' });
-
-  // Caché válida
-  if (_screenerCache[id] && Date.now() - _screenerCache[id].ts < CACHE_TTL) {
-    return res.json(_screenerCache[id].data);
-  }
-
-  try {
-    const tickers = [];
-    for (let page = 1; page <= 3; page++) {
-      const pageUrl = sc.url + `&r=${(page-1)*20+1}`;
-      const r = await fetch(pageUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-        }
-      });
-      const html = await r.text();
-      // Extraer tickers del HTML de Finviz
-      const matches = [...html.matchAll(/data-boxover-ticker="([A-Z]+)"/g)];
-      const pageTickers = [...new Set(matches.map(m => m[1]))];
-      if (!pageTickers.length) break;
-      tickers.push(...pageTickers);
-      if (pageTickers.length < 20) break; // última página
-    }
-    const unique = [...new Set(tickers)].slice(0, 60);
-    _screenerCache[id] = { ts: Date.now(), data: unique };
-    res.json(unique);
-  } catch(e) {
-    console.error(`[Screener ${id}]`, e.message);
-    res.json([]);
-  }
-});
-
-// ── Fase preliminar por ticker ───────────────────────────────
-app.get('/api/watchlist/:symbol/fase-preliminar', async (req, res) => {
-  try {
-    const sym   = req.params.symbol.toUpperCase();
-    const yhSym = sym === 'SPX' ? '%5EGSPC' : encodeURIComponent(sym);
-
-    // Precio + EMAs + MACD desde Yahoo Finance (90 días)
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=90d`,
-      { headers: { 'User-Agent': 'Mozilla/5.0' } }
-    );
-    const j = await r.json();
-    const result = j.chart?.result?.[0];
-    if (!result) return res.json({ fase: null, razon: 'Sin datos' });
-
-    const closes = result.indicators.quote[0].close.filter(v => v != null);
-    if (closes.length < 30) return res.json({ fase: null, razon: 'Insuficientes datos' });
-
-    // Calcular EMA
-    const ema = (data, period) => {
-      const k = 2/(period+1); let e = null;
-      for (let i=0;i<data.length;i++) {
-        if (i<period-1) continue;
-        if (i===period-1) e=data.slice(0,period).reduce((a,b)=>a+b,0)/period;
-        else e=data[i]*k+e*(1-k);
-      }
-      return +e.toFixed(4);
-    };
-
-    // Calcular MACD
-    const macdCalc = (data) => {
-      const k12=2/13, k26=2/27, k9=2/10;
-      let e12=null,e26=null,sig=null;
-      for (let i=0;i<data.length;i++) {
-        const c=data[i];
-        e12=e12===null?c:c*k12+e12*(1-k12);
-        e26=e26===null?c:c*k26+e26*(1-k26);
-        if (i<25) continue;
-        const m=e12-e26;
-        sig=sig===null?m:m*k9+sig*(1-k9);
-      }
-      return { line: e12-e26, signal: sig, hist: (e12-e26)-sig };
-    };
-
-    const precio = closes.at(-1);
-    const ema10  = ema(closes, 10);
-    const ema20  = ema(closes, 20);
-    const macd   = macdCalc(closes);
-
-    // CIAR v3 — señal activa para este ticker
-    const signals = loadSignals();
-    const ciar    = signals[sym];
-    const ciarAge = ciar ? Math.floor((Date.now() - new Date(ciar.receivedAt).getTime()) / 60000) : null;
-    const ciarFresh = ciarAge !== null && ciarAge < 1440; // señal del día (24h)
-
-    // Determinar fase
-    const sobreEma20  = precio > ema20;
-    const bajoEma20   = precio < ema20;
-    const ema10Alc    = ema10 > ema20;
-    const ema10Baj    = ema10 < ema20;
-    const macdAlc     = macd.line > 0 && macd.hist > 0;
-    const macdBaj     = macd.line < 0 && macd.hist < 0;
-    const macdNeutro  = Math.abs(macd.line) < Math.abs(precio) * 0.003;
-    const ciarBuy     = ciarFresh && ciar.signal === 'BUY';
-    const ciarSell    = ciarFresh && ciar.signal === 'SELL';
-
-    let fase, color, icono, razon, confirmado;
-
-    // Score de confirmaciones: EMA cruce, Precio vs EMA20, MACD, CIAR
-    const scores = {
-      emaCruce:  ema10Alc ? 'alc' : ema10Baj ? 'baj' : 'neu',
-      precioEma: sobreEma20 ? 'alc' : bajoEma20 ? 'baj' : 'neu',
-      macd:      macdAlc ? 'alc' : macdBaj ? 'baj' : 'neu',
-      ciar:      ciarFresh ? ciar.signal : null,
-    };
-
-    const alcCount = [
-      scores.emaCruce==='alc', scores.precioEma==='alc',
-      scores.macd==='alc',     scores.ciar==='BUY'
-    ].filter(Boolean).length;
-
-    const bajCount = [
-      scores.emaCruce==='baj', scores.precioEma==='baj',
-      scores.macd==='baj',     scores.ciar==='SELL'
-    ].filter(Boolean).length;
-
-    // Determinar fase
-    if (alcCount >= 2) {
-      fase = alcCount === 4 ? 'F2' : 'F2~';
-      color = '#13d68f';
-    } else if (bajCount >= 2) {
-      fase = bajCount === 4 ? 'F4' : 'F4~';
-      color = '#f04f5a';
-    } else if (alcCount === 1 && bajCount === 0) {
-      fase = 'F1'; color = '#6b7280'; // saliendo hacia F2
-    } else if (bajCount === 1 && alcCount === 0) {
-      fase = 'F3'; color = '#6b7280'; // saliendo hacia F4
-    } else {
-      fase = 'F1'; color = '#6b7280';
-    }
-
-    // Razon
-    const tags = [
-      scores.emaCruce==='alc'?'EMA✓':scores.emaCruce==='baj'?'EMA✗':'EMA~',
-      scores.precioEma==='alc'?'P>EMA20':scores.precioEma==='baj'?'P<EMA20':'P≈EMA20',
-      scores.macd==='alc'?'MACD+':scores.macd==='baj'?'MACD-':'MACD~',
-      scores.ciar ? `CIAR ${scores.ciar}✅` : 'CIAR—',
-    ];
-    razon = tags.join(' · ');
-    confirmado = ciarFresh;
-
-    // Confirmaciones para los dots (4 dots = EMA cruce, Precio, MACD, CIAR)
-    const dots = [
-      { ok: scores.emaCruce!=='neu',  alc: scores.emaCruce==='alc',  label:'EMA' },
-      { ok: scores.precioEma!=='neu', alc: scores.precioEma==='alc', label:'Precio' },
-      { ok: scores.macd!=='neu',      alc: scores.macd==='alc',      label:'MACD' },
-      { ok: !!scores.ciar,            alc: scores.ciar==='BUY',      label:'CIAR' },
-    ];
-
-    res.json({
-      fase, color, razon, confirmado, dots,
-      datos: { precio, ema10, ema20, macdLine: +macd.line.toFixed(4), macdHist: +macd.hist.toFixed(4) },
-      ciar: ciarFresh ? { signal: ciar.signal, age: ciarAge } : null,
-    });
-  } catch(e) {
-    res.json({ fase: null, razon: e.message });
-  }
-});
-
-// ── Playbook score por ticker ─────────────────────────────────
-// playbook-score movido después de loadChecklists
-
-// ── Price History para chart de evaluaciones ────────────────
-app.get('/api/price-history/:symbol', async (req, res) => {
-  try {
-    const sym      = req.params.symbol.toUpperCase();
-    const interval = req.query.interval || '1d';
-    const range    = req.query.range    || '6mo';
-    const yhSym    = sym === 'SPX' ? '%5EGSPC' : encodeURIComponent(sym);
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=${interval}&range=${range}`,
-      { headers: { 'User-Agent': 'Mozilla/5.0' } }
-    );
-    const j      = await r.json();
-    const result = j.chart?.result?.[0];
-    if (!result) return res.json([]);
-    const ts    = result.timestamp;
-    const quote = result.indicators.quote[0];
-    const data  = ts.map((t, i) => ({
-      time:  t,
-      open:  quote.open[i]  ? +quote.open[i].toFixed(2)  : null,
-      high:  quote.high[i]  ? +quote.high[i].toFixed(2)  : null,
-      low:   quote.low[i]   ? +quote.low[i].toFixed(2)   : null,
-      close: quote.close[i] ? +quote.close[i].toFixed(2) : null,
-    })).filter(d => d.close !== null);
-    res.json(data);
-  } catch(e) {
-    res.json([]);
-  }
-});
-
-// ── Algo Signals (CIAR v3 webhook) ───────────────────────────
-const ALGO_FILE = path.join(__dirname, 'algo_signals.json');
-function loadSignals() {
-  try { return JSON.parse(fs.readFileSync(ALGO_FILE,'utf8')); } catch(e) { return {}; }
-}
-function saveSignals(data) { fs.writeFileSync(ALGO_FILE, JSON.stringify(data,null,2),'utf8'); }
-
-app.post('/api/algo-signal', (req, res) => {
-  const { ticker, signal, price, time } = req.body;
-  if (!ticker || !signal) return res.status(400).json({ error: 'ticker y signal requeridos' });
-  const signals = loadSignals();
-  signals[ticker.toUpperCase()] = { signal, price, time, receivedAt: new Date().toISOString() };
-  saveSignals(signals);
-  console.log(`[CIAR v3] ${ticker} ${signal} @ $${price}`);
-  res.json({ ok: true, ticker, signal });
-});
-
-app.get('/api/algo-signals', (req, res) => res.json(loadSignals()));
-
-// ── Alejandro Checklists ──────────────────────────────────────
-const CL_FILE = path.join(__dirname, 'alejandro_checklists.json');
-function loadChecklists() {
-  try { return JSON.parse(fs.readFileSync(CL_FILE,'utf8')); } catch(e) { return []; }
-}
-function saveChecklists(data) { fs.writeFileSync(CL_FILE, JSON.stringify(data,null,2),'utf8'); }
-
-app.get('/api/watchlist/:symbol/playbook-score', (req, res) => {
-  const sym = req.params.symbol.toUpperCase();
-  const checklists = loadChecklists();
-  const entries = checklists.filter(c => c.ticker === sym);
-  if (!entries.length) return res.json(null);
-  const parseDate = d => {
-    if (!d) return 0;
-    const p = d.split('/');
-    return p.length===3 ? new Date(+p[2],+p[1]-1,+p[0]).getTime() : new Date(d).getTime();
-  };
-  entries.sort((a,b) => parseDate(b.date) - parseDate(a.date));
-  const last = entries[0];
-  const fase = last.checks?.['ciclo_tm']
-    ? last.checks['ciclo_tm'].toUpperCase()
-    : (['ciclo_f1','ciclo_f2','ciclo_f3','ciclo_f4']
-        .find(f => last.checks?.[f]==='si')?.replace('ciclo_f','F') || '—');
-  // Devolver checks al frontend para que calcule el score con su lógica actual
-  res.json({
-    score:     last.score,  // score original guardado (referencia)
-    checks:    last.checks || {},
-    fase,
-    direction: last.direction || last.tesis || '',
-    date:      last.date,
-  });
-});
-
-app.get('/api/alejandro-checklists', (req, res) => res.json(loadChecklists()));
-
-app.post('/api/alejandro-checklists', (req, res) => {
-  const checklists = loadChecklists();
-  const nowCOL = new Date().toLocaleString('sv-SE', {timeZone:'America/Bogota'}).replace(' ','T') + '-05:00';
-  const item = { ...req.body, id: `cl-${Date.now()}`, createdAt: nowCOL };
-  checklists.unshift(item);
-  saveChecklists(checklists.slice(0, 200));
-  res.json(item);
-});
-
-app.put('/api/alejandro-checklists/:id', (req, res) => {
-  const checklists = loadChecklists();
-  const idx = checklists.findIndex(c => c.id === req.params.id);
-  if (idx < 0) return res.status(404).json({ error: 'No encontrado' });
-  const updCOL = new Date().toLocaleString('sv-SE', {timeZone:'America/Bogota'}).replace(' ','T') + '-05:00';
-  checklists[idx] = { ...checklists[idx], ...req.body, updatedAt: updCOL };
-  saveChecklists(checklists);
-  res.json(checklists[idx]);
-});
-
-app.delete('/api/alejandro-checklists/:id', (req, res) => {
-  const checklists = loadChecklists();
-  saveChecklists(checklists.filter(c => c.id !== req.params.id));
-  res.json({ ok: true });
-});
-
-
-// ── Cadena de Opciones ────────────────────────────────────────
-app.get('/api/option-chain/:symbol', async (req, res) => {
-  try {
-    const symbol = req.params.symbol.toUpperCase();
-    const expiry = req.query.expiry || null;
-
-    // 1. Cadena de strikes/vencimientos desde TastyTrade
-    const chainData = await tt._req(`/option-chains/${symbol}/nested`);
-    const expirations = chainData.data?.items?.[0]?.expirations || [];
-    if (!expirations.length) return res.status(404).json({ error: 'No se encontró cadena de opciones' });
-
-    const expList = expiry
-      ? expirations.filter(e => e['expiration-date'] === expiry)
-      : expirations.slice(0, 6);
-
-    // 2. Precio actual del subyacente desde Yahoo Finance (v8 no requiere crumb)
-    let underlyingPrice = 0;
-    let ivBase = 0.40;
-    try {
-      const qR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`,
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const qJ = await qR.json();
-      underlyingPrice = parseFloat(qJ.chart?.result?.[0]?.meta?.regularMarketPrice || 0);
-    } catch(e) {}
-
-    // 3. Precios/Greeks reales desde TastyTrade /market-data en lotes de 50
-    const pricingMap = {};
-    const allSymbols = [];
-    for (const exp of expList) {
-      for (const s of (exp.strikes || [])) {
-        if (s.call) allSymbols.push(s.call);
-        if (s.put)  allSymbols.push(s.put);
-      }
-    }
-
-    const BATCH = 50;
-    for (let i = 0; i < allSymbols.length; i += BATCH) {
-      try {
-        const batch = allSymbols.slice(i, i + BATCH);
-        const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
-        const d = await tt._req(`/market-data?${params}`);
-        for (const item of (d.data?.items || [])) {
-          const iv = parseFloat(item.volatility || 0) * 100;
-          if (iv > 0) ivBase = Math.max(ivBase, iv / 100);
-          pricingMap[item.symbol] = {
-            iv:     +iv.toFixed(1),
-            mark:   parseFloat(item.mark   || item.mid || 0),
-            bid:    parseFloat(item.bid    || 0),
-            ask:    parseFloat(item.ask    || 0),
-            volume: parseInt(item.volume   || 0),
-            oi:     parseInt(item['open-interest'] || 0),
-            delta:  parseFloat(item.delta  || 0),
-            theta:  parseFloat(item.theta  || 0),
-            gamma:  parseFloat(item.gamma  || 0),
-            vega:   parseFloat(item.vega   || 0),
-          };
-        }
-      } catch(e) {}
-    }
-
-    try {
-
-      // 4. Construir respuesta con Black-Scholes para strikes sin datos de Yahoo
-      const R = 0.0525;
-      function bsN(x) {
-        const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
-        const sign=x<0?-1:1; x=Math.abs(x)/Math.sqrt(2);
-        const t=1/(1+p*x);
-        return 0.5*(1+sign*(1-(((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t)*Math.exp(-x*x)));
-      }
-      function bsPDF(x){return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI);}
-      function calcGreeks(S,K,T,sigma,isCall){
-        if(!S||!K||T<=0||!sigma) return {};
-        const d1=(Math.log(S/K)+(R+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));
-        const d2=d1-sigma*Math.sqrt(T);
-        const Nd1=bsN(d1),Nd2=bsN(d2),nd1=bsPDF(d1);
-        const delta=isCall?Nd1:Nd1-1;
-        const gamma=nd1/(S*sigma*Math.sqrt(T));
-        const theta=isCall
-          ?(-(S*nd1*sigma)/(2*Math.sqrt(T))-R*K*Math.exp(-R*T)*Nd2)/365
-          :(-(S*nd1*sigma)/(2*Math.sqrt(T))+R*K*Math.exp(-R*T)*bsN(-d2))/365;
-        return {
-          delta: +delta.toFixed(3),
-          gamma: +gamma.toFixed(4),
-          theta: +theta.toFixed(4),
-        };
-      }
-
-      const result = expList.map(exp => {
-        const expDate = exp['expiration-date'];
-        const T = Math.max((new Date(expDate) - Date.now()) / (365.25*86400000), 0.001);
-
-        return {
-          expiry: expDate,
-          dte:    exp['days-to-expiration'],
-          type:   exp['expiration-type'],
-          strikes: (exp.strikes || []).map(s => {
-            const strike = parseFloat(s['strike-price']);
-            const atm = underlyingPrice > 0 && Math.abs(strike - underlyingPrice) / underlyingPrice < 0.03;
-
-            // Buscar datos directamente por símbolo TastyTrade
-            const cData = pricingMap[s.call] || {};
-            const pData = pricingMap[s.put]  || {};
-
-            const cIv = (cData.iv||0) > 0 ? cData.iv/100 : ivBase;
-            const pIv = (pData.iv||0) > 0 ? pData.iv/100 : ivBase;
-
-            // Greeks: usar reales de TastyTrade si disponibles, sino Black-Scholes
-            const cGreeksBS = calcGreeks(underlyingPrice, strike, T, cIv, true);
-            const pGreeksBS = calcGreeks(underlyingPrice, strike, T, pIv, false);
-
-            return {
-              strike,
-              atm,
-              call: {
-                symbol: s.call,
-                iv:     +((cData.iv||0) > 0 ? cData.iv : ivBase*100).toFixed(1),
-                mark:   cData.mark   || 0,
-                bid:    cData.bid    || 0,
-                ask:    cData.ask    || 0,
-                volume: cData.volume || 0,
-                oi:     cData.oi     || 0,
-                delta:  cData.delta  || cGreeksBS.delta || 0,
-                theta:  cData.theta  || cGreeksBS.theta || 0,
-                gamma:  cData.gamma  || cGreeksBS.gamma || 0,
-                vega:   cData.vega   || 0,
-              },
-              put: {
-                symbol: s.put,
-                iv:     +((pData.iv||0) > 0 ? pData.iv : ivBase*100).toFixed(1),
-                mark:   pData.mark   || 0,
-                bid:    pData.bid    || 0,
-                ask:    pData.ask    || 0,
-                volume: pData.volume || 0,
-                oi:     pData.oi     || 0,
-                delta:  pData.delta  || pGreeksBS.delta || 0,
-                theta:  pData.theta  || pGreeksBS.theta || 0,
-                gamma:  pData.gamma  || pGreeksBS.gamma || 0,
-                vega:   pData.vega   || 0,
-              },
-            };
-          }),
-        };
-      });
-
-      return res.json({ symbol, underlyingPrice, expirations: result });
-    } catch(e2) {
-      return res.status(500).json({ error: e2.message });
-    }
-  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
@@ -1536,7 +958,7 @@ app.post('/api/ai-chat', async (req, res) => {
       .filter(p => p['instrument-type'] === 'Equity Option' || p['instrument-type'] === 'Equity')
       .map(p => {
         const op  = parseFloat(p['average-open-price'] || 0);
-        const cp  = parseFloat(p['mark-price'] || p['average-daily-market-close-price'] || p['close-price'] || 0);
+        const cp  = parseFloat(p['close-price'] || 0);
         const qty = parseFloat(p.quantity || 0);
         const mul = parseFloat(p.multiplier || 1);
         const dir = p['quantity-direction'] === 'Short' ? -1 : 1;
