@@ -1581,13 +1581,54 @@ app.get('/api/spx/context', async (req, res) => {
   }
 });
 
+// ── Estado de contexto 15min en memoria ──────────────────────
+let spx15mContext = null; // { direction, timestamp }
+
 // POST /api/spx/webhook — recibe señal de TradingView
 app.post('/api/spx/webhook', async (req, res) => {
   try {
-    const { direction, source = 'TradingView', playbook_score = null } = req.body;
-    if (!direction) return res.status(400).json({ error: 'direction requerido (BULLISH|BEARISH|NEUTRAL)' });
+    let { direction, timeframe = '2m', source = 'TradingView', playbook_score = null, price, time } = req.body;
 
-    // Obtener contexto
+    // Normalizar direction (TradingView manda 'buy'/'sell' en strategies)
+    if (direction === 'buy'  || direction === 'long')  direction = 'BULLISH';
+    if (direction === 'sell' || direction === 'short') direction = 'BEARISH';
+    direction = (direction || '').toUpperCase();
+    if (!['BULLISH','BEARISH','NEUTRAL'].includes(direction))
+      return res.status(400).json({ error: `direction inválido: ${direction}. Usar BULLISH|BEARISH|NEUTRAL` });
+
+    // ── SEÑAL 15min: guardar como contexto direccional ────────
+    if (timeframe === '15m' || timeframe === '15') {
+      spx15mContext = { direction, timestamp: new Date().toISOString(), price };
+      console.log(`[SPX] Contexto 15m actualizado: ${direction}`);
+      return res.json({ signal: false, saved: true, message: `Contexto 15m guardado: ${direction}` });
+    }
+
+    // ── SEÑAL 2min: verificar alineación con 15min ────────────
+    if (timeframe === '2m' || timeframe === '2') {
+      if (!spx15mContext) {
+        return res.json({ signal: false, reason: 'Sin contexto 15m. Espera que llegue primero la señal de 15 minutos.' });
+      }
+
+      // Verificar que el contexto 15m no sea demasiado viejo (máx 4 horas)
+      const age = Date.now() - new Date(spx15mContext.timestamp).getTime();
+      if (age > 4 * 3600 * 1000) {
+        spx15mContext = null;
+        return res.json({ signal: false, reason: 'Contexto 15m expirado (>4h). Espera nueva señal de 15m.' });
+      }
+
+      // Verificar alineación
+      if (spx15mContext.direction !== direction) {
+        return res.json({ 
+          signal: false, 
+          reason: `Divergencia temporal: 15m dice ${spx15mContext.direction} pero 2m dice ${direction}. Sin entrada.` 
+        });
+      }
+
+      console.log(`[SPX] Señal confirmada — 15m: ${spx15mContext.direction} | 2m: ${direction}`);
+    }
+
+    // ── GENERAR SUGERENCIA ────────────────────────────────────
+    // Obtener contexto de mercado
     const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
     const ctx    = await ctxRes.json();
 
@@ -1613,16 +1654,16 @@ app.post('/api/spx/webhook', async (req, res) => {
       return res.json({ signal: false, reason: sel.reason });
     }
 
-    // Buscar strikes — necesitamos la cadena con greeks
+    // Buscar strikes
     const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
     const chainData = await chainRes.json();
     const strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType);
 
     if (!strikes) {
-      return res.json({ signal: false, reason: 'No se encontraron strikes con delta objetivo 0.10-0.14' });
+      return res.json({ signal: false, reason: 'No se encontraron strikes con delta 0.10-0.14' });
     }
 
-    // Construir sugerencia
+    // Construir señal
     const signal = buildSignalSummary(sel.strategy, strikes, sel, {
       ...ctx,
       direction,
@@ -1634,17 +1675,27 @@ app.post('/api/spx/webhook', async (req, res) => {
     });
 
     if (playbook_score) signal.playbookScore = playbook_score;
-    signal.source = source;
+    signal.source    = source;
+    signal.timeframe = timeframe;
+    signal.tf15m     = spx15mContext?.direction || direction;
 
     // Guardar
     const signals = loadSPXSignals();
     signals.unshift(signal);
-    saveSPXSignals(signals.slice(0, 50)); // máximo 50 señales
+    saveSPXSignals(signals.slice(0, 50));
 
+    console.log(`[SPX] ✅ Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}`);
     res.json({ signal: true, data: signal });
+
   } catch(e) {
+    console.error('[SPX] webhook error:', e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// GET /api/spx/15m — estado del contexto 15min
+app.get('/api/spx/15m', (req, res) => {
+  res.json(spx15mContext || { direction: null, message: 'Sin contexto 15m activo' });
 });
 
 // GET /api/spx/signals — lista de señales pendientes/historial
