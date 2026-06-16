@@ -254,27 +254,12 @@ function saveWheelConfig(cfg) {
 app.get('/api/wheel-config', (req, res) => res.json(loadWheelConfig()));
 
 app.post('/api/wheel-config', (req, res) => {
-  const { action, underlying, startDate } = req.body;
+  const { action, underlying } = req.body;
   const cfg = loadWheelConfig();
   const sym = (underlying||'').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'Ticker requerido' });
-  if (action === 'add') {
-    const exists = cfg.underlyings.find(u => (typeof u === 'string' ? u : u.symbol) === sym);
-    if (!exists) {
-      cfg.underlyings.push(startDate ? { symbol: sym, startDate } : sym);
-    } else if (startDate && typeof exists === 'string') {
-      // Upgrade plain string to object with startDate
-      const idx = cfg.underlyings.indexOf(exists);
-      cfg.underlyings[idx] = { symbol: sym, startDate };
-    }
-  }
-  if (action === 'remove') cfg.underlyings = cfg.underlyings.filter(u => (typeof u === 'string' ? u : u.symbol) !== sym);
-  if (action === 'setStartDate') {
-    const idx = cfg.underlyings.findIndex(u => (typeof u === 'string' ? u : u.symbol) === sym);
-    if (idx >= 0) {
-      cfg.underlyings[idx] = { symbol: sym, startDate: startDate || null };
-    }
-  }
+  if (action === 'add' && !cfg.underlyings.includes(sym)) cfg.underlyings.push(sym);
+  if (action === 'remove') cfg.underlyings = cfg.underlyings.filter(u => u !== sym);
   saveWheelConfig(cfg);
   bustCache();
   res.json(cfg);
@@ -290,8 +275,7 @@ app.get('/api/wheel', async (req, res) => {
         tt.getAllTransactions('2026-02-01', todayStr()),
         tt.getPositions(),
       ]);
-      const underlyingSymbols = cfg.underlyings.map(u => typeof u === 'string' ? u : u.symbol);
-      return { wheels: buildWheelData(items, positions, cfg.underlyings), underlyings: underlyingSymbols, ts: new Date().toISOString() };
+      return { wheels: buildWheelData(items, positions, cfg.underlyings), underlyings: cfg.underlyings, ts: new Date().toISOString() };
     });
     res.json(data);
   } catch(e) { res.status(500).json({ error: e.message }); }
