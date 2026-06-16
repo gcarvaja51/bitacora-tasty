@@ -5524,7 +5524,10 @@ function renderAlejandro() {
         <!-- Header -->
         <div class="ale-header">
           <div>
-            <div class="ale-title">🎯 Playbook Alejandro</div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div class="ale-title">🎯 Playbook Alejandro</div>
+              ${aleState.ticker ? `<div style="font-family:var(--mono);font-size:18px;font-weight:800;color:var(--gold);background:rgba(245,200,66,.1);border:1px solid rgba(245,200,66,.3);border-radius:8px;padding:4px 14px;letter-spacing:.05em;">${aleState.ticker}</div>` : ''}
+            </div>
             <div class="ale-subtitle">Framework Paradigma Investments · 9 variables · 3 módulos</div>
           </div>
           <div class="ale-score-ring ${canTrade?'can-trade':cautela?'almost':''}">
@@ -5610,6 +5613,7 @@ function renderAlejandro() {
         <div id="ale-eval-chart-wrap" style="display:none;margin-top:16px;background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:14px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
             <span style="font-size:12px;font-weight:600;color:var(--bright);">📍 Historial de Evaluaciones</span>
+            <span id="ale-eval-ticker-label" style="font-family:var(--mono);font-size:14px;font-weight:800;color:var(--gold);background:rgba(245,200,66,.1);border:1px solid rgba(245,200,66,.3);border-radius:6px;padding:3px 12px;"></span>
             <div style="display:flex;align-items:center;gap:6px;">
               <div id="eval-tf-btns" style="display:flex;gap:3px;"></div>
               <span style="font-size:10px;color:var(--muted);">Click en marcador para cargar</span>
@@ -6238,6 +6242,8 @@ async function renderEvalChart(ticker) {
   if (!priceData.length) { wrap.style.display='none'; return; }
 
   wrap.style.display = 'block';
+  const tickerLabel = $('ale-eval-ticker-label');
+  if (tickerLabel) tickerLabel.textContent = ticker;
 
   // Destruir chart anterior
   if (_evalChart)     { _evalChart.remove();     _evalChart     = null; }
@@ -6336,12 +6342,13 @@ async function renderEvalChart(ticker) {
   }
 
   // ── Click marcador ────────────────────────────────────────
+  const _priceTimeMapRef = priceTimeMap; // capturar en closure
   _evalChart.subscribeClick(param=>{
     if (!param.time) return;
     const clicked=_evalMarkers.find(h=>{
       const p=h.date.split('/');
       const fechaKey=`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-      const ts=priceTimeMap[fechaKey]||Math.floor(new Date(Date.UTC(+p[2],+p[1]-1,+p[0],20,0,0)).getTime()/1000);
+      const ts=_priceTimeMapRef[fechaKey]||Math.floor(new Date(Date.UTC(+p[2],+p[1]-1,+p[0],20,0,0)).getTime()/1000);
       return Math.abs(ts-param.time)<86400;
     });
     if (clicked) aleLoadHistory(clicked.id);
