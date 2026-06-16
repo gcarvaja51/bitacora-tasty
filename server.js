@@ -1457,7 +1457,7 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
 const { calcGEX, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour } = require('./src/spx');
-const { calcEMA, calcEMAArray, calcMACD, priceExtension, calcRelativeVolume, calcPlaybookScore } = require('./src/spx_indicators');
+const { calcPlaybookScore, calcRelativeVolume, priceExtension } = require('./src/spx_indicators');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
 const SPX_CONFIG_FILE = path.join(__dirname, 'spx_config.json');
