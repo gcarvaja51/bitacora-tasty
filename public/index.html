@@ -6116,7 +6116,12 @@ function _chRedraw() {
   if (_cPeriod === 'daily') {
     labels = curve.labels;
     snaps  = nlvSnaps;
-    if (_cTipo === 'periodo') {
+    if (_cTipo === 'acumulado') {
+      // acumulado diario: usar curve.values acumulados desde initial
+      var run = initial;
+      vals = (curve.values||[]).map(function(v){ run = +(run + (v||0)).toFixed(2); return run; });
+      // snaps sigue activo para que renderEquityChart dibuje los puntos reales de NLV encima
+    } else if (_cTipo === 'periodo') {
       var byDay = {};
       (nlvSnaps||[]).forEach(function(e){ byDay[e[0].slice(0,10)] = e[1]; });
       var prev = initial;
