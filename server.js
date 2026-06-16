@@ -306,12 +306,23 @@ function saveWheelConfig(cfg) {
 app.get('/api/wheel-config', (req, res) => res.json(loadWheelConfig()));
 
 app.post('/api/wheel-config', (req, res) => {
-  const { action, underlying } = req.body;
+  const { action, underlying, startDate } = req.body;
   const cfg = loadWheelConfig();
   const sym = (underlying||'').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'Ticker requerido' });
-  if (action === 'add' && !cfg.underlyings.includes(sym)) cfg.underlyings.push(sym);
-  if (action === 'remove') cfg.underlyings = cfg.underlyings.filter(u => u !== sym);
+  if (action === 'add') {
+    const exists = cfg.underlyings.find(u => (typeof u === 'string' ? u : u.symbol) === sym);
+    if (!exists) cfg.underlyings.push(startDate ? { symbol: sym, startDate } : sym);
+    else if (startDate && typeof exists === 'string') {
+      const idx = cfg.underlyings.indexOf(exists);
+      cfg.underlyings[idx] = { symbol: sym, startDate };
+    }
+  }
+  if (action === 'remove') cfg.underlyings = cfg.underlyings.filter(u => (typeof u === 'string' ? u : u.symbol) !== sym);
+  if (action === 'setStartDate') {
+    const idx = cfg.underlyings.findIndex(u => (typeof u === 'string' ? u : u.symbol) === sym);
+    if (idx >= 0) cfg.underlyings[idx] = { symbol: sym, startDate: startDate || null };
+  }
   saveWheelConfig(cfg);
   bustCache();
   res.json(cfg);
@@ -327,7 +338,8 @@ app.get('/api/wheel', async (req, res) => {
         tt.getAllTransactions('2026-02-01', todayStr()),
         tt.getPositions(),
       ]);
-      return { wheels: buildWheelData(items, positions, cfg.underlyings), underlyings: cfg.underlyings, ts: new Date().toISOString() };
+      const underlyingSymbols = cfg.underlyings.map(u => typeof u === 'string' ? u : u.symbol);
+      return { wheels: buildWheelData(items, positions, cfg.underlyings), underlyings: underlyingSymbols, ts: new Date().toISOString() };
     });
     res.json(data);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -1438,6 +1450,225 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
       return res.status(500).json({ error: e2.message });
     }
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ══════════════════════════════════════════════════════════════
+// ── SPX Signal Center ────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+const { calcGEX, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour } = require('./src/spx');
+const SPX_SIGNALS_FILE = path.join(__dirname, 'spx_signals.json');
+
+function loadSPXSignals() {
+  try { return JSON.parse(fs.readFileSync(SPX_SIGNALS_FILE, 'utf8')); } catch(e) { return []; }
+}
+function saveSPXSignals(signals) {
+  fs.writeFileSync(SPX_SIGNALS_FILE, JSON.stringify(signals, null, 2), 'utf8');
+}
+
+// GET /api/spx/context — contexto completo del mercado
+app.get('/api/spx/context', async (req, res) => {
+  try {
+    // 1. Cadena SPX para GEX y precio
+    const chainData = await tt._req('/option-chains/SPX/nested');
+    const expirations = chainData.data?.items?.[0]?.expirations || [];
+
+    // 2. Precio SPX desde Yahoo
+    let spxPrice = 5530;
+    try {
+      const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const j = await r.json();
+      spxPrice = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice || spxPrice);
+    } catch(e) {}
+
+    // 3. VIX desde Yahoo
+    let vix = 20;
+    try {
+      const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1d',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const j = await r.json();
+      vix = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice || vix);
+    } catch(e) {}
+
+    // 4. IV Rank SPX desde TastyTrade
+    let ivRank = 30;
+    try {
+      const mktData = await tt._req('/market-data/volatility?symbols[]=SPX');
+      ivRank = parseFloat(mktData.data?.items?.[0]?.['iv-rank'] || 30) * 100;
+    } catch(e) {}
+
+    // 5. Calcular GEX
+    // Necesitamos precios/greeks de la cadena — usar los que ya vienen en nested
+    const allStrikes = [];
+    for (const exp of expirations.slice(0, 4)) {
+      for (const s of (exp.strikes || [])) {
+        allStrikes.push(s.call, s.put);
+      }
+    }
+
+    // Enriquecer con market-data en lotes
+    const pricingMap = {};
+    const syms = expirations.slice(0,2).flatMap(e => (e.strikes||[]).flatMap(s => [s.call,s.put].filter(Boolean)));
+    const BATCH = 50;
+    for (let i = 0; i < syms.length; i += BATCH) {
+      try {
+        const batch = syms.slice(i, i+BATCH);
+        const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+        const d = await tt._req(`/market-data?${params}`);
+        for (const item of (d.data?.items || [])) {
+          pricingMap[item.symbol] = {
+            delta: parseFloat(item.delta || 0),
+            gamma: parseFloat(item.gamma || 0),
+            oi:    parseInt(item['open-interest'] || 0),
+            mark:  parseFloat(item.mark || item.mid || 0),
+          };
+        }
+      } catch(e) {}
+    }
+
+    // Enriquecer expirations con datos reales
+    const enrichedExps = expirations.slice(0,4).map(exp => ({
+      ...exp,
+      strikes: (exp.strikes||[]).map(s => ({
+        strike: s.strike,
+        call: pricingMap[s.call] ? { ...pricingMap[s.call] } : { delta:0, gamma:0, oi:0, mark:0 },
+        put:  pricingMap[s.put]  ? { ...pricingMap[s.put]  } : { delta:0, gamma:0, oi:0, mark:0 },
+      }))
+    }));
+
+    // 6. GEX
+    const gex = calcGEX(enrichedExps, spxPrice);
+
+    // 7. Hora ET
+    const et = getETHour();
+
+    // 8. EMAs SPX (20 y 50 periodos diarios)
+    let ema20 = null, ema50 = null;
+    try {
+      const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=3mo',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const j = await r.json();
+      const closes = j.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+      if (closes.length >= 50) {
+        const calcEMA = (prices, period) => {
+          const k = 2 / (period + 1);
+          let ema = prices.slice(0, period).reduce((a,b) => a+b, 0) / period;
+          for (let i = period; i < prices.length; i++) ema = prices[i] * k + ema * (1 - k);
+          return +ema.toFixed(2);
+        };
+        ema20 = calcEMA(closes, 20);
+        ema50 = calcEMA(closes, 50);
+      }
+    } catch(e) {}
+
+    res.json({
+      spxPrice: +spxPrice.toFixed(2),
+      vix:      +vix.toFixed(2),
+      ivRank:   +ivRank.toFixed(1),
+      isCredit: ivRank > 30 || vix > 20,
+      gex,
+      ema20,
+      ema50,
+      etTime:   et.time,
+      etHour:   et.hour,
+      etMin:    et.min,
+      windowOK: (et.hour > 9 || (et.hour === 9 && et.min >= 45)) && et.hour < 16,
+      ts:       new Date().toISOString(),
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/spx/webhook — recibe señal de TradingView
+app.post('/api/spx/webhook', async (req, res) => {
+  try {
+    const { direction, source = 'TradingView', playbook_score = null } = req.body;
+    if (!direction) return res.status(400).json({ error: 'direction requerido (BULLISH|BEARISH|NEUTRAL)' });
+
+    // Obtener contexto
+    const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
+    const ctx    = await ctxRes.json();
+
+    // Capital de la cuenta
+    let capital = 10000;
+    try {
+      const acc = await tt._req(`/accounts/${process.env.TASTY_ACCOUNT}/balances`);
+      capital = parseFloat(acc.data?.['net-liquidating-value'] || capital);
+    } catch(e) {}
+
+    // Seleccionar estrategia
+    const sel = selectStrategy({
+      direction,
+      ivRank:      ctx.ivRank,
+      vix:         ctx.vix,
+      gammaRegime: ctx.gex?.regime,
+      etHour:      ctx.etHour,
+      etMin:       ctx.etMin,
+      capital,
+    });
+
+    if (!sel.valid) {
+      return res.json({ signal: false, reason: sel.reason });
+    }
+
+    // Buscar strikes — necesitamos la cadena con greeks
+    const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
+    const chainData = await chainRes.json();
+    const strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType);
+
+    if (!strikes) {
+      return res.json({ signal: false, reason: 'No se encontraron strikes con delta objetivo 0.10-0.14' });
+    }
+
+    // Construir sugerencia
+    const signal = buildSignalSummary(sel.strategy, strikes, sel, {
+      ...ctx,
+      direction,
+      gammaRegime: ctx.gex?.regime,
+      callWall:    ctx.gex?.callWall,
+      putWall:     ctx.gex?.putWall,
+      gammaFlip:   ctx.gex?.gammaFlip,
+      etTime:      ctx.etTime,
+    });
+
+    if (playbook_score) signal.playbookScore = playbook_score;
+    signal.source = source;
+
+    // Guardar
+    const signals = loadSPXSignals();
+    signals.unshift(signal);
+    saveSPXSignals(signals.slice(0, 50)); // máximo 50 señales
+
+    res.json({ signal: true, data: signal });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/spx/signals — lista de señales pendientes/historial
+app.get('/api/spx/signals', (req, res) => {
+  res.json(loadSPXSignals());
+});
+
+// POST /api/spx/signals/:id/action — ejecutar o rechazar
+app.post('/api/spx/signals/:id/action', async (req, res) => {
+  try {
+    const { action, notes = '' } = req.body; // action: EXECUTED | REJECTED
+    const signals = loadSPXSignals();
+    const idx = signals.findIndex(s => s.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Señal no encontrada' });
+
+    signals[idx].status    = action;
+    signals[idx].notes     = notes;
+    signals[idx].actionAt  = new Date().toISOString();
+    saveSPXSignals(signals);
+
+    res.json({ ok: true, signal: signals[idx] });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

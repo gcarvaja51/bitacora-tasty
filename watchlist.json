@@ -679,6 +679,14 @@
       "screener": "🎡 La Rueda Sigma",
       "addedDate": "2026-06-11",
       "notes": []
+    },
+    {
+      "symbol": "SOFI",
+      "name": "SOFI",
+      "status": "green",
+      "screener": "",
+      "addedDate": "2026-06-16",
+      "notes": []
     }
   ]
 }

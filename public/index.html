@@ -417,6 +417,18 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 /* ══ LA RUEDA ══════════════════════════ */
 .wheel-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; margin-bottom:20px; }
 .wheel-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; }
+.wheel-table { width:100%; border-collapse:collapse; font-size:12px; }
+.wheel-table-header { display:grid; grid-template-columns:80px 120px 140px 50px 110px 100px 110px 90px 70px; gap:0; padding:6px 14px; color:var(--muted); font-size:10px; font-weight:600; letter-spacing:.08em; border-bottom:1px solid var(--border); }
+.wheel-row { border-bottom:1px solid var(--border2,rgba(255,255,255,.04)); cursor:pointer; transition:background .15s; }
+.wheel-row:hover { background:rgba(255,255,255,.03); }
+.wheel-row-main { display:grid; grid-template-columns:80px 120px 140px 50px 110px 100px 110px 90px 70px; gap:0; padding:10px 14px; align-items:center; }
+.wheel-row-detail { display:none; padding:16px 20px; background:rgba(0,0,0,.2); border-top:1px solid var(--border2,rgba(255,255,255,.04)); }
+.wheel-row-detail.open { display:block; }
+.wheel-row-sym { font-size:14px; font-weight:700; color:var(--bright); font-family:var(--mono); }
+.wheel-row-cell { font-family:var(--mono); font-size:11px; color:var(--bright); }
+.wheel-row-muted { font-family:var(--mono); font-size:11px; color:var(--muted); }
+.wheel-row-chevron { font-size:10px; color:var(--muted); transition:transform .2s; }
+.wheel-row-chevron.open { transform:rotate(90deg); }
 .wheel-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 .wheel-und { font-size:20px; font-weight:700; color:var(--bright); }
 .wheel-phase { font-size:10px; font-weight:600; letter-spacing:.08em; padding:3px 10px; border-radius:20px; }
@@ -428,14 +440,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .wheel-stat  { background:rgba(255,255,255,.03); border-radius:8px; padding:10px 12px; }
 .wheel-stat-label { font-size:9px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase; margin-bottom:4px; }
 .wheel-stat-val   { font-family:var(--mono); font-size:16px; font-weight:700; color:var(--bright); }
-.wheel-timeline { margin-top:14px; }
-.wheel-event { display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--border); }
-.wheel-event:last-child { border-bottom:none; }
-.wheel-event-icon { font-size:14px; min-width:20px; text-align:center; padding-top:1px; }
-.wheel-event-body { flex:1; }
-.wheel-event-date { font-size:10px; color:var(--muted); font-family:var(--mono); }
-.wheel-event-desc { font-size:12px; color:var(--text); margin-top:2px; }
-.wheel-event-amount { font-family:var(--mono); font-size:12px; font-weight:700; min-width:70px; text-align:right; }
+.wheel-timeline { margin-top:8px; width:100%; border-collapse:collapse; }
+.wheel-event-tr { border-bottom:1px solid rgba(255,255,255,.04); }
+.wheel-event-tr:last-child { border-bottom:none; }
+.wheel-event-tr td { padding:8px 12px; font-family:var(--mono); font-size:11px; vertical-align:middle; }
+.wheel-event-th { padding:6px 12px; font-size:10px; color:var(--muted); font-weight:600; letter-spacing:.06em; border-bottom:1px solid var(--border); }
 .wheel-basis-bar { margin-top:14px; }
 .wheel-basis-label { font-size:10px; color:var(--muted); margin-bottom:6px; }
 .wheel-basis-track { background:var(--border2); border-radius:4px; height:6px; overflow:hidden; }
@@ -943,6 +952,10 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <div class="nav-item" onclick="nav('ai',this)">
       <span class="icon">🤖</span> IA Análisis
     </div>
+    <div class="nav-item" onclick="nav('spx',this)">
+      <span class="nav-icon">⚡</span>
+      <span class="nav-label">SPX Señales</span>
+    </div>
     <div class="nav-item" onclick="nav('wheel',this)">
       <span class="icon">🔄</span> La Rueda
     </div>
@@ -1336,6 +1349,33 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     </div>
 
     <!-- ══ LA RUEDA ═══════════════════════ -->
+    <!-- ══ SPX SIGNAL CENTER ══════════════ -->
+    <div id="panel-spx" class="panel">
+      <div style="padding:20px;max-width:1200px;margin:0 auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <div style="font-size:18px;font-weight:700;color:var(--bright);">⚡ SPX Signal Center</div>
+          <button onclick="loadSPX()" class="btn btn-primary" style="padding:8px 18px;font-size:12px;">🔄 Actualizar</button>
+        </div>
+        <!-- Contexto de mercado -->
+        <div id="spx-context" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:24px;"></div>
+        <!-- Señales pendientes -->
+        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:12px;">SEÑALES PENDIENTES</div>
+        <div id="spx-pending" style="margin-bottom:24px;"></div>
+        <!-- Historial -->
+        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:12px;">HISTORIAL DE HOY</div>
+        <div id="spx-history" style="margin-bottom:24px;"></div>
+        <!-- Test manual -->
+        <div style="padding-top:20px;border-top:1px solid var(--border);">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">GENERAR SEÑAL MANUAL (TEST)</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button onclick="testSPXSignal('BULLISH')" class="btn" style="background:rgba(0,200,100,.15);border:1px solid rgba(0,200,100,.3);color:#00c864;padding:8px 18px;font-size:12px;">▲ Señal ALCISTA</button>
+            <button onclick="testSPXSignal('BEARISH')" class="btn" style="background:rgba(255,60,60,.15);border:1px solid rgba(255,60,60,.3);color:#ff3c3c;padding:8px 18px;font-size:12px;">▼ Señal BAJISTA</button>
+            <button onclick="testSPXSignal('NEUTRAL')" class="btn" style="background:rgba(255,200,0,.1);border:1px solid rgba(255,200,0,.2);color:var(--gold);padding:8px 18px;font-size:12px;">◆ Señal NEUTRAL</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="panel-wheel" class="panel">
       <div id="wheel-content"><div class="loader"><div class="spinner"></div></div></div>
     </div>
@@ -1491,7 +1531,8 @@ function nav(tab, el) {
   else if (tab==='watchlist') loadWatchlist();
   else if (tab==='playbooks') loadPlaybooks();
   else if (tab==='ai')      loadAI();
-  else if (tab==='wheel')   loadWheel();
+  else if (tab==='spx')     loadSPX();
+  else if (tab==='wheel')   { wheelView='tabla'; loadWheel(); }
   else if (tab==='chain')   initChainPanel();
   else if (tab==='alejandro') loadAlejandro();
   else if (tab==='today') loadToday();
@@ -3964,6 +4005,105 @@ async function loadWheel() {
     const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯' };
     const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado' };
 
+    // ── VISTA TABLA ──────────────────────────────────────────────
+    const tablaHtml = (() => {
+      const header = `<div class="wheel-table-header">
+        <div>ACTIVO</div>
+        <div>FASE</div>
+        <div>POSICIÓN</div>
+        <div>DTE</div>
+        <div>PRIMA</div>
+        <div>COSTO BASE</div>
+        <div>MARGEN</div>
+        <div>% REDUCIDO</div>
+        <div></div>
+      </div>`;
+
+      const rows = wheels.map(w => {
+        const mkt = priceMap[w.underlying] || { price:0, chg:0, chgPct:0 };
+        const currentPrice = mkt.price || 0;
+        const costBase = w.costBasis !== null ? w.costBasis : null;
+        const priceDiff = (costBase !== null && currentPrice > 0) ? currentPrice - costBase : null;
+        const priceDiffPct = (costBase !== null && costBase > 0 && currentPrice > 0) ? (currentPrice - costBase) / costBase * 100 : null;
+        const reductionPct = w.avgCost > 0 && costBase !== null ? Math.max(0, Math.min(100,(w.avgCost - costBase)/w.avgCost*100)) : 0;
+        const diffCls = priceDiff !== null ? (priceDiff >= 0 ? 'pos' : 'neg') : '';
+
+        // DTE
+        const activeOpt = w.activePut || w.activeCall;
+        let dte = '—';
+        if (activeOpt?.expiry) {
+          const d = Math.round((new Date(activeOpt.expiry) - new Date()) / 86400000);
+          dte = d >= 0 ? d+'d' : '—';
+        }
+
+        // Posición
+        const ctrLabel = (n) => n > 1 ? ` · ${n} ctr` : '';
+        const openInfo = w.activePut  ? `$${w.activePut.strike.toFixed(2)} Put · ${w.activePut.expiry.slice(5)}${ctrLabel(w.contractsPut)}`
+                       : w.activeCall ? `$${w.activeCall.strike.toFixed(2)} Call · ${w.activeCall.expiry.slice(5)}${ctrLabel(w.contractsCall)}`
+                       : w.shares > 0 ? `${w.shares} acciones` : '—';
+
+        const phaseLabel = { CSP_ACTIVA:'CSP Activa', CC_ACTIVA:'Covered Call', ACCIONES:'Acciones', IDLE:'Sin actividad' };
+        const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
+
+        // Timeline detail
+        const evIcon  = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯' };
+        const evLabel = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado' };
+        const timelineHtml = `<table class="wheel-timeline" style="width:100%;">
+          <thead><tr>
+            <th class="wheel-event-th" style="text-align:left;">FECHA</th>
+            <th class="wheel-event-th" style="text-align:left;">TIPO</th>
+            <th class="wheel-event-th" style="text-align:left;">DESCRIPCIÓN</th>
+            <th class="wheel-event-th" style="text-align:right;">VALOR</th>
+          </tr></thead>
+          <tbody>${w.events.map(e => {
+          const isRoll = e.type === 'ROLL';
+          const tipo = evIcon[e.type]||'•';
+          const desc = isRoll ? `Roll $${e.fromStrike}→$${e.toStrike} · ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
+            : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
+            : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+            : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+            : `${evLabel[e.type]||e.type}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
+          const amt = e.amount||0;
+          const amtCls = amt>=0?'pos':'neg';
+          const amtStr = (amt>=0?'+$':'-$')+Math.abs(amt).toFixed(2);
+          return `<tr class="wheel-event-tr">
+            <td style="color:var(--muted);">${e.date}</td>
+            <td>${tipo} ${evLabel[e.type]||e.type}</td>
+            <td style="color:var(--muted2);">${desc}</td>
+            <td style="text-align:right;" class="${amtCls}">${amtStr}</td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+
+        const id = 'wr-'+w.underlying;
+        return `<div class="wheel-row" id="${id}">
+          <div class="wheel-row-main">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span class="wheel-row-sym" onclick="toggleWheelRow('${id}')" style="cursor:pointer;" title="Ver detalle">${w.underlying}</span>
+              <button data-sym="${w.underlying}" data-sd="${w.startDate||''}" onclick="event.stopPropagation();setWheelStartDate(this.dataset.sym,this.dataset.sd)" style="background:none;border:none;color:${w.startDate?'var(--gold)':'var(--muted)'};cursor:pointer;font-size:11px;padding:0;" title="${w.startDate?'Ciclo desde '+w.startDate:'Sin filtro de fecha'}">📅</button>
+            </div>
+            <div><span class="wheel-phase ${phaseCls[w.phase]||'phase-idle'}" style="font-size:9px;padding:2px 8px;">${phaseLabel[w.phase]||w.phase}</span></div>
+            <div class="wheel-row-cell">${openInfo}</div>
+            <div class="wheel-row-cell">${dte}</div>
+            <div class="wheel-row-cell pos">+$${w.totalPremium.toFixed(2)}</div>
+            <div class="wheel-row-cell">${costBase !== null ? '$'+costBase.toFixed(2) : '—'}${w.isProjected?' <span style="color:var(--gold);font-size:9px;">P</span>':''}</div>
+            <div class="wheel-row-cell ${diffCls}">${priceDiff !== null ? (priceDiff>=0?'+':'')+priceDiff.toFixed(2)+' ('+( priceDiffPct>=0?'+':'')+priceDiffPct.toFixed(1)+'%)' : '—'}</div>
+            <div class="wheel-row-cell pos">${reductionPct.toFixed(1)}%</div>
+            <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;">
+              <button onclick="event.stopPropagation();removeWheel('${w.underlying}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0;" title="Quitar">✕</button>
+              <span class="wheel-row-chevron" id="chv-${id}">▶</span>
+            </div>
+          </div>
+          <div class="wheel-row-detail" id="det-${id}">
+            ${timelineHtml||'<div class="dim" style="font-size:11px;padding:12px;">Sin actividad</div>'}
+          </div>
+        </div>`;
+      }).join('');
+
+      return `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+        ${header}${rows}
+      </div>`;
+    })();
+
     // ── VISTA CARDS ──────────────────────────────────────────────
     const cardsHtml = wheels.map(w => {
       const origCost = w.avgCost || 0;
@@ -4027,6 +4167,7 @@ async function loadWheel() {
           <div class="wheel-und">${w.underlying}</div>
           <div style="display:flex;gap:8px;align-items:center;">
             <div class="wheel-phase ${phaseCls[w.phase]||'phase-idle'}">${phaseLabel[w.phase]||w.phase}</div>
+            <button data-sym="${w.underlying}" data-sd="${w.startDate||''}" onclick="setWheelStartDate(this.dataset.sym,this.dataset.sd)" style="background:none;border:none;color:${w.startDate?'var(--gold)':'var(--bright)'};cursor:pointer;font-size:13px;padding:0 4px;" title="${w.startDate?'Ciclo desde '+w.startDate:'Sin filtro — click para definir inicio del ciclo'}">📅</button>
             <button onclick="removeWheel('${w.underlying}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;" title="Quitar de La Rueda">✕</button>
           </div>
         </div>
@@ -4302,11 +4443,12 @@ async function loadWheel() {
     })();
 
     const totalPrem = wheels.reduce((s,w)=>s+w.totalPremium,0);
-    const wv = typeof wheelView !== 'undefined' ? wheelView : 'cards';
+    const wv = typeof wheelView !== 'undefined' ? wheelView : 'tabla';
 
     const contentHtml = wv === 'rendimiento' ? rendHtml
                       : wv === 'semanal'     ? semanalHtml
-                      : `<div class="wheel-grid">${cardsHtml||'<div class="dim" style="padding:40px;">No hay ruedas configuradas. Agrega un activo arriba.</div>'}</div>`;
+                      : wv === 'cards'       ? `<div class="wheel-grid">${cardsHtml||'<div class="dim" style="padding:40px;">No hay ruedas configuradas.</div>'}</div>`
+                      : tablaHtml;
 
     $('wheel-content').innerHTML = `
       <div style="margin-bottom:16px;">
@@ -4320,6 +4462,9 @@ async function loadWheel() {
         <input id="wheel-add-input" type="text" placeholder="Ticker (ej: BABA)"
           style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--bright);font-family:var(--mono);font-size:13px;width:160px;text-transform:uppercase;"
           onkeydown="if(event.key==='Enter') addWheel()">
+        <input id="wheel-add-startdate" type="date"
+          style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--muted);font-family:var(--mono);font-size:12px;"
+          title="Fecha inicio ciclo (opcional — ignora trades anteriores)">
         <button onclick="addWheel()" class="btn btn-primary" style="padding:8px 18px;">+ Agregar Rueda</button>
         <span class="dim" style="font-size:11px;">Activos: ${underlyings.join(', ')}</span>
       </div>
@@ -4341,9 +4486,231 @@ async function addWheel() {
   const input = $('wheel-add-input');
   const sym = (input?.value||'').toUpperCase().trim();
   if (!sym) return;
-  await fetch('/api/wheel-config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'add',underlying:sym}) });
+  const startDate = ($('wheel-add-startdate')?.value || '') || null;
+  await fetch('/api/wheel-config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'add',underlying:sym,startDate}) });
   input.value = '';
+  if ($('wheel-add-startdate')) $('wheel-add-startdate').value = '';
+  await fetch('/api/refresh', { method:'POST' });
   loadWheel();
+}
+
+// ── SPX Signal Center ────────────────────────────────────────
+let spxContext = null;
+
+async function loadSPX() {
+  const ctxEl = $('spx-context');
+  const pendEl = $('spx-pending');
+  if (ctxEl) ctxEl.innerHTML = '<div style="color:var(--muted);font-size:11px;">Cargando contexto...</div>';
+
+  // Cargar contexto
+  try {
+    const r = await fetch('/api/spx/context');
+    const ctx = await r.json();
+    if (ctx.error) throw new Error(ctx.error);
+    spxContext = ctx;
+    renderSPXContext(ctx);
+  } catch(e) {
+    if (ctxEl) ctxEl.innerHTML = `<div style="color:var(--red);font-size:11px;">Error contexto: ${e.message}</div>`;
+    console.error('SPX context error:', e);
+  }
+
+  // Cargar señales
+  try {
+    const r = await fetch('/api/spx/signals');
+    const signals = await r.json();
+    renderSPXSignals(signals);
+  } catch(e) {
+    if (pendEl) pendEl.innerHTML = `<div style="color:var(--red);font-size:11px;">Error señales: ${e.message}</div>`;
+    console.error('SPX signals error:', e);
+  }
+}
+
+async function testSPXSignal(direction) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⏳ Analizando...';
+  try {
+    const r = await fetch('/api/spx/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction, source: 'Manual Test' })
+    });
+    const data = await r.json();
+    if (data.signal) {
+      await loadSPX();
+    } else {
+      alert('Sin señal: ' + (data.reason || 'Error desconocido'));
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = direction === 'BULLISH' ? '▲ Señal ALCISTA' : direction === 'BEARISH' ? '▼ Señal BAJISTA' : '◆ Señal NEUTRAL';
+  }
+}
+
+function renderSPXContext(ctx) {
+  const el = $('spx-context');
+  if (!el) return;
+
+  const regime = ctx.gex?.regime || '—';
+  const regimeCls = regime === 'POSITIVO' ? 'pos' : 'neg';
+  const creditLabel = ctx.isCredit ? '✅ CRÉDITO' : '⚡ DÉBITO';
+  const creditCls   = ctx.isCredit ? 'pos' : 'neg';
+  const windowLabel = ctx.windowOK ? '✅ Abierta' : '⏳ Cerrada';
+  const windowCls   = ctx.windowOK ? 'pos' : 'neg';
+
+  el.innerHTML = `
+    <div class="stat-card"><div class="stat-label">SPX</div><div class="stat-value">$${(ctx.spxPrice||0).toLocaleString()}</div></div>
+    <div class="stat-card"><div class="stat-label">VIX</div><div class="stat-value ${ctx.vix>20?'neg':'pos'}">${ctx.vix}</div></div>
+    <div class="stat-card"><div class="stat-label">IV RANK</div><div class="stat-value">${ctx.ivRank}%</div></div>
+    <div class="stat-card"><div class="stat-label">ESTRATEGIA</div><div class="stat-value ${creditCls}" style="font-size:11px;">${creditLabel}</div></div>
+    <div class="stat-card"><div class="stat-label">GAMMA</div><div class="stat-value ${regimeCls}" style="font-size:11px;">${regime}</div></div>
+    <div class="stat-card"><div class="stat-label">CALL WALL</div><div class="stat-value">${ctx.gex?.callWall||'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">PUT WALL</div><div class="stat-value">${ctx.gex?.putWall||'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">GAMMA FLIP</div><div class="stat-value">${ctx.gex?.gammaFlip||'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">HORA COL</div><div class="stat-value">${ctx.etTime}</div></div>
+    <div class="stat-card"><div class="stat-label">VENTANA</div><div class="stat-value ${windowCls}" style="font-size:11px;">${windowLabel}</div></div>
+    <div class="stat-card"><div class="stat-label">EMA 20</div><div class="stat-value">${ctx.ema20||'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">EMA 50</div><div class="stat-value">${ctx.ema50||'—'}</div></div>
+  `;
+}
+
+function renderSPXSignals(signals) {
+  const today = new Date().toISOString().slice(0,10);
+  const pending = signals.filter(s => s.status === 'PENDING');
+  const history = signals.filter(s => s.status !== 'PENDING' && s.timestamp?.startsWith(today));
+
+  const pendingEl = $('spx-pending');
+  const historyEl = $('spx-history');
+
+  if (pendingEl) {
+    if (!pending.length) {
+      pendingEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px;background:var(--card);border-radius:10px;">Sin señales pendientes.</div>';
+    } else {
+      pendingEl.innerHTML = pending.map(s => renderSignalCard(s, true)).join('');
+    }
+  }
+
+  if (historyEl) {
+    if (!history.length) {
+      historyEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px;background:var(--card);border-radius:10px;">Sin operaciones registradas hoy.</div>';
+    } else {
+      historyEl.innerHTML = history.map(s => renderSignalCard(s, false)).join('');
+    }
+  }
+}
+
+function renderSignalCard(s, isPending) {
+  const dirIcon  = s.direction === 'BULLISH' ? '▲' : s.direction === 'BEARISH' ? '▼' : '◆';
+  const dirCls   = s.direction === 'BULLISH' ? 'pos' : s.direction === 'BEARISH' ? 'neg' : '';
+  const statusCls = s.status === 'EXECUTED' ? 'pos' : s.status === 'REJECTED' ? 'neg' : '';
+  const statusLabel = s.status === 'EXECUTED' ? '✅ Ejecutada' : s.status === 'REJECTED' ? '❌ Rechazada' : '⏳ Pendiente';
+
+  // Strikes
+  const k = s.strikes || {};
+  let strikesHtml = '';
+  if (s.strategy === 'IRON_CONDOR') {
+    strikesHtml = `<div style="font-size:11px;color:var(--muted);">Puts: ${k.longStrike}/${k.shortStrike} · Calls: ${k.callShortStrike}/${k.callLongStrike}</div>`;
+  } else if (s.isCredit) {
+    strikesHtml = `<div style="font-size:11px;color:var(--muted);">${k.longStrike} / ${k.shortStrike} (Δ ${k.shortDelta})</div>`;
+  } else {
+    strikesHtml = `<div style="font-size:11px;color:var(--muted);">${k.longStrike} / ${k.shortStrike} (Δ ${k.longDelta})</div>`;
+  }
+
+  const creditDebit = s.isCredit
+    ? `<span class="pos">Crédito: +$${(s.credit||0).toFixed(2)}</span>`
+    : `<span class="neg">Débito: -$${(s.debit||0).toFixed(2)}</span>`;
+
+  const actions = isPending ? `
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button onclick="actSPXSignal('${s.id}','EXECUTED')" style="flex:1;background:rgba(0,200,100,.2);border:1px solid rgba(0,200,100,.4);color:#00c864;border-radius:8px;padding:10px;font-size:12px;font-weight:600;cursor:pointer;">✅ Ejecutar</button>
+      <button onclick="actSPXSignal('${s.id}','REJECTED')" style="flex:1;background:rgba(255,60,60,.1);border:1px solid rgba(255,60,60,.3);color:#ff3c3c;border-radius:8px;padding:10px;font-size:12px;cursor:pointer;">❌ Rechazar</button>
+    </div>` : '';
+
+  let time = '';
+  if (s.timestamp) {
+    const d = new Date(s.timestamp);
+    const col = new Date(d.getTime() - 5*3600000);
+    time = col.toISOString().slice(11,16) + ' COL';
+  }
+
+  return `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+      <div>
+        <div style="font-size:15px;font-weight:700;color:var(--bright);">${s.strategyName}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${time} · ${s.expType} · Vence ${s.expiry||''}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="${dirCls}" style="font-size:13px;font-weight:700;">${dirIcon} ${s.direction}</span>
+        <span style="font-size:10px;color:${s.status==='EXECUTED'?'#00c864':s.status==='REJECTED'?'#ff3c3c':'var(--gold)'};">${statusLabel}</span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;">STRIKES</div>${strikesHtml}</div>
+      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;">PRIMA</div><div style="font-size:12px;">${creditDebit}</div></div>
+      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;">RIESGO MÁX</div><div style="font-size:12px;" class="neg">-$${(s.maxRisk||0).toFixed(2)}</div></div>
+      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;">PROB. ÉXITO</div><div style="font-size:12px;" class="pos">${s.probSuccess||'—'}%</div></div>
+    </div>
+    <div style="display:flex;gap:16px;font-size:10px;color:var(--muted);padding-top:10px;border-top:1px solid var(--border);">
+      <span>SPX: $${s.context?.spxPrice||'—'}</span>
+      <span>VIX: ${s.context?.vix||'—'}</span>
+      <span>IV Rank: ${s.context?.ivRank||'—'}%</span>
+      <span>Gamma: ${s.context?.gammaRegime||'—'}</span>
+      <span>Gamma Flip: ${s.context?.gammaFlip||'—'}</span>
+    </div>
+    ${actions}
+  </div>`;
+}
+
+async function actSPXSignal(id, action) {
+  const label = action === 'EXECUTED' ? 'ejecutar' : 'rechazar';
+  const notes = action === 'EXECUTED' ? '' : (prompt('Razón para rechazar (opcional):') || '');
+  if (action === 'REJECTED' && notes === null) return;
+  await fetch(`/api/spx/signals/${id}/action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, notes })
+  });
+  loadSPX();
+}
+
+
+
+function toggleWheelRow(id) {
+  const det = document.getElementById('det-'+id);
+  const chv = document.getElementById('chv-'+id);
+  if (!det) return;
+  const isOpen = det.classList.contains('open');
+  det.classList.toggle('open');
+  if (chv) chv.textContent = isOpen ? '▶' : '▼';
+}
+
+function setWheelStartDate(sym, currentDate) {
+  // Crear modal con input date
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px 32px;min-width:320px;display:flex;flex-direction:column;gap:16px;">
+      <div style="font-size:14px;font-weight:700;color:var(--bright);">📅 Inicio de ciclo — ${sym}</div>
+      <div style="font-size:12px;color:var(--muted);">Trades anteriores a esta fecha serán ignorados en La Rueda.</div>
+      <input id="sd-date-input" type="date" value="${currentDate||''}"
+        style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--bright);font-family:var(--mono);font-size:14px;width:100%;box-sizing:border-box;color-scheme:dark;">
+      <div style="font-size:11px;color:var(--muted2);">Dejar vacío para incluir todos los trades.</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button id="sd-cancel" style="background:none;border:1px solid var(--border);border-radius:8px;padding:8px 18px;color:var(--muted);cursor:pointer;">Cancelar</button>
+        <button id="sd-confirm" style="background:var(--accent);border:none;border-radius:8px;padding:8px 18px;color:#fff;font-weight:600;cursor:pointer;">Aplicar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('sd-cancel').onclick = () => overlay.remove();
+  document.getElementById('sd-confirm').onclick = async () => {
+    const startDate = document.getElementById('sd-date-input').value || null;
+    overlay.remove();
+    await fetch('/api/wheel-config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'setStartDate',underlying:sym,startDate}) });
+    await fetch('/api/refresh', { method:'POST' });
+    loadWheel();
+  };
 }
 
 async function removeWheel(sym) {

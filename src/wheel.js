@@ -13,6 +13,10 @@ function parseSymbol(sym) {
 }
 
 function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
+  // Soporta strings simples o {symbol, startDate}
+  const wheelConfigs = wheelUnderlyings.map(u =>
+    typeof u === 'string' ? { symbol: u, startDate: null } : u
+  );
   const trades = items.filter(t =>
     t['transaction-type'] === 'Trade' ||
     t['transaction-type'] === 'Receive Deliver'
@@ -20,9 +24,15 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
 
   const wheels = [];
 
-  for (const und of wheelUnderlyings) {
+  for (const cfg of wheelConfigs) {
+    const und = cfg.symbol;
+    const startDate = cfg.startDate || null;
     const txs = trades
-      .filter(t => t['underlying-symbol'] === und)
+      .filter(t => {
+        if (t['underlying-symbol'] !== und) return false;
+        if (startDate) return (t['transaction-date'] || t['executed-at'] || '').slice(0,10) >= startDate;
+        return true;
+      })
       .sort((a, b) => new Date(a['executed-at']) - new Date(b['executed-at']));
 
     const events = [];
@@ -175,6 +185,7 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
 
     wheels.push({
       underlying:   und,
+      startDate:    startDate,
       phase,
       events:       finalEvents,
       shares:       Math.round(shares),

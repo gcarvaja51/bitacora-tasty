@@ -1,0 +1,316 @@
+'use strict';
+
+// ── SPX Signal Engine ─────────────────────────────────────────
+// Analiza contexto de mercado y genera sugerencias de entrada
+// para estrategias de opciones en SPX
+
+const ET_OFFSET = -5; // UTC-5 (ET sin DST)
+
+function getETHour() {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const et  = new Date(utc + ET_OFFSET * 3600000);
+  return { hour: et.getHours(), min: et.getMinutes(), time: `${et.getHours()}:${String(et.getMinutes()).padStart(2,'0')}` };
+}
+
+// ── Calcula GEX por strike ────────────────────────────────────
+function calcGEX(expirations, spxPrice) {
+  const gexByStrike = {};
+
+  for (const exp of expirations) {
+    for (const s of (exp.strikes || [])) {
+      const strike = s.strike;
+      const c = s.call || {};
+      const p = s.put  || {};
+
+      const callGex = (c.gamma||0) * (c.oi||0) * 100 * spxPrice * spxPrice * 0.01;
+      const putGex  = (p.gamma||0) * (p.oi||0) * 100 * spxPrice * spxPrice * 0.01 * -1;
+
+      gexByStrike[strike] = (gexByStrike[strike] || 0) + callGex + putGex;
+    }
+  }
+
+  const sorted   = Object.entries(gexByStrike).map(([k,v]) => ({ strike: +k, gex: v })).sort((a,b) => a.strike - b.strike);
+  const netGex   = sorted.reduce((s, x) => s + x.gex, 0);
+  const callWall = sorted.reduce((best, x) => x.gex > best.gex ? x : best, { strike: 0, gex: -Infinity }).strike;
+  const putWall  = sorted.reduce((best, x) => x.gex < best.gex ? x : best, { strike: 0, gex: Infinity }).strike;
+
+  // Gamma flip: strike donde GEX acumulado cambia de signo
+  let cumulative = 0;
+  let gammaFlip  = null;
+  for (const { strike, gex } of sorted) {
+    const prev = cumulative;
+    cumulative += gex;
+    if (prev !== 0 && prev * cumulative < 0) { gammaFlip = strike; break; }
+  }
+
+  return {
+    netGex,
+    regime:    netGex > 0 ? 'POSITIVO' : 'NEGATIVO',
+    callWall,
+    putWall,
+    gammaFlip,
+    levels:    sorted.filter(x => Math.abs(x.gex) > Math.abs(netGex) * 0.05), // niveles significativos
+  };
+}
+
+// ── Selecciona estrategia según contexto ──────────────────────
+function selectStrategy(context) {
+  const { direction, ivRank, vix, gammaRegime, etHour, etMin, capital } = context;
+
+  // 1. Validar ventana horaria ET
+  const timeOK_0DTE = (etHour > 9 || (etHour === 9 && etMin >= 45)) && etHour < 15;
+  const timeOK_1DTE = etHour === 15 && etMin >= 45;
+
+  if (!timeOK_0DTE && !timeOK_1DTE) {
+    return { valid: false, reason: `Fuera de ventana horaria (${etHour}:${String(etMin).padStart(2,'0')} ET). Entrada válida después de 9:45am o a las 3:50pm ET.` };
+  }
+
+  const expType = timeOK_1DTE ? '1DTE' : '0DTE';
+
+  // 2. Decidir crédito o débito
+  const isCredit = ivRank > 30 || vix > 20;
+  const creditReason = ivRank > 30 ? `IV Rank ${ivRank}% > 30%` : `VIX ${vix} > 20`;
+  const debitReason  = `IV Rank ${ivRank}% ≤ 30% y VIX ${vix} ≤ 20 — primas baratas`;
+
+  // 3. Seleccionar estrategia
+  let strategy, legs;
+
+  if (isCredit) {
+    // Crédito: vender primas infladas
+    if (gammaRegime === 'POSITIVO') {
+      // Gamma positivo + crédito = Iron Condor (rango)
+      if (!direction || direction === 'NEUTRAL') {
+        strategy = 'IRON_CONDOR';
+      } else if (direction === 'BULLISH') {
+        strategy = 'BULL_PUT_SPREAD';
+      } else {
+        strategy = 'BEAR_CALL_SPREAD';
+      }
+    } else {
+      // Gamma negativo: movimiento violento esperado — spread direccional
+      if (direction === 'BULLISH') {
+        strategy = 'BULL_PUT_SPREAD';
+      } else if (direction === 'BEARISH') {
+        strategy = 'BEAR_CALL_SPREAD';
+      } else {
+        return { valid: false, reason: 'Gamma negativo + señal neutral: no operar crédito sin dirección clara.' };
+      }
+    }
+  } else {
+    // Débito: comprar movimiento rápido
+    if (direction === 'BULLISH') {
+      strategy = 'BULL_CALL_SPREAD';
+    } else if (direction === 'BEARISH') {
+      strategy = 'BEAR_PUT_SPREAD';
+    } else {
+      return { valid: false, reason: 'IV baja + señal neutral: no hay estrategia de débito aplicable.' };
+    }
+  }
+
+  // 4. Calcular contratos según 2% del capital
+  const maxRisk    = capital * 0.02;
+  const spreadWidth = 20; // puntos
+  const maxContracts = Math.max(1, Math.floor(maxRisk / (spreadWidth * 100)));
+
+  return {
+    valid: true,
+    strategy,
+    isCredit,
+    expType,
+    spreadWidth,
+    contracts: maxContracts,
+    maxRisk:   maxContracts * spreadWidth * 100,
+    creditReason: isCredit ? creditReason : null,
+    debitReason:  !isCredit ? debitReason : null,
+  };
+}
+
+// ── Encuentra strikes por delta objetivo ─────────────────────
+function findStrikesByDelta(expirations, strategy, spxPrice, expType) {
+  // Seleccionar expiración
+  const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const targetDate = expType === '0DTE' ? today : tomorrow;
+
+  let exp = expirations.find(e => e['expiration-date'] === targetDate);
+  if (!exp) exp = expirations[0]; // fallback
+  if (!exp) return null;
+
+  const strikes = exp.strikes || [];
+  const TARGET_DELTA_MIN = 0.10;
+  const TARGET_DELTA_MAX = 0.14;
+
+  // Para cada tipo de estrategia, buscar strikes apropiados
+  if (strategy === 'BULL_PUT_SPREAD' || strategy === 'IRON_CONDOR') {
+    // Pata corta put: delta entre -0.10 y -0.14 (OTM bajista)
+    const shortPut = strikes
+      .filter(s => {
+        const d = Math.abs(s.put?.delta || 0);
+        return d >= TARGET_DELTA_MIN && d <= TARGET_DELTA_MAX;
+      })
+      .sort((a, b) => Math.abs(Math.abs(a.put?.delta||0) - 0.12) - Math.abs(Math.abs(b.put?.delta||0) - 0.12))[0];
+
+    if (!shortPut) return null;
+
+    const shortStrike = shortPut.strike;
+    const longStrike  = shortStrike - 20; // ancho 20 puntos
+    const premium     = (shortPut.put?.mark || 0) - ((strikes.find(s => s.strike === longStrike)?.put?.mark) || 0);
+
+    const result = {
+      expiry: exp['expiration-date'] || targetDate,
+      shortStrike,
+      longStrike,
+      shortDelta: +(Math.abs(shortPut.put?.delta || 0)).toFixed(3),
+      premium:    +premium.toFixed(2),
+    };
+
+    if (strategy === 'IRON_CONDOR') {
+      // Agregar pata call
+      const shortCall = strikes
+        .filter(s => {
+          const d = Math.abs(s.call?.delta || 0);
+          return d >= TARGET_DELTA_MIN && d <= TARGET_DELTA_MAX;
+        })
+        .sort((a, b) => Math.abs(Math.abs(a.call?.delta||0) - 0.12) - Math.abs(Math.abs(b.call?.delta||0) - 0.12))[0];
+
+      if (shortCall) {
+        const shortCallStrike = shortCall.strike;
+        const longCallStrike  = shortCallStrike + 20;
+        const callPremium     = (shortCall.call?.mark || 0) - ((strikes.find(s => s.strike === longCallStrike)?.call?.mark) || 0);
+        result.callShortStrike = shortCallStrike;
+        result.callLongStrike  = longCallStrike;
+        result.callDelta       = +(Math.abs(shortCall.call?.delta || 0)).toFixed(3);
+        result.callPremium     = +callPremium.toFixed(2);
+        result.premium         = +((premium + callPremium)).toFixed(2);
+      }
+    }
+
+    return result;
+  }
+
+  if (strategy === 'BEAR_CALL_SPREAD') {
+    const shortCall = strikes
+      .filter(s => {
+        const d = Math.abs(s.call?.delta || 0);
+        return d >= TARGET_DELTA_MIN && d <= TARGET_DELTA_MAX;
+      })
+      .sort((a, b) => Math.abs(Math.abs(a.call?.delta||0) - 0.12) - Math.abs(Math.abs(b.call?.delta||0) - 0.12))[0];
+
+    if (!shortCall) return null;
+
+    const shortStrike = shortCall.strike;
+    const longStrike  = shortStrike + 20;
+    const premium     = (shortCall.call?.mark || 0) - ((strikes.find(s => s.strike === longStrike)?.call?.mark) || 0);
+
+    return {
+      expiry: exp['expiration-date'] || targetDate,
+      shortStrike,
+      longStrike,
+      shortDelta: +(Math.abs(shortCall.call?.delta || 0)).toFixed(3),
+      premium:    +premium.toFixed(2),
+    };
+  }
+
+  if (strategy === 'BULL_CALL_SPREAD') {
+    // Débito: comprar call ATM, vender call OTM
+    const longCall = strikes
+      .filter(s => {
+        const d = Math.abs(s.call?.delta || 0);
+        return d >= 0.40 && d <= 0.60; // cerca ATM
+      })
+      .sort((a, b) => Math.abs(a.strike - spxPrice) - Math.abs(b.strike - spxPrice))[0];
+
+    if (!longCall) return null;
+
+    const longStrike  = longCall.strike;
+    const shortStrike = longStrike + 20;
+    const debit       = (longCall.call?.mark || 0) - ((strikes.find(s => s.strike === shortStrike)?.call?.mark) || 0);
+
+    return {
+      expiry: exp['expiration-date'] || targetDate,
+      longStrike,
+      shortStrike,
+      longDelta: +(Math.abs(longCall.call?.delta || 0)).toFixed(3),
+      premium:   +(-debit).toFixed(2), // negativo = pago
+    };
+  }
+
+  if (strategy === 'BEAR_PUT_SPREAD') {
+    const longPut = strikes
+      .filter(s => {
+        const d = Math.abs(s.put?.delta || 0);
+        return d >= 0.40 && d <= 0.60;
+      })
+      .sort((a, b) => Math.abs(a.strike - spxPrice) - Math.abs(b.strike - spxPrice))[0];
+
+    if (!longPut) return null;
+
+    const longStrike  = longPut.strike;
+    const shortStrike = longStrike - 20;
+    const debit       = (longPut.put?.mark || 0) - ((strikes.find(s => s.strike === shortStrike)?.put?.mark) || 0);
+
+    return {
+      expiry: exp['expiration-date'] || targetDate,
+      longStrike,
+      shortStrike,
+      longDelta: +(Math.abs(longPut.put?.delta || 0)).toFixed(3),
+      premium:   +(-debit).toFixed(2),
+    };
+  }
+
+  return null;
+}
+
+// ── Genera descripción legible de la sugerencia ──────────────
+function buildSignalSummary(strategy, strikes, sel, context) {
+  const names = {
+    BULL_PUT_SPREAD:  'Bull Put Spread (BPS)',
+    BEAR_CALL_SPREAD: 'Bear Call Spread (BCS)',
+    IRON_CONDOR:      'Iron Condor (IC)',
+    BULL_CALL_SPREAD: 'Bull Call Spread (débito)',
+    BEAR_PUT_SPREAD:  'Bear Put Spread (débito)',
+  };
+
+  const credit    = sel.isCredit ? strikes.premium * 100 * sel.contracts : null;
+  const debit     = !sel.isCredit ? Math.abs(strikes.premium) * 100 * sel.contracts : null;
+  const maxRisk   = sel.isCredit
+    ? (sel.spreadWidth * 100 * sel.contracts) - (credit || 0)
+    : debit;
+  const maxProfit = sel.isCredit ? credit : (sel.spreadWidth * 100 * sel.contracts) - (debit || 0);
+  const probSuccess = strikes.shortDelta ? +((1 - strikes.shortDelta) * 100).toFixed(1) : null;
+
+  return {
+    id:          `spx-${Date.now()}`,
+    timestamp:   new Date().toISOString(),
+    symbol:      'SPX',
+    strategy:    strategy,
+    strategyName: names[strategy] || strategy,
+    direction:   context.direction,
+    expType:     sel.expType,
+    expiry:      strikes.expiry,
+    contracts:   sel.contracts,
+    spreadWidth: sel.spreadWidth,
+    strikes,
+    isCredit:    sel.isCredit,
+    credit:      credit ? +credit.toFixed(2) : null,
+    debit:       debit  ? +debit.toFixed(2)  : null,
+    maxRisk:     +maxRisk.toFixed(2),
+    maxProfit:   maxProfit ? +maxProfit.toFixed(2) : null,
+    probSuccess,
+    riskReward:  maxProfit && maxRisk ? +(maxProfit / maxRisk).toFixed(2) : null,
+    context: {
+      spxPrice:    context.spxPrice,
+      vix:         context.vix,
+      ivRank:      context.ivRank,
+      gammaRegime: context.gammaRegime,
+      callWall:    context.callWall,
+      putWall:     context.putWall,
+      gammaFlip:   context.gammaFlip,
+      etTime:      context.etTime,
+    },
+    status: 'PENDING', // PENDING | EXECUTED | REJECTED
+  };
+}
+
+module.exports = { calcGEX, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour };
