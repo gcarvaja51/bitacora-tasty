@@ -1,0 +1,12 @@
+{
+  "minScore": 5,
+  "weights": {
+    "precio_ema200": 15,
+    "emas_alineadas_diario": 15,
+    "emas_alineadas_15m": 15,
+    "macd_alineado_15m": 20,
+    "precio_cerca_ema": 15,
+    "volumen_spy": 10,
+    "gex_compatible": 10
+  }
+}

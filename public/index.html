@@ -4521,6 +4521,8 @@ async function loadSPX() {
     if (ctx.error) throw new Error(ctx.error);
     spxContext = ctx;
     renderSPXContext(ctx);
+    renderSPXScorePanel(ctx);
+    if (ctx.config) renderSPXConfig(ctx.config);
   } catch(e) {
     if (ctxEl) ctxEl.innerHTML = `<div style="color:var(--red);font-size:11px;">Error contexto: ${e.message}</div>`;
     console.error('SPX context error:', e);
@@ -4627,29 +4629,7 @@ function renderSPXSignals(signals) {
 function renderSignalCard(s, isPending) {
   const dirIcon  = s.direction === 'BULLISH' ? '▲' : s.direction === 'BEARISH' ? '▼' : '◆';
   const dirCls   = s.direction === 'BULLISH' ? 'pos' : s.direction === 'BEARISH' ? 'neg' : '';
-  const statusCls = s.status === 'EXECUTED' ? 'pos' : s.status === 'REJECTED' ? 'neg' : '';
   const statusLabel = s.status === 'EXECUTED' ? '✅ Ejecutada' : s.status === 'REJECTED' ? '❌ Rechazada' : '⏳ Pendiente';
-
-  // Strikes
-  const k = s.strikes || {};
-  let strikesHtml = '';
-  if (s.strategy === 'IRON_CONDOR') {
-    strikesHtml = `<div style="font-size:11px;color:var(--muted);">Puts: ${k.longStrike}/${k.shortStrike} · Calls: ${k.callShortStrike}/${k.callLongStrike}</div>`;
-  } else if (s.isCredit) {
-    strikesHtml = `<div style="font-size:11px;color:var(--muted);">${k.longStrike} / ${k.shortStrike} (Δ ${k.shortDelta})</div>`;
-  } else {
-    strikesHtml = `<div style="font-size:11px;color:var(--muted);">${k.longStrike} / ${k.shortStrike} (Δ ${k.longDelta})</div>`;
-  }
-
-  const creditDebit = s.isCredit
-    ? `<span class="pos">Crédito: +$${(s.credit||0).toFixed(2)}</span>`
-    : `<span class="neg">Débito: -$${(s.debit||0).toFixed(2)}</span>`;
-
-  const actions = isPending ? `
-    <div style="display:flex;gap:8px;margin-top:14px;">
-      <button onclick="actSPXSignal('${s.id}','EXECUTED')" style="flex:1;background:rgba(0,200,100,.2);border:1px solid rgba(0,200,100,.4);color:#00c864;border-radius:8px;padding:10px;font-size:12px;font-weight:600;cursor:pointer;">✅ Ejecutar</button>
-      <button onclick="actSPXSignal('${s.id}','REJECTED')" style="flex:1;background:rgba(255,60,60,.1);border:1px solid rgba(255,60,60,.3);color:#ff3c3c;border-radius:8px;padding:10px;font-size:12px;cursor:pointer;">❌ Rechazar</button>
-    </div>` : '';
 
   let time = '';
   if (s.timestamp) {
@@ -4658,33 +4638,103 @@ function renderSignalCard(s, isPending) {
     time = col.toISOString().slice(11,16) + ' COL';
   }
 
+  const k   = s.strikes || {};
+  const sw  = (s.spreadWidth || 20) * 100;
+
+  // Calcular ambas opciones
+  const creditName = s.direction === 'BULLISH' ? 'Bull Put Spread' : 'Bear Call Spread';
+  const debitName  = s.direction === 'BULLISH' ? 'Bull Call Spread' : 'Bear Put Spread';
+
+  const creditPrima   = s.credit  || null;
+  const creditBP      = s.maxRisk || null;
+  const creditRet     = creditPrima && creditBP ? +((creditPrima / creditBP) * 100).toFixed(1) : null;
+  const creditProb    = k.shortDelta ? +((1 - k.shortDelta) * 100).toFixed(0) : '—';
+  const creditStrikes = s.isCredit ? `${k.longStrike}/${k.shortStrike}` : '—';
+
+  const debitPrima    = s.debit   || null;
+  const debitGanMax   = debitPrima ? +(sw - debitPrima).toFixed(0) : null;
+  const debitRet      = debitPrima && debitGanMax ? +((debitGanMax / debitPrima) * 100).toFixed(1) : null;
+  const debitProb     = k.longDelta ? +(k.longDelta * 100).toFixed(0) : '—';
+  const debitStrikes  = !s.isCredit ? `${k.longStrike}/${k.shortStrike}` : '—';
+
+  const tableHtml = `
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin:12px 0;">
+      <thead>
+        <tr>
+          <th style="padding:7px 10px;text-align:left;font-size:9px;color:var(--muted);font-weight:600;letter-spacing:.06em;border-bottom:1px solid var(--border);width:36%;">CRITERIO</th>
+          <th style="padding:7px 10px;text-align:center;font-size:10px;color:var(--green);font-weight:700;border-bottom:1px solid var(--border);">💰 ${creditName}</th>
+          <th style="padding:7px 10px;text-align:center;font-size:10px;color:var(--blue);font-weight:700;border-bottom:1px solid var(--border);">⚡ ${debitName}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+          <td style="padding:6px 10px;color:var(--muted);">Strikes</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);">${creditStrikes}</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);">${debitStrikes}</td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+          <td style="padding:6px 10px;color:var(--muted);">Prima</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);" class="pos">+$${creditPrima ? creditPrima.toFixed(2) : '—'}</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);" class="neg">-$${debitPrima ? debitPrima.toFixed(2) : '—'}</td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+          <td style="padding:6px 10px;color:var(--muted);">Capital requerido</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);">$${creditBP ? creditBP.toFixed(0) : '—'} <span style="font-size:9px;color:var(--muted);">(BP)</span></td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);">$${debitPrima ? debitPrima.toFixed(0) : '—'} <span style="font-size:9px;color:var(--muted);">(prima)</span></td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+          <td style="padding:6px 10px;color:var(--muted);">Ganancia máx</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);" class="pos">$${creditPrima ? creditPrima.toFixed(0) : '—'}</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);" class="pos">$${debitGanMax || '—'}</td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+          <td style="padding:6px 10px;color:var(--muted);">Riesgo máx</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);" class="neg">-$${creditBP ? creditBP.toFixed(0) : '—'}</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);" class="neg">-$${debitPrima ? debitPrima.toFixed(0) : '—'}</td>
+        </tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.02);">
+          <td style="padding:6px 10px;color:var(--bright);font-weight:600;">Retorno/Capital</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);font-weight:700;" class="pos">${creditRet !== null ? creditRet+'%' : '—'}</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);font-weight:700;" class="pos">${debitRet !== null ? debitRet+'%' : '—'}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 10px;color:var(--muted);">Prob. éxito</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);" class="pos">${creditProb}%</td>
+          <td style="padding:6px 10px;text-align:center;font-family:var(--mono);">${debitProb}%</td>
+        </tr>
+      </tbody>
+    </table>`;
+
+  const actions = isPending ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;">
+      <button onclick="actSPXSignal('${s.id}','EXECUTED','credit')" style="background:rgba(0,200,100,.2);border:1px solid rgba(0,200,100,.4);color:#00c864;border-radius:8px;padding:10px;font-size:11px;font-weight:600;cursor:pointer;">✅ Crédito</button>
+      <button onclick="actSPXSignal('${s.id}','EXECUTED','debit')" style="background:rgba(79,142,255,.15);border:1px solid rgba(79,142,255,.3);color:var(--blue);border-radius:8px;padding:10px;font-size:11px;font-weight:600;cursor:pointer;">✅ Débito</button>
+      <button onclick="actSPXSignal('${s.id}','REJECTED')" style="background:rgba(255,60,60,.1);border:1px solid rgba(255,60,60,.3);color:#ff3c3c;border-radius:8px;padding:10px;font-size:11px;cursor:pointer;">❌ Rechazar</button>
+    </div>` : '';
+
   return `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px;">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
       <div>
-        <div style="font-size:15px;font-weight:700;color:var(--bright);">${s.strategyName}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${time} · ${s.expType} · Vence ${s.expiry||''}</div>
+        <div style="font-size:14px;font-weight:700;color:var(--bright);">SPX · ${s.expType} · Vence ${s.expiry||''}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${time}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <span class="${dirCls}" style="font-size:13px;font-weight:700;">${dirIcon} ${s.direction}</span>
         <span style="font-size:10px;color:${s.status==='EXECUTED'?'#00c864':s.status==='REJECTED'?'#ff3c3c':'var(--gold)'};">${statusLabel}</span>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
-      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;">STRIKES</div>${strikesHtml}</div>
-      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;">PRIMA</div><div style="font-size:12px;">${creditDebit}</div></div>
-      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;">RIESGO MÁX</div><div style="font-size:12px;" class="neg">-$${(s.maxRisk||0).toFixed(2)}</div></div>
-      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;">PROB. ÉXITO</div><div style="font-size:12px;" class="pos">${s.probSuccess||'—'}%</div></div>
-    </div>
-    <div style="display:flex;gap:16px;font-size:10px;color:var(--muted);padding-top:10px;border-top:1px solid var(--border);">
+    ${tableHtml}
+    <div style="display:flex;gap:12px;font-size:10px;color:var(--muted);padding-top:8px;border-top:1px solid var(--border);">
       <span>SPX: $${s.context?.spxPrice||'—'}</span>
       <span>VIX: ${s.context?.vix||'—'}</span>
       <span>IV Rank: ${s.context?.ivRank||'—'}%</span>
       <span>Gamma: ${s.context?.gammaRegime||'—'}</span>
-      <span>Gamma Flip: ${s.context?.gammaFlip||'—'}</span>
+      <span>Flip: ${s.context?.gammaFlip||'—'}</span>
     </div>
     ${actions}
   </div>`;
 }
+
 
 async function actSPXSignal(id, action) {
   const label = action === 'EXECUTED' ? 'ejecutar' : 'rechazar';
@@ -4785,12 +4835,20 @@ function renderSPXConfig(cfg) {
   `;
 }
 
-function toggleSPXConfig() {
+async function toggleSPXConfig() {
   const el = $('spx-config-panel');
   if (!el) return;
   const isOpen = el.style.display !== 'none';
   el.style.display = isOpen ? 'none' : 'block';
-  if (!isOpen && spxConfig) renderSPXConfig(spxConfig);
+  if (!isOpen) {
+    if (!spxConfig) {
+      try {
+        const r = await fetch('/api/spx/config');
+        spxConfig = await r.json();
+      } catch(e) { console.error('config error:', e); }
+    }
+    if (spxConfig) renderSPXConfig(spxConfig);
+  }
 }
 
 function updateSPXConfig(type, value, key) {
