@@ -1364,6 +1364,18 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <!-- Historial -->
         <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:12px;">HISTORIAL DE HOY</div>
         <div id="spx-history" style="margin-bottom:24px;"></div>
+        <!-- Score e Indicadores -->
+        <div id="spx-score-panel" style="margin-bottom:24px;"></div>
+
+        <!-- Configuración de pesos -->
+        <div style="margin-bottom:24px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;">CONFIGURACIÓN DE PESOS</div>
+            <button onclick="toggleSPXConfig()" id="spx-config-toggle" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 12px;color:var(--muted);font-size:11px;cursor:pointer;">⚙️ Ajustar</button>
+          </div>
+          <div id="spx-config-panel" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;"></div>
+        </div>
+
         <!-- Test manual -->
         <div style="padding-top:20px;border-top:1px solid var(--border);">
           <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">GENERAR SEÑAL MANUAL (TEST)</div>
@@ -4560,6 +4572,13 @@ function renderSPXContext(ctx) {
   const windowLabel = ctx.windowOK ? '✅ Abierta' : '⏳ Cerrada';
   const windowCls   = ctx.windowOK ? 'pos' : 'neg';
 
+  // Contexto 15m
+  let tf15Label = '— Sin señal', tf15Cls = 'dim';
+  if (spxContext && spxContext.tf15m) {
+    tf15Label = spxContext.tf15m === 'BULLISH' ? '▲ ALCISTA' : '▼ BAJISTA';
+    tf15Cls   = spxContext.tf15m === 'BULLISH' ? 'pos' : 'neg';
+  }
+
   el.innerHTML = `
     <div class="stat-card"><div class="stat-label">SPX</div><div class="stat-value">$${(ctx.spxPrice||0).toLocaleString()}</div></div>
     <div class="stat-card"><div class="stat-label">VIX</div><div class="stat-value ${ctx.vix>20?'neg':'pos'}">${ctx.vix}</div></div>
@@ -4573,6 +4592,10 @@ function renderSPXContext(ctx) {
     <div class="stat-card"><div class="stat-label">VENTANA</div><div class="stat-value ${windowCls}" style="font-size:11px;">${windowLabel}</div></div>
     <div class="stat-card"><div class="stat-label">EMA 20</div><div class="stat-value">${ctx.ema20||'—'}</div></div>
     <div class="stat-card"><div class="stat-label">EMA 50</div><div class="stat-value">${ctx.ema50||'—'}</div></div>
+    <div class="stat-card" style="border:1px solid ${spxContext?.tf15m?'rgba(79,142,255,.3)':'var(--border)'};">
+      <div class="stat-label">SEÑAL 15M</div>
+      <div class="stat-value ${tf15Cls}" style="font-size:11px;">${tf15Label}</div>
+    </div>
   `;
 }
 
@@ -4676,6 +4699,116 @@ async function actSPXSignal(id, action) {
 }
 
 
+
+// ── SPX Score & Config ───────────────────────────────────────
+let spxConfig = null;
+
+function renderSPXScorePanel(ctx) {
+  const el = $('spx-score-panel');
+  if (!el || !ctx?.indicators) return;
+
+  const ind = ctx.indicators;
+  const daily = ind.daily || {};
+  const m15   = ind.m15   || {};
+  const spy   = ind.spy   || {};
+  const macd15 = m15.macd || {};
+
+  const rows = [
+    { label:'EMA 10 Diario',    value: daily.ema10,   ext: daily.ext10,   mundo:1 },
+    { label:'EMA 20 Diario',    value: daily.ema20,   ext: daily.ext20,   mundo:1 },
+    { label:'EMA 50 Diario',    value: daily.ema50,   ext: daily.ext50,   mundo:1 },
+    { label:'EMA 200 Diario',   value: daily.ema200,  ext: daily.ext200,  mundo:1 },
+    { label:'EMA 10 (15m)',     value: m15.ema10,     ext: m15.ext10,     mundo:1 },
+    { label:'EMA 20 (15m)',     value: m15.ema20,     ext: m15.ext20,     mundo:1 },
+    { label:'MACD 15m',         value: macd15.macd,   extra: `Signal:${macd15.signal} Hist:${macd15.histogram}`, mundo:3 },
+    { label:'Volumen SPY',      value: spy.relativeVolume ? spy.relativeVolume+'x' : '—', extra: spy.relativeVolume >= 2 ? '✅' : '❌', mundo:3 },
+  ];
+
+  el.innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:12px;">INDICADORES EN TIEMPO REAL</div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+      <div style="display:grid;grid-template-columns:30px 1fr 100px 100px 60px;padding:6px 14px;border-bottom:1px solid var(--border);font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.06em;">
+        <div>M</div><div>INDICADOR</div><div>VALOR</div><div>EXT %</div><div>EXTRA</div>
+      </div>
+      ${rows.map(r => `
+        <div style="display:grid;grid-template-columns:30px 1fr 100px 100px 60px;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.03);font-size:11px;font-family:var(--mono);">
+          <div style="color:var(--muted);">M${r.mundo}</div>
+          <div style="color:var(--text);">${r.label}</div>
+          <div style="color:var(--bright);">${r.value ?? '—'}</div>
+          <div style="color:${r.ext > 0 ? 'var(--green)' : r.ext < 0 ? 'var(--red)' : 'var(--muted)'};">${r.ext !== undefined ? (r.ext > 0 ? '+' : '') + r.ext + '%' : '—'}</div>
+          <div style="color:var(--muted);">${r.extra || ''}</div>
+        </div>`).join('')}
+    </div>`;
+}
+
+function renderSPXConfig(cfg) {
+  const el = $('spx-config-panel');
+  if (!el || !cfg) return;
+  spxConfig = cfg;
+
+  const labels = {
+    precio_ema200:         'Precio vs EMA 200 diario',
+    emas_alineadas_diario: 'EMAs alineadas diario',
+    emas_alineadas_15m:    'EMAs alineadas 15m',
+    macd_alineado_15m:     'MACD alineado 15m',
+    precio_cerca_ema:      'Precio cerca EMA (no extendido)',
+    volumen_spy:           'Volumen SPY > 2x',
+    gex_compatible:        'GEX compatible con dirección',
+  };
+
+  const total = Object.values(cfg.weights).reduce((a,b) => a+b, 0);
+
+  el.innerHTML = `
+    <div style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-size:11px;color:var(--muted);">Score mínimo para entrada</span>
+        <span style="font-family:var(--mono);font-size:13px;color:var(--gold);" id="min-score-val">${cfg.minScore}%</span>
+      </div>
+      <input type="range" min="50" max="95" step="5" value="${cfg.minScore}"
+        oninput="$('min-score-val').textContent=this.value+'%'"
+        onchange="updateSPXConfig('minScore', +this.value)"
+        style="width:100%;accent-color:var(--gold);">
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:12px;">PESOS POR CRITERIO (total actual: ${total}%)</div>
+    ${Object.entries(cfg.weights).map(([k,v]) => `
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:11px;color:var(--text);">${labels[k]||k}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--bright);" id="w-${k}">${v}%</span>
+        </div>
+        <input type="range" min="0" max="40" step="5" value="${v}"
+          oninput="$('w-${k}').textContent=this.value+'%'"
+          onchange="updateSPXConfig('weight', +this.value, '${k}')"
+          style="width:100%;accent-color:var(--blue);">
+      </div>`).join('')}
+    <button onclick="saveSPXConfig()" class="btn btn-primary" style="width:100%;margin-top:8px;padding:10px;">💾 Guardar configuración</button>
+  `;
+}
+
+function toggleSPXConfig() {
+  const el = $('spx-config-panel');
+  if (!el) return;
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen && spxConfig) renderSPXConfig(spxConfig);
+}
+
+function updateSPXConfig(type, value, key) {
+  if (!spxConfig) return;
+  if (type === 'minScore') spxConfig.minScore = value;
+  if (type === 'weight' && key) spxConfig.weights[key] = value;
+}
+
+async function saveSPXConfig() {
+  try {
+    await fetch('/api/spx/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(spxConfig)
+    });
+    alert('✅ Configuración guardada');
+  } catch(e) { alert('Error: ' + e.message); }
+}
 
 function toggleWheelRow(id) {
   const det = document.getElementById('det-'+id);

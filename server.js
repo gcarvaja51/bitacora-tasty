@@ -1457,6 +1457,41 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
 const { calcGEX, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour } = require('./src/spx');
+const { calcEMA, calcEMAArray, calcMACD, priceExtension, calcRelativeVolume, calcPlaybookScore } = require('./src/spx_indicators');
+
+// ── SPX Config (pesos ajustables) ─────────────────────────────
+const SPX_CONFIG_FILE = path.join(__dirname, 'spx_config.json');
+function loadSPXConfig() {
+  try { return JSON.parse(fs.readFileSync(SPX_CONFIG_FILE, 'utf8')); }
+  catch(e) {
+    return {
+      minScore: 75,
+      weights: {
+        precio_ema200:        15,
+        emas_alineadas_diario: 15,
+        emas_alineadas_15m:   15,
+        macd_alineado_15m:    20,
+        precio_cerca_ema:     15,
+        volumen_spy:          10,
+        gex_compatible:       10,
+      }
+    };
+  }
+}
+function saveSPXConfig(cfg) { fs.writeFileSync(SPX_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8'); }
+
+// GET /api/spx/config
+app.get('/api/spx/config', (req, res) => res.json(loadSPXConfig()));
+
+// POST /api/spx/config
+app.post('/api/spx/config', (req, res) => {
+  const cfg = loadSPXConfig();
+  const { minScore, weights } = req.body;
+  if (minScore !== undefined) cfg.minScore = minScore;
+  if (weights) cfg.weights = { ...cfg.weights, ...weights };
+  saveSPXConfig(cfg);
+  res.json(cfg);
+});
 const SPX_SIGNALS_FILE = path.join(__dirname, 'spx_signals.json');
 
 function loadSPXSignals() {
@@ -1540,6 +1575,61 @@ app.get('/api/spx/context', async (req, res) => {
     // 6. GEX
     const gex = calcGEX(enrichedExps, spxPrice);
 
+    // 7. Indicadores técnicos — diario y 15m
+    let indicators = { daily: {}, m15: {}, spy: {} };
+    try {
+      // Diario SPX
+      const rD = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1y',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const jD = await rD.json();
+      const closesD = jD.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+      if (closesD.length >= 50) {
+        const price = closesD[closesD.length - 1];
+        const ema10D  = calcEMA(closesD, 10);
+        const ema20D  = calcEMA(closesD, 20);
+        const ema50D  = calcEMA(closesD, 50);
+        const ema200D = calcEMA(closesD, 200);
+        indicators.daily = {
+          price, ema10: ema10D, ema20: ema20D, ema50: ema50D, ema200: ema200D,
+          ext10:  priceExtension(price, ema10D),
+          ext20:  priceExtension(price, ema20D),
+          ext50:  priceExtension(price, ema50D),
+          ext200: priceExtension(price, ema200D),
+          macd:   calcMACD(closesD),
+        };
+      }
+
+      // 15m SPX (últimos 5 días)
+      const r15 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=15m&range=5d',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const j15 = await r15.json();
+      const closes15 = j15.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+      if (closes15.length >= 30) {
+        const price15 = closes15[closes15.length - 1];
+        const ema10_15  = calcEMA(closes15, 10);
+        const ema20_15  = calcEMA(closes15, 20);
+        indicators.m15 = {
+          price: price15, ema10: ema10_15, ema20: ema20_15,
+          ext10: priceExtension(price15, ema10_15),
+          ext20: priceExtension(price15, ema20_15),
+          macd:  calcMACD(closes15),
+        };
+      }
+
+      // Volumen SPY
+      const rSPY = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=3mo',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const jSPY = await rSPY.json();
+      const vols = jSPY.chart?.result?.[0]?.indicators?.quote?.[0]?.volume?.filter(v => v != null) || [];
+      if (vols.length >= 20) {
+        const currentVol = vols[vols.length - 1];
+        indicators.spy = {
+          volume:         currentVol,
+          relativeVolume: calcRelativeVolume(vols, currentVol, 20),
+        };
+      }
+    } catch(e) { console.error('[SPX] indicators error:', e.message); }
+
     // 7. Hora ET
     const et = getETHour();
 
@@ -1562,6 +1652,9 @@ app.get('/api/spx/context', async (req, res) => {
       }
     } catch(e) {}
 
+    // Score del playbook (dirección neutral por defecto en contexto)
+    const spxConfig = loadSPXConfig();
+
     res.json({
       spxPrice: +spxPrice.toFixed(2),
       vix:      +vix.toFixed(2),
@@ -1570,6 +1663,8 @@ app.get('/api/spx/context', async (req, res) => {
       gex,
       ema20,
       ema50,
+      indicators,
+      config:   spxConfig,
       etTime:   et.time,
       etHour:   et.hour,
       etMin:    et.min,
@@ -1639,6 +1734,26 @@ app.post('/api/spx/webhook', async (req, res) => {
       capital = parseFloat(acc.data?.['net-liquidating-value'] || capital);
     } catch(e) {}
 
+    // Calcular score del playbook
+    const spxConfig = loadSPXConfig();
+    const playbookResult = calcPlaybookScore({
+      direction,
+      spxPrice:    ctx.spxPrice,
+      gammaRegime: ctx.gex?.regime,
+      gammaFlip:   ctx.gex?.gammaFlip,
+      daily:       ctx.indicators?.daily,
+      m15:         ctx.indicators?.m15,
+      spy:         ctx.indicators?.spy,
+    }, spxConfig);
+
+    if (!playbookResult.passed) {
+      return res.json({
+        signal: false,
+        reason: `Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`,
+        playbook: playbookResult,
+      });
+    }
+
     // Seleccionar estrategia
     const sel = selectStrategy({
       direction,
@@ -1674,7 +1789,7 @@ app.post('/api/spx/webhook', async (req, res) => {
       etTime:      ctx.etTime,
     });
 
-    if (playbook_score) signal.playbookScore = playbook_score;
+    signal.playbook  = playbookResult;
     signal.source    = source;
     signal.timeframe = timeframe;
     signal.tf15m     = spx15mContext?.direction || direction;
