@@ -657,14 +657,6 @@
       "notes": []
     },
     {
-      "symbol": "GNTX",
-      "name": "GNTX",
-      "status": "yellow",
-      "screener": "",
-      "addedDate": "2026-06-11",
-      "notes": []
-    },
-    {
       "symbol": "PCG",
       "name": "PCG",
       "status": "orange",
@@ -687,6 +679,54 @@
       "screener": "",
       "addedDate": "2026-06-16",
       "notes": []
+    },
+    {
+      "symbol": "OKLO",
+      "name": "OKLO",
+      "status": "orange",
+      "screener": "",
+      "addedDate": "2026-06-16",
+      "notes": []
+    },
+    {
+      "symbol": "NFLX",
+      "name": "NFLX",
+      "status": "orange",
+      "screener": "",
+      "addedDate": "2026-06-16",
+      "notes": []
+    },
+    {
+      "symbol": "LMND",
+      "name": "LMND",
+      "status": "yellow",
+      "screener": "",
+      "addedDate": "2026-06-16",
+      "notes": [
+        {
+          "id": "n1781651035492",
+          "date": "2026-06-16",
+          "status": "orange",
+          "text": "viene de capitanes",
+          "image": null
+        }
+      ]
+    },
+    {
+      "symbol": "UBER",
+      "name": "UBER",
+      "status": "yellow",
+      "screener": "",
+      "addedDate": "2026-06-16",
+      "notes": [
+        {
+          "id": "n1781651071861",
+          "date": "2026-06-16",
+          "status": "orange",
+          "text": "viene de capitanes",
+          "image": null
+        }
+      ]
     }
   ]
 }

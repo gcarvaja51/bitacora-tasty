@@ -1009,6 +1009,11 @@ const SCREENERS = {
     desc:  'Gap up +3% con volumen',
     url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o500,sh_gap_u3,sh_price_o20,sh_relvol_o3,ta_perf2_dp&ft=4',
   },
+  cercaemas: {
+    label: '📍 Cerca EMAs',
+    desc:  'Precio cruzando SMA20 | Beta >1.5 | Vol >1M | RelVol >1',
+    url:   'https://finviz.com/screener.ashx?v=111&f=op_option_optionshort,sh_avgvol_o1000,sh_relvol_o1,ta_beta_o1.5,ta_sma20_cross&ft=4',
+  },
 };
 
 const _screenerCache = {};

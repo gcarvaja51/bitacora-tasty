@@ -1,5 +1,5 @@
 {
-  "minScore": 5,
+  "minScore": 75,
   "weights": {
     "precio_ema200": 15,
     "emas_alineadas_diario": 15,
