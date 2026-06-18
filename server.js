@@ -1554,35 +1554,35 @@ app.get('/api/spx/context', async (req, res) => {
       }
     }
 
-    // Enriquecer con market-data en lotes
-    const pricingMap = {};
-    const syms = expirations.slice(0,2).flatMap(e => (e.strikes||[]).flatMap(s => [s.call,s.put].filter(Boolean)));
-    const BATCH = 50;
-    for (let i = 0; i < syms.length; i += BATCH) {
-      try {
-        const batch = syms.slice(i, i+BATCH);
-        const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
-        const d = await tt._req(`/market-data?${params}`);
-        for (const item of (d.data?.items || [])) {
-          pricingMap[item.symbol] = {
-            delta: parseFloat(item.delta || 0),
-            gamma: parseFloat(item.gamma || 0),
-            oi:    parseInt(item['open-interest'] || 0),
-            mark:  parseFloat(item.mark || item.mid || 0),
-          };
-        }
-      } catch(e) {}
+    // Usar cadena interna /api/option-chain/SPX que ya tiene gamma/oi correctos
+    let enrichedExps = [];
+    try {
+      const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
+      const chainJson = await chainRes.json();
+      // Actualizar spxPrice si vino como 0
+      if (!spxPrice || spxPrice < 1000) spxPrice = chainJson.underlyingPrice || spxPrice;
+      enrichedExps = (chainJson.expirations || []).slice(0, 4).map(exp => ({
+        expiry: exp.expiry,
+        dte:    exp.dte,
+        strikes: (exp.strikes || []).map(s => ({
+          strike: s.strike,
+          call: {
+            delta: s.call?.delta || 0,
+            gamma: s.call?.gamma || 0,
+            oi:    s.call?.oi    || 0,
+            mark:  s.call?.mark  || 0,
+          },
+          put: {
+            delta: s.put?.delta || 0,
+            gamma: s.put?.gamma || 0,
+            oi:    s.put?.oi    || 0,
+            mark:  s.put?.mark  || 0,
+          },
+        }))
+      }));
+    } catch(e) {
+      console.error('[SPX] Error obteniendo cadena para GEX:', e.message);
     }
-
-    // Enriquecer expirations con datos reales
-    const enrichedExps = expirations.slice(0,4).map(exp => ({
-      ...exp,
-      strikes: (exp.strikes||[]).map(s => ({
-        strike: s.strike,
-        call: pricingMap[s.call] ? { ...pricingMap[s.call] } : { delta:0, gamma:0, oi:0, mark:0 },
-        put:  pricingMap[s.put]  ? { ...pricingMap[s.put]  } : { delta:0, gamma:0, oi:0, mark:0 },
-      }))
-    }));
 
     // 6. GEX
     const gex = calcGEX(enrichedExps, spxPrice);
