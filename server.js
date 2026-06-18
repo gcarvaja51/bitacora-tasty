@@ -1466,21 +1466,30 @@ const { calcPlaybookScore, calcRelativeVolume, priceExtension } = require('./src
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
 const SPX_CONFIG_FILE = path.join(__dirname, 'spx_config.json');
+const SPX_CONFIG_DEFAULTS = {
+  minScore: 75,
+  weights: {
+    precio_ema200:         5,
+    emas_alineadas_diario: 5,
+    emas_alineadas_15m:   22,
+    macd_alineado_15m:    28,
+    precio_cerca_ema:     20,
+    volumen_spy:          12,
+    gex_compatible:        8,
+  }
+};
 function loadSPXConfig() {
-  try { return JSON.parse(fs.readFileSync(SPX_CONFIG_FILE, 'utf8')); }
-  catch(e) {
-    return {
-      minScore: 75,
-      weights: {
-        precio_ema200:         5,
-        emas_alineadas_diario: 5,
-        emas_alineadas_15m:   22,
-        macd_alineado_15m:    28,
-        precio_cerca_ema:     20,
-        volumen_spy:          12,
-        gex_compatible:        8,
-      }
-    };
+  try {
+    const saved = JSON.parse(fs.readFileSync(SPX_CONFIG_FILE, 'utf8'));
+    // Si los pesos son los viejos (precio_ema200=15), usar defaults actualizados
+    if (saved?.weights?.precio_ema200 === 15) {
+      console.log('[SPX] Config antigua detectada, usando defaults Propuesta C');
+      saveSPXConfig(SPX_CONFIG_DEFAULTS);
+      return SPX_CONFIG_DEFAULTS;
+    }
+    return saved;
+  } catch(e) {
+    return SPX_CONFIG_DEFAULTS;
   }
 }
 function saveSPXConfig(cfg) { fs.writeFileSync(SPX_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8'); }
