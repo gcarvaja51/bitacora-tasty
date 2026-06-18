@@ -4770,7 +4770,7 @@ function renderSPXScorePanel(ctx) {
     { label:'EMA 200 Diario',   value: daily.ema200,  ext: daily.ext200,  mundo:1 },
     { label:'EMA 10 (15m)',     value: m15.ema10,     ext: m15.ext10,     mundo:1 },
     { label:'EMA 20 (15m)',     value: m15.ema20,     ext: m15.ext20,     mundo:1 },
-    { label:'MACD 15m',         value: macd15.macd,   extra: `Signal:${macd15.signal} Hist:${macd15.histogram}`, mundo:3 },
+    { label:'MACD 15m',         value: macd15.line !== undefined ? macd15.line : macd15.macd,   extra: `Signal:${macd15.signal ?? '—'} Hist:${macd15.hist ?? macd15.histogram ?? '—'}`, mundo:3 },
     { label:'Volumen SPY',      value: spy.relativeVolume ? spy.relativeVolume+'x' : '—', extra: spy.relativeVolume >= 2 ? '✅' : '❌', mundo:3 },
   ];
 

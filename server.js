@@ -1753,14 +1753,21 @@ app.post('/api/spx/webhook', async (req, res) => {
 
     // Calcular score del playbook
     const spxConfig = loadSPXConfig();
+    // Asegurar defaults para evitar undefined en calcPlaybookScore
+    const safeDaily = ctx.indicators?.daily || {};
+    const safeM15   = ctx.indicators?.m15   || {};
+    const safeSpy   = ctx.indicators?.spy   || {};
+    if (!safeDaily.macd) safeDaily.macd = { line: null, signal: null, hist: null };
+    if (!safeM15.macd)   safeM15.macd   = { line: null, signal: null, hist: null };
+
     const playbookResult = calcPlaybookScore({
       direction,
       spxPrice:    ctx.spxPrice,
       gammaRegime: ctx.gex?.regime,
       gammaFlip:   ctx.gex?.gammaFlip,
-      daily:       ctx.indicators?.daily,
-      m15:         ctx.indicators?.m15,
-      spy:         ctx.indicators?.spy,
+      daily:       safeDaily,
+      m15:         safeM15,
+      spy:         safeSpy,
     }, spxConfig);
 
     if (!playbookResult.passed) {
