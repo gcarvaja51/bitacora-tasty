@@ -1466,21 +1466,30 @@ const { calcPlaybookScore, calcRelativeVolume, priceExtension } = require('./src
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
 const SPX_CONFIG_FILE = path.join(__dirname, 'spx_config.json');
+const SPX_CONFIG_DEFAULTS = {
+  minScore: 75,
+  weights: {
+    precio_ema200:         5,
+    emas_alineadas_diario: 5,
+    emas_alineadas_15m:   22,
+    macd_alineado_15m:    28,
+    precio_cerca_ema:     20,
+    volumen_spy:          12,
+    gex_compatible:        8,
+  }
+};
 function loadSPXConfig() {
-  try { return JSON.parse(fs.readFileSync(SPX_CONFIG_FILE, 'utf8')); }
-  catch(e) {
-    return {
-      minScore: 75,
-      weights: {
-        precio_ema200:         5,
-        emas_alineadas_diario: 5,
-        emas_alineadas_15m:   22,
-        macd_alineado_15m:    28,
-        precio_cerca_ema:     20,
-        volumen_spy:          12,
-        gex_compatible:        8,
-      }
-    };
+  try {
+    const saved = JSON.parse(fs.readFileSync(SPX_CONFIG_FILE, 'utf8'));
+    // Si los pesos son los viejos (precio_ema200=15), usar defaults actualizados
+    if (saved?.weights?.precio_ema200 === 15) {
+      console.log('[SPX] Config antigua detectada, usando defaults Propuesta C');
+      saveSPXConfig(SPX_CONFIG_DEFAULTS);
+      return SPX_CONFIG_DEFAULTS;
+    }
+    return saved;
+  } catch(e) {
+    return SPX_CONFIG_DEFAULTS;
   }
 }
 function saveSPXConfig(cfg) { fs.writeFileSync(SPX_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8'); }
@@ -1554,38 +1563,55 @@ app.get('/api/spx/context', async (req, res) => {
       }
     }
 
-    // Enriquecer con market-data en lotes
-    const pricingMap = {};
-    const syms = expirations.slice(0,2).flatMap(e => (e.strikes||[]).flatMap(s => [s.call,s.put].filter(Boolean)));
-    const BATCH = 50;
-    for (let i = 0; i < syms.length; i += BATCH) {
-      try {
-        const batch = syms.slice(i, i+BATCH);
-        const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
-        const d = await tt._req(`/market-data?${params}`);
-        for (const item of (d.data?.items || [])) {
-          pricingMap[item.symbol] = {
-            delta: parseFloat(item.delta || 0),
-            gamma: parseFloat(item.gamma || 0),
-            oi:    parseInt(item['open-interest'] || 0),
-            mark:  parseFloat(item.mark || item.mid || 0),
-          };
-        }
-      } catch(e) {}
+    // Usar cadena interna /api/option-chain/SPX que ya tiene gamma/oi correctos
+    let enrichedExps = [];
+    try {
+      const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
+      const chainJson = await chainRes.json();
+      // Actualizar spxPrice si vino como 0
+      if (!spxPrice || spxPrice < 1000) spxPrice = chainJson.underlyingPrice || spxPrice;
+      enrichedExps = (chainJson.expirations || []).slice(0, 4).map(exp => ({
+        expiry: exp.expiry,
+        dte:    exp.dte,
+        strikes: (exp.strikes || []).map(s => ({
+          strike: s.strike,
+          call: {
+            delta: s.call?.delta || 0,
+            gamma: s.call?.gamma || 0,
+            oi:    s.call?.oi    || 0,
+            mark:  s.call?.mark  || 0,
+          },
+          put: {
+            delta: s.put?.delta || 0,
+            gamma: s.put?.gamma || 0,
+            oi:    s.put?.oi    || 0,
+            mark:  s.put?.mark  || 0,
+          },
+        }))
+      }));
+    } catch(e) {
+      console.error('[SPX] Error obteniendo cadena para GEX:', e.message);
     }
-
-    // Enriquecer expirations con datos reales
-    const enrichedExps = expirations.slice(0,4).map(exp => ({
-      ...exp,
-      strikes: (exp.strikes||[]).map(s => ({
-        strike: s.strike,
-        call: pricingMap[s.call] ? { ...pricingMap[s.call] } : { delta:0, gamma:0, oi:0, mark:0 },
-        put:  pricingMap[s.put]  ? { ...pricingMap[s.put]  } : { delta:0, gamma:0, oi:0, mark:0 },
-      }))
-    }));
 
     // 6. GEX
     const gex = calcGEX(enrichedExps, spxPrice);
+
+    // Calcular Gamma Flip si no viene de calcGEX (interpolación entre levels)
+    if (!gex.gammaFlip && gex.levels && gex.levels.length > 1) {
+      const sorted = [...gex.levels].sort((a, b) => a.strike - b.strike);
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i-1], curr = sorted[i];
+        if (prev.gex < 0 && curr.gex > 0) {
+          const ratio = Math.abs(prev.gex) / (Math.abs(prev.gex) + Math.abs(curr.gex));
+          gex.gammaFlip = Math.round(prev.strike + ratio * (curr.strike - prev.strike));
+          break;
+        } else if (prev.gex > 0 && curr.gex < 0) {
+          const ratio = Math.abs(prev.gex) / (Math.abs(prev.gex) + Math.abs(curr.gex));
+          gex.gammaFlip = Math.round(prev.strike + ratio * (curr.strike - prev.strike));
+          break;
+        }
+      }
+    }
 
     // 7. Indicadores técnicos — diario y 15m
     let indicators = { daily: {}, m15: {}, spy: {} };
@@ -1753,14 +1779,21 @@ app.post('/api/spx/webhook', async (req, res) => {
 
     // Calcular score del playbook
     const spxConfig = loadSPXConfig();
+    // Asegurar defaults para evitar undefined en calcPlaybookScore
+    const safeDaily = ctx.indicators?.daily || {};
+    const safeM15   = ctx.indicators?.m15   || {};
+    const safeSpy   = ctx.indicators?.spy   || {};
+    if (!safeDaily.macd) safeDaily.macd = { line: null, signal: null, hist: null };
+    if (!safeM15.macd)   safeM15.macd   = { line: null, signal: null, hist: null };
+
     const playbookResult = calcPlaybookScore({
       direction,
       spxPrice:    ctx.spxPrice,
       gammaRegime: ctx.gex?.regime,
       gammaFlip:   ctx.gex?.gammaFlip,
-      daily:       ctx.indicators?.daily,
-      m15:         ctx.indicators?.m15,
-      spy:         ctx.indicators?.spy,
+      daily:       safeDaily,
+      m15:         safeM15,
+      spy:         safeSpy,
     }, spxConfig);
 
     if (!playbookResult.passed) {

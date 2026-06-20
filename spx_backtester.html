@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPX Backtester — Bitácora Tasty</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d0f14; color:#e2e8f0; font-family:'Inter',system-ui,sans-serif; min-height:100vh; }
+  
+  .header { padding:20px 24px; border-bottom:1px solid #1e2433; display:flex; align-items:center; gap:12px; }
+  .header h1 { font-size:18px; font-weight:600; color:#fff; }
+  .header .badge { background:#1a2744; color:#60a5fa; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:600; }
+  
+  .controls { padding:16px 24px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; border-bottom:1px solid #1e2433; }
+  .ctrl-group { display:flex; align-items:center; gap:8px; }
+  .ctrl-group label { font-size:12px; color:#94a3b8; }
+  .ctrl-group input { background:#1e2433; border:1px solid #2d3748; color:#e2e8f0; padding:6px 10px; border-radius:6px; font-size:12px; }
+  .btn-run { background:#3b82f6; color:#fff; border:none; padding:8px 20px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn-run:hover { background:#2563eb; }
+  .stat { background:#1e2433; border-radius:6px; padding:8px 14px; font-size:12px; color:#94a3b8; }
+  .stat span { color:#fff; font-weight:600; margin-left:4px; }
+
+  .main { display:grid; grid-template-columns:1fr 340px; height:calc(100vh - 120px); }
+  
+  .chart-area { padding:16px; overflow:hidden; border-right:1px solid #1e2433; }
+  canvas { width:100%; }
+
+  .panel { overflow-y:auto; }
+  .panel-title { padding:14px 16px; font-size:12px; font-weight:700; color:#94a3b8; letter-spacing:.08em; text-transform:uppercase; border-bottom:1px solid #1e2433; }
+  
+  .signal-list { padding:8px; display:flex; flex-direction:column; gap:6px; }
+  .signal-card { background:#1a1f2e; border:1px solid #2d3748; border-radius:8px; padding:12px; cursor:pointer; transition:all .15s; }
+  .signal-card:hover { border-color:#3b82f6; background:#1e2844; }
+  .signal-card.active { border-color:#3b82f6; background:#1e2844; box-shadow:0 0 0 1px #3b82f6; }
+  .signal-card.bearish { border-left:3px solid #f87171; }
+  .signal-card.bullish { border-left:3px solid #34d399; }
+  
+  .sc-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .sc-dir { font-size:11px; font-weight:700; padding:2px 8px; border-radius:4px; }
+  .sc-dir.bear { background:#7f1d1d33; color:#f87171; }
+  .sc-dir.bull { background:#14532d33; color:#34d399; }
+  .sc-score { font-size:11px; color:#fbbf24; font-weight:700; }
+  .sc-fecha { font-size:13px; font-weight:600; color:#e2e8f0; }
+  .sc-hora { font-size:11px; color:#94a3b8; }
+  .sc-price { font-size:12px; color:#94a3b8; margin-top:4px; }
+  .sc-estrategia { font-size:12px; color:#60a5fa; font-weight:600; margin-top:2px; }
+
+  .detail-panel { background:#111827; border-top:1px solid #1e2433; padding:16px; }
+  .detail-panel h3 { font-size:13px; font-weight:700; color:#fff; margin-bottom:12px; }
+  .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .detail-item { background:#1e2433; border-radius:6px; padding:10px; }
+  .detail-item .label { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
+  .detail-item .value { font-size:14px; font-weight:700; color:#e2e8f0; }
+  .detail-item .value.green { color:#34d399; }
+  .detail-item .value.red { color:#f87171; }
+  .detail-item .value.yellow { color:#fbbf24; }
+  .detail-item .value.blue { color:#60a5fa; }
+  
+  .playbook-bars { margin-top:12px; }
+  .pb-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+  .pb-label { font-size:10px; color:#94a3b8; width:140px; flex-shrink:0; }
+  .pb-bar-bg { flex:1; background:#1e2433; border-radius:3px; height:6px; }
+  .pb-bar { height:6px; border-radius:3px; }
+  .pb-pts { font-size:10px; color:#64748b; width:24px; text-align:right; }
+  .no-signal { padding:24px 16px; text-align:center; color:#4b5563; font-size:13px; }
+
+  .tooltip { position:absolute; background:#1e2433; border:1px solid #374151; border-radius:6px; padding:8px 12px; font-size:11px; color:#e2e8f0; pointer-events:none; z-index:100; display:none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span style="font-size:20px">⚡</span>
+  <h1>SPX Backtester</h1>
+  <div class="badge">Playbook Alejandro</div>
+</div>
+
+<div class="controls">
+  <div class="ctrl-group">
+    <label>Desde</label>
+    <input type="date" id="dateFrom" value="2026-06-10">
+  </div>
+  <div class="ctrl-group">
+    <label>Hasta</label>
+    <input type="date" id="dateTo" value="2026-06-19">
+  </div>
+  <div class="ctrl-group">
+    <label>Score mín.</label>
+    <input type="number" id="minScore" value="75" min="50" max="100" style="width:70px">
+  </div>
+  <button class="btn-run" onclick="runBacktest()">▶ Ejecutar</button>
+  <div class="stat">Señales: <span id="stat-total">—</span></div>
+  <div class="stat">Bearish: <span id="stat-bear" style="color:#f87171">—</span></div>
+  <div class="stat">Bullish: <span id="stat-bull" style="color:#34d399">—</span></div>
+</div>
+
+<div class="main">
+  <div class="chart-area">
+    <canvas id="chartCanvas"></canvas>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Señales detectadas</div>
+    <div class="signal-list" id="signalList">
+      <div class="no-signal">Ejecuta el backtester para ver señales</div>
+    </div>
+    <div id="detailPanel" style="display:none" class="detail-panel">
+      <h3 id="detailTitle">Detalle de entrada</h3>
+      <div class="detail-grid" id="detailGrid"></div>
+      <div class="playbook-bars" id="playbookBars"></div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ── DATOS ──────────────────────────────────────────────────────
+const SPX_CHART_DATA = [{"time": 1781098200, "open": 7350.54, "high": 7375.41, "low": 7328.42, "close": 7375.41, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 08:30"}, {"time": 1781099100, "open": 7375.39, "high": 7382.39, "low": 7361.71, "close": 7370.49, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 08:45"}, {"time": 1781100000, "open": 7370.84, "high": 7388.6, "low": 7363.6, "close": 7379.7, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 09:00"}, {"time": 1781100900, "open": 7379.63, "high": 7396.56, "low": 7370.95, "close": 7385.89, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 09:15"}, {"time": 1781101800, "open": 7385.44, "high": 7391.9, "low": 7369.35, "close": 7369.35, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 09:30"}, {"time": 1781102700, "open": 7368.92, "high": 7373.27, "low": 7334.76, "close": 7341.49, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 09:45"}, {"time": 1781103600, "open": 7341.55, "high": 7355.99, "low": 7319.21, "close": 7319.56, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 10:00"}, {"time": 1781104500, "open": 7319.42, "high": 7337.21, "low": 7307.65, "close": 7327.68, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 10:15"}, {"time": 1781105400, "open": 7327.11, "high": 7337.16, "low": 7313.69, "close": 7335.0, "ema10": null, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 10:30"}, {"time": 1781106300, "open": 7335.19, "high": 7339.16, "low": 7297.79, "close": 7331.41, "ema10": 7353.6, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 10:45"}, {"time": 1781107200, "open": 7331.4, "high": 7336.79, "low": 7311.06, "close": 7313.97, "ema10": 7346.39, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 11:00"}, {"time": 1781108100, "open": 7314.14, "high": 7321.75, "low": 7311.79, "close": 7318.45, "ema10": 7341.31, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 11:15"}, {"time": 1781109000, "open": 7318.47, "high": 7334.57, "low": 7313.13, "close": 7321.0, "ema10": 7337.62, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 11:30"}, {"time": 1781109900, "open": 7320.98, "high": 7321.87, "low": 7306.89, "close": 7315.74, "ema10": 7333.64, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 11:45"}, {"time": 1781110800, "open": 7315.69, "high": 7325.18, "low": 7299.72, "close": 7301.75, "ema10": 7327.84, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 12:00"}, {"time": 1781111700, "open": 7301.8, "high": 7309.85, "low": 7299.16, "close": 7308.08, "ema10": 7324.25, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 12:15"}, {"time": 1781112600, "open": 7308.25, "high": 7308.78, "low": 7291.23, "close": 7291.59, "ema10": 7318.31, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 12:30"}, {"time": 1781113500, "open": 7291.58, "high": 7319.6, "low": 7291.36, "close": 7318.41, "ema10": 7318.33, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 12:45"}, {"time": 1781114400, "open": 7318.36, "high": 7329.16, "low": 7317.44, "close": 7319.32, "ema10": 7318.51, "ema20": null, "macdH": null, "macdL": null, "dt_col": "2026-06-10 13:00"}, {"time": 1781115300, "open": 7319.32, "high": 7324.29, "low": 7305.84, "close": 7307.74, "ema10": 7316.55, "ema20": 7332.6, "macdH": null, "macdL": null, "dt_col": "2026-06-10 13:15"}, {"time": 1781116200, "open": 7307.73, "high": 7307.73, "low": 7293.71, "close": 7297.38, "ema10": 7313.07, "ema20": 7329.25, "macdH": null, "macdL": null, "dt_col": "2026-06-10 13:30"}, {"time": 1781117100, "open": 7297.17, "high": 7297.17, "low": 7282.14, "close": 7286.48, "ema10": 7308.23, "ema20": 7325.17, "macdH": null, "macdL": null, "dt_col": "2026-06-10 13:45"}, {"time": 1781118000, "open": 7286.69, "high": 7292.61, "low": 7280.79, "close": 7282.29, "ema10": 7303.52, "ema20": 7321.09, "macdH": null, "macdL": null, "dt_col": "2026-06-10 14:00"}, {"time": 1781118900, "open": 7282.45, "high": 7283.79, "low": 7267.35, "close": 7272.85, "ema10": 7297.94, "ema20": 7316.5, "macdH": null, "macdL": null, "dt_col": "2026-06-10 14:15"}, {"time": 1781119800, "open": 7272.21, "high": 7288.98, "low": 7269.22, "close": 7284.59, "ema10": 7295.51, "ema20": 7313.46, "macdH": null, "macdL": null, "dt_col": "2026-06-10 14:30"}, {"time": 1781120700, "open": 7284.42, "high": 7290.0, "low": 7265.93, "close": 7267.65, "ema10": 7290.45, "ema20": 7309.09, "macdH": null, "macdL": -26.4, "dt_col": "2026-06-10 14:45"}, {"time": 1781184600, "open": 7287.67, "high": 7303.4, "low": 7276.92, "close": 7285.26, "ema10": 7289.5, "ema20": 7306.82, "macdH": null, "macdL": -25.19, "dt_col": "2026-06-11 08:30"}, {"time": 1781185500, "open": 7284.93, "high": 7327.9, "low": 7281.45, "close": 7309.01, "ema10": 7293.05, "ema20": 7307.03, "macdH": null, "macdL": -22.05, "dt_col": "2026-06-11 08:45"}, {"time": 1781186400, "open": 7309.78, "high": 7327.84, "low": 7290.81, "close": 7291.05, "ema10": 7292.69, "ema20": 7305.51, "macdH": null, "macdL": -20.78, "dt_col": "2026-06-11 09:00"}, {"time": 1781187300, "open": 7291.26, "high": 7309.33, "low": 7281.55, "close": 7300.94, "ema10": 7294.19, "ema20": 7305.08, "macdH": null, "macdL": -18.75, "dt_col": "2026-06-11 09:15"}, {"time": 1781188200, "open": 7300.77, "high": 7312.7, "low": 7289.6, "close": 7299.05, "ema10": 7295.07, "ema20": 7304.5, "macdH": null, "macdL": -17.09, "dt_col": "2026-06-11 09:30"}, {"time": 1781189100, "open": 7298.74, "high": 7302.37, "low": 7263.78, "close": 7268.94, "ema10": 7290.32, "ema20": 7301.11, "macdH": null, "macdL": -18.01, "dt_col": "2026-06-11 09:45"}, {"time": 1781190000, "open": 7268.81, "high": 7290.8, "low": 7257.33, "close": 7286.96, "ema10": 7289.71, "ema20": 7299.77, "macdH": null, "macdL": -17.08, "dt_col": "2026-06-11 10:00"}, {"time": 1781190900, "open": 7286.68, "high": 7299.08, "low": 7280.06, "close": 7286.12, "ema10": 7289.06, "ema20": 7298.47, "macdH": 3.95, "macdL": -16.23, "dt_col": "2026-06-11 10:15"}, {"time": 1781191800, "open": 7285.07, "high": 7305.31, "low": 7279.87, "close": 7290.87, "ema10": 7289.39, "ema20": 7297.74, "macdH": 4.14, "macdL": -15.0, "dt_col": "2026-06-11 10:30"}, {"time": 1781192700, "open": 7291.07, "high": 7296.44, "low": 7281.08, "close": 7293.54, "ema10": 7290.14, "ema20": 7297.34, "macdH": 4.39, "macdL": -13.65, "dt_col": "2026-06-11 10:45"}, {"time": 1781193600, "open": 7293.36, "high": 7313.13, "low": 7288.85, "close": 7310.35, "ema10": 7293.82, "ema20": 7298.58, "macdH": 5.55, "macdL": -11.1, "dt_col": "2026-06-11 11:00"}, {"time": 1781194500, "open": 7310.49, "high": 7314.28, "low": 7291.12, "close": 7291.37, "ema10": 7293.37, "ema20": 7297.89, "macdH": 4.94, "macdL": -10.48, "dt_col": "2026-06-11 11:15"}, {"time": 1781195400, "open": 7291.56, "high": 7310.97, "low": 7287.48, "close": 7298.4, "ema10": 7294.29, "ema20": 7297.94, "macdH": 4.88, "macdL": -9.32, "dt_col": "2026-06-11 11:30"}, {"time": 1781196300, "open": 7298.26, "high": 7301.07, "low": 7277.23, "close": 7277.37, "ema10": 7291.21, "ema20": 7295.98, "macdH": 3.38, "macdL": -9.98, "dt_col": "2026-06-11 11:45"}, {"time": 1781197200, "open": 7277.32, "high": 7283.76, "low": 7268.62, "close": 7275.34, "ema10": 7288.32, "ema20": 7294.02, "macdH": 2.24, "macdL": -10.55, "dt_col": "2026-06-11 12:00"}, {"time": 1781198100, "open": 7275.31, "high": 7337.15, "low": 7265.01, "close": 7337.15, "ema10": 7297.2, "ema20": 7298.13, "macdH": 5.48, "macdL": -5.95, "dt_col": "2026-06-11 12:15"}, {"time": 1781199000, "open": 7336.96, "high": 7377.88, "low": 7335.71, "close": 7375.56, "ema10": 7311.45, "ema20": 7305.5, "macdH": 9.78, "macdL": 0.8, "dt_col": "2026-06-11 12:30"}, {"time": 1781199900, "open": 7375.15, "high": 7377.56, "low": 7347.22, "close": 7362.4, "ema10": 7320.71, "ema20": 7310.92, "macdH": 11.2, "macdL": 5.02, "dt_col": "2026-06-11 12:45"}, {"time": 1781200800, "open": 7362.36, "high": 7367.88, "low": 7338.36, "close": 7355.01, "ema10": 7326.95, "ema20": 7315.12, "macdH": 11.09, "macdL": 7.68, "dt_col": "2026-06-11 13:00"}, {"time": 1781201700, "open": 7355.09, "high": 7370.06, "low": 7351.57, "close": 7356.84, "ema10": 7332.38, "ema20": 7319.09, "macdH": 10.59, "macdL": 9.83, "dt_col": "2026-06-11 13:15"}, {"time": 1781202600, "open": 7357.1, "high": 7365.84, "low": 7353.49, "close": 7362.08, "ema10": 7337.78, "ema20": 7323.19, "macdH": 10.06, "macdL": 11.81, "dt_col": "2026-06-11 13:30"}, {"time": 1781203500, "open": 7361.99, "high": 7374.82, "low": 7361.26, "close": 7370.09, "ema10": 7343.66, "ema20": 7327.65, "macdH": 9.69, "macdL": 13.87, "dt_col": "2026-06-11 13:45"}, {"time": 1781204400, "open": 7370.21, "high": 7384.31, "low": 7366.7, "close": 7382.16, "ema10": 7350.66, "ema20": 7332.84, "macdH": 9.69, "macdL": 16.29, "dt_col": "2026-06-11 14:00"}, {"time": 1781205300, "open": 7382.45, "high": 7395.14, "low": 7380.75, "close": 7392.01, "ema10": 7358.18, "ema20": 7338.48, "macdH": 9.74, "macdL": 18.78, "dt_col": "2026-06-11 14:15"}, {"time": 1781206200, "open": 7392.07, "high": 7412.68, "low": 7392.0, "close": 7407.1, "ema10": 7367.07, "ema20": 7345.01, "macdH": 10.16, "macdL": 21.73, "dt_col": "2026-06-11 14:30"}, {"time": 1781207100, "open": 7407.12, "high": 7407.12, "low": 7386.93, "close": 7393.06, "ema10": 7371.8, "ema20": 7349.59, "macdH": 8.88, "macdL": 22.67, "dt_col": "2026-06-11 14:45"}, {"time": 1781271000, "open": 7410.85, "high": 7417.38, "low": 7370.71, "close": 7370.76, "ema10": 7371.61, "ema20": 7351.61, "macdH": 6.06, "macdL": 21.37, "dt_col": "2026-06-12 08:30"}, {"time": 1781271900, "open": 7370.83, "high": 7385.98, "low": 7363.01, "close": 7379.22, "ema10": 7372.99, "ema20": 7354.24, "macdH": 4.38, "macdL": 20.78, "dt_col": "2026-06-12 08:45"}, {"time": 1781272800, "open": 7379.75, "high": 7417.33, "low": 7377.85, "close": 7406.06, "ema10": 7379.0, "ema20": 7359.17, "macdH": 4.65, "macdL": 22.22, "dt_col": "2026-06-12 09:00"}, {"time": 1781273700, "open": 7405.97, "high": 7422.67, "low": 7401.94, "close": 7408.57, "ema10": 7384.38, "ema20": 7363.88, "macdH": 4.59, "macdL": 23.31, "dt_col": "2026-06-12 09:15"}, {"time": 1781274600, "open": 7408.44, "high": 7422.71, "low": 7391.91, "close": 7391.98, "ema10": 7385.76, "ema20": 7366.55, "macdH": 3.08, "macdL": 22.56, "dt_col": "2026-06-12 09:30"}, {"time": 1781275500, "open": 7392.03, "high": 7437.15, "low": 7384.45, "close": 7436.26, "ema10": 7394.94, "ema20": 7373.19, "macdH": 4.61, "macdL": 25.25, "dt_col": "2026-06-12 09:45"}, {"time": 1781276400, "open": 7436.02, "high": 7445.27, "low": 7429.3, "close": 7443.27, "ema10": 7403.73, "ema20": 7379.87, "macdH": 5.59, "macdL": 27.63, "dt_col": "2026-06-12 10:00"}, {"time": 1781277300, "open": 7443.44, "high": 7456.4, "low": 7438.48, "close": 7452.96, "ema10": 7412.68, "ema20": 7386.83, "macdH": 6.33, "macdL": 29.95, "dt_col": "2026-06-12 10:15"}, {"time": 1781278200, "open": 7453.16, "high": 7453.47, "low": 7420.69, "close": 7422.04, "ema10": 7414.38, "ema20": 7390.18, "macdH": 4.27, "macdL": 28.96, "dt_col": "2026-06-12 10:30"}, {"time": 1781279100, "open": 7421.9, "high": 7431.16, "low": 7396.68, "close": 7401.25, "ema10": 7411.99, "ema20": 7391.23, "macdH": 1.21, "macdL": 26.2, "dt_col": "2026-06-12 10:45"}, {"time": 1781280000, "open": 7401.26, "high": 7430.84, "low": 7394.6, "close": 7422.9, "ema10": 7413.98, "ema20": 7394.25, "macdH": 0.38, "macdL": 25.47, "dt_col": "2026-06-12 11:00"}, {"time": 1781280900, "open": 7423.01, "high": 7434.01, "low": 7413.14, "close": 7418.99, "ema10": 7414.89, "ema20": 7396.61, "macdH": -0.64, "macdL": 24.29, "dt_col": "2026-06-12 11:15"}, {"time": 1781281800, "open": 7418.92, "high": 7426.33, "low": 7416.04, "close": 7417.9, "ema10": 7415.44, "ema20": 7398.63, "macdH": -1.54, "macdL": 23.0, "dt_col": "2026-06-12 11:30"}, {"time": 1781282700, "open": 7417.84, "high": 7428.39, "low": 7416.14, "close": 7427.55, "ema10": 7417.64, "ema20": 7401.39, "macdH": -1.63, "macdL": 22.5, "dt_col": "2026-06-12 11:45"}, {"time": 1781283600, "open": 7427.73, "high": 7441.33, "low": 7425.41, "close": 7432.99, "ema10": 7420.43, "ema20": 7404.4, "macdH": -1.47, "macdL": 22.29, "dt_col": "2026-06-12 12:00"}, {"time": 1781284500, "open": 7432.48, "high": 7439.41, "low": 7430.07, "close": 7434.0, "ema10": 7422.9, "ema20": 7407.22, "macdH": -1.46, "macdL": 21.94, "dt_col": "2026-06-12 12:15"}, {"time": 1781285400, "open": 7433.68, "high": 7434.53, "low": 7426.01, "close": 7429.11, "ema10": 7424.03, "ema20": 7409.3, "macdH": -1.89, "macdL": 21.04, "dt_col": "2026-06-12 12:30"}, {"time": 1781286300, "open": 7429.15, "high": 7433.34, "low": 7421.79, "close": 7425.49, "ema10": 7424.29, "ema20": 7410.84, "macdH": -2.51, "macdL": 19.79, "dt_col": "2026-06-12 12:45"}, {"time": 1781287200, "open": 7425.48, "high": 7431.84, "low": 7417.78, "close": 7422.97, "ema10": 7424.05, "ema20": 7412.0, "macdH": -3.13, "macdL": 18.39, "dt_col": "2026-06-12 13:00"}, {"time": 1781288100, "open": 7422.86, "high": 7425.41, "low": 7416.95, "close": 7424.66, "ema10": 7424.16, "ema20": 7413.2, "macdH": -3.43, "macdL": 17.23, "dt_col": "2026-06-12 13:15"}, {"time": 1781289000, "open": 7424.59, "high": 7435.17, "low": 7424.52, "close": 7434.38, "ema10": 7426.02, "ema20": 7415.22, "macdH": -3.02, "macdL": 16.89, "dt_col": "2026-06-12 13:30"}, {"time": 1781289900, "open": 7434.28, "high": 7435.07, "low": 7422.38, "close": 7422.69, "ema10": 7425.41, "ema20": 7415.93, "macdH": -3.53, "macdL": 15.5, "dt_col": "2026-06-12 13:45"}, {"time": 1781290800, "open": 7422.63, "high": 7434.23, "low": 7422.06, "close": 7427.12, "ema10": 7425.72, "ema20": 7417.0, "macdH": -3.56, "macdL": 14.58, "dt_col": "2026-06-12 14:00"}, {"time": 1781291700, "open": 7426.81, "high": 7431.51, "low": 7422.74, "close": 7426.79, "ema10": 7425.92, "ema20": 7417.93, "macdH": -3.56, "macdL": 13.68, "dt_col": "2026-06-12 14:15"}, {"time": 1781292600, "open": 7426.7, "high": 7428.65, "low": 7413.14, "close": 7420.99, "ema10": 7425.02, "ema20": 7418.22, "macdH": -3.92, "macdL": 12.35, "dt_col": "2026-06-12 14:30"}, {"time": 1781293500, "open": 7420.69, "high": 7432.14, "low": 7417.11, "close": 7430.86, "ema10": 7426.08, "ema20": 7419.43, "macdH": -3.45, "macdL": 11.95, "dt_col": "2026-06-12 14:45"}, {"time": 1781530200, "open": 7516.75, "high": 7546.72, "low": 7516.75, "close": 7539.72, "ema10": 7446.74, "ema20": 7430.88, "macdH": 3.84, "macdL": 20.2, "dt_col": "2026-06-15 08:30"}, {"time": 1781531100, "open": 7539.88, "high": 7552.67, "low": 7539.88, "close": 7543.45, "ema10": 7464.33, "ema20": 7441.6, "macdH": 8.29, "macdL": 26.72, "dt_col": "2026-06-15 08:45"}, {"time": 1781532000, "open": 7544.2, "high": 7551.0, "low": 7535.86, "close": 7541.16, "ema10": 7478.3, "ema20": 7451.08, "macdH": 10.33, "macdL": 31.34, "dt_col": "2026-06-15 09:00"}, {"time": 1781532900, "open": 7541.27, "high": 7548.95, "low": 7537.22, "close": 7548.06, "ema10": 7490.98, "ema20": 7460.32, "macdH": 11.32, "macdL": 35.16, "dt_col": "2026-06-15 09:15"}, {"time": 1781533800, "open": 7548.03, "high": 7548.89, "low": 7540.87, "close": 7543.92, "ema10": 7500.61, "ema20": 7468.28, "macdH": 10.86, "macdL": 37.42, "dt_col": "2026-06-15 09:30"}, {"time": 1781534700, "open": 7543.98, "high": 7554.99, "low": 7543.98, "close": 7552.89, "ema10": 7510.11, "ema20": 7476.34, "macdH": 10.33, "macdL": 39.47, "dt_col": "2026-06-15 09:45"}, {"time": 1781535600, "open": 7553.17, "high": 7559.42, "low": 7552.99, "close": 7558.41, "ema10": 7518.89, "ema20": 7484.16, "macdH": 9.54, "macdL": 41.07, "dt_col": "2026-06-15 10:00"}, {"time": 1781536500, "open": 7558.18, "high": 7563.75, "low": 7556.53, "close": 7562.71, "ema10": 7526.86, "ema20": 7491.64, "macdH": 8.55, "macdL": 42.21, "dt_col": "2026-06-15 10:15"}, {"time": 1781537400, "open": 7562.72, "high": 7566.31, "low": 7559.78, "close": 7565.65, "ema10": 7533.91, "ema20": 7498.69, "macdH": 7.34, "macdL": 42.84, "dt_col": "2026-06-15 10:30"}, {"time": 1781538300, "open": 7565.57, "high": 7574.19, "low": 7565.57, "close": 7572.72, "ema10": 7540.97, "ema20": 7505.74, "macdH": 6.34, "macdL": 43.43, "dt_col": "2026-06-15 10:45"}, {"time": 1781539200, "open": 7572.79, "high": 7577.92, "low": 7572.37, "close": 7573.2, "ema10": 7546.83, "ema20": 7512.16, "macdH": 5.07, "macdL": 43.42, "dt_col": "2026-06-15 11:00"}, {"time": 1781540100, "open": 7573.21, "high": 7576.78, "low": 7570.5, "close": 7575.86, "ema10": 7552.11, "ema20": 7518.23, "macdH": 3.82, "macdL": 43.13, "dt_col": "2026-06-15 11:15"}, {"time": 1781541000, "open": 7575.9, "high": 7577.34, "low": 7569.2, "close": 7571.03, "ema10": 7555.55, "ema20": 7523.26, "macdH": 2.18, "macdL": 42.03, "dt_col": "2026-06-15 11:30"}, {"time": 1781541900, "open": 7570.9, "high": 7570.9, "low": 7566.85, "close": 7570.08, "ema10": 7558.19, "ema20": 7527.72, "macdH": 0.61, "macdL": 40.61, "dt_col": "2026-06-15 11:45"}, {"time": 1781542800, "open": 7570.1, "high": 7571.42, "low": 7564.47, "close": 7569.19, "ema10": 7560.19, "ema20": 7531.67, "macdH": -0.83, "macdL": 38.97, "dt_col": "2026-06-15 12:00"}, {"time": 1781543700, "open": 7569.2, "high": 7574.64, "low": 7568.28, "close": 7572.53, "ema10": 7562.43, "ema20": 7535.56, "macdH": -1.84, "macdL": 37.5, "dt_col": "2026-06-15 12:15"}, {"time": 1781544600, "open": 7572.64, "high": 7574.23, "low": 7568.67, "close": 7568.9, "ema10": 7563.61, "ema20": 7538.73, "macdH": -2.96, "macdL": 35.64, "dt_col": "2026-06-15 12:30"}, {"time": 1781545500, "open": 7568.83, "high": 7569.71, "low": 7562.3, "close": 7563.31, "ema10": 7563.55, "ema20": 7541.07, "macdH": -4.22, "macdL": 33.32, "dt_col": "2026-06-15 12:45"}, {"time": 1781546400, "open": 7563.33, "high": 7564.57, "low": 7558.19, "close": 7563.34, "ema10": 7563.52, "ema20": 7543.19, "macdH": -5.12, "macdL": 31.14, "dt_col": "2026-06-15 13:00"}, {"time": 1781547300, "open": 7563.36, "high": 7564.58, "low": 7558.31, "close": 7558.54, "ema10": 7562.61, "ema20": 7544.66, "macdH": -6.07, "macdL": 28.68, "dt_col": "2026-06-15 13:15"}, {"time": 1781548200, "open": 7558.54, "high": 7564.34, "low": 7556.1, "close": 7564.21, "ema10": 7562.9, "ema20": 7546.52, "macdH": -6.29, "macdL": 26.88, "dt_col": "2026-06-15 13:30"}, {"time": 1781549100, "open": 7564.04, "high": 7565.95, "low": 7560.05, "close": 7560.93, "ema10": 7562.54, "ema20": 7547.89, "macdH": -6.62, "macdL": 24.9, "dt_col": "2026-06-15 13:45"}, {"time": 1781550000, "open": 7561.08, "high": 7562.32, "low": 7558.57, "close": 7561.11, "ema10": 7562.28, "ema20": 7549.15, "macdH": -6.74, "macdL": 23.09, "dt_col": "2026-06-15 14:00"}, {"time": 1781550900, "open": 7561.13, "high": 7563.57, "low": 7554.54, "close": 7554.8, "ema10": 7560.92, "ema20": 7549.69, "macdH": -7.15, "macdL": 20.9, "dt_col": "2026-06-15 14:15"}, {"time": 1781551800, "open": 7554.56, "high": 7557.44, "low": 7552.45, "close": 7555.09, "ema10": 7559.86, "ema20": 7550.2, "macdH": -7.26, "macdL": 18.97, "dt_col": "2026-06-15 14:30"}, {"time": 1781552700, "open": 7555.0, "high": 7560.08, "low": 7545.56, "close": 7555.26, "ema10": 7559.03, "ema20": 7550.68, "macdH": -7.18, "macdL": 17.25, "dt_col": "2026-06-15 14:45"}, {"time": 1781616600, "open": 7548.78, "high": 7564.42, "low": 7548.78, "close": 7558.88, "ema10": 7559.0, "ema20": 7551.46, "macdH": -6.75, "macdL": 16.0, "dt_col": "2026-06-16 08:30"}, {"time": 1781617500, "open": 7559.04, "high": 7564.96, "low": 7549.97, "close": 7550.56, "ema10": 7557.46, "ema20": 7551.38, "macdH": -6.85, "macdL": 14.18, "dt_col": "2026-06-16 08:45"}, {"time": 1781618400, "open": 7550.99, "high": 7563.0, "low": 7550.99, "close": 7558.2, "ema10": 7557.6, "ema20": 7552.03, "macdH": -6.28, "macdL": 13.19, "dt_col": "2026-06-16 09:00"}, {"time": 1781619300, "open": 7558.44, "high": 7560.69, "low": 7541.66, "close": 7541.81, "ema10": 7554.73, "ema20": 7551.06, "macdH": -6.8, "macdL": 10.96, "dt_col": "2026-06-16 09:15"}, {"time": 1781620200, "open": 7541.7, "high": 7550.92, "low": 7533.03, "close": 7544.37, "ema10": 7552.84, "ema20": 7550.42, "macdH": -6.78, "macdL": 9.29, "dt_col": "2026-06-16 09:30"}, {"time": 1781621100, "open": 7544.27, "high": 7547.64, "low": 7535.66, "close": 7539.49, "ema10": 7550.42, "ema20": 7549.38, "macdH": -6.86, "macdL": 7.5, "dt_col": "2026-06-16 09:45"}, {"time": 1781622000, "open": 7540.27, "high": 7547.75, "low": 7539.28, "close": 7544.7, "ema10": 7549.38, "ema20": 7548.93, "macdH": -6.35, "macdL": 6.42, "dt_col": "2026-06-16 10:00"}, {"time": 1781622900, "open": 7544.75, "high": 7546.97, "low": 7533.33, "close": 7536.66, "ema10": 7547.06, "ema20": 7547.76, "macdH": -6.33, "macdL": 4.85, "dt_col": "2026-06-16 10:15"}, {"time": 1781623800, "open": 7536.51, "high": 7544.63, "low": 7534.12, "close": 7534.81, "ema10": 7544.84, "ema20": 7546.53, "macdH": -6.21, "macdL": 3.42, "dt_col": "2026-06-16 10:30"}, {"time": 1781624700, "open": 7534.92, "high": 7544.04, "low": 7527.4, "close": 7537.98, "ema10": 7543.59, "ema20": 7545.72, "macdH": -5.69, "macdL": 2.52, "dt_col": "2026-06-16 10:45"}, {"time": 1781625600, "open": 7537.95, "high": 7549.63, "low": 7537.39, "close": 7547.14, "ema10": 7544.24, "ema20": 7545.85, "macdH": -4.55, "macdL": 2.52, "dt_col": "2026-06-16 11:00"}, {"time": 1781626500, "open": 7546.83, "high": 7548.87, "low": 7542.21, "close": 7544.07, "ema10": 7544.21, "ema20": 7545.68, "macdH": -3.87, "macdL": 2.24, "dt_col": "2026-06-16 11:15"}, {"time": 1781627400, "open": 7543.98, "high": 7544.49, "low": 7534.2, "close": 7540.76, "ema10": 7543.58, "ema20": 7545.21, "macdH": -3.5, "macdL": 1.73, "dt_col": "2026-06-16 11:30"}, {"time": 1781628300, "open": 7540.79, "high": 7542.28, "low": 7533.44, "close": 7537.44, "ema10": 7542.46, "ema20": 7544.47, "macdH": -3.34, "macdL": 1.05, "dt_col": "2026-06-16 11:45"}, {"time": 1781629200, "open": 7537.51, "high": 7537.96, "low": 7532.48, "close": 7536.16, "ema10": 7541.32, "ema20": 7543.68, "macdH": -3.2, "macdL": 0.4, "dt_col": "2026-06-16 12:00"}, {"time": 1781630100, "open": 7536.07, "high": 7537.17, "low": 7529.19, "close": 7532.48, "ema10": 7539.71, "ema20": 7542.61, "macdH": -3.2, "macdL": -0.4, "dt_col": "2026-06-16 12:15"}, {"time": 1781631000, "open": 7532.48, "high": 7532.71, "low": 7525.28, "close": 7529.67, "ema10": 7537.88, "ema20": 7541.38, "macdH": -3.24, "macdL": -1.25, "dt_col": "2026-06-16 12:30"}, {"time": 1781631900, "open": 7529.58, "high": 7536.77, "low": 7527.51, "close": 7531.54, "ema10": 7536.73, "ema20": 7540.44, "macdH": -3.0, "macdL": -1.76, "dt_col": "2026-06-16 12:45"}, {"time": 1781632800, "open": 7531.43, "high": 7533.44, "low": 7529.77, "close": 7530.55, "ema10": 7535.61, "ema20": 7539.5, "macdH": -2.76, "macdL": -2.21, "dt_col": "2026-06-16 13:00"}, {"time": 1781633700, "open": 7530.55, "high": 7533.71, "low": 7527.72, "close": 7531.81, "ema10": 7534.92, "ema20": 7538.77, "macdH": -2.4, "macdL": -2.45, "dt_col": "2026-06-16 13:15"}, {"time": 1781634600, "open": 7531.81, "high": 7532.55, "low": 7527.95, "close": 7531.26, "ema10": 7534.25, "ema20": 7538.05, "macdH": -2.06, "macdL": -2.63, "dt_col": "2026-06-16 13:30"}, {"time": 1781635500, "open": 7531.33, "high": 7532.67, "low": 7526.47, "close": 7527.8, "ema10": 7533.08, "ema20": 7537.08, "macdH": -1.98, "macdL": -3.04, "dt_col": "2026-06-16 13:45"}, {"time": 1781636400, "open": 7527.89, "high": 7529.01, "low": 7518.81, "close": 7519.94, "ema10": 7530.69, "ema20": 7535.45, "macdH": -2.3, "macdL": -3.94, "dt_col": "2026-06-16 14:00"}, {"time": 1781637300, "open": 7519.77, "high": 7525.89, "low": 7511.63, "close": 7522.17, "ema10": 7529.14, "ema20": 7534.18, "macdH": -2.23, "macdL": -4.43, "dt_col": "2026-06-16 14:15"}, {"time": 1781638200, "open": 7522.25, "high": 7523.56, "low": 7514.0, "close": 7520.1, "ema10": 7527.5, "ema20": 7532.84, "macdH": -2.18, "macdL": -4.92, "dt_col": "2026-06-16 14:30"}, {"time": 1781639100, "open": 7520.11, "high": 7521.93, "low": 7508.68, "close": 7512.99, "ema10": 7524.86, "ema20": 7530.95, "macdH": -2.47, "macdL": -5.83, "dt_col": "2026-06-16 14:45"}, {"time": 1781703000, "open": 7524.5, "high": 7526.81, "low": 7513.07, "close": 7526.56, "ema10": 7525.17, "ema20": 7530.53, "macdH": -1.62, "macdL": -5.38, "dt_col": "2026-06-17 08:30"}, {"time": 1781703900, "open": 7526.54, "high": 7529.18, "low": 7509.68, "close": 7509.68, "ema10": 7522.35, "ema20": 7528.55, "macdH": -2.05, "macdL": -6.32, "dt_col": "2026-06-17 08:45"}, {"time": 1781704800, "open": 7509.63, "high": 7523.43, "low": 7507.33, "close": 7522.76, "ema10": 7522.43, "ema20": 7527.99, "macdH": -1.33, "macdL": -5.94, "dt_col": "2026-06-17 09:00"}, {"time": 1781705700, "open": 7522.98, "high": 7532.17, "low": 7522.14, "close": 7527.8, "ema10": 7523.4, "ema20": 7527.98, "macdH": -0.44, "macdL": -5.16, "dt_col": "2026-06-17 09:15"}, {"time": 1781706600, "open": 7527.78, "high": 7528.52, "low": 7503.37, "close": 7513.31, "ema10": 7521.57, "ema20": 7526.58, "macdH": -0.76, "macdL": -5.67, "dt_col": "2026-06-17 09:30"}, {"time": 1781707500, "open": 7513.48, "high": 7516.99, "low": 7489.94, "close": 7501.51, "ema10": 7517.92, "ema20": 7524.19, "macdH": -1.62, "macdL": -6.93, "dt_col": "2026-06-17 09:45"}, {"time": 1781708400, "open": 7501.61, "high": 7508.44, "low": 7497.1, "close": 7507.13, "ema10": 7515.96, "ema20": 7522.57, "macdH": -1.66, "macdL": -7.39, "dt_col": "2026-06-17 10:00"}, {"time": 1781709300, "open": 7507.3, "high": 7512.74, "low": 7505.26, "close": 7510.64, "ema10": 7514.99, "ema20": 7521.43, "macdH": -1.33, "macdL": -7.39, "dt_col": "2026-06-17 10:15"}, {"time": 1781710200, "open": 7510.74, "high": 7518.69, "low": 7508.81, "close": 7514.31, "ema10": 7514.87, "ema20": 7520.75, "macdH": -0.76, "macdL": -7.01, "dt_col": "2026-06-17 10:30"}, {"time": 1781711100, "open": 7514.44, "high": 7519.24, "low": 7514.14, "close": 7517.35, "ema10": 7515.32, "ema20": 7520.43, "macdH": -0.11, "macdL": -6.39, "dt_col": "2026-06-17 10:45"}, {"time": 1781712000, "open": 7517.09, "high": 7520.26, "low": 7514.1, "close": 7517.17, "ema10": 7515.66, "ema20": 7520.12, "macdH": 0.33, "macdL": -5.86, "dt_col": "2026-06-17 11:00"}, {"time": 1781712900, "open": 7517.14, "high": 7521.03, "low": 7515.44, "close": 7518.97, "ema10": 7516.26, "ema20": 7520.01, "macdH": 0.78, "macdL": -5.22, "dt_col": "2026-06-17 11:15"}, {"time": 1781713800, "open": 7518.7, "high": 7519.74, "low": 7510.94, "close": 7513.15, "ema10": 7515.69, "ema20": 7519.36, "macdH": 0.7, "macdL": -5.12, "dt_col": "2026-06-17 11:30"}, {"time": 1781714700, "open": 7513.1, "high": 7513.16, "low": 7510.05, "close": 7510.79, "ema10": 7514.8, "ema20": 7518.54, "macdH": 0.52, "macdL": -5.18, "dt_col": "2026-06-17 11:45"}, {"time": 1781715600, "open": 7510.9, "high": 7510.99, "low": 7497.68, "close": 7504.21, "ema10": 7512.88, "ema20": 7517.18, "macdH": 0.0, "macdL": -5.69, "dt_col": "2026-06-17 12:00"}, {"time": 1781716500, "open": 7503.99, "high": 7508.32, "low": 7501.0, "close": 7507.22, "ema10": 7511.85, "ema20": 7516.23, "macdH": -0.07, "macdL": -5.78, "dt_col": "2026-06-17 12:15"}, {"time": 1781717400, "open": 7507.17, "high": 7507.88, "low": 7501.97, "close": 7503.38, "ema10": 7510.31, "ema20": 7515.0, "macdH": -0.31, "macdL": -6.1, "dt_col": "2026-06-17 12:30"}, {"time": 1781718300, "open": 7503.4, "high": 7517.49, "low": 7503.01, "close": 7517.49, "ema10": 7511.61, "ema20": 7515.24, "macdH": 0.51, "macdL": -5.15, "dt_col": "2026-06-17 12:45"}, {"time": 1781719200, "open": 7518.44, "high": 7518.85, "low": 7445.53, "close": 7476.55, "ema10": 7505.24, "ema20": 7511.56, "macdH": -1.57, "macdL": -7.62, "dt_col": "2026-06-17 13:00"}, {"time": 1781720100, "open": 7476.38, "high": 7489.54, "low": 7464.2, "close": 7473.42, "ema10": 7499.45, "ema20": 7507.92, "macdH": -2.93, "macdL": -9.71, "dt_col": "2026-06-17 13:15"}, {"time": 1781721000, "open": 7473.13, "high": 7513.38, "low": 7468.08, "close": 7510.98, "ema10": 7501.55, "ema20": 7508.21, "macdH": -1.16, "macdL": -8.24, "dt_col": "2026-06-17 13:30"}, {"time": 1781721900, "open": 7510.87, "high": 7510.87, "low": 7462.76, "close": 7471.74, "ema10": 7496.13, "ema20": 7504.74, "macdH": -2.44, "macdL": -10.13, "dt_col": "2026-06-17 13:45"}, {"time": 1781722800, "open": 7470.96, "high": 7481.59, "low": 7454.83, "close": 7476.82, "ema10": 7492.62, "ema20": 7502.08, "macdH": -2.72, "macdL": -11.09, "dt_col": "2026-06-17 14:00"}, {"time": 1781723700, "open": 7477.04, "high": 7477.89, "low": 7429.2, "close": 7431.97, "ema10": 7481.59, "ema20": 7495.4, "macdH": -5.54, "macdL": -15.29, "dt_col": "2026-06-17 14:15"}, {"time": 1781724600, "open": 7431.67, "high": 7433.41, "low": 7402.61, "close": 7409.27, "ema10": 7468.44, "ema20": 7487.2, "macdH": -8.37, "macdL": -20.22, "dt_col": "2026-06-17 14:30"}, {"time": 1781725500, "open": 7409.32, "high": 7426.68, "low": 7406.03, "close": 7421.76, "ema10": 7459.95, "ema20": 7480.97, "macdH": -8.8, "macdL": -22.85, "dt_col": "2026-06-17 14:45"}, {"time": 1781789400, "open": 7487.36, "high": 7509.44, "low": 7469.52, "close": 7469.78, "ema10": 7461.74, "ema20": 7479.9, "macdH": -5.42, "macdL": -20.82, "dt_col": "2026-06-18 08:30"}, {"time": 1781790300, "open": 7469.87, "high": 7486.77, "low": 7468.32, "close": 7476.65, "ema10": 7464.45, "ema20": 7479.59, "macdH": -2.44, "macdL": -18.45, "dt_col": "2026-06-18 08:45"}, {"time": 1781791200, "open": 7476.46, "high": 7490.98, "low": 7473.99, "close": 7478.15, "ema10": 7466.94, "ema20": 7479.46, "macdH": -0.2, "macdL": -16.26, "dt_col": "2026-06-18 09:00"}, {"time": 1781792100, "open": 7478.2, "high": 7497.72, "low": 7472.74, "close": 7482.17, "ema10": 7469.71, "ema20": 7479.71, "macdH": 1.62, "macdL": -14.04, "dt_col": "2026-06-18 09:15"}, {"time": 1781793000, "open": 7482.09, "high": 7496.12, "low": 7473.75, "close": 7491.27, "ema10": 7473.63, "ema20": 7480.81, "macdH": 3.39, "macdL": -11.42, "dt_col": "2026-06-18 09:30"}, {"time": 1781793900, "open": 7491.21, "high": 7502.74, "low": 7490.95, "close": 7498.11, "ema10": 7478.08, "ema20": 7482.46, "macdH": 4.9, "macdL": -8.68, "dt_col": "2026-06-18 09:45"}, {"time": 1781794800, "open": 7498.19, "high": 7500.23, "low": 7489.59, "close": 7491.8, "ema10": 7480.58, "ema20": 7483.35, "macdH": 5.31, "macdL": -6.94, "dt_col": "2026-06-18 10:00"}, {"time": 1781795700, "open": 7491.68, "high": 7493.49, "low": 7481.64, "close": 7482.77, "ema10": 7480.97, "ema20": 7483.3, "macdH": 4.82, "macdL": -6.23, "dt_col": "2026-06-18 10:15"}, {"time": 1781796600, "open": 7483.25, "high": 7487.54, "low": 7473.17, "close": 7478.47, "ema10": 7480.52, "ema20": 7482.84, "macdH": 4.1, "macdL": -5.93, "dt_col": "2026-06-18 10:30"}, {"time": 1781797500, "open": 7478.39, "high": 7495.27, "low": 7473.88, "close": 7492.48, "ema10": 7482.69, "ema20": 7483.75, "macdH": 4.4, "macdL": -4.52, "dt_col": "2026-06-18 10:45"}, {"time": 1781798400, "open": 7492.75, "high": 7495.3, "low": 7488.1, "close": 7491.62, "ema10": 7484.32, "ema20": 7484.5, "macdH": 4.4, "macdL": -3.43, "dt_col": "2026-06-18 11:00"}, {"time": 1781799300, "open": 7491.62, "high": 7498.21, "low": 7489.1, "close": 7496.19, "ema10": 7486.48, "ema20": 7485.62, "macdH": 4.52, "macdL": -2.17, "dt_col": "2026-06-18 11:15"}, {"time": 1781800200, "open": 7496.45, "high": 7502.01, "low": 7493.28, "close": 7499.63, "ema10": 7488.87, "ema20": 7486.95, "macdH": 4.65, "macdL": -0.88, "dt_col": "2026-06-18 11:30"}, {"time": 1781801100, "open": 7499.55, "high": 7500.08, "low": 7492.23, "close": 7496.12, "ema10": 7490.19, "ema20": 7487.82, "macdH": 4.31, "macdL": -0.15, "dt_col": "2026-06-18 11:45"}, {"time": 1781802000, "open": 7496.26, "high": 7507.42, "low": 7494.2, "close": 7505.94, "ema10": 7493.05, "ema20": 7489.55, "macdH": 4.54, "macdL": 1.22, "dt_col": "2026-06-18 12:00"}, {"time": 1781802900, "open": 7505.8, "high": 7511.07, "low": 7503.86, "close": 7505.53, "ema10": 7495.32, "ema20": 7491.07, "macdH": 4.45, "macdL": 2.24, "dt_col": "2026-06-18 12:15"}, {"time": 1781803800, "open": 7505.48, "high": 7509.4, "low": 7502.76, "close": 7503.93, "ema10": 7496.88, "ema20": 7492.3, "macdH": 4.08, "macdL": 2.89, "dt_col": "2026-06-18 12:30"}, {"time": 1781804700, "open": 7503.46, "high": 7504.81, "low": 7499.73, "close": 7500.36, "ema10": 7497.52, "ema20": 7493.06, "macdH": 3.41, "macdL": 3.07, "dt_col": "2026-06-18 12:45"}, {"time": 1781805600, "open": 7500.37, "high": 7501.0, "low": 7495.48, "close": 7496.68, "ema10": 7497.36, "ema20": 7493.41, "macdH": 2.58, "macdL": 2.89, "dt_col": "2026-06-18 13:00"}, {"time": 1781806500, "open": 7496.61, "high": 7499.12, "low": 7494.06, "close": 7494.93, "ema10": 7496.92, "ema20": 7493.55, "macdH": 1.82, "macdL": 2.58, "dt_col": "2026-06-18 13:15"}, {"time": 1781807400, "open": 7494.95, "high": 7495.52, "low": 7491.52, "close": 7494.57, "ema10": 7496.49, "ema20": 7493.65, "macdH": 1.21, "macdL": 2.27, "dt_col": "2026-06-18 13:30"}, {"time": 1781808300, "open": 7494.77, "high": 7499.18, "low": 7493.04, "close": 7493.74, "ema10": 7495.99, "ema20": 7493.66, "macdH": 0.7, "macdL": 1.94, "dt_col": "2026-06-18 13:45"}, {"time": 1781809200, "open": 7493.86, "high": 7494.3, "low": 7482.39, "close": 7484.84, "ema10": 7493.97, "ema20": 7492.82, "macdH": -0.23, "macdL": 0.95, "dt_col": "2026-06-18 14:00"}, {"time": 1781810100, "open": 7484.84, "high": 7491.76, "low": 7482.84, "close": 7489.88, "ema10": 7493.22, "ema20": 7492.54, "macdH": -0.49, "macdL": 0.57, "dt_col": "2026-06-18 14:15"}, {"time": 1781811000, "open": 7489.81, "high": 7502.75, "low": 7485.7, "close": 7502.24, "ema10": 7494.86, "ema20": 7493.46, "macdH": 0.15, "macdL": 1.25, "dt_col": "2026-06-18 14:30"}, {"time": 1781811900, "open": 7502.23, "high": 7510.17, "low": 7496.25, "close": 7497.86, "ema10": 7495.41, "ema20": 7493.88, "macdH": 0.25, "macdL": 1.41, "dt_col": "2026-06-18 14:45"}, {"time": 1781812800, "open": 7500.58, "high": 7500.58, "low": 7500.58, "close": 7500.58, "ema10": 7496.35, "ema20": 7494.52, "macdH": 0.46, "macdL": 1.74, "dt_col": "2026-06-18 15:00"}];
+
+const BACKTEST_SIGNALS = [
+  {
+    "fecha": "2026-06-11",
+    "hora_col": "10:15",
+    "direction": "BEARISH",
+    "price": 7286.12,
+    "ema10": 7289.06,
+    "ema20": 7298.47,
+    "macd_hist": 3.9443,
+    "score": 90,
+    "estrategia": "Bear Call 7360/7380"
+  },
+  {
+    "fecha": "2026-06-11",
+    "hora_col": "13:00",
+    "direction": "BULLISH",
+    "price": 7355.01,
+    "ema10": 7326.95,
+    "ema20": 7315.12,
+    "macd_hist": 11.0895,
+    "score": 90,
+    "estrategia": "Bull Put 7280/7260"
+  },
+  {
+    "fecha": "2026-06-16",
+    "hora_col": "10:15",
+    "direction": "BEARISH",
+    "price": 7536.66,
+    "ema10": 7547.06,
+    "ema20": 7547.76,
+    "macd_hist": -6.3315,
+    "score": 90,
+    "estrategia": "Bear Call 7610/7630"
+  },
+  {
+    "fecha": "2026-06-18",
+    "hora_col": "11:15",
+    "direction": "BULLISH",
+    "price": 7496.19,
+    "ema10": 7486.48,
+    "ema20": 7485.62,
+    "macd_hist": 4.5242,
+    "score": 90,
+    "estrategia": "Bull Put 7420/7400"
+  }
+];
+
+// ── PESOS PLAYBOOK ─────────────────────────────────────────────
+const WEIGHTS = {
+  precio_ema200:          { label:'Precio > EMA200',       w:5  },
+  emas_alineadas_diario:  { label:'EMAs diarias',          w:5  },
+  emas_alineadas_15m:     { label:'EMAs 15m alineadas',    w:22 },
+  macd_alineado_15m:      { label:'MACD 15m',              w:28 },
+  precio_cerca_ema:       { label:'Precio cerca EMA',      w:20 },
+  volumen_spy:            { label:'Volumen SPY',           w:12 },
+  gex_compatible:         { label:'GEX compatible',        w:8  },
+};
+const MIN_SCORE = 75;
+
+// ── CANVAS ──────────────────────────────────────────────────────
+const canvas  = document.getElementById('chartCanvas');
+const ctx_c   = canvas.getContext('2d');
+let signals   = [...BACKTEST_SIGNALS];
+let activeIdx = null;
+let chartData = [...SPX_CHART_DATA];
+
+function resizeCanvas() {
+  const area = canvas.parentElement;
+  canvas.width  = area.clientWidth - 32;
+  canvas.height = area.clientHeight - 32;
+  drawChart();
+}
+
+function drawChart(highlightIdx = null) {
+  const W = canvas.width, H = canvas.height;
+  ctx_c.clearRect(0,0,W,H);
+
+  if (!chartData.length) return;
+
+  const pad = { top:20, right:60, bottom:50, left:10 };
+  const cw = W - pad.left - pad.right;
+  const ch = H - pad.top  - pad.bottom;
+
+  const prices = chartData.map(c => [c.high, c.low]).flat().filter(Boolean);
+  const minP = Math.min(...prices) - 20;
+  const maxP = Math.max(...prices) + 20;
+
+  const scaleX = i => pad.left + (i / (chartData.length-1)) * cw;
+  const scaleY = p => pad.top  + (1 - (p-minP)/(maxP-minP)) * ch;
+
+  // Fondo de grid
+  ctx_c.strokeStyle = '#1e2433';
+  ctx_c.lineWidth = 1;
+  for (let i=0; i<=5; i++) {
+    const y = pad.top + (ch/5)*i;
+    ctx_c.beginPath(); ctx_c.moveTo(pad.left, y); ctx_c.lineTo(W-pad.right, y); ctx_c.stroke();
+    const price = maxP - (maxP-minP)*(i/5);
+    ctx_c.fillStyle = '#4b5563'; ctx_c.font = '10px Inter'; ctx_c.textAlign='left';
+    ctx_c.fillText(price.toFixed(0), W-pad.right+4, y+4);
+  }
+
+  // EMA20
+  ctx_c.beginPath(); ctx_c.strokeStyle='#f59e0b33'; ctx_c.lineWidth=1;
+  chartData.forEach((c,i) => {
+    if (!c.ema20) return;
+    i===0 ? ctx_c.moveTo(scaleX(i), scaleY(c.ema20)) : ctx_c.lineTo(scaleX(i), scaleY(c.ema20));
+  });
+  ctx_c.stroke();
+
+  // EMA10
+  ctx_c.beginPath(); ctx_c.strokeStyle='#60a5fa44'; ctx_c.lineWidth=1;
+  chartData.forEach((c,i) => {
+    if (!c.ema10) return;
+    i===0 ? ctx_c.moveTo(scaleX(i), scaleY(c.ema10)) : ctx_c.lineTo(scaleX(i), scaleY(c.ema10));
+  });
+  ctx_c.stroke();
+
+  // Velas
+  const bw = Math.max(2, cw/chartData.length - 1);
+  chartData.forEach((c,i) => {
+    const x  = scaleX(i);
+    const yo = scaleY(c.open);
+    const yc = scaleY(c.close);
+    const yh = scaleY(c.high);
+    const yl = scaleY(c.low);
+    const bull = c.close >= c.open;
+    ctx_c.strokeStyle = bull ? '#34d399' : '#f87171';
+    ctx_c.fillStyle   = bull ? '#34d39966' : '#f8717166';
+    ctx_c.lineWidth = 1;
+    ctx_c.beginPath(); ctx_c.moveTo(x, yh); ctx_c.lineTo(x, yl); ctx_c.stroke();
+    ctx_c.fillRect(x - bw/2, Math.min(yo,yc), bw, Math.abs(yo-yc)||1);
+    ctx_c.strokeRect(x - bw/2, Math.min(yo,yc), bw, Math.abs(yo-yc)||1);
+  });
+
+  // Marcadores de señales
+  signals.forEach((s, idx) => {
+    const ci = chartData.findIndex(c => c.dt_col.startsWith(s.fecha) && c.dt_col.includes(s.hora_col));
+    if (ci < 0) return;
+    const x = scaleX(ci);
+    const y = scaleY(s.price);
+    const isBear = s.direction === 'BEARISH';
+    const isActive = idx === highlightIdx;
+
+    // Línea vertical
+    ctx_c.strokeStyle = isBear ? '#f8717144' : '#34d39944';
+    ctx_c.lineWidth = isActive ? 2 : 1;
+    ctx_c.setLineDash([4,4]);
+    ctx_c.beginPath(); ctx_c.moveTo(x, pad.top); ctx_c.lineTo(x, H-pad.bottom); ctx_c.stroke();
+    ctx_c.setLineDash([]);
+
+    // Flecha
+    const arrowSize = isActive ? 12 : 9;
+    ctx_c.fillStyle = isBear ? (isActive?'#ef4444':'#f87171') : (isActive?'#10b981':'#34d399');
+    ctx_c.beginPath();
+    if (isBear) {
+      ctx_c.moveTo(x, y + arrowSize*2);
+      ctx_c.lineTo(x - arrowSize, y);
+      ctx_c.lineTo(x + arrowSize, y);
+    } else {
+      ctx_c.moveTo(x, y - arrowSize*2);
+      ctx_c.lineTo(x - arrowSize, y);
+      ctx_c.lineTo(x + arrowSize, y);
+    }
+    ctx_c.closePath(); ctx_c.fill();
+
+    // Label
+    ctx_c.fillStyle = '#fff';
+    ctx_c.font = `bold ${isActive?11:10}px Inter`;
+    ctx_c.textAlign = 'center';
+    ctx_c.fillText(`#${idx+1}`, x, isBear ? y + arrowSize*2 + 12 : y - arrowSize*2 - 4);
+
+    // Strikes
+    const parts = s.estrategia.split(' ');
+    const strikes = parts[parts.length-1].split('/');
+    if (strikes.length === 2) {
+      [strikes[0], strikes[1]].forEach((sk, si) => {
+        const ky = scaleY(parseFloat(sk));
+        ctx_c.strokeStyle = isBear ? '#f8717133' : '#34d39933';
+        ctx_c.lineWidth = 1;
+        ctx_c.setLineDash([2,6]);
+        ctx_c.beginPath(); ctx_c.moveTo(x-30, ky); ctx_c.lineTo(x+30, ky); ctx_c.stroke();
+        ctx_c.setLineDash([]);
+        ctx_c.fillStyle = isBear ? '#f87171' : '#34d399';
+        ctx_c.font = '9px Inter'; ctx_c.textAlign='right';
+        ctx_c.fillText(sk, x+28, ky-2);
+      });
+    }
+  });
+
+  // Eje X — fechas
+  ctx_c.fillStyle = '#4b5563'; ctx_c.font='10px Inter'; ctx_c.textAlign='center';
+  const step = Math.ceil(chartData.length / 8);
+  chartData.forEach((c,i) => {
+    if (i % step === 0) {
+      ctx_c.fillText(c.dt_col.slice(5,10), scaleX(i), H-pad.bottom+14);
+    }
+  });
+}
+
+// ── BACKTEST LOGIC ─────────────────────────────────────────────
+function runBacktest() {
+  const from     = document.getElementById('dateFrom').value;
+  const to       = document.getElementById('dateTo').value;
+  const minScore = parseInt(document.getElementById('minScore').value) || 75;
+
+  // Filtrar datos por rango
+  chartData = SPX_CHART_DATA.filter(c => {
+    const d = c.dt_col.slice(0,10);
+    return d >= from && d <= to;
+  });
+
+  // Recalcular señales sobre datos filtrados
+  signals = [];
+  let prevDir = null;
+  const closes = chartData.map(c => c.close);
+
+  chartData.forEach((c, i) => {
+    if (i < 25) return;
+    const e10 = c.ema10, e20 = c.ema20, mh = c.macdH, ml = c.macdL;
+    if (!e10 || !e20 || mh == null) return;
+
+    // Solo horario mercado
+    const h = parseInt(c.dt_col.slice(11,13));
+    if (h < 9 || h > 14) return;
+
+    const evalDir = (dir) => {
+      const isBear = dir === 'BEARISH';
+      const cr = {
+        precio_ema200:        false,
+        emas_alineadas_diario:false,
+        emas_alineadas_15m:   isBear ? (e10 < e20) : (e10 > e20),
+        macd_alineado_15m:    isBear ? (ml < 0 || mh < 0) : (ml > 0 || mh > 0),
+        precio_cerca_ema:     Math.abs(c.close - e10)/c.close*100 < 0.5,
+        volumen_spy:          true,
+        gex_compatible:       true,
+      };
+      const score = Object.keys(cr).reduce((acc,k) => acc + (cr[k] ? WEIGHTS[k].w : 0), 0);
+      return { score, criterios: cr };
+    };
+
+    const bear = evalDir('BEARISH');
+    const bull = evalDir('BULLISH');
+
+    let dir = null, score = 0, criterios = {};
+    if (bear.score >= minScore && bear.score >= bull.score) {
+      dir='BEARISH'; score=bear.score; criterios=bear.criterios;
+    } else if (bull.score >= minScore) {
+      dir='BULLISH'; score=bull.score; criterios=bull.criterios;
+    }
+    if (!dir || dir === prevDir) return;
+    prevDir = dir;
+
+    const isBear = dir === 'BEARISH';
+    const shortS = Math.round(c.close/5)*5 + (isBear?75:-75);
+    const longS  = isBear ? shortS+20 : shortS-20;
+
+    // Black-Scholes prima estimada
+    const T = 4/(252*6.5);
+    const iv = 0.175;
+    const r  = 0.045;
+    const bsCall = (S,K) => {
+      if (T<=0) return Math.max(S-K,0);
+      const erf = x => { const t=1/(1+.3275911*Math.abs(x)); const y=1-t*(0.254829592+t*(-0.284496736+t*(1.421413741+t*(-1.453152027+t*1.061405429))))*Math.exp(-x*x); return x>=0?y:-y; };
+      const d1=(Math.log(S/K)+(r+.5*iv*iv)*T)/(iv*Math.sqrt(T));
+      const d2=d1-iv*Math.sqrt(T);
+      const N=x=>(1+erf(x/Math.sqrt(2)))/2;
+      return S*N(d1)-K*Math.exp(-r*T)*N(d2);
+    };
+    const shortP = bsCall(c.close, shortS);
+    const longP  = bsCall(c.close, longS);
+    const credito = Math.max(0, (isBear ? shortP-longP : longP-shortP));
+    const riesgo  = 20 - credito;
+
+    signals.push({
+      fecha: c.dt_col.slice(0,10),
+      hora_col: c.dt_col.slice(11,16),
+      direction: dir,
+      price: c.close,
+      ema10: e10, ema20: e20,
+      macd_hist: mh, macd_line: ml,
+      score, criterios,
+      estrategia: `${isBear?'Bear Call':'Bull Put'} ${shortS}/${longS}`,
+      shortStrike: shortS, longStrike: longS,
+      credito: +credito.toFixed(2),
+      riesgo: +riesgo.toFixed(2),
+      breakeven: isBear ? shortS+credito : shortS-credito,
+    });
+  });
+
+  // Actualizar stats
+  document.getElementById('stat-total').textContent = signals.length;
+  document.getElementById('stat-bear').textContent  = signals.filter(s=>s.direction==='BEARISH').length;
+  document.getElementById('stat-bull').textContent  = signals.filter(s=>s.direction==='BULLISH').length;
+
+  // Render lista
+  const list = document.getElementById('signalList');
+  if (!signals.length) {
+    list.innerHTML = '<div class="no-signal">Sin señales en este período</div>';
+    document.getElementById('detailPanel').style.display='none';
+    resizeCanvas(); return;
+  }
+
+  list.innerHTML = signals.map((s,i) => `
+    <div class="signal-card ${s.direction==='BEARISH'?'bearish':'bullish'}" onclick="showDetail(${i})">
+      <div class="sc-header">
+        <span class="sc-dir ${s.direction==='BEARISH'?'bear':'bull'}">${s.direction==='BEARISH'?'🐻 BEARISH':'🐂 BULLISH'}</span>
+        <span class="sc-score">⚡ ${s.score}%</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span class="sc-fecha">${s.fecha}</span>
+        <span class="sc-hora">${s.hora_col} COL</span>
+      </div>
+      <div class="sc-price">SPX: $${s.price.toLocaleString()}</div>
+      <div class="sc-estrategia">${s.estrategia}</div>
+    </div>
+  `).join('');
+
+  drawChart();
+}
+
+function showDetail(idx) {
+  activeIdx = idx;
+  const s = signals[idx];
+  const isBear = s.direction === 'BEARISH';
+
+  // Activar card
+  document.querySelectorAll('.signal-card').forEach((el,i) => el.classList.toggle('active', i===idx));
+
+  // Detalle
+  document.getElementById('detailPanel').style.display='block';
+  document.getElementById('detailTitle').textContent = `#${idx+1} — ${s.estrategia}`;
+
+  const grid = document.getElementById('detailGrid');
+  const be = (s.breakeven||0).toFixed(1);
+  const ret = s.riesgo > 0 ? ((s.credito/s.riesgo)*100).toFixed(1) : '—';
+  grid.innerHTML = `
+    <div class="detail-item"><div class="label">Estrategia</div><div class="value blue">${s.estrategia}</div></div>
+    <div class="detail-item"><div class="label">SPX entrada</div><div class="value">$${s.price.toLocaleString()}</div></div>
+    <div class="detail-item"><div class="label">Crédito neto</div><div class="value green">$${(s.credito*100).toFixed(0)}</div></div>
+    <div class="detail-item"><div class="label">Riesgo máx</div><div class="value red">$${(s.riesgo*100).toFixed(0)}</div></div>
+    <div class="detail-item"><div class="label">Breakeven</div><div class="value yellow">${be}</div></div>
+    <div class="detail-item"><div class="label">Retorno/riesgo</div><div class="value">${ret}%</div></div>
+    <div class="detail-item"><div class="label">Score Playbook</div><div class="value yellow">⚡ ${s.score}%</div></div>
+    <div class="detail-item"><div class="label">Colateral</div><div class="value">$2,000</div></div>
+  `;
+
+  // Barras Playbook
+  const bars = document.getElementById('playbookBars');
+  bars.innerHTML = '<div style="font-size:11px;color:#64748b;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">Playbook Score</div>' +
+    Object.keys(WEIGHTS).map(k => {
+      const ok = s.criterios && s.criterios[k];
+      const w  = WEIGHTS[k].w;
+      const pct = (w/28)*100;
+      return `
+        <div class="pb-row">
+          <div class="pb-label">${ok?'✅':'❌'} ${WEIGHTS[k].label}</div>
+          <div class="pb-bar-bg"><div class="pb-bar" style="width:${ok?pct:0}%;background:${ok?'#3b82f6':'#374151'}"></div></div>
+          <div class="pb-pts">${ok?w:0}</div>
+        </div>`;
+    }).join('');
+
+  drawChart(idx);
+}
+
+// Init
+window.addEventListener('resize', resizeCanvas);
+setTimeout(() => {
+  resizeCanvas();
+  runBacktest();
+}, 100);
+</script>
+</body>
+</html>
