@@ -1516,8 +1516,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div id="btr-tp" style="font-size:16px;font-weight:700;color:#34d399;">—</div>
       </div>
       <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">EXP ✅</div>
-        <div id="btr-exp" style="font-size:16px;font-weight:700;color:#60a5fa;">—</div>
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">CIERRE 🕐</div>
+        <div id="btr-exp" style="font-size:16px;font-weight:700;color:#94a3b8;">—</div>
       </div>
       <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
         <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">SL Fract ⚠️</div>
@@ -7206,38 +7206,40 @@ async function runBT() {
     const tpVal  = +(credito*(tpPct/100)).toFixed(3);
     const slVal  = +(credito*slMult).toFixed(3);
 
-    // Simular TP/SL — hasta cierre de mercado (15:00 COL)
-    // No hay límite de velas — la posición se mantiene hasta TP, SL o cierre
+    // Simular TP/SL — sin límite de tiempo
+    // La posición se mantiene hasta TP, SL o cierre del mercado (15:00 COL)
     const prev5 = filtered.slice(Math.max(0,i-5),i);
     const fractal = isBear
       ? Math.max(...prev5.map(x=>x.high||0))
       : Math.min(...prev5.map(x=>x.low||9999));
-    let resultado='CIERRE', pnl=0, exitTime='';
+    let resultado='CIERRE ✅', pnl=0, exitTime='15:00';
+    let lastGanancia = 0;
 
     for(let j=i+1; j<filtered.length; j++){
       const fc=filtered[j];
-      const minsLeft=Math.max(2,(54000-(fc.timeCol||fc.time-18000)%86400)/60); // COL
+      const secsFC = (fc.timeCol||fc.time-18000)%86400;
+      const minsLeft=Math.max(2,(54000-secsFC)/60); // COL
       const Tnow=minsLeft/(252*6.5*60);
       const sv=btBS(fc.close,shortS,Tnow,opt);
       const lv=btBS(fc.close,longS,Tnow,opt);
       const ganancia=credito-Math.max(0,sv-lv);
-      if(ganancia>=tpVal)           {resultado='TP ✅';      pnl=+(tpVal*100).toFixed(2);   exitTime=(fc.dt_col||'').slice(11,16); break;}
-      if(ganancia<=-slVal)          {resultado='SL econ ❌'; pnl=+(-slVal*100).toFixed(2);  exitTime=(fc.dt_col||'').slice(11,16); break;}
-      if(!isBear&&fc.low<fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2); exitTime=(fc.dt_col||'').slice(11,16); break;}
-      if(isBear&&fc.high>fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2); exitTime=(fc.dt_col||'').slice(11,16); break;}
-      // Llegó al cierre sin tocar TP ni SL — cierra al valor actual
-      const secsFC = (fc.timeCol||fc.time-18000)%86400;
-      if(secsFC >= 54000) { // 15:00 COL
-        resultado = pnl>=0 ? 'CIERRE ✅' : 'CIERRE ❌';
+      lastGanancia = ganancia;
+      exitTime = (fc.dt_col||'').slice(11,16);
+      if(ganancia>=tpVal)           {resultado='TP ✅';      pnl=+(tpVal*100).toFixed(2);   break;}
+      if(ganancia<=-slVal)          {resultado='SL econ ❌'; pnl=+(-slVal*100).toFixed(2);  break;}
+      if(!isBear&&fc.low<fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2); break;}
+      if(isBear&&fc.high>fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2); break;}
+      // Cierre al final del día al valor real del spread
+      if(secsFC >= 54000) {
         pnl = +(ganancia*100).toFixed(2);
-        exitTime = '15:00';
+        resultado = pnl >= 0 ? 'CIERRE ✅' : 'CIERRE ❌';
         break;
       }
     }
-
-    // Si nunca encontró salida (datos insuficientes) marcar como sin datos
-    if(resultado==='CIERRE' && pnl===0) {
-      resultado='SIN DATOS'; pnl=0;
+    // Si no encontró ninguna vela de cierre (última señal del día)
+    if(resultado==='CIERRE ✅' && pnl===0 && lastGanancia!==0) {
+      pnl = +(lastGanancia*100).toFixed(2);
+      resultado = pnl >= 0 ? 'CIERRE ✅' : 'CIERRE ❌';
     }
 
     btSignals.push({
@@ -7255,6 +7257,8 @@ async function runBT() {
   document.getElementById('bt-total').textContent = btSignals.length;
   document.getElementById('bt-bear').textContent  = btSignals.filter(s=>s.direction==='BEARISH').length;
   document.getElementById('bt-bull').textContent  = btSignals.filter(s=>s.direction==='BULLISH').length;
+  const cierreEl = document.getElementById('bt-cierre');
+  if(cierreEl) cierreEl.textContent = btSignals.filter(s=>s.resultado?.includes('CIERRE')).length;
   const totalPnl = btSignals.reduce((a,s)=>a+s.pnl,0);
   if(document.getElementById('bt-pnl-total')) {
     const el=document.getElementById('bt-pnl-total');
@@ -7438,7 +7442,9 @@ function renderBTReport() {
   const capital = parseFloat(document.getElementById('bt-capital')?.value)||10000;
   const wins  = btSignals.filter(s=>s.pnl>0);
   const tp    = btSignals.filter(s=>s.resultado==='TP ✅');
-  const exp   = btSignals.filter(s=>s.resultado==='EXP ✅');
+  const exp   = btSignals.filter(s=>s.resultado?.includes('CIERRE'));
+  const cierrePos = btSignals.filter(s=>s.resultado==='CIERRE ✅');
+  const cierreNeg = btSignals.filter(s=>s.resultado==='CIERRE ❌');
   const slf   = btSignals.filter(s=>s.resultado==='SL fract ⚠️');
   const sle   = btSignals.filter(s=>s.resultado==='SL econ ❌');
   const pnlTotal = btSignals.reduce((a,s)=>a+s.pnl, 0);
@@ -7454,7 +7460,7 @@ function renderBTReport() {
   document.getElementById('btr-ret').style.color   = retorno>=0?'#34d399':'#f87171';
   document.getElementById('btr-wr').textContent    = (wins.length/btSignals.length*100).toFixed(1)+'%';
   document.getElementById('btr-tp').textContent    = tp.length;
-  document.getElementById('btr-exp').textContent   = exp.length;
+  document.getElementById('btr-exp').textContent   = exp.length + ' (' + cierrePos.length + '✅/' + cierreNeg.length + '❌)';
   document.getElementById('btr-slf').textContent   = slf.length;
   document.getElementById('btr-sle').textContent   = sle.length;
 
