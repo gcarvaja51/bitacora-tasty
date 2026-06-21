@@ -968,6 +968,9 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <div class="nav-item" onclick="nav('today',this)">
       <span class="icon">◎</span> Hoy
     </div>
+    <div class="nav-item" onclick="nav('backtester',this)">
+      <span class="icon">🔬</span> Backtester SPX
+    </div>
   </nav>
   <div class="sidebar-footer">
     <div class="status-row">
@@ -1446,6 +1449,62 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       </div>
     </div>
 
+
+<div id="panel-backtester" class="panel">
+  <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+    <span style="font-size:18px">🔬</span>
+    <span style="font-size:16px;font-weight:600;">Backtester SPX</span>
+    <span style="background:#1a2744;color:#60a5fa;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Playbook Alejandro</span>
+  </div>
+  <!-- Fila 1: Fechas y temporalidad -->
+  <div style="padding:8px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--card);">
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Desde</label><input type="date" id="bt-from" value="2026-06-10" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Hasta</label><input type="date" id="bt-to" value="2026-06-19" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Temporalidad</label>
+      <select id="bt-interval" onchange="btChangeInterval()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;">
+        <option value="2m">2 min</option>
+        <option value="15m" selected>15 min</option>
+        <option value="30m">30 min</option>
+        <option value="1h">1 hora</option>
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Score mín.</label><input type="number" id="bt-minscore" value="75" min="50" max="100" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
+    <div style="height:20px;width:1px;background:var(--border);"></div>
+    <!-- Parámetros de posición -->
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Capital $</label><input type="number" id="bt-capital" value="10000" step="1000" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:80px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Experiencia</label>
+      <select id="bt-exp" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;">
+        <option value="principiante">Principiante</option>
+        <option value="intermedio" selected>Intermedio</option>
+        <option value="avanzado">Avanzado</option>
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Riesgo %</label><input type="number" id="bt-riesgo" value="2" min="0.5" max="10" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">TP %</label><input type="number" id="bt-tp" value="30" min="10" max="90" step="5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">SL x</label><input type="number" id="bt-sl" value="1.5" min="1" max="3" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Delta</label><input type="number" id="bt-delta" value="0.12" min="0.05" max="0.50" step="0.01" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
+    <div style="height:20px;width:1px;background:var(--border);"></div>
+    <button onclick="runBT()" style="background:#3b82f6;color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">▶ Ejecutar</button>
+    <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;color:var(--muted);">Señales: <span id="bt-total" style="color:var(--text);font-weight:600;">—</span></span>
+    <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;">🐻 <span id="bt-bear" style="color:#f87171;font-weight:600;">—</span></span>
+    <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;">🐂 <span id="bt-bull" style="color:#34d399;font-weight:600;">—</span></span>
+    <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;">Spread: <span id="bt-spread-display" style="color:#fbbf24;font-weight:600;">—</span>pts</span>
+    <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;">P&L: <span id="bt-pnl-total" style="font-weight:600;">—</span></span>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 320px;height:calc(100vh - 170px);">
+    <div id="bt-chart-container" style="border-right:1px solid var(--border);position:relative;width:100%;height:100%;min-height:400px;"></div>
+    <div style="overflow-y:auto;">
+      <div style="padding:10px 14px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--border);">Señales detectadas</div>
+      <div style="padding:6px;display:flex;flex-direction:column;gap:5px;" id="bt-signal-list"><div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">Ejecuta el backtester</div></div>
+      <div id="bt-detail" style="display:none;border-top:1px solid var(--border);padding:14px;">
+        <h4 id="bt-detail-title" style="font-size:12px;font-weight:700;margin-bottom:10px;"></h4>
+        <div id="bt-dgrid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"></div>
+        <div id="bt-pb-bars"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 </div><!-- /app -->
@@ -1458,7 +1517,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <button onclick="closeJournal()" class="btn" style="padding:4px 10px;font-size:12px;">✕</button>
   </div>
   <div class="journal-body" id="journal-body">
-  </div>
+  
+</div>
 </div>
 
 <script>
@@ -1548,6 +1608,7 @@ function nav(tab, el) {
   else if (tab==='chain')   initChainPanel();
   else if (tab==='alejandro') loadAlejandro();
   else if (tab==='today') loadToday();
+  else if (tab==='backtester') loadBacktester();
 }
 
 // ══════════════════════════════════════════
@@ -6292,7 +6353,10 @@ async function renderEvalChart(ticker) {
     grid:   { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor:'#2a2e39' },
-    timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false },
+    timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false, tickMarkFormatter: (time) => {
+      const d = new Date((time - 18000) * 1000);
+      return d.toISOString().slice(11,16); // HH:MM hora Colombia
+    }},
   });
 
   // Precio en el 70% superior
@@ -6758,6 +6822,493 @@ function setChTipo(t) {
   if(ca) ca.style.opacity=acumOp;
   if(cp) cp.style.opacity=perOp;
   _chRedraw();
+}
+
+
+// ══════════════════════════════════════════
+//  BACKTESTER SPX
+// ══════════════════════════════════════════
+const BT_WEIGHTS = {
+  precio_ema200:         { label:'Precio > EMA200',    w:5  },
+  emas_alineadas_diario: { label:'EMAs diarias',       w:5  },
+  emas_alineadas_15m:    { label:'EMAs 15m',           w:22 },
+  macd_alineado_15m:     { label:'MACD 15m',           w:28 },
+  precio_cerca_ema:      { label:'Precio cerca EMA',   w:20 },
+  volumen_spy:           { label:'Volumen SPY',        w:12 },
+  gex_compatible:        { label:'GEX compatible',     w:8  },
+};
+
+let btChartData = [];
+let btSignals   = [];
+let btActiveIdx = null;
+
+async function loadBacktester() {
+  if (!btChartData.length) await fetchBTData();
+  setTimeout(() => {
+    resizeBTCanvas();
+    runBT();
+  }, 200);
+}
+
+async function btChangeInterval() {
+  btChartData = [];
+  await runBT();
+}
+
+async function fetchBTData() {
+  try {
+    const interval = document.getElementById('bt-interval')?.value || '15m';
+    const rangeMap = {'2m':'5d','15m':'30d','30m':'30d','1h':'60d','1d':'1y'};
+    const range = rangeMap[interval] || '30d';
+    const r = await fetch(`/api/price-history/SPX?interval=${interval}&range=${range}`);
+    const raw = await r.json();
+    // Calcular EMAs y MACD
+    const closes = raw.map(c => c.close);
+    const e10 = btEMA(closes, 10);
+    const e20 = btEMA(closes, 20);
+    const [ml, ms, mh] = btMACD(closes);
+    btChartData = raw.map((c,i) => ({
+      ...c,
+      ema10: e10[i], ema20: e20[i],
+      macdL: ml[i],  macdH: mh[i],
+      dt_col: (() => { const d = new Date((c.time - 18000) * 1000); return d.toISOString().slice(0,16).replace('T',' '); })(),
+      timeCol: c.time - 18000
+    }));
+    console.log('[BT] Datos cargados:', btChartData.length, 'velas');
+  } catch(e) { console.error('[BT] Error:', e); }
+}
+
+function btEMA(values, period) {
+  const k = 2/(period+1);
+  const result = Array(period-1).fill(null);
+  let e = values.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  result.push(+e.toFixed(2));
+  for (let i=period; i<values.length; i++) {
+    e = values[i]*k + e*(1-k);
+    result.push(+e.toFixed(2));
+  }
+  return result;
+}
+
+function btMACD(closes, fast=12, slow=26, signal=9) {
+  const ef = btEMA(closes, fast);
+  const es = btEMA(closes, slow);
+  const ml = ef.map((f,i) => f&&es[i] ? +(f-es[i]).toFixed(4) : null);
+  const valid = ml.filter(Boolean);
+  const sr = btEMA(valid, signal);
+  const off = ml.length - sr.length;
+  const sf = Array(off).fill(null).concat(sr);
+  const mh = ml.map((m,i) => m&&sf[i] ? +(m-sf[i]).toFixed(4) : null);
+  return [ml, sf, mh];
+}
+
+// ── BS helpers ─────────────────────────────────────────────
+function btN(x){return 0.5*(1+btErf(x/Math.sqrt(2)));}
+function btErf(x){const t=1/(1+0.3275911*Math.abs(x));const y=1-t*(0.254829592+t*(-0.284496736+t*(1.421413741+t*(-1.453152027+t*1.061405429))))*Math.exp(-x*x);return x>=0?y:-y;}
+function btBS(S,K,T,opt='call',iv=0.175,r=0.045){
+  S=+S;K=+K;T=+T;
+  if(T<=0)return opt==='call'?Math.max(S-K,0):Math.max(K-S,0);
+  const d1=(Math.log(S/K)+(r+.5*iv*iv)*T)/(iv*Math.sqrt(T)),d2=d1-iv*Math.sqrt(T);
+  return opt==='call'?S*btN(d1)-K*Math.exp(-r*T)*btN(d2):K*Math.exp(-r*T)*btN(-d2)-S*btN(-d1);
+}
+function btDelta(S,K,T,opt='call',iv=0.175,r=0.045){
+  S=+S;K=+K;T=+T;
+  if(T<=0)return opt==='call'?(S>K?1:0):(S>K?0:-1);
+  const d1=(Math.log(S/K)+(r+.5*iv*iv)*T)/(iv*Math.sqrt(T));
+  return opt==='call'?btN(d1):btN(d1)-1;
+}
+function findOTMStrike(S,targetDelta,opt,T){
+  let K=S,step=opt==='call'?5:-5;
+  for(let i=0;i<200;i++){K+=step;if(Math.abs(btDelta(S,K,T,opt))<=targetDelta+0.015)return Math.round(K/5)*5;}
+  return Math.round((S+(opt==='call'?50:-50))/5)*5;
+}
+function calcSpreadWidth(capital,exp,riesgoPct){
+  const m={principiante:[[5000,5],[10000,5],[15000,5],[20000,10],[Infinity,10]],
+            intermedio:  [[5000,5],[10000,5],[15000,10],[20000,15],[Infinity,15]],
+            avanzado:    [[5000,5],[10000,10],[15000,15],[20000,15],[Infinity,20]]};
+  const tiers=m[exp]||m.intermedio;
+  let spM=5; for(const[lim,sp]of tiers){if(capital<=lim){spM=sp;break;}}
+  const spR=Math.max(5,Math.floor(capital*(riesgoPct/100)/100)*5);
+  return Math.min(spM,spR,20);
+}
+
+async function runBT() {
+  if (!btChartData.length) await fetchBTData();
+  const from   = document.getElementById('bt-from').value;
+  const to     = document.getElementById('bt-to').value;
+  const minS   = parseInt(document.getElementById('bt-minscore').value)||75;
+  const capital     = parseFloat(document.getElementById('bt-capital')?.value)||10000;
+  const exp         = document.getElementById('bt-exp')?.value||'intermedio';
+  const riesgoPct   = parseFloat(document.getElementById('bt-riesgo')?.value)||2;
+  const tpPct       = parseFloat(document.getElementById('bt-tp')?.value)||30;
+  const slMult      = parseFloat(document.getElementById('bt-sl')?.value)||1.5;
+  const targetDelta = parseFloat(document.getElementById('bt-delta')?.value)||0.12;
+  const spreadWidth = calcSpreadWidth(capital,exp,riesgoPct);
+  if(document.getElementById('bt-spread-display')) document.getElementById('bt-spread-display').textContent=spreadWidth;
+
+  const filtered = btChartData.filter(c => {
+    const d = (c.dt_col||'').slice(0,10);
+    return d >= from && d <= to;
+  });
+
+  btSignals = [];
+  let prevDir = null;
+  let lastSigI = -99;
+
+  filtered.forEach((c,i) => {
+    if (i < 25 || !c.ema10 || !c.ema20 || c.macdH==null) return;
+    const secsInDay = (c.timeCol||c.time-18000) % 86400; // segundos del día en COL
+    if (secsInDay < 30600 || secsInDay > 54000) return; // 8:30-15:00 COL
+    if (i - lastSigI < 8) return;
+
+    const evalDir = (dir) => {
+      const isBear = dir==='BEARISH';
+      const cr = {
+        precio_ema200:        false,
+        emas_alineadas_diario:false,
+        emas_alineadas_15m:   isBear ? c.ema10 < c.ema20 : c.ema10 > c.ema20,
+        macd_alineado_15m:    isBear ? (c.macdL<0||c.macdH<0) : (c.macdL>0||c.macdH>0),
+        precio_cerca_ema:     Math.abs(c.close-c.ema10)/c.close*100 < 0.5,
+        volumen_spy:          true,
+        gex_compatible:       true,
+      };
+      const score = Object.keys(cr).reduce((a,k)=>a+(cr[k]?BT_WEIGHTS[k].w:0),0);
+      return {score,cr};
+    };
+
+    const bear = evalDir('BEARISH');
+    const bull = evalDir('BULLISH');
+    let dir=null, score=0, criterios={};
+    if (bear.score>=minS && bear.score>=bull.score) { dir='BEARISH'; score=bear.score; criterios=bear.cr; }
+    else if (bull.score>=minS) { dir='BULLISH'; score=bull.score; criterios=bull.cr; }
+    if (!dir || dir===prevDir) return;
+    prevDir=dir; lastSigI=i;
+
+    const isBear = dir==='BEARISH';
+    const S = c.close;
+    const opt = isBear?'call':'put';
+
+    // Calcular tiempo real restante hasta cierre
+    // c.time ya está en COL (UTC-5), cierre = 15:00 COL = 54000 segs desde medianoche
+    const secsOfDay = (c.timeCol||c.time-18000) % 86400; // segundos desde medianoche COL
+    const closeSecsCol = 54000;       // 15:00 COL = 54000 segs
+    const secsUntilClose = Math.max(120, closeSecsCol - secsOfDay);
+    const minsUntilClose = secsUntilClose / 60;
+    const T_REAL = minsUntilClose / (252 * 6.5 * 60); // fracción del año
+
+    const shortS = findOTMStrike(S, targetDelta, opt, T_REAL);
+    const longS  = isBear ? shortS+spreadWidth : shortS-spreadWidth;
+    const credito = Math.max(0,+(isBear?
+      btBS(S,shortS,T_REAL,'call')-btBS(S,longS,T_REAL,'call'):
+      btBS(S,shortS,T_REAL,'put') -btBS(S,longS,T_REAL,'put')
+    ).toFixed(2));
+    const dist = Math.abs(S-shortS);
+    const tpVal  = +(credito*(tpPct/100)).toFixed(3);
+    const slVal  = +(credito*slMult).toFixed(3);
+
+    // Simular TP/SL — máx 15 velas (30 min en 2m)
+    const prev5 = filtered.slice(Math.max(0,i-5),i);
+    const fractal = isBear
+      ? Math.max(...prev5.map(x=>x.high||0))
+      : Math.min(...prev5.map(x=>x.low||9999));
+    let resultado='EXP ✅', pnl=+(credito*100).toFixed(2), exitTime='';
+
+    for(let j=i+1; j<Math.min(i+16,filtered.length); j++){
+      const fc=filtered[j];
+      const minsLeft=Math.max(2,(54000-(fc.timeCol||fc.time-18000)%86400)/60); // COL
+      const Tnow=minsLeft/(252*6.5*60);
+      const sv=btBS(fc.close,shortS,Tnow,opt);
+      const lv=btBS(fc.close,longS,Tnow,opt);
+      const ganancia=credito-Math.max(0,sv-lv);
+      if(ganancia>=tpVal)           {resultado='TP ✅';     pnl=+(tpVal*100).toFixed(2);  exitTime=(fc.dt_col||'').slice(11,16); break;}
+      if(ganancia<=-slVal)          {resultado='SL econ ❌';pnl=+(-slVal*100).toFixed(2); exitTime=(fc.dt_col||'').slice(11,16); break;}
+      if(!isBear&&fc.low<fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2);exitTime=(fc.dt_col||'').slice(11,16); break;}
+      if(isBear&&fc.high>fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2);exitTime=(fc.dt_col||'').slice(11,16); break;}
+    }
+
+    btSignals.push({
+      fecha:(c.dt_col||'').slice(0,10), hora_col:(c.dt_col||'').slice(11,16),
+      direction:dir, price:c.close, ema10:c.ema10, ema20:c.ema20,
+      macd_hist:c.macdH, score, criterios,
+      estrategia:`${isBear?'Bear Call':'Bull Put'} ${shortS}/${longS}`,
+      shortStrike:shortS, longStrike:longS, credito, dist:+dist.toFixed(0),
+      minsLeft:+minsUntilClose.toFixed(0),
+      breakeven:isBear?shortS+credito:shortS-credito,
+      tpVal, slVal, resultado, pnl, exitTime, fractal:+fractal.toFixed(2), spreadWidth,
+    });
+  });
+
+  document.getElementById('bt-total').textContent = btSignals.length;
+  document.getElementById('bt-bear').textContent  = btSignals.filter(s=>s.direction==='BEARISH').length;
+  document.getElementById('bt-bull').textContent  = btSignals.filter(s=>s.direction==='BULLISH').length;
+  const totalPnl = btSignals.reduce((a,s)=>a+s.pnl,0);
+  if(document.getElementById('bt-pnl-total')) {
+    const el=document.getElementById('bt-pnl-total');
+    el.textContent=`$${totalPnl>=0?'+':''}${totalPnl.toFixed(2)}`;
+    el.style.color=totalPnl>=0?'#34d399':'#f87171';
+  }
+
+  // Render lista
+  const list = document.getElementById('bt-signal-list');
+  if (!btSignals.length) {
+    list.innerHTML='<div class="bt-empty">Sin señales en este período</div>';
+    document.getElementById('bt-detail').style.display='none';
+    drawBTChart(filtered); return;
+  }
+  list.innerHTML = btSignals.map((s,i)=>`
+    <div id="bt-card-${i}" onclick="showBTDetail(${i})" style="background:var(--card);border:1px solid var(--border);border-left:3px solid ${s.direction==='BEARISH'?'#f87171':'#34d399'};border-radius:8px;padding:10px 12px;cursor:pointer;transition:all .15s;margin-bottom:0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="background:#1e2433;color:#94a3b8;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">#${i+1}</span>
+          <span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;background:${s.direction==='BEARISH'?'#7f1d1d44':'#14532d44'};color:${s.direction==='BEARISH'?'#f87171':'#34d399'}">${s.direction==='BEARISH'?'🐻 BEARISH':'🐂 BULLISH'}</span>
+        </div>
+        <span style="font-size:11px;color:#fbbf24;font-weight:700">⚡ ${s.score}%</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:13px;font-weight:600">${s.fecha}</span>
+        <span style="font-size:11px;color:var(--muted)">${s.hora_col} COL</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">SPX: $${s.price.toLocaleString()}</div>
+      <div style="font-size:12px;color:#60a5fa;font-weight:600;margin-top:3px">${s.estrategia}</div>
+    </div>
+  `).join('');
+
+  drawBTChart(filtered);
+}
+
+function showBTDetail(idx) {
+  btActiveIdx = idx;
+  const s = btSignals[idx];
+  // Resaltar card activa
+  btSignals.forEach((_,i) => {
+    const card = document.getElementById(`bt-card-${i}`);
+    if (card) card.style.boxShadow = i===idx ? '0 0 0 2px #3b82f6' : 'none';
+  });
+  document.getElementById('bt-detail').style.display='block';
+  document.getElementById('bt-detail-title').textContent=`#${idx+1} — ${s.estrategia}`;
+  const grid=document.getElementById('bt-dgrid');
+  const pnlColor=s.pnl>=0?'#34d399':'#f87171';
+  const resColor=s.resultado?.includes('✅')?'#34d399':s.resultado?.includes('⚠️')?'#fbbf24':'#f87171';
+  const colateral=(s.spreadWidth||20)*100;
+  grid.innerHTML=`
+    <div class="bt-di"><div class="lbl">Estrategia</div><div class="val" style="color:#60a5fa;font-size:11px">${s.estrategia}</div></div>
+    <div class="bt-di"><div class="lbl">SPX entrada</div><div class="val">$${s.price.toLocaleString()}</div></div>
+    <div class="bt-di"><div class="lbl">Crédito neto</div><div class="val" style="color:#34d399">$${(s.credito*100).toFixed(0)}</div></div>
+    <div class="bt-di"><div class="lbl">Spread width</div><div class="val">${s.spreadWidth||20} pts</div></div>
+    <div class="bt-di"><div class="lbl">TP target (${(s.tpVal*100/s.credito/100*100).toFixed(0)}%)</div><div class="val" style="color:#34d399">$${(s.tpVal*100).toFixed(0)}</div></div>
+    <div class="bt-di"><div class="lbl">SL target (1.5x)</div><div class="val" style="color:#f87171">$${(s.slVal*100).toFixed(0)}</div></div>
+    <div class="bt-di"><div class="lbl">Breakeven</div><div class="val" style="color:#fbbf24">${s.breakeven?.toFixed(1)}</div></div>
+    <div class="bt-di"><div class="lbl">Dist. strike</div><div class="val">${s.dist} pts</div></div>
+    <div class="bt-di"><div class="lbl">Mins al cierre</div><div class="val" style="color:#94a3b8">${s.minsLeft||'—'} min</div></div>
+    <div class="bt-di"><div class="lbl">Resultado</div><div class="val" style="color:${resColor};font-size:11px">${s.resultado||'—'}</div></div>
+    <div class="bt-di"><div class="lbl">P&L simulado</div><div class="val" style="color:${pnlColor}">${s.pnl>=0?'+':''}$${s.pnl?.toFixed(2)}</div></div>
+    <div class="bt-di"><div class="lbl">Score Playbook</div><div class="val" style="color:#fbbf24">⚡ ${s.score}%</div></div>
+    <div class="bt-di"><div class="lbl">Colateral</div><div class="val">$${colateral.toLocaleString()}</div></div>
+  `;
+  const bars=document.getElementById('bt-pb-bars');
+  bars.innerHTML='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Playbook Score</div>'+
+    Object.keys(BT_WEIGHTS).map(k=>{
+      const ok=s.criterios&&s.criterios[k];
+      const w=BT_WEIGHTS[k].w;
+      return `<div class="bt-pb-row">
+        <div class="bt-pb-lbl">${ok?'✅':'❌'} ${BT_WEIGHTS[k].label}</div>
+        <div class="bt-pb-bg"><div class="bt-pb-fill" style="width:${ok?(w/28*100):0}%;background:${ok?'#3b82f6':'#374151'}"></div></div>
+        <div class="bt-pb-pts">${ok?w:0}</div>
+      </div>`;
+    }).join('');
+  drawBTChart(null, idx);
+}
+
+// ── Lightweight Charts para backtester ────────────────────────
+let _btChart = null;
+let _btCandleSeries = null;
+let _btEma10Series = null;
+let _btEma20Series = null;
+
+function initBTChart() {
+  const container = document.getElementById('bt-chart-container');
+  if (!container) return;
+  if (_btChart) { _btChart.remove(); _btChart = null; }
+
+  const W = container.clientWidth || 800;
+  const H = container.clientHeight || 500;
+
+  _btChart = LightweightCharts.createChart(container, {
+    width: W,
+    height: H,
+    layout: { background:{color:'#0d0f14'}, textColor:'#b2b5be' },
+    grid:   { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor:'#2a2e39' },
+    timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false },
+    handleScroll: true,
+    handleScale: true,
+  });
+
+  _btCandleSeries = _btChart.addCandlestickSeries({
+    upColor:'#26a69a', downColor:'#ef5350',
+    borderUpColor:'#26a69a', borderDownColor:'#ef5350',
+    wickUpColor:'#26a69a', wickDownColor:'#ef5350',
+  });
+
+  _btEma10Series = _btChart.addLineSeries({
+    color:'#60a5fa', lineWidth:1, priceLineVisible:false, lastValueVisible:false,
+  });
+
+  _btEma20Series = _btChart.addLineSeries({
+    color:'#f59e0b', lineWidth:1, priceLineVisible:false, lastValueVisible:false,
+  });
+
+  // Bandas de sesión — zona oscura fuera del mercado
+  // Marcamos bloques de horario extendido como fondo oscuro usando líneas de precio transparentes
+  // Lightweight Charts v4 soporta esto via ISeriesPrimitive pero usamos una solución visual:
+  // Overlay canvas con rectángulos sobre las zonas fuera de horario
+
+  // Resize observer
+  new ResizeObserver(() => {
+    if (_btChart) _btChart.applyOptions({
+      width:  container.clientWidth,
+      height: container.clientHeight,
+    });
+  }).observe(container);
+
+  // Overlay canvas para zonas fuera de mercado
+  const overlay = document.createElement('canvas');
+  overlay.id = 'bt-overlay';
+  overlay.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:2;';
+  container.appendChild(overlay);
+}
+
+function drawSessionOverlay() {
+  const container = document.getElementById('bt-chart-container');
+  const overlay = document.getElementById('bt-overlay');
+  if (!overlay || !_btChart || !_btCandleSeries) return;
+
+  const W = container.clientWidth;
+  const H = container.clientHeight;
+  overlay.width  = W;
+  overlay.height = H;
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+
+  const visibleRange = _btChart.timeScale().getVisibleRange();
+  if (!visibleRange) return;
+
+  const from = visibleRange.from;
+  const to   = visibleRange.to;
+
+  // Esquema TradingView:
+  // PRE/POST mercado: overlay oscuro semitransparente sobre el fondo
+  // MERCADO: sin overlay (fondo base del gráfico)
+  const ZONES = [
+    { s: 0,     e: 30600, bg: 'rgba(0,0,0,0.45)',       line: 'rgba(120,123,134,0.4)', label: 'PRE',     lc: 'rgba(120,123,134,0.6)' },
+    { s: 30600, e: 54000, bg: 'rgba(0,0,0,0.0)',        line: 'rgba(120,123,134,0.5)', label: '',        lc: 'rgba(0,0,0,0)'         },
+    { s: 54000, e: 86400, bg: 'rgba(0,0,0,0.45)',       line: 'rgba(120,123,134,0.4)', label: 'POST',    lc: 'rgba(120,123,134,0.6)' },
+  ];
+
+  let day = Math.floor(from / 86400) * 86400;
+  while (day < to + 86400) {
+    ZONES.forEach(z => {
+      try {
+        const x1 = _btChart.timeScale().timeToCoordinate(day + z.s);
+        const x2 = _btChart.timeScale().timeToCoordinate(day + z.e);
+        if (x1 === null || x2 === null || x2 <= x1) return;
+        const w = x2 - x1;
+
+        // Fondo de zona
+        ctx.fillStyle = z.bg;
+        ctx.fillRect(x1, 0, w, H);
+
+        // Línea izquierda (inicio de zona)
+        ctx.strokeStyle = z.line;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x1, H); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Label si hay espacio
+        if (w > 35) {
+          ctx.font = 'bold 9px Inter';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = z.lc;
+          ctx.fillText(z.label, x1 + w/2, 14);
+        }
+      } catch(e) {}
+    });
+    day += 86400;
+  }
+}
+
+function drawBTChart(data, hlIdx=null) {
+  const container = document.getElementById('bt-chart-container');
+  if (!container) return;
+
+  if (!_btChart) initBTChart();
+
+  const cd = data || btChartData.filter(c=>{
+    const from=document.getElementById('bt-from').value;
+    const to=document.getElementById('bt-to').value;
+    const d=(c.dt_col||'').slice(0,10);
+    return d>=from && d<=to;
+  });
+
+  if (!cd.length) return;
+
+  // Velas
+  // Usar time - 18000 para que LightweightCharts muestre hora Colombia (UTC-5)
+  const btTime = c => c.time - 18000;
+  const candleData = cd.filter(c=>c.open&&c.high&&c.low&&c.close).map(c=>({
+    time: btTime(c), open: c.open, high: c.high, low: c.low, close: c.close,
+  }));
+  _btCandleSeries.setData(candleData);
+
+  // EMA10
+  const ema10Data = cd.filter(c=>c.ema10).map(c=>({ time: btTime(c), value: c.ema10 }));
+  _btEma10Series.setData(ema10Data);
+
+  // EMA20
+  const ema20Data = cd.filter(c=>c.ema20).map(c=>({ time: btTime(c), value: c.ema20 }));
+  _btEma20Series.setData(ema20Data);
+
+  // Marcadores de señales
+  const markers = btSignals.map((s,idx) => {
+    const ci = cd.findIndex(c=>(c.dt_col||'').startsWith(s.fecha)&&(c.dt_col||'').includes(s.hora_col));
+    if (ci < 0) return null;
+    const isBear = s.direction === 'BEARISH';
+    const isAct  = idx === hlIdx;
+    return {
+      time:     cd[ci].time - 18000,
+      position: isBear ? 'aboveBar' : 'belowBar',
+      color:    isBear ? (isAct?'#ef4444':'#f87171') : (isAct?'#10b981':'#34d399'),
+      shape:    isBear ? 'arrowDown' : 'arrowUp',
+      text:     `#${idx+1}`,
+      size:     isAct ? 2 : 1,
+    };
+  }).filter(Boolean);
+
+  _btCandleSeries.setMarkers(markers);
+
+  // Scroll al rango de fechas
+  if (candleData.length) {
+    _btChart.timeScale().fitContent();
+    setTimeout(drawSessionOverlay, 100);
+  }
+
+  // Actualizar overlay al hacer scroll/zoom
+  _btChart.timeScale().subscribeVisibleTimeRangeChange(() => {
+    drawSessionOverlay();
+  });
+}
+
+function resizeBTCanvas() {
+  const container = document.getElementById('bt-chart-container');
+  if (!container) return;
+  if (!_btChart) initBTChart();
+  else _btChart.applyOptions({
+    width:  container.clientWidth,
+    height: container.clientHeight,
+  });
+  drawBTChart(null);
 }
 
 </script>
