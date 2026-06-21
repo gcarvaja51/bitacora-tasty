@@ -1510,9 +1510,10 @@ app.get('/api/spx/config', (req, res) => res.json(loadSPXConfig()));
 // POST /api/spx/config
 app.post('/api/spx/config', (req, res) => {
   const cfg = loadSPXConfig();
-  const { minScore, weights } = req.body;
+  const { minScore, weights, trading } = req.body;
   if (minScore !== undefined) cfg.minScore = minScore;
-  if (weights) cfg.weights = { ...cfg.weights, ...weights };
+  if (weights)  cfg.weights  = { ...cfg.weights,  ...weights  };
+  if (trading)  cfg.trading  = { ...(cfg.trading||{}), ...trading };
   saveSPXConfig(cfg);
   res.json(cfg);
 });
