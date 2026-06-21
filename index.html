@@ -1541,17 +1541,25 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     </div>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 320px;height:calc(100vh - 270px);">
-    <div id="bt-chart-container" style="border-right:1px solid var(--border);position:relative;width:100%;height:100%;min-height:400px;"></div>
+  <!-- Fila superior: gráfico + detalle señal -->
+  <div style="display:grid;grid-template-columns:1fr 300px;height:calc(100vh - 420px);min-height:300px;">
+    <div id="bt-chart-container" style="border-right:1px solid var(--border);position:relative;width:100%;height:100%;"></div>
     <div style="overflow-y:auto;">
-      <div style="padding:10px 14px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--border);">Señales detectadas</div>
-      <div style="padding:6px;display:flex;flex-direction:column;gap:5px;" id="bt-signal-list"><div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">Ejecuta el backtester</div></div>
-      <div id="bt-detail" style="display:none;border-top:1px solid var(--border);padding:14px;">
-        <h4 id="bt-detail-title" style="font-size:12px;font-weight:700;margin-bottom:10px;"></h4>
+      <div style="padding:10px 14px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--border);">Detalle señal</div>
+      <div id="bt-detail" style="padding:14px;">
+        <div id="bt-detail-hint" style="padding:10px;text-align:center;color:var(--muted);font-size:11px;">↑ Haz click en un trade</div>
+        <h4 id="bt-detail-title" style="font-size:12px;font-weight:700;margin-bottom:10px;display:none;"></h4>
         <div id="bt-dgrid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"></div>
         <div id="bt-pb-bars"></div>
       </div>
     </div>
+  </div>
+  <!-- Fila inferior: tabla de trades -->
+  <div style="border-top:2px solid var(--border);overflow-y:auto;max-height:260px;">
+    <div style="padding:6px 14px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--border);background:var(--card);position:sticky;top:0;z-index:2;">
+      📋 Todos los trades
+    </div>
+    <div id="bt-signal-list"><div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">Ejecuta el backtester</div></div>
   </div>
 </div>
 
@@ -7246,23 +7254,57 @@ async function runBT() {
     document.getElementById('bt-detail').style.display='none';
     drawBTChart(filtered); return;
   }
-  list.innerHTML = btSignals.map((s,i)=>`
-    <div id="bt-card-${i}" onclick="showBTDetail(${i})" style="background:var(--card);border:1px solid var(--border);border-left:3px solid ${s.direction==='BEARISH'?'#f87171':'#34d399'};border-radius:8px;padding:10px 12px;cursor:pointer;transition:all .15s;margin-bottom:0;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-        <div style="display:flex;align-items:center;gap:6px;">
-          <span style="background:#1e2433;color:#94a3b8;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">#${i+1}</span>
-          <span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;background:${s.direction==='BEARISH'?'#7f1d1d44':'#14532d44'};color:${s.direction==='BEARISH'?'#f87171':'#34d399'}">${s.direction==='BEARISH'?'🐻 BEARISH':'🐂 BULLISH'}</span>
-        </div>
-        <span style="font-size:11px;color:#fbbf24;font-weight:700">⚡ ${s.score}%</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;">
-        <span style="font-size:13px;font-weight:600">${s.fecha}</span>
-        <span style="font-size:11px;color:var(--muted)">${s.hora_col} COL</span>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:3px">SPX: $${s.price.toLocaleString()}</div>
-      <div style="font-size:12px;color:#60a5fa;font-weight:600;margin-top:3px">${s.estrategia}</div>
-    </div>
-  `).join('');
+  // Tabla de trades en filas
+  list.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:10px;">
+      <thead>
+        <tr style="background:var(--card);position:sticky;top:0;z-index:1;">
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">#</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Fecha</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Hora</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Dir</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">SPX</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Estrategia</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Dist</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Créd</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Score</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Resultado</th>
+          <th style="padding:5px 8px;text-align:right;color:var(--muted);border-bottom:1px solid var(--border);">P&L</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${btSignals.map((s,i)=>{
+          const isBear=s.direction==='BEARISH';
+          const isWin=s.pnl>=0;
+          const resColor=s.resultado?.includes('✅')?'#34d399':s.resultado?.includes('⚠️')?'#fbbf24':'#f87171';
+          return `<tr id="bt-card-${i}" onclick="showBTDetail(${i})" style="cursor:pointer;border-bottom:1px solid #1a1f2e;"
+            onmouseover="this.style.background='rgba(255,255,255,0.04)'"
+            onmouseout="this.style.background=''">
+            <td style="padding:4px 8px;color:var(--muted);">${i+1}</td>
+            <td style="padding:4px 8px;font-weight:600;">${s.fecha.slice(5)}</td>
+            <td style="padding:4px 8px;color:var(--muted);">${s.hora_col}</td>
+            <td style="padding:4px 8px;">
+              <span style="padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;
+                background:${isBear?'#7f1d1d44':'#14532d44'};color:${isBear?'#f87171':'#34d399'}">
+                ${isBear?'🐻 B':'🐂 B'}
+              </span>
+            </td>
+            <td style="padding:4px 8px;font-family:monospace;font-size:10px;">$${s.price.toFixed(0)}</td>
+            <td style="padding:4px 8px;color:#60a5fa;font-size:9px;">${s.estrategia}</td>
+            <td style="padding:4px 8px;color:var(--muted);font-size:9px;">${s.dist}p</td>
+            <td style="padding:4px 8px;font-family:monospace;font-size:10px;">$${s.credito}</td>
+            <td style="padding:4px 8px;color:#fbbf24;font-size:10px;">⚡${s.score}%</td>
+            <td style="padding:4px 8px;font-size:9px;">
+              <span style="color:${resColor}">${s.resultado||'—'}</span>
+            </td>
+            <td style="padding:4px 8px;text-align:right;font-weight:700;font-size:11px;
+              color:${isWin?'#34d399':'#f87171'};">
+              ${isWin?'+':''}$${s.pnl?.toFixed(0)}
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 
   drawBTChart(filtered);
 }
@@ -7275,7 +7317,9 @@ function showBTDetail(idx) {
     const card = document.getElementById(`bt-card-${i}`);
     if (card) card.style.boxShadow = i===idx ? '0 0 0 2px #3b82f6' : 'none';
   });
-  document.getElementById('bt-detail').style.display='block';
+  const hint=document.getElementById('bt-detail-hint');
+  if(hint) hint.style.display='none';
+  document.getElementById('bt-detail-title').style.display='block';
   document.getElementById('bt-detail-title').textContent=`#${idx+1} — ${s.estrategia}`;
   const grid=document.getElementById('bt-dgrid');
   const pnlColor=s.pnl>=0?'#34d399':'#f87171';
@@ -7439,13 +7483,20 @@ function renderBTReport() {
   const vals = Object.values(dayPnl);
   const maxAbs = Math.max(...vals.map(v=>Math.abs(v)), 1);
   const maxH = 100;
+  // Calcular cuántos trades por día
+  const dayTrades = {};
+  btSignals.forEach(s=>{ if(!dayTrades[s.fecha]) dayTrades[s.fecha]=0; dayTrades[s.fecha]++; });
+
   daysEl.innerHTML = Object.entries(dayPnl).map(([d,v])=>{
     const h = Math.max(4, Math.abs(v)/maxAbs*maxH);
     const col = v>=0?'#34d399':'#f87171';
     const label = d.slice(5);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:28px;">
-      <div style="font-size:8px;color:${col};font-weight:600;">${v>=0?'+':''}$${Math.abs(v).toFixed(0)}</div>
-      <div style="width:22px;height:${h}px;background:${col};border-radius:3px 3px 0 0;opacity:0.85;"></div>
+    const nt = dayTrades[d]||0;
+    const tooltip = `${d} | ${nt} trade${nt!==1?'s':''} | ${v>=0?'+':''}$${v.toFixed(2)}`;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:28px;position:relative;" title="${tooltip}"
+      onmouseover="showBTBarTooltip(event,'${tooltip}')"
+      onmouseout="hideBTBarTooltip()">
+      <div style="width:22px;height:${h}px;background:${col};border-radius:3px 3px 0 0;opacity:0.85;cursor:pointer;transition:opacity .15s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.85"></div>
       <div style="font-size:8px;color:var(--muted);writing-mode:vertical-lr;transform:rotate(180deg);height:30px;">${label}</div>
     </div>`;
   }).join('');
@@ -7570,6 +7621,23 @@ function drawBTChart(data, hlIdx=null) {
   _btChart.timeScale().subscribeVisibleTimeRangeChange(() => {
     drawSessionOverlay();
   });
+}
+
+// Tooltip para barras P&L
+let _btTooltip = null;
+function showBTBarTooltip(e, text) {
+  if (!_btTooltip) {
+    _btTooltip = document.createElement('div');
+    _btTooltip.style.cssText = 'position:fixed;background:#1e2433;border:1px solid var(--border);color:var(--text);font-size:11px;padding:6px 10px;border-radius:6px;pointer-events:none;z-index:9999;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.5)';
+    document.body.appendChild(_btTooltip);
+  }
+  _btTooltip.textContent = text;
+  _btTooltip.style.display = 'block';
+  _btTooltip.style.left = (e.clientX + 10) + 'px';
+  _btTooltip.style.top  = (e.clientY - 30) + 'px';
+}
+function hideBTBarTooltip() {
+  if (_btTooltip) _btTooltip.style.display = 'none';
 }
 
 function resizeBTCanvas() {
