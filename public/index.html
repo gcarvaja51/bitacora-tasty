@@ -7206,24 +7206,38 @@ async function runBT() {
     const tpVal  = +(credito*(tpPct/100)).toFixed(3);
     const slVal  = +(credito*slMult).toFixed(3);
 
-    // Simular TP/SL — máx 15 velas (30 min en 2m)
+    // Simular TP/SL — hasta cierre de mercado (15:00 COL)
+    // No hay límite de velas — la posición se mantiene hasta TP, SL o cierre
     const prev5 = filtered.slice(Math.max(0,i-5),i);
     const fractal = isBear
       ? Math.max(...prev5.map(x=>x.high||0))
       : Math.min(...prev5.map(x=>x.low||9999));
-    let resultado='EXP ✅', pnl=+(credito*100).toFixed(2), exitTime='';
+    let resultado='CIERRE', pnl=0, exitTime='';
 
-    for(let j=i+1; j<Math.min(i+16,filtered.length); j++){
+    for(let j=i+1; j<filtered.length; j++){
       const fc=filtered[j];
       const minsLeft=Math.max(2,(54000-(fc.timeCol||fc.time-18000)%86400)/60); // COL
       const Tnow=minsLeft/(252*6.5*60);
       const sv=btBS(fc.close,shortS,Tnow,opt);
       const lv=btBS(fc.close,longS,Tnow,opt);
       const ganancia=credito-Math.max(0,sv-lv);
-      if(ganancia>=tpVal)           {resultado='TP ✅';     pnl=+(tpVal*100).toFixed(2);  exitTime=(fc.dt_col||'').slice(11,16); break;}
-      if(ganancia<=-slVal)          {resultado='SL econ ❌';pnl=+(-slVal*100).toFixed(2); exitTime=(fc.dt_col||'').slice(11,16); break;}
-      if(!isBear&&fc.low<fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2);exitTime=(fc.dt_col||'').slice(11,16); break;}
-      if(isBear&&fc.high>fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2);exitTime=(fc.dt_col||'').slice(11,16); break;}
+      if(ganancia>=tpVal)           {resultado='TP ✅';      pnl=+(tpVal*100).toFixed(2);   exitTime=(fc.dt_col||'').slice(11,16); break;}
+      if(ganancia<=-slVal)          {resultado='SL econ ❌'; pnl=+(-slVal*100).toFixed(2);  exitTime=(fc.dt_col||'').slice(11,16); break;}
+      if(!isBear&&fc.low<fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2); exitTime=(fc.dt_col||'').slice(11,16); break;}
+      if(isBear&&fc.high>fractal)   {resultado='SL fract ⚠️';pnl=+(ganancia*100).toFixed(2); exitTime=(fc.dt_col||'').slice(11,16); break;}
+      // Llegó al cierre sin tocar TP ni SL — cierra al valor actual
+      const secsFC = (fc.timeCol||fc.time-18000)%86400;
+      if(secsFC >= 54000) { // 15:00 COL
+        resultado = pnl>=0 ? 'CIERRE ✅' : 'CIERRE ❌';
+        pnl = +(ganancia*100).toFixed(2);
+        exitTime = '15:00';
+        break;
+      }
+    }
+
+    // Si nunca encontró salida (datos insuficientes) marcar como sin datos
+    if(resultado==='CIERRE' && pnl===0) {
+      resultado='SIN DATOS'; pnl=0;
     }
 
     btSignals.push({
