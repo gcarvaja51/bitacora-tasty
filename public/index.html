@@ -1528,6 +1528,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div id="btr-sle" style="font-size:16px;font-weight:700;color:#f87171;">—</div>
       </div>
     </div>
+    <!-- Bloques estadísticos -->
+    <div id="bt-stats-blocks" style="margin-bottom:10px;"></div>
     <!-- Curva de capital + tabla días -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
       <div>
@@ -7441,6 +7443,111 @@ function renderBTReport() {
   document.getElementById('btr-exp').textContent   = exp.length;
   document.getElementById('btr-slf').textContent   = slf.length;
   document.getElementById('btr-sle').textContent   = sle.length;
+
+  // ── MÉTRICAS ESTADÍSTICAS ─────────────────────────────────
+  const pnls       = btSignals.map(s=>s.pnl);
+  const pnlPos     = pnls.filter(p=>p>0);
+  const pnlNeg     = pnls.filter(p=>p<=0);
+  const avgGanancia= pnlPos.length ? pnlPos.reduce((a,b)=>a+b,0)/pnlPos.length : 0;
+  const avgPerdida = pnlNeg.length ? pnlNeg.reduce((a,b)=>a+b,0)/pnlNeg.length : 0;
+  const profitFactor= pnlNeg.length && Math.abs(pnlNeg.reduce((a,b)=>a+b,0))>0
+    ? pnlPos.reduce((a,b)=>a+b,0) / Math.abs(pnlNeg.reduce((a,b)=>a+b,0)) : 999;
+  const expectancy = pnls.reduce((a,b)=>a+b,0)/pnls.length;
+
+  // Drawdown
+  let peak=capital, maxDD=0, maxDDPct=0, capAcc2=capital;
+  btSignals.forEach(s=>{
+    capAcc2+=s.pnl;
+    if(capAcc2>peak) peak=capAcc2;
+    const dd=peak-capAcc2;
+    if(dd>maxDD){ maxDD=dd; maxDDPct=(dd/peak)*100; }
+  });
+
+  // Sharpe ratio (simplificado: retorno medio / desv estándar de retornos diarios)
+  const dayPnlArr = {};
+  btSignals.forEach(s=>{ if(!dayPnlArr[s.fecha]) dayPnlArr[s.fecha]=0; dayPnlArr[s.fecha]+=s.pnl; });
+  const dailyRets = Object.values(dayPnlArr).map(p=>p/capital);
+  const meanRet   = dailyRets.reduce((a,b)=>a+b,0)/dailyRets.length;
+  const stdRet    = Math.sqrt(dailyRets.reduce((a,b)=>a+(b-meanRet)**2,0)/dailyRets.length) || 0.0001;
+  const sharpe    = (meanRet/stdRet)*Math.sqrt(252);
+  const sortino   = (() => {
+    const negRets=dailyRets.filter(r=>r<0);
+    const downDev=negRets.length ? Math.sqrt(negRets.reduce((a,b)=>a+b**2,0)/negRets.length) : 0.0001;
+    return (meanRet/downDev)*Math.sqrt(252);
+  })();
+  const calmar    = maxDDPct>0 ? ((pnlTotal/capital*100)/maxDDPct) : 999;
+
+  // Rachas
+  let maxWinStreak=0, maxLossStreak=0, curWin=0, curLoss=0;
+  btSignals.forEach(s=>{
+    if(s.pnl>0){ curWin++; curLoss=0; maxWinStreak=Math.max(maxWinStreak,curWin); }
+    else{ curLoss++; curWin=0; maxLossStreak=Math.max(maxLossStreak,curLoss); }
+  });
+  const dias = Object.keys(dayPnlArr).length;
+  const tradesXdia = (btSignals.length/dias).toFixed(1);
+
+  // Render métricas en 3 bloques
+  const statsEl = document.getElementById('bt-stats-blocks');
+  if(statsEl) statsEl.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+
+      <!-- Bloque 1: Rentabilidad -->
+      <div style="background:var(--bg);border-radius:8px;padding:12px;">
+        <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:5px;">💰 Rentabilidad</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          ${[
+            ['P&L Total',      `${pnlTotal>=0?'+':''}$${pnlTotal.toFixed(2)}`,  pnlTotal>=0?'#34d399':'#f87171'],
+            ['Retorno',        `${retorno>=0?'+':''}${retorno.toFixed(1)}%`,     retorno>=0?'#34d399':'#f87171'],
+            ['Expectancy',     `${expectancy>=0?'+':''}$${expectancy.toFixed(2)}`, expectancy>=0?'#34d399':'#f87171'],
+            ['Profit Factor',  profitFactor>999?'∞':profitFactor.toFixed(2),     profitFactor>=1.5?'#34d399':profitFactor>=1?'#fbbf24':'#f87171'],
+            ['Avg Ganancia',   `+$${avgGanancia.toFixed(2)}`,                   '#34d399'],
+            ['Avg Pérdida',    `$${avgPerdida.toFixed(2)}`,                      '#f87171'],
+          ].map(([l,v,c])=>`
+            <div style="background:var(--card);border-radius:5px;padding:7px;">
+              <div style="font-size:9px;color:var(--muted);margin-bottom:2px;">${l}</div>
+              <div style="font-size:13px;font-weight:700;color:${c};">${v}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Bloque 2: Riesgo -->
+      <div style="background:var(--bg);border-radius:8px;padding:12px;">
+        <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:5px;">⚠️ Riesgo</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          ${[
+            ['Max Drawdown',   `-$${maxDD.toFixed(2)}`,                          '#f87171'],
+            ['Max DD %',       `-${maxDDPct.toFixed(1)}%`,                       maxDDPct<15?'#34d399':maxDDPct<25?'#fbbf24':'#f87171'],
+            ['Sharpe Ratio',   sharpe.toFixed(2),                                sharpe>=2?'#34d399':sharpe>=1?'#fbbf24':'#f87171'],
+            ['Sortino Ratio',  sortino.toFixed(2),                               sortino>=2?'#34d399':sortino>=1?'#fbbf24':'#f87171'],
+            ['Calmar Ratio',   calmar>99?'∞':calmar.toFixed(2),                  calmar>=2?'#34d399':calmar>=1?'#fbbf24':'#f87171'],
+            ['R/R Ratio',      `1:${Math.abs(avgPerdida/avgGanancia||0).toFixed(2)}`, '#60a5fa'],
+          ].map(([l,v,c])=>`
+            <div style="background:var(--card);border-radius:5px;padding:7px;">
+              <div style="font-size:9px;color:var(--muted);margin-bottom:2px;">${l}</div>
+              <div style="font-size:13px;font-weight:700;color:${c};">${v}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Bloque 3: Consistencia -->
+      <div style="background:var(--bg);border-radius:8px;padding:12px;">
+        <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:5px;">📊 Consistencia</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          ${[
+            ['Win Rate',        `${(wins.length/btSignals.length*100).toFixed(1)}%`,  wins.length/btSignals.length>=0.6?'#34d399':'#fbbf24'],
+            ['Total Trades',    btSignals.length,                                      '#60a5fa'],
+            ['Trades/Día',      tradesXdia,                                            '#94a3b8'],
+            ['Días activos',    dias,                                                  '#94a3b8'],
+            ['Racha ✅ máx',    maxWinStreak,                                          '#34d399'],
+            ['Racha ❌ máx',    maxLossStreak,                                         '#f87171'],
+          ].map(([l,v,c])=>`
+            <div style="background:var(--card);border-radius:5px;padding:7px;">
+              <div style="font-size:9px;color:var(--muted);margin-bottom:2px;">${l}</div>
+              <div style="font-size:13px;font-weight:700;color:${c};">${v}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
 
   // Curva de capital con LightweightCharts
   const eqEl = document.getElementById('bt-equity-chart');
