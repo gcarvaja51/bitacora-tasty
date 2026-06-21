@@ -1476,6 +1476,16 @@ const SPX_CONFIG_DEFAULTS = {
     precio_cerca_ema:     20,
     volumen_spy:          12,
     gex_compatible:        8,
+  },
+  // Parámetros de trading (compartidos con backtester)
+  trading: {
+    capital:     10000,   // Capital de la cuenta
+    experiencia: 'intermedio', // principiante / intermedio / avanzado
+    riesgoPct:   2,       // % máximo de riesgo por operación
+    targetDelta: 0.12,    // Delta objetivo para el strike short
+    tpPct:       30,      // Take Profit % del crédito
+    slMult:      1.5,     // Stop Loss multiplicador del crédito
+    spreadWidth: 5,       // Puntos del spread (calculado automático)
   }
 };
 function loadSPXConfig() {
@@ -1817,13 +1827,20 @@ app.post('/api/spx/webhook', async (req, res) => {
       return;
     }
 
-    // Buscar strikes
+    // Parámetros de trading desde config
+    const tradingCfg = spxConfig.trading || SPX_CONFIG_DEFAULTS.trading;
+    const targetDelta = tradingCfg.targetDelta || 0.12;
+    const tpPct       = (tradingCfg.tpPct || 30) / 100;
+    const slMult      = tradingCfg.slMult || 1.5;
+    const spreadWidth = tradingCfg.spreadWidth || 5;
+
+    // Buscar strikes con delta configurable
     const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
     const chainData = await chainRes.json();
-    const strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType);
+    const strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType, targetDelta, spreadWidth);
 
     if (!strikes) {
-      console.log('[SPX] ❌ No se encontraron strikes con delta 0.10-0.14');
+      console.log(`[SPX] ❌ No se encontraron strikes con delta ${targetDelta}`);
       return;
     }
 
@@ -1842,6 +1859,22 @@ app.post('/api/spx/webhook', async (req, res) => {
     signal.source    = source;
     signal.timeframe = timeframe;
     signal.tf15m     = spx15mContext?.direction || direction;
+
+    // Agregar parámetros de trading y TP/SL calculados
+    const credito = signal.credit || signal.maxProfit || 0;
+    signal.trading = {
+      delta:      targetDelta,
+      tpPct:      Math.round(tpPct * 100),
+      slMult:     slMult,
+      spreadWidth: spreadWidth,
+      tpTarget:   credito > 0 ? Math.round(credito * tpPct * 100) : null,
+      slTarget:   credito > 0 ? Math.round(credito * slMult * 100) : null,
+      breakeven:  signal.strikes ? (
+        sel.strategy === 'BEAR_CALL'
+          ? signal.strikes.shortStrike + credito
+          : signal.strikes.shortStrike - credito
+      ) : null,
+    };
 
     // Guardar
     const signals = loadSPXSignals();

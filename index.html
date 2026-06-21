@@ -1491,7 +1491,57 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;">Spread: <span id="bt-spread-display" style="color:#fbbf24;font-weight:600;">—</span>pts</span>
     <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;">P&L: <span id="bt-pnl-total" style="font-weight:600;">—</span></span>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 320px;height:calc(100vh - 170px);">
+  <!-- REPORTE ECONÓMICO -->
+  <div id="bt-report" style="display:none;border-bottom:1px solid var(--border);padding:12px 16px;background:var(--card);">
+    <!-- Stats row -->
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin-bottom:10px;">
+      <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">Capital Final</div>
+        <div id="btr-final" style="font-size:16px;font-weight:700;color:#34d399;">—</div>
+      </div>
+      <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">P&L Total</div>
+        <div id="btr-pnl" style="font-size:16px;font-weight:700;">—</div>
+      </div>
+      <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">Retorno</div>
+        <div id="btr-ret" style="font-size:16px;font-weight:700;">—</div>
+      </div>
+      <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">Win Rate</div>
+        <div id="btr-wr" style="font-size:16px;font-weight:700;color:#fbbf24;">—</div>
+      </div>
+      <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">TP ✅</div>
+        <div id="btr-tp" style="font-size:16px;font-weight:700;color:#34d399;">—</div>
+      </div>
+      <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">EXP ✅</div>
+        <div id="btr-exp" style="font-size:16px;font-weight:700;color:#60a5fa;">—</div>
+      </div>
+      <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">SL Fract ⚠️</div>
+        <div id="btr-slf" style="font-size:16px;font-weight:700;color:#fbbf24;">—</div>
+      </div>
+      <div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;">SL Econ ❌</div>
+        <div id="btr-sle" style="font-size:16px;font-weight:700;color:#f87171;">—</div>
+      </div>
+    </div>
+    <!-- Curva de capital + tabla días -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div>
+        <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Curva de Capital</div>
+        <div id="bt-equity-chart" style="height:120px;"></div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">P&L por Día</div>
+        <div id="bt-daily-bars" style="display:flex;gap:3px;align-items:flex-end;height:120px;overflow-x:auto;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 320px;height:calc(100vh - 270px);">
     <div id="bt-chart-container" style="border-right:1px solid var(--border);position:relative;width:100%;height:100%;min-height:400px;"></div>
     <div style="overflow-y:auto;">
       <div style="padding:10px 14px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--border);">Señales detectadas</div>
@@ -4792,6 +4842,25 @@ function renderSignalCard(s, isPending) {
       <span>Gamma: ${s.context?.gammaRegime||'—'}</span>
       <span>Flip: ${s.context?.gammaFlip||'—'}</span>
     </div>
+    ${s.trading ? `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;padding:10px;background:var(--bg);border-radius:8px;">
+      <div style="text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:2px;">Delta</div>
+        <div style="font-size:13px;font-weight:700;color:#60a5fa;">${s.trading.delta}</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:2px;">TP ${s.trading.tpPct}%</div>
+        <div style="font-size:13px;font-weight:700;color:#34d399;">${s.trading.tpTarget ? '+$'+s.trading.tpTarget : '—'}</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:2px;">SL ${s.trading.slMult}x</div>
+        <div style="font-size:13px;font-weight:700;color:#f87171;">${s.trading.slTarget ? '-$'+s.trading.slTarget : '—'}</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:2px;">Spread</div>
+        <div style="font-size:13px;font-weight:700;color:#fbbf24;">${s.trading.spreadWidth} pts</div>
+      </div>
+    </div>` : ''}
     ${actions}
   </div>`;
 }
@@ -4893,7 +4962,73 @@ function renderSPXConfig(cfg) {
           style="width:100%;accent-color:var(--blue);">
       </div>`).join('')}
     <button onclick="saveSPXConfig()" class="btn btn-primary" style="width:100%;margin-top:8px;padding:10px;">💾 Guardar configuración</button>
-  `;
+
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:12px;letter-spacing:.06em;">PARÁMETROS DE TRADING</div>
+
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:11px;color:var(--text);">Capital cuenta ($)</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--bright);" id="t-capital-val">${(cfg.trading?.capital||10000).toLocaleString()}</span>
+        </div>
+        <input type="range" min="5000" max="50000" step="1000" value="${cfg.trading?.capital||10000}"
+          oninput="$('t-capital-val').textContent=(+this.value).toLocaleString(); updateTradingConfig('capital',+this.value)"
+          style="width:100%;accent-color:var(--blue);">
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:11px;color:var(--text);">Experiencia</span>
+        </div>
+        <select onchange="updateTradingConfig('experiencia',this.value)"
+          style="width:100%;background:var(--card);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:6px;font-size:11px;">
+          <option value="principiante" ${(cfg.trading?.experiencia||'intermedio')==='principiante'?'selected':''}>Principiante</option>
+          <option value="intermedio"   ${(cfg.trading?.experiencia||'intermedio')==='intermedio'  ?'selected':''}>Intermedio</option>
+          <option value="avanzado"     ${(cfg.trading?.experiencia||'intermedio')==='avanzado'    ?'selected':''}>Avanzado</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:11px;color:var(--text);">Riesgo máx por trade (%)</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--bright);" id="t-riesgo-val">${cfg.trading?.riesgoPct||2}%</span>
+        </div>
+        <input type="range" min="0.5" max="5" step="0.5" value="${cfg.trading?.riesgoPct||2}"
+          oninput="$('t-riesgo-val').textContent=this.value+'%'; updateTradingConfig('riesgoPct',+this.value)"
+          style="width:100%;accent-color:var(--blue);">
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:11px;color:var(--text);">Delta objetivo (strike short)</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--bright);" id="t-delta-val">${cfg.trading?.targetDelta||0.12}</span>
+        </div>
+        <input type="range" min="0.05" max="0.50" step="0.01" value="${cfg.trading?.targetDelta||0.12}"
+          oninput="$('t-delta-val').textContent=(+this.value).toFixed(2); updateTradingConfig('targetDelta',+this.value)"
+          style="width:100%;accent-color:var(--gold);">
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:11px;color:var(--text);">Take Profit (%)</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--green);" id="t-tp-val">${cfg.trading?.tpPct||30}%</span>
+        </div>
+        <input type="range" min="10" max="60" step="5" value="${cfg.trading?.tpPct||30}"
+          oninput="$('t-tp-val').textContent=this.value+'%'; updateTradingConfig('tpPct',+this.value)"
+          style="width:100%;accent-color:#34d399;">
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:11px;color:var(--text);">Stop Loss (multiplicador crédito)</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--red);" id="t-sl-val">${cfg.trading?.slMult||1.5}x</span>
+        </div>
+        <input type="range" min="1.0" max="3.0" step="0.5" value="${cfg.trading?.slMult||1.5}"
+          oninput="$('t-sl-val').textContent=this.value+'x'; updateTradingConfig('slMult',+this.value)"
+          style="width:100%;accent-color:#f87171;">
+      </div>
+    </div>
+  \`;
 }
 
 async function toggleSPXConfig() {
@@ -4916,6 +5051,20 @@ function updateSPXConfig(type, value, key) {
   if (!spxConfig) return;
   if (type === 'minScore') spxConfig.minScore = value;
   if (type === 'weight' && key) spxConfig.weights[key] = value;
+}
+
+function updateTradingConfig(key, value) {
+  if (!spxConfig) return;
+  if (!spxConfig.trading) spxConfig.trading = {};
+  spxConfig.trading[key] = value;
+  // Sincronizar con backtester si está abierto
+  const fieldMap = {
+    capital: 'bt-capital', targetDelta: 'bt-delta',
+    tpPct: 'bt-tp', slMult: 'bt-sl', riesgoPct: 'bt-riesgo',
+    experiencia: 'bt-exp'
+  };
+  const btField = document.getElementById(fieldMap[key]);
+  if (btField) btField.value = value;
 }
 
 async function saveSPXConfig() {
@@ -6858,8 +7007,9 @@ async function btChangeInterval() {
 async function fetchBTData() {
   try {
     const interval = document.getElementById('bt-interval')?.value || '15m';
-    const rangeMap = {'2m':'5d','15m':'30d','30m':'30d','1h':'60d','1d':'1y'};
-    const range = rangeMap[interval] || '30d';
+    // Usar endpoint local que trae datos de TastyTrade (hasta 42 días en 2m)
+    const rangeMap = {'2m':'60d','15m':'60d','30m':'60d','1h':'60d','1d':'1y'};
+    const range = rangeMap[interval] || '60d';
     const r = await fetch(`/api/price-history/SPX?interval=${interval}&range=${range}`);
     const raw = await r.json();
     // Calcular EMAs y MACD
@@ -7047,6 +7197,7 @@ async function runBT() {
     el.textContent=`$${totalPnl>=0?'+':''}${totalPnl.toFixed(2)}`;
     el.style.color=totalPnl>=0?'#34d399':'#f87171';
   }
+  renderBTReport();
 
   // Render lista
   const list = document.getElementById('bt-signal-list');
@@ -7177,6 +7328,87 @@ function initBTChart() {
   overlay.id = 'bt-overlay';
   overlay.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:2;';
   container.appendChild(overlay);
+}
+
+function renderBTReport() {
+  const el = document.getElementById('bt-report');
+  if (!el || !btSignals.length) { if(el) el.style.display='none'; return; }
+  el.style.display='block';
+
+  const capital = parseFloat(document.getElementById('bt-capital')?.value)||10000;
+  const wins  = btSignals.filter(s=>s.pnl>0);
+  const tp    = btSignals.filter(s=>s.resultado==='TP ✅');
+  const exp   = btSignals.filter(s=>s.resultado==='EXP ✅');
+  const slf   = btSignals.filter(s=>s.resultado==='SL fract ⚠️');
+  const sle   = btSignals.filter(s=>s.resultado==='SL econ ❌');
+  const pnlTotal = btSignals.reduce((a,s)=>a+s.pnl, 0);
+  const capFinal = capital + pnlTotal;
+  const retorno  = ((capFinal/capital)-1)*100;
+  const pnlC = pnlTotal>=0?'#34d399':'#f87171';
+
+  document.getElementById('btr-final').textContent = '$'+capFinal.toLocaleString('es',{minimumFractionDigits:2});
+  document.getElementById('btr-final').style.color = pnlTotal>=0?'#34d399':'#f87171';
+  document.getElementById('btr-pnl').textContent   = (pnlTotal>=0?'+':'')+'$'+pnlTotal.toFixed(2);
+  document.getElementById('btr-pnl').style.color   = pnlC;
+  document.getElementById('btr-ret').textContent   = (retorno>=0?'+':'')+retorno.toFixed(1)+'%';
+  document.getElementById('btr-ret').style.color   = retorno>=0?'#34d399':'#f87171';
+  document.getElementById('btr-wr').textContent    = (wins.length/btSignals.length*100).toFixed(1)+'%';
+  document.getElementById('btr-tp').textContent    = tp.length;
+  document.getElementById('btr-exp').textContent   = exp.length;
+  document.getElementById('btr-slf').textContent   = slf.length;
+  document.getElementById('btr-sle').textContent   = sle.length;
+
+  // Curva de capital con LightweightCharts
+  const eqEl = document.getElementById('bt-equity-chart');
+  eqEl.innerHTML = '';
+  const eqChart = LightweightCharts.createChart(eqEl, {
+    width: eqEl.clientWidth||400, height: 120,
+    layout:{background:{color:'transparent'},textColor:'#64748b'},
+    grid:{vertLines:{color:'#1e2433'},horzLines:{color:'#1e2433'}},
+    rightPriceScale:{borderColor:'#2d3748',scaleMargins:{top:0.1,bottom:0.1}},
+    timeScale:{borderColor:'#2d3748',timeVisible:false},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+    handleScroll:false, handleScale:false,
+  });
+  const areaSeries = eqChart.addAreaSeries({
+    lineColor:'#34d399', topColor:'rgba(52,211,153,0.25)',
+    bottomColor:'rgba(52,211,153,0.02)', lineWidth:2, priceLineVisible:false,
+  });
+
+  // Agrupar por día
+  const byDay={};
+  let capAcc = capital;
+  btSignals.forEach(s=>{
+    capAcc += s.pnl;
+    byDay[s.fecha] = +capAcc.toFixed(2);
+  });
+  const curva=[{time:btSignals[0].fecha, value:capital}];
+  Object.entries(byDay).forEach(([d,v])=>curva.push({time:d,value:v}));
+  // Dedup por fecha
+  const seen=new Set(); const curvaUniq=curva.filter(x=>!seen.has(x.time)&&seen.add(x.time));
+  areaSeries.setData(curvaUniq);
+  // Línea capital inicial
+  const refSeries = eqChart.addLineSeries({color:'#fbbf2266',lineWidth:1,lineStyle:2,priceLineVisible:false,lastValueVisible:false});
+  refSeries.setData([{time:curvaUniq[0].time,value:capital},{time:curvaUniq[curvaUniq.length-1].time,value:capital}]);
+  eqChart.timeScale().fitContent();
+
+  // Barras P&L por día
+  const daysEl = document.getElementById('bt-daily-bars');
+  const dayPnl = {};
+  btSignals.forEach(s=>{ if(!dayPnl[s.fecha]) dayPnl[s.fecha]=0; dayPnl[s.fecha]+=s.pnl; });
+  const vals = Object.values(dayPnl);
+  const maxAbs = Math.max(...vals.map(v=>Math.abs(v)), 1);
+  const maxH = 100;
+  daysEl.innerHTML = Object.entries(dayPnl).map(([d,v])=>{
+    const h = Math.max(4, Math.abs(v)/maxAbs*maxH);
+    const col = v>=0?'#34d399':'#f87171';
+    const label = d.slice(5);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:28px;">
+      <div style="font-size:8px;color:${col};font-weight:600;">${v>=0?'+':''}$${Math.abs(v).toFixed(0)}</div>
+      <div style="width:22px;height:${h}px;background:${col};border-radius:3px 3px 0 0;opacity:0.85;"></div>
+      <div style="font-size:8px;color:var(--muted);writing-mode:vertical-lr;transform:rotate(180deg);height:30px;">${label}</div>
+    </div>`;
+  }).join('');
 }
 
 function drawSessionOverlay() {
