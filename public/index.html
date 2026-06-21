@@ -7024,6 +7024,39 @@ async function fetchBTData() {
       dt_col: (() => { const d = new Date((c.time - 18000) * 1000); return d.toISOString().slice(0,16).replace('T',' '); })(),
       timeCol: c.time - 18000
     }));
+    // Cargar EMAs diarias desde Yahoo Finance
+    try {
+      const rd = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=2y',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const jd = await rd.json();
+      const closesD = jd.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(Boolean) || [];
+      const tsD     = jd.chart?.result?.[0]?.timestamp || [];
+      if (closesD.length >= 200) {
+        const calcEMA = (prices, p) => {
+          const k=2/(p+1); let e=prices.slice(0,p).reduce((a,b)=>a+b,0)/p;
+          const r=Array(p-1).fill(null); r.push(+e.toFixed(2));
+          for(let i=p;i<prices.length;i++){e=prices[i]*k+e*(1-k);r.push(+e.toFixed(2));}
+          return r;
+        };
+        const e10d=calcEMA(closesD,10), e20d=calcEMA(closesD,20), e200d=calcEMA(closesD,200);
+        const dailyMap={};
+        let vi=0;
+        tsD.forEach((t,i)=>{
+          if(jd.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.[i]){
+            const d=new Date((t-18000)*1000).toISOString().slice(0,10);
+            dailyMap[d]={ema10:e10d[vi],ema20:e20d[vi],ema200:e200d[vi]};
+            vi++;
+          }
+        });
+        // Asignar EMAs diarias a cada vela
+        btChartData.forEach(c=>{
+          const d=(c.dt_col||'').slice(0,10);
+          c.dailyEmas = dailyMap[d] || {};
+        });
+        console.log('[BT] EMAs diarias cargadas:', Object.keys(dailyMap).length, 'días');
+      }
+    } catch(e) { console.warn('[BT] No se pudieron cargar EMAs diarias:', e.message); }
+
     console.log('[BT] Datos cargados:', btChartData.length, 'velas');
   } catch(e) { console.error('[BT] Error:', e); }
 }
@@ -7113,9 +7146,16 @@ async function runBT() {
 
     const evalDir = (dir) => {
       const isBear = dir==='BEARISH';
+
+      // EMAs diarias del día (calculadas al cargar los datos)
+      const de = c.dailyEmas || {};
+      const ema10d  = de.ema10  || 0;
+      const ema20d  = de.ema20  || 0;
+      const ema200d = de.ema200 || 0;
+
       const cr = {
-        precio_ema200:        false,
-        emas_alineadas_diario:false,
+        precio_ema200:        ema200d>0 ? (isBear ? c.close<ema200d : c.close>ema200d) : false,
+        emas_alineadas_diario:ema10d>0&&ema20d>0 ? (isBear ? ema10d<ema20d : ema10d>ema20d) : false,
         emas_alineadas_15m:   isBear ? c.ema10 < c.ema20 : c.ema10 > c.ema20,
         macd_alineado_15m:    isBear ? (c.macdL<0||c.macdH<0) : (c.macdL>0||c.macdH>0),
         precio_cerca_ema:     Math.abs(c.close-c.ema10)/c.close*100 < 0.5,

@@ -1797,6 +1797,18 @@ app.post('/api/spx/webhook', async (req, res) => {
     if (!safeDaily.macd) safeDaily.macd = { line: null, signal: null, hist: null };
     if (!safeM15.macd)   safeM15.macd   = { line: null, signal: null, hist: null };
 
+    // Calcular criterios de EMAs diarias con datos reales
+    const spxPrice   = ctx.spxPrice || 0;
+    const ema10d     = safeDaily.ema10  || 0;
+    const ema20d     = safeDaily.ema20  || 0;
+    const ema200d    = safeDaily.ema200 || 0;
+    const isBearish  = direction === 'BEARISH';
+
+    // Inyectar criterios calculados directamente en el objeto daily
+    // para que calcPlaybookScore los use si los soporta
+    safeDaily.precio_ema200_cumple        = ema200d > 0 ? (isBearish ? spxPrice < ema200d : spxPrice > ema200d) : false;
+    safeDaily.emas_alineadas_diario_cumple = (ema10d > 0 && ema20d > 0) ? (isBearish ? ema10d < ema20d : ema10d > ema20d) : false;
+
     const playbookResult = calcPlaybookScore({
       direction,
       spxPrice:    ctx.spxPrice,
@@ -1806,6 +1818,36 @@ app.post('/api/spx/webhook', async (req, res) => {
       m15:         safeM15,
       spy:         safeSpy,
     }, spxConfig);
+
+    // Parche: si calcPlaybookScore no usa los campos calculados,
+    // recalculamos el score manualmente sumando los criterios reales
+    const W = spxConfig.weights || SPX_CONFIG_DEFAULTS.weights;
+    let scoreManual = playbookResult.score || 0;
+
+    // Verificar si precio_ema200 y emas_alineadas_diario ya fueron evaluados correctamente
+    // Si el score original los tiene como false cuando deberían ser true, corregir
+    const criteriosReales = {
+      precio_ema200:         safeDaily.precio_ema200_cumple,
+      emas_alineadas_diario: safeDaily.emas_alineadas_diario_cumple,
+    };
+    // Reconstruir score con criterios reales
+    const scoreCorregido = Object.keys(W).reduce((acc, k) => {
+      if (k === 'precio_ema200' || k === 'emas_alineadas_diario') {
+        return acc + (criteriosReales[k] ? (W[k] || 0) : 0);
+      }
+      // Para el resto usar el resultado original del playbook
+      const criterioOriginal = playbookResult.criteria?.[k] ?? playbookResult.criterios?.[k];
+      if (criterioOriginal !== undefined) return acc + (criterioOriginal ? (W[k] || 0) : 0);
+      return acc;
+    }, 0);
+
+    // Solo corregir si la diferencia existe (el módulo no evaluó EMAs reales)
+    if (scoreCorregido > 0 && scoreCorregido !== playbookResult.score) {
+      playbookResult.score = scoreCorregido;
+      playbookResult.passed = scoreCorregido >= (spxConfig.minScore || 75);
+      playbookResult.minScore = spxConfig.minScore || 75;
+      console.log(`[SPX] Score corregido con EMAs reales: ${scoreCorregido}% (original: ${playbookResult.score || 0}%)`);
+    }
 
     if (!playbookResult.passed) {
       console.log(`[SPX] ❌ Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`);
