@@ -1665,18 +1665,32 @@ app.get('/api/spx/context', async (req, res) => {
         };
       }
 
-      // Volumen SPY
-      const rSPY = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=3mo',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const jSPY = await rSPY.json();
-      const vols = jSPY.chart?.result?.[0]?.indicators?.quote?.[0]?.volume?.filter(v => v != null) || [];
-      if (vols.length >= 20) {
-        const currentVol = vols[vols.length - 1];
-        indicators.spy = {
-          volume:         currentVol,
-          relativeVolume: calcRelativeVolume(vols, currentVol, 20),
-        };
-      }
+      // Volumen SPY — intraday vs promedio 20d
+      try {
+        // 1. Promedio diario histórico (20 días)
+        const rSPYd = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=3mo',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const jSPYd = await rSPYd.json();
+        const volsD = jSPYd.chart?.result?.[0]?.indicators?.quote?.[0]?.volume?.filter(v => v != null) || [];
+        const avg20d = volsD.length >= 20
+          ? volsD.slice(-20).reduce((a, b) => a + b, 0) / 20
+          : 0;
+
+        // 2. Volumen acumulado del día actual (velas 1m)
+        const rSPY1m = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1m&range=1d',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const jSPY1m = await rSPY1m.json();
+        const vols1m  = jSPY1m.chart?.result?.[0]?.indicators?.quote?.[0]?.volume || [];
+        const volHoy  = vols1m.filter(v => v != null).reduce((a, b) => a + b, 0);
+
+        if (avg20d > 0 && volHoy > 0) {
+          indicators.spy = {
+            volume:         volHoy,
+            avg20d:         Math.round(avg20d),
+            relativeVolume: +( volHoy / avg20d ).toFixed(2),
+          };
+        }
+      } catch(eSpy) { console.error('[SPX] volumen SPY error:', eSpy.message); }
     } catch(e) { console.error('[SPX] indicators error:', e.message); }
 
     // 7. Hora ET
