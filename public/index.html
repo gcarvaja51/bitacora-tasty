@@ -5015,9 +5015,9 @@ function renderSPXConfig(cfg) {
       <div style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
           <span style="font-size:11px;color:var(--text);">Delta objetivo (strike short)</span>
-          <span style="font-family:var(--mono);font-size:11px;color:var(--bright);" id="t-delta-val">${cfg.trading?.targetDelta||0.12}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--bright);" id="t-delta-val">${cfg.trading?.targetDelta||0.40}</span>
         </div>
-        <input type="range" min="0.05" max="0.50" step="0.01" value="${cfg.trading?.targetDelta||0.12}"
+        <input type="range" min="0.05" max="0.50" step="0.01" value="${cfg.trading?.targetDelta||0.40}"
           oninput="$('t-delta-val').textContent=(+this.value).toFixed(2); updateTradingConfig('targetDelta',+this.value)"
           style="width:100%;accent-color:var(--gold);">
       </div>
@@ -5025,9 +5025,9 @@ function renderSPXConfig(cfg) {
       <div style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
           <span style="font-size:11px;color:var(--text);">Take Profit (%)</span>
-          <span style="font-family:var(--mono);font-size:11px;color:var(--green);" id="t-tp-val">${cfg.trading?.tpPct||30}%</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--green);" id="t-tp-val">${cfg.trading?.tpPct||50}%</span>
         </div>
-        <input type="range" min="10" max="60" step="5" value="${cfg.trading?.tpPct||30}"
+        <input type="range" min="10" max="60" step="5" value="${cfg.trading?.tpPct||50}"
           oninput="$('t-tp-val').textContent=this.value+'%'; updateTradingConfig('tpPct',+this.value)"
           style="width:100%;accent-color:#34d399;">
       </div>
@@ -5035,9 +5035,9 @@ function renderSPXConfig(cfg) {
       <div style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
           <span style="font-size:11px;color:var(--text);">Stop Loss (multiplicador crédito)</span>
-          <span style="font-family:var(--mono);font-size:11px;color:var(--red);" id="t-sl-val">${cfg.trading?.slMult||1.5}x</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--red);" id="t-sl-val">${cfg.trading?.slMult||1.0}x</span>
         </div>
-        <input type="range" min="1.0" max="3.0" step="0.5" value="${cfg.trading?.slMult||1.5}"
+        <input type="range" min="1.0" max="3.0" step="0.5" value="${cfg.trading?.slMult||1.0}"
           oninput="$('t-sl-val').textContent=this.value+'x'; updateTradingConfig('slMult',+this.value)"
           style="width:100%;accent-color:#f87171;">
       </div>

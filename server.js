@@ -1482,10 +1482,10 @@ const SPX_CONFIG_DEFAULTS = {
     capital:     10000,   // Capital de la cuenta
     experiencia: 'intermedio', // principiante / intermedio / avanzado
     riesgoPct:   2,       // % máximo de riesgo por operación
-    targetDelta: 0.12,    // Delta objetivo para el strike short
-    tpPct:       30,      // Take Profit % del crédito
-    slMult:      1.5,     // Stop Loss multiplicador del crédito
-    spreadWidth: 5,       // Puntos del spread (calculado automático)
+    targetDelta: 0.40,    // Delta objetivo para el strike short
+    tpPct:       50,      // Take Profit % del crédito
+    slMult:      1.0,     // Stop Loss multiplicador del crédito
+    spreadWidth: 10,      // Puntos del spread (calculado automático)
   }
 };
 function loadSPXConfig() {
@@ -1717,7 +1717,7 @@ app.get('/api/spx/context', async (req, res) => {
       etTime:   et.time,
       etHour:   et.hour,
       etMin:    et.min,
-      windowOK: (et.hour > 9 || (et.hour === 9 && et.min >= 45)) && et.hour < 16,
+      windowOK: (et.hour > 9 || (et.hour === 9 && et.min >= 0)) && et.hour < 16,  // desde 09:00 ET (evita apertura 08:30)
       ts:       new Date().toISOString(),
     });
   } catch(e) {
@@ -1872,10 +1872,10 @@ app.post('/api/spx/webhook', async (req, res) => {
 
     // Parámetros de trading desde config
     const tradingCfg = spxConfig.trading || SPX_CONFIG_DEFAULTS.trading;
-    const targetDelta = tradingCfg.targetDelta || 0.12;
-    const tpPct       = (tradingCfg.tpPct || 30) / 100;
-    const slMult      = tradingCfg.slMult || 1.5;
-    const spreadWidth = tradingCfg.spreadWidth || 5;
+    const targetDelta = tradingCfg.targetDelta || 0.40;
+    const tpPct       = (tradingCfg.tpPct || 50) / 100;
+    const slMult      = tradingCfg.slMult || 1.0;
+    const spreadWidth = tradingCfg.spreadWidth || 10;
 
     // Buscar strikes con delta configurable
     const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
