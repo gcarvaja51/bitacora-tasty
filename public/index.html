@@ -1483,6 +1483,10 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">TP %</label><input type="number" id="bt-tp" value="50" min="10" max="90" step="5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">SL x</label><input type="number" id="bt-sl" value="1" min="1" max="3" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Delta</label><input type="number" id="bt-delta" value="0.40" min="0.05" max="0.50" step="0.01" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;">
+      <label style="font-size:11px;color:var(--muted);">Evitar apertura</label>
+      <input type="checkbox" id="bt-skip-apertura" checked title="No operar los primeros 30 min (08:30-09:00 COL)" style="width:14px;height:14px;cursor:pointer;accent-color:#3b82f6;">
+    </div>
     <div style="height:20px;width:1px;background:var(--border);"></div>
     <button onclick="runBT()" style="background:#3b82f6;color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">▶ Ejecutar</button>
     <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;color:var(--muted);">Señales: <span id="bt-total" style="color:var(--text);font-weight:600;">—</span></span>
@@ -7151,7 +7155,9 @@ async function runBT() {
   filtered.forEach((c,i) => {
     if (i < 25 || !c.ema10 || !c.ema20 || c.macdH==null) return;
     const secsInDay = (c.timeCol||c.time-18000) % 86400; // segundos del día en COL
-    if (secsInDay < 30600 || secsInDay > 54000) return; // 8:30-15:00 COL
+    const skipApertura = document.getElementById('bt-skip-apertura')?.checked;
+    const openFrom = skipApertura ? 32400 : 30600; // 09:00 COL si activo, sino 08:30
+    if (secsInDay < openFrom || secsInDay > 54000) return; // filtro horario COL
     if (i - lastSigI < 8) return;
 
     const evalDir = (dir) => {
