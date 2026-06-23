@@ -6,57 +6,147 @@ function detectStrategyType(order) {
   const n = openLegs.length;
   const puts  = openLegs.filter(l => (l.symbol||'').match(/P\d{8}$/));
   const calls = openLegs.filter(l => (l.symbol||'').match(/C\d{8}$/));
-  const short = (leg) => /Sell/i.test(leg.action||'');
-  const getStrike = (leg) => parseFloat((leg.symbol||'').slice(-8)) / 1000;
+  const isShortLeg = (leg) => /Sell/i.test(leg.action||'');
+  const getStrike  = (leg) => parseFloat((leg.symbol||'').slice(-8)) / 1000;
+  const shortLegs  = openLegs.filter(l => isShortLeg(l));
+  const longLegs   = openLegs.filter(l => !isShortLeg(l));
 
-  // Iron Condor / Iron Butterfly (4 patas: 2 puts + 2 calls)
-  if (n >= 4 && puts.length >= 2 && calls.length >= 2) {
-    const putStrikes  = puts.map(getStrike).sort((a,b)=>a-b);
-    const callStrikes = calls.map(getStrike).sort((a,b)=>a-b);
-    const putWidth  = Math.abs(putStrikes[1]  - putStrikes[0]);
-    const callWidth = Math.abs(callStrikes[1] - callStrikes[0]);
-    if (putWidth === 0 || callWidth === 0) return 'Iron Butterfly';
-    return 'Iron Condor';
-  }
-
-  // 1 sola pata
+  // ── 1 PATA ──────────────────────────────────────────────────
   if (n === 1 && openLegs[0]) {
-    const isShort = short(openLegs[0]);
-    if (puts.length === 1)  return isShort ? 'Short Put'  : 'Long Put';
-    if (calls.length === 1) return isShort ? 'Short Call' : 'Long Call';
+    const leg = openLegs[0];
+    const isShort = isShortLeg(leg);
+    const isPut   = !!(leg.symbol||'').match(/P\d{8}$/);
+    const isCall  = !!(leg.symbol||'').match(/C\d{8}$/);
+    if (isPut)  return isShort ? 'Short Put'  : 'Long Put';
+    if (isCall) return isShort ? 'Short Call' : 'Long Call';
+    return isShort ? 'Short Stock' : 'Long Stock';
   }
 
-  // 2 patas
+  // ── 2 PATAS ─────────────────────────────────────────────────
   if (n === 2) {
-    const bothPuts  = puts.length === 2;
+    const bothPuts  = puts.length  === 2;
     const bothCalls = calls.length === 2;
-    const mixed     = puts.length === 1 && calls.length === 1;
+    const mixed     = puts.length  === 1 && calls.length === 1;
 
+    // Vertical Spreads — Puts
     if (bothPuts) {
-      const strikes = puts.map(getStrike).sort((a,b)=>a-b);
-      const shortLeg = puts.find(l => short(l));
+      const strikes   = puts.map(getStrike).sort((a,b) => a-b); // [bajo, alto]
+      const shortLeg  = puts.find(l => isShortLeg(l));
       if (!shortLeg) return 'Long Put Spread';
       const shortStrike = getStrike(shortLeg);
+      // Bull Put Spread  = sell put alto, buy put bajo  → crédito alcista
+      // Bear Put Spread  = sell put bajo, buy put alto  → débito bajista
       return shortStrike === strikes[1] ? 'Bull Put Spread' : 'Bear Put Spread';
     }
+
+    // Vertical Spreads — Calls
     if (bothCalls) {
-      const strikes = calls.map(getStrike).sort((a,b)=>a-b);
-      const shortLeg = calls.find(l => short(l));
+      const strikes   = calls.map(getStrike).sort((a,b) => a-b); // [bajo, alto]
+      const shortLeg  = calls.find(l => isShortLeg(l));
       if (!shortLeg) return 'Long Call Spread';
       const shortStrike = getStrike(shortLeg);
+      // Bear Call Spread = sell call BAJO, buy call alto → crédito bajista
+      // Bull Call Spread = sell call ALTO, buy call bajo → débito alcista
       return shortStrike === strikes[0] ? 'Bear Call Spread' : 'Bull Call Spread';
     }
+
+    // Combos Put + Call (mismo strike = Straddle, distinto = Strangle)
     if (mixed) {
-      const putShort  = puts.find(l => short(l));
-      const callShort = calls.find(l => short(l));
-      if (putShort && callShort)  return 'Short Strangle';
-      if (!putShort && !callShort) return 'Long Strangle';
-      return 'Strangle';
+      const putStrike  = getStrike(puts[0]);
+      const callStrike = getStrike(calls[0]);
+      const sameStrike = Math.abs(putStrike - callStrike) < 0.01;
+      if (shortLegs.length === 2) return sameStrike ? 'Short Straddle'  : 'Short Strangle';
+      if (longLegs.length  === 2) return sameStrike ? 'Long Straddle'   : 'Long Strangle';
+      // Risk Reversal: long call + short put (alcista) o long put + short call (bajista)
+      const longIsCall = !!(longLegs[0]?.symbol||'').match(/C\d{8}$/);
+      return longIsCall ? 'Risk Reversal Alcista' : 'Risk Reversal Bajista';
     }
   }
 
-  // 3 patas (rare)
-  if (n === 3) return 'Spread 3 Patas';
+  // ── 3 PATAS ─────────────────────────────────────────────────
+  if (n === 3) {
+    const allPuts  = openLegs.every(l => !!(l.symbol||'').match(/P\d{8}$/));
+    const allCalls = openLegs.every(l => !!(l.symbol||'').match(/C\d{8}$/));
+
+    if (allPuts || allCalls) {
+      const strikes = openLegs.map(getStrike).sort((a,b) => a-b);
+      const midStrike = strikes[1];
+      const midLeg = openLegs.find(l => getStrike(l) === midStrike);
+      const midIsShort = midLeg && isShortLeg(midLeg);
+
+      if (shortLegs.length === 2 && longLegs.length === 1) {
+        // 2 short, 1 long — Broken Wing Butterfly o Ratio Spread
+        const longStrike = getStrike(longLegs[0]);
+        const isCenter = longStrike === midStrike;
+        return isCenter ? 'Broken Wing Butterfly' : 'Ratio Spread';
+      }
+      if (shortLegs.length === 1 && longLegs.length === 2) {
+        // 1 short central, 2 longs — Butterfly simétrico o asimétrico
+        if (midIsShort) {
+          const w1 = Math.abs(strikes[1] - strikes[0]);
+          const w2 = Math.abs(strikes[2] - strikes[1]);
+          return Math.abs(w1 - w2) < 0.01
+            ? (allCalls ? 'Call Butterfly' : 'Put Butterfly')
+            : 'Broken Wing Butterfly';
+        }
+      }
+      // 1 long central, 2 shorts — Christmas Tree / Ladder
+      if (!midIsShort && shortLegs.length === 2) return 'Ladder';
+    }
+
+    // Mix put + call en 3 patas
+    if (puts.length === 2 && calls.length === 1) return 'Put Spread + Call';
+    if (puts.length === 1 && calls.length === 2) return 'Call Spread + Put';
+    return 'Spread 3 Patas';
+  }
+
+  // ── 4 PATAS ─────────────────────────────────────────────────
+  if (n === 4) {
+    const allSame = openLegs.every(l => !!(l.symbol||'').match(/P\d{8}$/)) ||
+                    openLegs.every(l => !!(l.symbol||'').match(/C\d{8}$/));
+
+    // Iron Condor / Iron Butterfly (2 puts + 2 calls)
+    if (puts.length === 2 && calls.length === 2) {
+      const putStrikes  = puts.map(getStrike).sort((a,b)=>a-b);
+      const callStrikes = calls.map(getStrike).sort((a,b)=>a-b);
+      const shortPut    = puts.find(l  => isShortLeg(l));
+      const shortCall   = calls.find(l => isShortLeg(l));
+      const spStrike    = shortPut  ? getStrike(shortPut)  : null;
+      const scStrike    = shortCall ? getStrike(shortCall) : null;
+      const putWidth  = putStrikes[1]  - putStrikes[0];
+      const callWidth = callStrikes[1] - callStrikes[0];
+      // Iron Butterfly: short put y short call en el mismo strike (ATM)
+      if (spStrike !== null && scStrike !== null && Math.abs(spStrike - scStrike) < 0.01)
+        return 'Iron Butterfly';
+      // Iron Condor asimétrico
+      if (Math.abs(putWidth - callWidth) > 1) return 'Iron Condor Asimétrico';
+      return 'Iron Condor';
+    }
+
+    // Butterfly de 4 patas (1-2-1): mismo tipo
+    if (allSame) {
+      const strikes = openLegs.map(getStrike).sort((a,b)=>a-b);
+      const midStrikes = [strikes[1], strikes[2]];
+      const shortMids = openLegs.filter(l => midStrikes.includes(getStrike(l)) && isShortLeg(l));
+      if (shortMids.length === 2) return calls.length === 4 ? 'Call Condor' : 'Put Condor';
+      return 'Doble Spread';
+    }
+
+    // Jade Lizard (short put + bear call spread)
+    if (puts.length === 1 && calls.length === 2) {
+      const shortPut = puts.find(l => isShortLeg(l));
+      if (shortPut) return 'Jade Lizard';
+    }
+    // Big Lizard (short call + bull put spread)
+    if (puts.length === 2 && calls.length === 1) {
+      const shortCall = calls.find(l => isShortLeg(l));
+      if (shortCall) return 'Big Lizard';
+    }
+  }
+
+  // ── 5+ PATAS ────────────────────────────────────────────────
+  if (n === 5) return 'Doble Diagonal';
+  if (n >= 6)  return 'Estrategia Compleja';
 
   return 'Spread';
 }
