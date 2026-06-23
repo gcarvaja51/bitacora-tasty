@@ -353,13 +353,6 @@ app.get('/api/nlv-history', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/debug-src', (req, res) => {
-  try {
-    const src = fs.readFileSync(path.join(__dirname, 'src/metrics.js'), 'utf8');
-    res.type('text/plain').send(src);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
 app.get('/api/health', (req, res) => res.json({
   ok: true, auth: !!tt.accessToken,
   tokenLen: (tt.accessToken || '').length,
@@ -385,30 +378,13 @@ app.get('/report', async (req, res) => {
     const today    = todayStr();
 
     // Consolidar estrategias
-    // Para spreads multi-pata, agrupamos de a 2 legs consecutivas con el mismo baseKey.
-    // Esto permite separar múltiples trades del mismo subyacente/día/estrategia.
     const allLegs  = m.strategies || [];
     const spreadMap = new Map();
-    const spreadCounters = {};
-
-    for (let i = 0; i < allLegs.length; i++) {
-      const leg = allLegs[i];
+    for (const leg of allLegs) {
       const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
-
-      let key;
-      if (!isSpread) {
-        key = leg.key || `single_${i}`;
-      } else if (leg.openOrderId) {
-        key = `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}_${leg.openOrderId}`;
-      } else {
-        const baseKey = `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`;
-        if (!(baseKey in spreadCounters)) spreadCounters[baseKey] = { idx: 0, legs: 0 };
-        const sc = spreadCounters[baseKey];
-        if (sc.legs > 0 && sc.legs % 2 === 0) sc.idx++;
-        key = `${baseKey}_${sc.idx}`;
-        sc.legs++;
-      }
-
+      const key = isSpread
+        ? (leg.key || `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`)
+        : (leg.key || leg.symbol || Math.random().toString());
       if (!spreadMap.has(key)) spreadMap.set(key, { ...leg, pnl: 0, openValue: 0, closeValue: 0 });
       const s = spreadMap.get(key);
       s.pnl        += leg.pnl        || 0;

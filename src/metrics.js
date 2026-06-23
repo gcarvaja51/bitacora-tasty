@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 /* metrics_final.js — FIFO por proximidad de fecha + KPIs completos para reportes */
 
 function detectStrategyType(order) {
@@ -187,7 +187,7 @@ function buildMetrics(items) {
   for (const s of deduped) {
     const ckey = `${s.closeOrderId}_${s.underlying}_${s.closeDate}`;
     if (!consolidatedMap.has(ckey)) {
-      consolidatedMap.set(ckey, { ...s, _legs: 1 });
+      consolidatedMap.set(ckey, { ...s, key: ckey, _legs: 1 });
     } else {
       const g = consolidatedMap.get(ckey);
       g.openValue  += s.openValue;
@@ -355,3 +355,4 @@ function buildCalendar(nlvItems = []) {
 }
 
 module.exports = { buildMetrics, buildEquityCurve, buildCalendar };
+
