@@ -1836,9 +1836,13 @@ function consolidateStrategies(legs) {
   const map = new Map();
   for (const leg of legs) {
     const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
-    const key = isSpread
-      ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
-      : leg.key;
+    // leg.key ya viene único desde metrics.js (closeOrderId_underlying_closeDate)
+    // Usarlo siempre que exista para evitar fusionar múltiples trades del mismo día
+    const key = leg.key
+      ? leg.key
+      : isSpread
+        ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
+        : (leg.symbol || Math.random().toString());
     if (!map.has(key)) {
       map.set(key, { underlying:leg.underlying, openDate:leg.openDate,
         closeDate:leg.closeDate, stratType:leg.stratType,

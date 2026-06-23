@@ -6,16 +6,59 @@ function detectStrategyType(order) {
   const n = openLegs.length;
   const puts  = openLegs.filter(l => (l.symbol||'').match(/P\d{8}$/));
   const calls = openLegs.filter(l => (l.symbol||'').match(/C\d{8}$/));
-  const getStrike = (leg) => parseInt((leg.symbol||'').slice(-8)) / 1000;
   const short = (leg) => /Sell/i.test(leg.action||'');
-  if (n >= 4 && puts.length >= 2 && calls.length >= 2) return 'Iron Condor';
-  if (n === 1 && openLegs[0] && short(openLegs[0])) {
-    if (puts.length === 1) return 'Put Vendida';
-    if (calls.length === 1) return 'Call Vendida';
+  const getStrike = (leg) => parseFloat((leg.symbol||'').slice(-8)) / 1000;
+
+  // Iron Condor / Iron Butterfly (4 patas: 2 puts + 2 calls)
+  if (n >= 4 && puts.length >= 2 && calls.length >= 2) {
+    const putStrikes  = puts.map(getStrike).sort((a,b)=>a-b);
+    const callStrikes = calls.map(getStrike).sort((a,b)=>a-b);
+    const putWidth  = Math.abs(putStrikes[1]  - putStrikes[0]);
+    const callWidth = Math.abs(callStrikes[1] - callStrikes[0]);
+    if (putWidth === 0 || callWidth === 0) return 'Iron Butterfly';
+    return 'Iron Condor';
   }
-  if (n === 2) return 'Spread Complejo';
-  if (n === 2 && (puts.length + calls.length === 2)) return 'Strangle';
-  return 'Spread Complejo';
+
+  // 1 sola pata
+  if (n === 1 && openLegs[0]) {
+    const isShort = short(openLegs[0]);
+    if (puts.length === 1)  return isShort ? 'Short Put'  : 'Long Put';
+    if (calls.length === 1) return isShort ? 'Short Call' : 'Long Call';
+  }
+
+  // 2 patas
+  if (n === 2) {
+    const bothPuts  = puts.length === 2;
+    const bothCalls = calls.length === 2;
+    const mixed     = puts.length === 1 && calls.length === 1;
+
+    if (bothPuts) {
+      const strikes = puts.map(getStrike).sort((a,b)=>a-b);
+      const shortLeg = puts.find(l => short(l));
+      if (!shortLeg) return 'Long Put Spread';
+      const shortStrike = getStrike(shortLeg);
+      return shortStrike === strikes[1] ? 'Bull Put Spread' : 'Bear Put Spread';
+    }
+    if (bothCalls) {
+      const strikes = calls.map(getStrike).sort((a,b)=>a-b);
+      const shortLeg = calls.find(l => short(l));
+      if (!shortLeg) return 'Long Call Spread';
+      const shortStrike = getStrike(shortLeg);
+      return shortStrike === strikes[0] ? 'Bear Call Spread' : 'Bull Call Spread';
+    }
+    if (mixed) {
+      const putShort  = puts.find(l => short(l));
+      const callShort = calls.find(l => short(l));
+      if (putShort && callShort)  return 'Short Strangle';
+      if (!putShort && !callShort) return 'Long Strangle';
+      return 'Strangle';
+    }
+  }
+
+  // 3 patas (rare)
+  if (n === 3) return 'Spread 3 Patas';
+
+  return 'Spread';
 }
 
 function getDurationCat(openDate, closeDate) {
@@ -200,7 +243,7 @@ function buildMetrics(items) {
         g.durationCat  = getDurationCat(s.openDate, s.closeDate);
       }
       if (g._legs === 4) g.stratType = 'Iron Condor';
-      else               g.stratType = 'Spread Complejo';
+      // No sobreescribir — conservar el stratType de la apertura (Bear Call Spread, Bull Put Spread, etc.)
     }
   }
 
