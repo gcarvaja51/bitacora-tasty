@@ -353,6 +353,27 @@ app.get('/api/nlv-history', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/debug-today-strategies', async (req, res) => {
+  try {
+    const today = todayStr();
+    const txData = await tt.getAllTransactions(today, today);
+    const { buildMetrics } = require('./src/metrics');
+    const m = buildMetrics(txData);
+    res.json({
+      total: (m.strategies||[]).length,
+      strategies: (m.strategies||[]).map(s => ({
+        key:          s.key,
+        underlying:   s.underlying,
+        openDate:     s.openDate,
+        closeDate:    s.closeDate,
+        stratType:    s.stratType,
+        pnl:          s.pnl,
+        closeOrderId: s.closeOrderId,
+      }))
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/health', (req, res) => res.json({
   ok: true, auth: !!tt.accessToken,
   tokenLen: (tt.accessToken || '').length,
