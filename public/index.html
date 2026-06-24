@@ -3200,6 +3200,7 @@ let wlFundCache = {};
 let wlSelectMode = false;
 let wlSelected   = new Set();
 let scAutoResults = {};  // { scId: { results, loading, ts } }
+let scAutoSort    = { col: 'scoreMejor', asc: false }; // sort tabla evaluacion
 let wlPbCache   = {};
 let wlFaseCache = {};
 let wlSort      = { col:'sym', asc:true };
@@ -3650,7 +3651,17 @@ async function renderScreeners() {
       ${(()=>{
         const ar = scAutoResults[sc.id];
         if (!ar || ar._loading) return ar?._loading ? '<div style="padding:8px;color:var(--muted);font-size:11px;">⏳ Evaluando tickers con Playbook Alejandro...</div>' : '';
-        const rows = ar.results.filter(r=>!r.error).map(r=>{
+        const sorted = [...ar.results.filter(r=>!r.error)].sort((a,b)=>{
+          const col = scAutoSort.col;
+          let va = a[col], vb = b[col];
+          if (col==='sym' || col==='tesis' || col==='fase' || col==='estrategia') {
+            va=(va||'').toLowerCase(); vb=(vb||'').toLowerCase();
+            return scAutoSort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+          }
+          va = parseFloat(va)||0; vb = parseFloat(vb)||0;
+          return scAutoSort.asc ? va-vb : vb-va;
+        });
+        const rows = sorted.map(r=>{
           const col = r.scoreMejor>=75?'#13d68f':r.scoreMejor>=60?'#f5c842':'#f04f5a';
           const tesisCol = r.tesis==='alcista'?'#13d68f':'#f04f5a';
           const earW = r.earningsDays<=14?`<span style="font-size:9px;color:#f5c842;margin-left:4px;" title="Earnings en ${r.earningsDays}d">⚠️${r.earningsDays}d</span>`:'';
@@ -3677,14 +3688,16 @@ async function renderScreeners() {
           </div>
           <table style="width:100%;border-collapse:collapse;">
             <thead><tr style="background:rgba(255,255,255,.03);">
-              <th style="padding:4px 8px;font-size:10px;color:var(--muted);text-align:left;">Ticker</th>
-              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Precio</th>
-              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Fase</th>
-              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Tesis</th>
-              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Score</th>
-              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">D/T/F</th>
-              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Estrategia</th>
-              <th style="padding:4px 8px;font-size:10px;color:var(--muted);"></th>
+              ${[
+                ['sym','Ticker','left'],['precio','Precio','center'],['fase','Fase','center'],
+                ['tesis','Tesis','center'],['scoreMejor','Score','center'],['','D/T/F','center'],
+                ['estrategia','Estrategia','left'],['','','center']
+              ].map(([col,label,align])=> col
+                ? `<th onclick="${col?`scAutoSortBy('${col}')`:''}" style="padding:4px 8px;font-size:10px;color:${scAutoSort.col===col?'#a78bfa':'var(--muted)'};text-align:${align};${col?'cursor:pointer;user-select:none;':''};white-space:nowrap;">
+                    ${label}${scAutoSort.col===col?(scAutoSort.asc?' ▲':' ▼'):col?' ↕':''}
+                  </th>`
+                : `<th style="padding:4px 8px;font-size:10px;color:var(--muted);text-align:${align};">${label}</th>`
+              ).join('')}
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
@@ -3721,6 +3734,12 @@ async function scAddSingle(ticker, screenerLabel) {
   } catch(e) {
     if (!e.message?.includes('409')) console.error(e);
   }
+}
+
+function scAutoSortBy(col) {
+  if (scAutoSort.col === col) scAutoSort.asc = !scAutoSort.asc;
+  else { scAutoSort.col = col; scAutoSort.asc = col === 'sym' || col === 'tesis'; }
+  renderScreeners();
 }
 
 async function scEvalPlaybook(scId) {
