@@ -1,32 +1,8 @@
 {
   "stocks": [
     {
-      "symbol": "A",
-      "name": "A",
-      "status": "orange",
-      "screener": "💪 Fuerza",
-      "addedDate": "2026-06-02",
-      "notes": []
-    },
-    {
-      "symbol": "AA",
-      "name": "AA",
-      "status": "orange",
-      "screener": "💪 Fuerza",
-      "addedDate": "2026-06-02",
-      "notes": []
-    },
-    {
       "symbol": "AAOI",
       "name": "AAOI",
-      "status": "orange",
-      "screener": "💪 Fuerza",
-      "addedDate": "2026-06-02",
-      "notes": []
-    },
-    {
-      "symbol": "AAON",
-      "name": "AAON",
       "status": "orange",
       "screener": "💪 Fuerza",
       "addedDate": "2026-06-02",
@@ -681,36 +657,12 @@
       "notes": []
     },
     {
-      "symbol": "OKLO",
-      "name": "OKLO",
-      "status": "orange",
-      "screener": "",
-      "addedDate": "2026-06-16",
-      "notes": []
-    },
-    {
       "symbol": "NFLX",
       "name": "NFLX",
       "status": "orange",
       "screener": "",
       "addedDate": "2026-06-16",
       "notes": []
-    },
-    {
-      "symbol": "LMND",
-      "name": "LMND",
-      "status": "yellow",
-      "screener": "",
-      "addedDate": "2026-06-16",
-      "notes": [
-        {
-          "id": "n1781651035492",
-          "date": "2026-06-16",
-          "status": "orange",
-          "text": "viene de capitanes",
-          "image": null
-        }
-      ]
     },
     {
       "symbol": "UBER",
