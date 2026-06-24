@@ -3199,6 +3199,7 @@ let wlActive    = null; // symbol currently open
 let wlFundCache = {};
 let wlSelectMode = false;
 let wlSelected   = new Set();
+let scAutoResults = {};  // { scId: { results, loading, ts } }
 let wlPbCache   = {};
 let wlFaseCache = {};
 let wlSort      = { col:'sym', asc:true };
@@ -3291,6 +3292,7 @@ function renderWatchlistTable() {
     else if (col==='fase')   { va=pa?.fase||'';      vb=pb?.fase||''; }
     else if (col==='status') { va=a.status||'';      vb=b.status||''; }
     else if (col==='screener'){va=a.screener||'';    vb=b.screener||''; }
+    else if (col==='scoreAuto'){ va=a.scoreAuto||0;  vb=b.scoreAuto||0; }
     if (typeof va==='string') return asc?va.localeCompare(vb):vb.localeCompare(va);
     return asc?va-vb:vb-va;
   });
@@ -3347,6 +3349,20 @@ function renderWatchlistTable() {
       <td>${rsiStr}</td>
       <td>${faseAutoHtml}</td>
       <td>${faseStr}</td>
+      <td>${(()=>{
+        const sa = s.scoreAuto;
+        if (sa == null) return '<span style="color:var(--muted)">—</span>';
+        const col = sa>=75?'#13d68f':sa>=60?'#f5c842':'#f04f5a';
+        const tc = s.tesisAuto==='alcista'?'▲':'▼';
+        const tc2 = s.tesisAuto==='alcista'?'#13d68f':'#f04f5a';
+        return `<div style="display:flex;align-items:center;gap:4px;">
+          <span style="font-weight:700;font-size:13px;color:${col};">${sa}%</span>
+          <span style="font-size:10px;color:${tc2};">${tc}</span>
+        </div>
+        <div style="height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:2px;">
+          <div style="width:${sa}%;height:100%;background:${col};border-radius:2px;"></div>
+        </div>`;
+      })()}</td>
       <td>${scoreStr}</td>
       <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${pb?.date||'—'}</td>
       <td style="text-align:center;white-space:nowrap;">
@@ -3398,7 +3414,7 @@ function renderWatchlistTable() {
               ${th('status','Estado')}
               ${th('price','Precio')}${th('chg','Chg%')}${th('rsi','RSI')}
               ${th('fasePrel','Fase Auto')}${th('fase','Fase PB')}
-              ${th('score','Score PA')}${th('date','Últ. Análisis')}
+              ${th('scoreAuto','Score Auto')}${th('score','Score PA')}${th('date','Últ. Análisis')}
               <th>Acciones</th>
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -3627,9 +3643,53 @@ async function renderScreeners() {
           </button>
           <a href="${sc.url}" target="_blank" style="padding:5px 10px;border-radius:7px;font-size:11px;border:1px solid var(--border);color:var(--muted);text-decoration:none;">↗ Finviz</a>
           ${hasResults&&newCount>0 ? `<button onclick="scImportAll('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #5b82e6;background:rgba(91,130,230,.15);color:#5b82e6;">⬇ Importar ${newCount}</button>` : ''}
+          ${hasResults ? `<button onclick="scEvalPlaybook('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #a78bfa;background:rgba(167,139,250,.15);color:#a78bfa;">${scAutoResults['${sc.id}']?._loading?'⏳ Evaluando...':'🧠 Evaluar Playbook'}</button>` : ''}
         </div>
       </div>
       ${hasResults ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:6px;">${chips}</div>` : ''}
+      ${(()=>{
+        const ar = scAutoResults[sc.id];
+        if (!ar || ar._loading) return ar?._loading ? '<div style="padding:8px;color:var(--muted);font-size:11px;">⏳ Evaluando tickers con Playbook Alejandro...</div>' : '';
+        const rows = ar.results.filter(r=>!r.error).map(r=>{
+          const col = r.scoreMejor>=75?'#13d68f':r.scoreMejor>=60?'#f5c842':'#f04f5a';
+          const tesisCol = r.tesis==='alcista'?'#13d68f':'#f04f5a';
+          const earW = r.earningsDays<=14?`<span style="font-size:9px;color:#f5c842;margin-left:4px;" title="Earnings en ${r.earningsDays}d">⚠️${r.earningsDays}d</span>`:'';
+          const ciarBadge = r.ciar?`<span style="font-size:9px;background:rgba(167,139,250,.2);color:#a78bfa;padding:1px 4px;border-radius:3px;margin-left:4px;">CIAR ${r.ciar}</span>`:'';
+          return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:4px 8px;font-family:var(--mono);font-weight:700;font-size:12px;color:var(--bright);">${r.sym}</td>
+            <td style="padding:4px 8px;font-size:11px;color:var(--muted);">$${r.precio}</td>
+            <td style="padding:4px 8px;text-align:center;"><span style="font-size:10px;color:#6b7280;background:rgba(107,114,128,.1);padding:1px 5px;border-radius:3px;">${r.fase}</span></td>
+            <td style="padding:4px 8px;font-size:11px;text-align:center;"><span style="color:${tesisCol};font-weight:700;">${r.tesis==='alcista'?'▲':'▼'} ${r.tesis}</span></td>
+            <td style="padding:4px 8px;text-align:center;"><span style="font-weight:700;font-size:13px;color:${col};">${r.scoreMejor}%</span></td>
+            <td style="padding:4px 6px;font-size:10px;color:var(--muted);">${r.modulos?.[r.tesis==='alcista'?'alc':'baj']?`D:${r.modulos[r.tesis==='alcista'?'alc':'baj'].dir}% T:${r.modulos[r.tesis==='alcista'?'alc':'baj'].trig}% F:${r.modulos[r.tesis==='alcista'?'alc':'baj'].fuerz}%`:''}</td>
+            <td style="padding:4px 8px;font-size:11px;color:var(--muted);">${r.estrategia}${earW}${ciarBadge}</td>
+            <td style="padding:4px 8px;text-align:center;">
+              <button onclick="scAddWithScore('${r.sym}','${sc.label||sc.id}',${r.scoreMejor},'${r.tesis}')" style="padding:2px 8px;border-radius:5px;font-size:10px;cursor:pointer;border:1px solid #5b82e6;background:rgba(91,130,230,.1);color:#5b82e6;">+ WL</button>
+            </td>
+          </tr>`;
+        }).join('');
+        const total = ar.results.filter(r=>!r.error).length;
+        const aptos = ar.results.filter(r=>r.scoreMejor>=75).length;
+        return rows ? `<div style="margin-top:10px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="padding:6px 10px;background:rgba(167,139,250,.08);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;font-weight:700;color:#a78bfa;">🧠 Playbook Alejandro — Evaluación automática</span>
+            <span style="font-size:10px;color:var(--muted);">${total} evaluados · <span style="color:#13d68f;font-weight:700;">${aptos} aptos (≥75%)</span></span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:rgba(255,255,255,.03);">
+              <th style="padding:4px 8px;font-size:10px;color:var(--muted);text-align:left;">Ticker</th>
+              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Precio</th>
+              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Fase</th>
+              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Tesis</th>
+              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Score</th>
+              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">D/T/F</th>
+              <th style="padding:4px 8px;font-size:10px;color:var(--muted);">Estrategia</th>
+              <th style="padding:4px 8px;font-size:10px;color:var(--muted);"></th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>` : '<div style="padding:8px;color:var(--muted);font-size:11px;">Sin resultados evaluables.</div>';
+      })()}
     </div>`;
   }).join('');
 
@@ -3657,6 +3717,37 @@ async function scAddSingle(ticker, screenerLabel) {
     const chips = document.querySelectorAll('.sc-chip');
     chips.forEach(c => { if (c.textContent.trim()===ticker) { c.classList.add('added'); c.removeAttribute('onclick'); c.textContent=ticker+' ✓'; c.style.borderColor='var(--border)'; c.style.color='var(--muted)'; } });
     // Actualizar contador
+    renderScreeners();
+  } catch(e) {
+    if (!e.message?.includes('409')) console.error(e);
+  }
+}
+
+async function scEvalPlaybook(scId) {
+  if (!scData[scId] || !scData[scId].length) {
+    alert('Primero ejecuta el screener para cargar los tickers.');
+    return;
+  }
+  if (!scAutoResults[scId]) scAutoResults[scId] = {};
+  scAutoResults[scId]._loading = true;
+  renderScreeners();
+  try {
+    const data = await api('/api/screener/' + scId + '/playbook-auto');
+    scAutoResults[scId] = { ...data, _loading: false, ts: Date.now() };
+  } catch(e) {
+    scAutoResults[scId] = { _loading: false, error: e.message, results: [] };
+    alert('Error evaluando: ' + e.message);
+  }
+  renderScreeners();
+}
+
+async function scAddWithScore(ticker, screenerLabel, scoreAuto, tesisAuto) {
+  try {
+    await api('/api/watchlist', 'POST', {
+      symbol: ticker, name: ticker, status: 'orange',
+      screener: screenerLabel, scoreAuto, tesisAuto
+    });
+    wlData = await api('/api/watchlist');
     renderScreeners();
   } catch(e) {
     if (!e.message?.includes('409')) console.error(e);

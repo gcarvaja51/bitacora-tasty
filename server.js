@@ -720,11 +720,11 @@ app.get('/api/watchlist', (req, res) => res.json(loadWatchlist()));
 app.post('/api/watchlist', (req, res) => {
   try {
     const wl = loadWatchlist();
-    const { symbol, name, status, screener } = req.body;
+    const { symbol, name, status, screener, scoreAuto, tesisAuto } = req.body;
     if (!symbol) return res.status(400).json({ error:'Symbol requerido' });
     const sym = symbol.toUpperCase();
     if (wl.stocks.find(s => s.symbol === sym)) return res.status(409).json({ error:'Ya existe' });
-    const stock = { symbol:sym, name:name||sym, status:status||'orange', screener:screener||'', addedDate:todayStr(), notes:[] };
+    const stock = { symbol:sym, name:name||sym, status:status||'orange', screener:screener||'', addedDate:todayStr(), notes:[], scoreAuto:scoreAuto||null, tesisAuto:tesisAuto||null };
     wl.stocks.push(stock);
     saveWatchlist(wl);
     res.json(stock);
@@ -1039,6 +1039,243 @@ const SCREENERS = {
 
 const _screenerCache = {};
 const CACHE_TTL = 15 * 60 * 1000; // 15 min
+
+
+// ── Playbook Auto Score — evalúa todos los tickers de un screener ──────────
+app.get('/api/screener/:id/playbook-auto', async (req, res) => {
+  const id = req.params.id;
+  const sc = SCREENERS[id];
+  if (!sc) return res.status(404).json({ error: 'Screener no encontrado' });
+
+  // Obtener tickers del screener (usar caché si existe)
+  let tickers = [];
+  if (_screenerCache[id] && Date.now() - _screenerCache[id].ts < CACHE_TTL) {
+    tickers = _screenerCache[id].data;
+  } else {
+    try {
+      for (let page = 1; page <= 3; page++) {
+        const pageUrl = sc.url + `&r=${(page-1)*20+1}`;
+        const r = await fetch(pageUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html,application/xhtml+xml' }
+        });
+        const html = await r.text();
+        const matches = [...html.matchAll(/data-boxover-ticker="([A-Z]+)"/g)];
+        const pageTickers = [...new Set(matches.map(m => m[1]))];
+        if (!pageTickers.length) break;
+        tickers.push(...pageTickers);
+        if (pageTickers.length < 20) break;
+      }
+      tickers = [...new Set(tickers)].slice(0, 60);
+      _screenerCache[id] = { ts: Date.now(), data: tickers };
+    } catch(e) {
+      return res.status(500).json({ error: 'Error cargando screener: ' + e.message });
+    }
+  }
+
+  // Helpers
+  const calcEMA = (data, period) => {
+    const k = 2/(period+1); let e = null;
+    for (let i = 0; i < data.length; i++) {
+      if (i < period-1) continue;
+      if (i === period-1) e = data.slice(0, period).reduce((a,b) => a+b, 0) / period;
+      else e = data[i]*k + e*(1-k);
+    }
+    return e ? +e.toFixed(4) : null;
+  };
+
+  const calcMACD = (data) => {
+    const k12=2/13, k26=2/27, k9=2/10;
+    let e12=null, e26=null, sig=null;
+    for (let i = 0; i < data.length; i++) {
+      const c = data[i];
+      e12 = e12===null ? c : c*k12 + e12*(1-k12);
+      e26 = e26===null ? c : c*k26 + e26*(1-k26);
+      if (i < 25) continue;
+      const m = e12-e26;
+      sig = sig===null ? m : m*k9 + sig*(1-k9);
+    }
+    return { line: e12-e26, signal: sig, hist: (e12-e26)-sig };
+  };
+
+  const calcRSI = (data, period=14) => {
+    if (data.length < period+1) return 50;
+    let gains=0, losses=0;
+    for (let i=1; i<=period; i++) {
+      const d = data[i] - data[i-1];
+      if (d>0) gains+=d; else losses+=Math.abs(d);
+    }
+    let ag=gains/period, al=losses/period;
+    for (let i=period+1; i<data.length; i++) {
+      const d = data[i]-data[i-1];
+      ag = (ag*(period-1)+(d>0?d:0))/period;
+      al = (al*(period-1)+(d<0?Math.abs(d):0))/period;
+    }
+    return al===0 ? 100 : +( 100 - 100/(1+ag/al) ).toFixed(1);
+  };
+
+  // Evaluar cada ticker
+  const results = [];
+  const signals = loadSignals ? loadSignals() : {};
+
+  for (const sym of tickers) {
+    try {
+      const yhSym = encodeURIComponent(sym);
+      // Yahoo Finance — 6 meses diario para EMA200
+      const r = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=6mo`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' } }
+      );
+      const j = await r.json();
+      const result = j.chart?.result?.[0];
+      if (!result) { results.push({ sym, error: 'Sin datos' }); continue; }
+
+      const closes = result.indicators.quote[0].close.filter(v => v != null);
+      const vols   = result.indicators.quote[0].volume.filter(v => v != null);
+      if (closes.length < 30) { results.push({ sym, error: 'Datos insuficientes' }); continue; }
+
+      const precio  = closes.at(-1);
+      const ema10   = calcEMA(closes, 10);
+      const ema20   = calcEMA(closes, 20);
+      const ema50   = calcEMA(closes, 50);
+      const ema200  = closes.length >= 200 ? calcEMA(closes, 200) : null;
+      const macd    = calcMACD(closes);
+      const rsi     = calcRSI(closes);
+
+      // Volumen relativo (últimos 5 días vs media 20 días)
+      const volReciente = vols.slice(-5).reduce((a,b)=>a+b,0)/5;
+      const volMedia20  = vols.slice(-20).reduce((a,b)=>a+b,0)/20;
+      const relVol      = volMedia20 > 0 ? +(volReciente/volMedia20).toFixed(2) : 1;
+
+      // Earnings
+      let earningsDays = 999;
+      try {
+        const eq = await fetch(
+          `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yhSym}?modules=calendarEvents`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' } }
+        );
+        const ej = await eq.json();
+        const eTs = ej.quoteSummary?.result?.[0]?.calendarEvents?.earnings?.earningsDate?.[0]?.raw;
+        if (eTs) earningsDays = Math.round((eTs*1000 - Date.now()) / 86400000);
+      } catch(e) {}
+
+      // IV Rank desde TastyTrade
+      let ivRank = null;
+      try {
+        const mktData = await tt._req(`/market-data/volatility?symbols[]=${sym}`);
+        const raw = mktData.data?.items?.[0]?.['iv-rank'];
+        if (raw != null) ivRank = Math.round(parseFloat(raw) * 100);
+      } catch(e) {}
+
+      // CIAR v3 señal fresca
+      const ciar = signals[sym];
+      const ciarAge = ciar ? Math.floor((Date.now()-new Date(ciar.receivedAt).getTime())/60000) : null;
+      const ciarFresh = ciarAge !== null && ciarAge < 1440;
+
+      // ── Score Playbook Alejandro automático ──────────────────────────────
+      // MÓDULO 1 — DIRECCIÓN (peso 33%)
+      //   Tendencia (30): precio vs EMAs
+      //   Ciclo (40): fase Weinstein inferida
+      //   Estructura (30): posición relativa
+      const sobreEma20  = precio > ema20;
+      const sobreEma50  = precio > (ema50||ema20);
+      const sobreEma200 = ema200 ? precio > ema200 : null;
+      const ema10Alc    = ema10 > ema20;
+      const ema20Alc    = ema50 ? ema20 > ema50 : null;
+      const ema50Alc    = ema200 ? ema50 > ema200 : null;
+
+      // Fase Weinstein
+      const emasAlcistas = [ema10Alc, ema20Alc, ema50Alc].filter(v=>v===true).length;
+      const emasBajistas = [!ema10Alc, ema20Alc===false, ema50Alc===false].filter(v=>v===true).length;
+
+      // Para alcista:
+      const dir_tend_alc = (sobreEma20?0.4:0) + (sobreEma50?0.3:0) + (sobreEma200===true?0.3:sobreEma200===null?0.15:0);
+      const dir_ciclo_alc = emasAlcistas >= 2 ? 1.0 : emasAlcistas === 1 ? 0.5 : 0;
+      const dir_struct_alc = (sobreEma20?0.5:0) + (rsi >= 50 && rsi <= 70 ? 0.5 : rsi > 30 && rsi < 50 ? 0.25 : 0);
+      const dir_alc = (dir_tend_alc*30 + dir_ciclo_alc*40 + dir_struct_alc*30) / 100;
+
+      // Para bajista:
+      const dir_tend_baj = (!sobreEma20?0.4:0) + (!sobreEma50?0.3:0) + (sobreEma200===false?0.3:sobreEma200===null?0.15:0);
+      const dir_ciclo_baj = emasBajistas >= 2 ? 1.0 : emasBajistas === 1 ? 0.5 : 0;
+      const dir_struct_baj = (!sobreEma20?0.5:0) + (rsi >= 30 && rsi <= 50 ? 0.5 : rsi > 50 && rsi < 70 ? 0.25 : 0);
+      const dir_baj = (dir_tend_baj*30 + dir_ciclo_baj*40 + dir_struct_baj*30) / 100;
+
+      // MÓDULO 2 — TRIGGER (peso 33%)
+      //   EMAs cruce (60): cruce EMA10/20
+      //   Romp niveles (20): relVol
+      //   Validación (20): CIAR / momentum
+      const trig_ema_alc  = ema10Alc ? 1.0 : 0;
+      const trig_ema_baj  = !ema10Alc ? 1.0 : 0;
+      const trig_romp     = relVol >= 1.5 ? 1.0 : relVol >= 1.0 ? 0.5 : 0;
+      const trig_val_alc  = (ciarFresh && ciar.signal==='BUY') ? 1.0 : relVol > 1.2 && sobreEma20 ? 0.5 : 0;
+      const trig_val_baj  = (ciarFresh && ciar.signal==='SELL') ? 1.0 : relVol > 1.2 && !sobreEma20 ? 0.5 : 0;
+      const trig_alc = (trig_ema_alc*60 + trig_romp*20 + trig_val_alc*20) / 100;
+      const trig_baj = (trig_ema_baj*60 + trig_romp*20 + trig_val_baj*20) / 100;
+
+      // MÓDULO 3 — FUERZA (peso 33%)
+      //   MACD (45): línea + histograma
+      //   Algoritmo CIAR (45): señal fresca
+      //   Ingresarios (10): IV Rank
+      const macdAlc = macd.line > 0 && macd.hist > 0;
+      const macdBaj = macd.line < 0 && macd.hist < 0;
+      const macdPendAlc = macd.hist > 0;
+      const macdPendBaj = macd.hist < 0;
+
+      const fuerz_macd_alc  = macdAlc ? 1.0 : macdPendAlc ? 0.5 : 0;
+      const fuerz_macd_baj  = macdBaj ? 1.0 : macdPendBaj ? 0.5 : 0;
+      const fuerz_algo_alc  = (ciarFresh && ciar.signal==='BUY') ? 1.0 : macdAlc ? 0.4 : 0;
+      const fuerz_algo_baj  = (ciarFresh && ciar.signal==='SELL') ? 1.0 : macdBaj ? 0.4 : 0;
+      const fuerz_iv        = ivRank != null ? (ivRank >= 30 ? 1.0 : ivRank >= 20 ? 0.5 : 0) : 0.5; // neutral si no hay datos
+      const fuerz_alc = (fuerz_macd_alc*45 + fuerz_algo_alc*45 + fuerz_iv*10) / 100;
+      const fuerz_baj = (fuerz_macd_baj*45 + fuerz_algo_baj*45 + fuerz_iv*10) / 100;
+
+      // Score final por módulo y global
+      const scoreAlc = Math.round((dir_alc + trig_alc + fuerz_alc) / 3 * 100);
+      const scoreBaj = Math.round((dir_baj + trig_baj + fuerz_baj) / 3 * 100);
+      const scoreMejor = Math.max(scoreAlc, scoreBaj);
+      const tesisMejor = scoreAlc >= scoreBaj ? 'alcista' : 'bajista';
+      const estrategia = tesisMejor === 'alcista' ? 'Bull Put Spread' : 'Bear Call Spread';
+
+      // Determinar fase Weinstein
+      let fase = 'F1';
+      if (emasAlcistas >= 2 && sobreEma20) fase = emasAlcistas === 3 ? 'F2' : 'F2~';
+      else if (emasBajistas >= 2 && !sobreEma20) fase = emasBajistas === 3 ? 'F4' : 'F4~';
+      else if (sobreEma20 && !ema10Alc) fase = 'F3';
+
+      results.push({
+        sym,
+        precio:   +precio.toFixed(2),
+        scoreAlc,
+        scoreBaj,
+        scoreMejor,
+        tesis:    tesisMejor,
+        estrategia,
+        fase,
+        rsi,
+        relVol,
+        ivRank,
+        earningsDays,
+        macdAlc,
+        macdBaj,
+        ciar:     ciarFresh ? ciar.signal : null,
+        modulos: {
+          alc: { dir: Math.round(dir_alc*100), trig: Math.round(trig_alc*100), fuerz: Math.round(fuerz_alc*100) },
+          baj: { dir: Math.round(dir_baj*100), trig: Math.round(trig_baj*100), fuerz: Math.round(fuerz_baj*100) },
+        },
+        riesgo: earningsDays <= 14 ? 'earnings' : ivRank != null && ivRank < 15 ? 'iv-bajo' : 'ok',
+      });
+
+      // Pausa entre requests para no saturar Yahoo
+      await new Promise(r => setTimeout(r, 120));
+
+    } catch(e) {
+      results.push({ sym, error: e.message });
+    }
+  }
+
+  // Ordenar por scoreMejor descendente
+  results.sort((a,b) => (b.scoreMejor||0) - (a.scoreMejor||0));
+  res.json({ screener: id, total: results.length, results });
+});
 
 app.get('/api/screeners', (req, res) => {
   const info = Object.entries(SCREENERS).map(([id, s]) => ({
