@@ -11,6 +11,14 @@ const PORT = process.env.PORT || 3000;
 
 // ── NLV History ────────────────────────────────────────────────
 // Snapshots históricos obtenidos de TastyTrade (fin de mes)
+// ── Directorio de datos persistentes ────────────────────────
+// En Railway: agrega un volumen montado en /data para persistencia entre deploys
+const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname;
+if (DATA_DIR !== __dirname) {
+  try { require('fs').mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {}
+  console.log('[DATA] Usando volumen persistente:', DATA_DIR);
+}
+
 const NLV_FILE = path.join(__dirname, 'nlv_history.json');
 const NLV_SEED = {
   '2026-02-13': 10644.00,   // depósito inicial
@@ -654,8 +662,20 @@ app.get('/report', async (req, res) => {
   }
 });
 // ── Trade Journal ─────────────────────────────────────────────
-const TN_FILE = path.join(__dirname, 'trade_notes.json');
-const WL_FILE = path.join(__dirname, 'watchlist.json');
+const TN_FILE = path.join(DATA_DIR, 'trade_notes.json');
+const WL_FILE = path.join(DATA_DIR, 'watchlist.json');
+// Copiar archivos base al DATA_DIR si no existen (primera vez)
+if (DATA_DIR !== __dirname) {
+  const baseFiles = ['watchlist.json','trade_notes.json','playbooks.json',
+    'alejandro_checklists.json','spx_config.json','algo_signals.json'];
+  baseFiles.forEach(f => {
+    const dest = path.join(DATA_DIR, f);
+    const src  = path.join(__dirname, f);
+    if (!fs.existsSync(dest) && fs.existsSync(src)) {
+      try { fs.copyFileSync(src, dest); console.log('[DATA] Copiado:', f); } catch(e) {}
+    }
+  });
+}
 function loadNotes()  { try { return JSON.parse(fs.readFileSync(TN_FILE,'utf8')); } catch(e) { return {}; } }
 function saveNotes(d) { fs.writeFileSync(TN_FILE, JSON.stringify(d,null,2),'utf8'); }
 
@@ -1130,7 +1150,7 @@ app.get('/api/market-data/:symbol', async (req, res) => {
 });
 
 // ── Playbooks ────────────────────────────────────────────────
-const PB_FILE2 = path.join(__dirname, 'playbooks.json');
+const PB_FILE2 = path.join(DATA_DIR, 'playbooks.json');
 function loadPlaybooksData() {
   try { return JSON.parse(fs.readFileSync(PB_FILE2,'utf8')); }
   catch(e) { return { playbooks:[] }; }
@@ -1645,7 +1665,7 @@ app.get('/api/price-history/:symbol', async (req, res) => {
 });
 
 // ── Algo Signals (CIAR v3 webhook) ───────────────────────────
-const ALGO_FILE = path.join(__dirname, 'algo_signals.json');
+const ALGO_FILE = path.join(DATA_DIR, 'algo_signals.json');
 function loadSignals() {
   try { return JSON.parse(fs.readFileSync(ALGO_FILE,'utf8')); } catch(e) { return {}; }
 }
@@ -1664,7 +1684,7 @@ app.post('/api/algo-signal', (req, res) => {
 app.get('/api/algo-signals', (req, res) => res.json(loadSignals()));
 
 // ── Alejandro Checklists ──────────────────────────────────────
-const CL_FILE = path.join(__dirname, 'alejandro_checklists.json');
+const CL_FILE = path.join(DATA_DIR, 'alejandro_checklists.json');
 function loadChecklists() {
   try { return JSON.parse(fs.readFileSync(CL_FILE,'utf8')); } catch(e) { return []; }
 }
@@ -1884,7 +1904,7 @@ const { calcGEX, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHo
 const { calcPlaybookScore, calcRelativeVolume, priceExtension } = require('./src/spx_indicators');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
-const SPX_CONFIG_FILE = path.join(__dirname, 'spx_config.json');
+const SPX_CONFIG_FILE = path.join(DATA_DIR, 'spx_config.json');
 const SPX_CONFIG_DEFAULTS = {
   minScore: 75,
   weights: {
@@ -1936,7 +1956,7 @@ app.post('/api/spx/config', (req, res) => {
   saveSPXConfig(cfg);
   res.json(cfg);
 });
-const SPX_SIGNALS_FILE = path.join(__dirname, 'spx_signals.json');
+const SPX_SIGNALS_FILE = path.join(DATA_DIR, 'spx_signals.json');
 const SPX_15M_FILE     = path.join(__dirname, 'spx_15m_context.json');
 
 function loadSPXSignals() {
@@ -2442,7 +2462,7 @@ app.listen(PORT, async () => {
 });
 
 // ── Playbooks ────────────────────────────────────────────────
-const PB_FILE = path.join(__dirname, 'playbooks.json');
+const PB_FILE = path.join(DATA_DIR, 'playbooks.json');
 function loadPlaybooks() {
   try { return JSON.parse(fs.readFileSync(PB_FILE,'utf8')); }
   catch(e) { return { playbooks:[] }; }

@@ -6,7 +6,34 @@
       "status": "green",
       "screener": "💪 Fuerza",
       "addedDate": "2026-06-02",
-      "notes": []
+      "notes": [],
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 78,
+          "scoreBaj": 9,
+          "scoreMejor": 78,
+          "tesis": "alcista",
+          "fase": "F2~",
+          "modulos": {
+            "alc": {
+              "dir": 96,
+              "trig": 70,
+              "fuerz": 68
+            },
+            "baj": {
+              "dir": 12,
+              "trig": 10,
+              "fuerz": 5
+            }
+          },
+          "precio": 144.4,
+          "rsi": 63.4,
+          "relVol": 1.15
+        }
+      ],
+      "scoreAuto": 78,
+      "tesisAuto": "alcista"
     },
     {
       "symbol": "HOOD",
@@ -22,7 +49,34 @@
           "text": "ASDASDASD",
           "image": null
         }
-      ]
+      ],
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 78,
+          "scoreBaj": 9,
+          "scoreMejor": 78,
+          "tesis": "alcista",
+          "fase": "F2~",
+          "modulos": {
+            "alc": {
+              "dir": 96,
+              "trig": 70,
+              "fuerz": 68
+            },
+            "baj": {
+              "dir": 12,
+              "trig": 10,
+              "fuerz": 5
+            }
+          },
+          "precio": 97.19,
+          "rsi": 56.6,
+          "relVol": 1.15
+        }
+      ],
+      "scoreAuto": 78,
+      "tesisAuto": "alcista"
     },
     {
       "symbol": "SOFI",
@@ -30,7 +84,34 @@
       "status": "green",
       "screener": "",
       "addedDate": "2026-06-16",
-      "notes": []
+      "notes": [],
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 71,
+          "scoreBaj": 16,
+          "scoreMejor": 71,
+          "tesis": "alcista",
+          "fase": "F1",
+          "modulos": {
+            "alc": {
+              "dir": 76,
+              "trig": 70,
+              "fuerz": 68
+            },
+            "baj": {
+              "dir": 32,
+              "trig": 10,
+              "fuerz": 5
+            }
+          },
+          "precio": 17.31,
+          "rsi": 53.1,
+          "relVol": 1.14
+        }
+      ],
+      "scoreAuto": 71,
+      "tesisAuto": "alcista"
     },
     {
       "symbol": "NFLX",
@@ -38,7 +119,34 @@
       "status": "orange",
       "screener": "",
       "addedDate": "2026-06-16",
-      "notes": []
+      "notes": [],
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 7,
+          "scoreBaj": 76,
+          "scoreMejor": 76,
+          "tesis": "bajista",
+          "fase": "F4~",
+          "modulos": {
+            "alc": {
+              "dir": 5,
+              "trig": 10,
+              "fuerz": 5
+            },
+            "baj": {
+              "dir": 81,
+              "trig": 80,
+              "fuerz": 68
+            }
+          },
+          "precio": 71.84,
+          "rsi": 20.2,
+          "relVol": 1.44
+        }
+      ],
+      "scoreAuto": 76,
+      "tesisAuto": "bajista"
     },
     {
       "symbol": "UBER",
@@ -54,15 +162,69 @@
           "text": "viene de capitanes",
           "image": null
         }
-      ]
+      ],
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 31,
+          "scoreBaj": 42,
+          "scoreMejor": 42,
+          "tesis": "bajista",
+          "fase": "F3",
+          "modulos": {
+            "alc": {
+              "dir": 55,
+              "trig": 10,
+              "fuerz": 28
+            },
+            "baj": {
+              "dir": 52,
+              "trig": 70,
+              "fuerz": 5
+            }
+          },
+          "precio": 73.85,
+          "rsi": 55.2,
+          "relVol": 1.02
+        }
+      ],
+      "scoreAuto": 42,
+      "tesisAuto": "bajista"
     },
     {
       "symbol": "ABBV",
       "name": "ABBV",
-      "status": "yellow",
+      "status": "green",
       "screener": "💪 Fuerza",
       "addedDate": "2026-06-24",
-      "notes": []
+      "notes": [],
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 81,
+          "scoreBaj": 9,
+          "scoreMejor": 81,
+          "tesis": "alcista",
+          "fase": "F2~",
+          "modulos": {
+            "alc": {
+              "dir": 96,
+              "trig": 80,
+              "fuerz": 68
+            },
+            "baj": {
+              "dir": 12,
+              "trig": 10,
+              "fuerz": 5
+            }
+          },
+          "precio": 234.89,
+          "rsi": 66,
+          "relVol": 1.33
+        }
+      ],
+      "scoreAuto": 81,
+      "tesisAuto": "alcista"
     },
     {
       "symbol": "ADPT",
@@ -72,7 +234,32 @@
       "addedDate": "2026-06-24",
       "notes": [],
       "scoreAuto": 85,
-      "tesisAuto": "alcista"
+      "tesisAuto": "alcista",
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 85,
+          "scoreBaj": 12,
+          "scoreMejor": 85,
+          "tesis": "alcista",
+          "fase": "F2~",
+          "modulos": {
+            "alc": {
+              "dir": 96,
+              "trig": 90,
+              "fuerz": 68
+            },
+            "baj": {
+              "dir": 12,
+              "trig": 20,
+              "fuerz": 5
+            }
+          },
+          "precio": 19.34,
+          "rsi": 67.7,
+          "relVol": 1.53
+        }
+      ]
     },
     {
       "symbol": "ALGM",
@@ -82,7 +269,32 @@
       "addedDate": "2026-06-24",
       "notes": [],
       "scoreAuto": 81,
-      "tesisAuto": "alcista"
+      "tesisAuto": "alcista",
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 81,
+          "scoreBaj": 9,
+          "scoreMejor": 81,
+          "tesis": "alcista",
+          "fase": "F2~",
+          "modulos": {
+            "alc": {
+              "dir": 96,
+              "trig": 80,
+              "fuerz": 68
+            },
+            "baj": {
+              "dir": 12,
+              "trig": 10,
+              "fuerz": 5
+            }
+          },
+          "precio": 55.42,
+          "rsi": 57.1,
+          "relVol": 1.4
+        }
+      ]
     },
     {
       "symbol": "AMAT",
@@ -100,7 +312,32 @@
         }
       ],
       "scoreAuto": 81,
-      "tesisAuto": "alcista"
+      "tesisAuto": "alcista",
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 81,
+          "scoreBaj": 9,
+          "scoreMejor": 81,
+          "tesis": "alcista",
+          "fase": "F2~",
+          "modulos": {
+            "alc": {
+              "dir": 96,
+              "trig": 80,
+              "fuerz": 68
+            },
+            "baj": {
+              "dir": 12,
+              "trig": 10,
+              "fuerz": 5
+            }
+          },
+          "precio": 588.97,
+          "rsi": 63.9,
+          "relVol": 1.21
+        }
+      ]
     },
     {
       "symbol": "ABSI",
@@ -118,7 +355,32 @@
         }
       ],
       "scoreAuto": 80,
-      "tesisAuto": "alcista"
+      "tesisAuto": "alcista",
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 80,
+          "scoreBaj": 10,
+          "scoreMejor": 80,
+          "tesis": "alcista",
+          "fase": "F2~",
+          "modulos": {
+            "alc": {
+              "dir": 81,
+              "trig": 90,
+              "fuerz": 68
+            },
+            "baj": {
+              "dir": 5,
+              "trig": 20,
+              "fuerz": 5
+            }
+          },
+          "precio": 10.07,
+          "rsi": 72.1,
+          "relVol": 1.83
+        }
+      ]
     },
     {
       "symbol": "ACHR",
@@ -128,7 +390,32 @@
       "addedDate": "2026-06-24",
       "notes": [],
       "scoreAuto": 75,
-      "tesisAuto": "bajista"
+      "tesisAuto": "bajista",
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 6,
+          "scoreBaj": 75,
+          "scoreMejor": 75,
+          "tesis": "bajista",
+          "fase": "F4~",
+          "modulos": {
+            "alc": {
+              "dir": 12,
+              "trig": 0,
+              "fuerz": 5
+            },
+            "baj": {
+              "dir": 96,
+              "trig": 60,
+              "fuerz": 68
+            }
+          },
+          "precio": 5.05,
+          "rsi": 37.8,
+          "relVol": 0.82
+        }
+      ]
     },
     {
       "symbol": "AMPX",
@@ -146,7 +433,32 @@
         }
       ],
       "scoreAuto": 75,
-      "tesisAuto": "bajista"
+      "tesisAuto": "bajista",
+      "scoreHistory": [
+        {
+          "date": "2026-06-24",
+          "scoreAlc": 6,
+          "scoreBaj": 75,
+          "scoreMejor": 75,
+          "tesis": "bajista",
+          "fase": "F4~",
+          "modulos": {
+            "alc": {
+              "dir": 12,
+              "trig": 0,
+              "fuerz": 5
+            },
+            "baj": {
+              "dir": 96,
+              "trig": 60,
+              "fuerz": 68
+            }
+          },
+          "precio": 12.52,
+          "rsi": 34.2,
+          "relVol": 0.95
+        }
+      ]
     }
   ]
 }
