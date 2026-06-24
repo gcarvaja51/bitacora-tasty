@@ -2741,6 +2741,12 @@ async function loadReports(forceRefresh) {
       stratByDay[s.closeDate] = (stratByDay[s.closeDate]||0) + s.pnl;
       const mo = s.closeDate.slice(0,7);
       strategyByMonth[mo] = (strategyByMonth[mo]||0) + s.pnl;
+      // Construir strategyByWeek filtrado
+      const d    = new Date(s.closeDate + 'T12:00:00Z');
+      const jan1 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const wk   = Math.ceil((((d - jan1) / 86400000) + jan1.getUTCDay() + 1) / 7);
+      const wkKey = `${d.getUTCFullYear()}-W${String(wk).padStart(2,'0')}`;
+      strategyByWeek[wkKey] = (strategyByWeek[wkKey]||0) + s.pnl;
     });
     // Comisiones solo del rango filtrado (por mes de closeDate de estrategias)
     const activeMos = new Set(filteredStrats.map(s => s.closeDate?.slice(0,7)).filter(Boolean));
@@ -2763,6 +2769,7 @@ async function loadReports(forceRefresh) {
       byDuration:      byDur,
       stratByDay,
       strategyByMonth,
+      strategyByWeek,
       totalComm:       +totalCommFiltered.toFixed(2),
       brokerByMonth:   brokerByMonthFiltered,
     };
@@ -2834,7 +2841,7 @@ async function loadReports(forceRefresh) {
       <div style="margin-top:12px;font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">Comisiones por Mes</div>
       ${brokerMos.map(([mo,comm])=>{
         const label = new Date(+mo.slice(0,4),+mo.slice(5,7)-1).toLocaleDateString('es-CO',{month:'short',year:'2-digit'});
-        const moPnL = (m.byMonth||{})[mo] || 0;
+        const moPnL = (m.strategyByMonth||m.byMonth||{})[mo] || 0;
         return `<div class="stat-row"><span class="stat-lbl">${label}</span>
           <span class="dim td-mono" style="font-size:11px;">broker: -${fa$(comm)}</span>
           <span class="td-mono ${cc(moPnL)}" style="font-size:11px;">${f$(moPnL)}</span></div>`;
@@ -2910,8 +2917,9 @@ async function loadReports(forceRefresh) {
     }
     renderStratRows(stratList);
 
-    // Monthly table — NLV change como fuente principal (coincide con TastyTrade)
-    const curveByMonth = S.curve?.nlvByMonth || m.strategyByMonth || m.byMonth || {};
+    // Monthly table — usar strategyByMonth filtrado; NLV solo si no hay filtro activo
+    const isFiltered = sd !== '2026-02-01' || ed !== todayStr();
+    const curveByMonth = isFiltered ? m.strategyByMonth : (S.curve?.nlvByMonth || m.strategyByMonth || m.byMonth || {});
     const months = Object.keys(curveByMonth).sort().reverse();
     const byDay  = m.stratByDay || m.byDay || {};
     const initial = S.curve?.curve?.initial || 10644;
