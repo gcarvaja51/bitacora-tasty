@@ -280,6 +280,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .wl-status-yellow { background:rgba(245,200,66,.15); border:1px solid rgba(245,200,66,.4); color:#f5c842; }
 .wl-status-violet { background:rgba(160,100,255,.15);border:1px solid rgba(160,100,255,.4);color:#a064ff; }
 .wl-status-green  { background:rgba(19,214,143,.15); border:1px solid rgba(19,214,143,.4); color:#13d68f; }
+.wl-status-blue   { background:rgba(59,130,246,.15);  border:1px solid rgba(59,130,246,.4);  color:#3b82f6; }
+.wl-dot-blue      { background:#3b82f6; }
 .wl-status-gray   { background:rgba(100,116,139,.15); border:1px solid rgba(100,116,139,.4); color:#64748b; }
 .wl-dot-gray      { background:#64748b; }
 .wl-badge { display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.04em; }
@@ -3191,7 +3193,7 @@ async function saveJournal() {
   } catch(e) { alert('Error guardando: '+e.message); }
 }
 const WL_STATUS = {
-  blue:   { label:'1era Evaluación', dot:'wl-dot-violet', badge:'wl-status-violet', emoji:'🔵' },
+  blue:   { label:'1era Evaluación', dot:'wl-dot-blue',   badge:'wl-status-blue',   emoji:'🔵' },
   orange: { label:'En seguimiento', dot:'wl-dot-orange', badge:'wl-status-orange', emoji:'🟠' },
   yellow: { label:'Casi lista',     dot:'wl-dot-yellow', badge:'wl-status-yellow', emoji:'🟡' },
   green:  { label:'En el mercado',  dot:'wl-dot-green',  badge:'wl-status-green',  emoji:'🟢' },

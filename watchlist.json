@@ -3,7 +3,7 @@
     {
       "symbol": "ABNB",
       "name": "ABNB",
-      "status": "green",
+      "status": "gray",
       "screener": "SIGMA",
       "addedDate": "2026-06-02",
       "notes": [],
@@ -116,7 +116,7 @@
     {
       "symbol": "NFLX",
       "name": "NFLX",
-      "status": "orange",
+      "status": "yellow",
       "screener": "INGRESARIOS",
       "addedDate": "2026-06-16",
       "notes": [],
@@ -229,7 +229,7 @@
     {
       "symbol": "ADPT",
       "name": "ADPT",
-      "status": "orange",
+      "status": "green",
       "screener": "📍 Cerca EMAs",
       "addedDate": "2026-06-24",
       "notes": [],
@@ -264,7 +264,7 @@
     {
       "symbol": "ALGM",
       "name": "ALGM",
-      "status": "yellow",
+      "status": "green",
       "screener": "📍 Cerca EMAs",
       "addedDate": "2026-06-24",
       "notes": [],
@@ -299,7 +299,7 @@
     {
       "symbol": "AMAT",
       "name": "AMAT",
-      "status": "orange",
+      "status": "green",
       "screener": "📍 Cerca EMAs",
       "addedDate": "2026-06-24",
       "notes": [
@@ -342,7 +342,7 @@
     {
       "symbol": "ABSI",
       "name": "ABSI",
-      "status": "orange",
+      "status": "green",
       "screener": "📍 Cerca EMAs",
       "addedDate": "2026-06-24",
       "notes": [
@@ -385,7 +385,7 @@
     {
       "symbol": "ACHR",
       "name": "ACHR",
-      "status": "orange",
+      "status": "green",
       "screener": "📍 Cerca EMAs",
       "addedDate": "2026-06-24",
       "notes": [],
@@ -420,7 +420,7 @@
     {
       "symbol": "AMPX",
       "name": "AMPX",
-      "status": "orange",
+      "status": "green",
       "screener": "📍 Cerca EMAs",
       "addedDate": "2026-06-24",
       "notes": [
