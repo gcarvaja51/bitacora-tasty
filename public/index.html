@@ -3361,11 +3361,16 @@ function renderWatchlistTable() {
         const c = s.tesisAuto==='alcista'?'#13d68f':'#f04f5a';
         return '<span style="font-weight:700;font-size:11px;color:'+c+';">'+(s.tesisAuto==='alcista'?'▲ alcista':'▼ bajista')+'</span>';
       })()}</td>
-      <td style="min-width:90px;" onclick="event.stopPropagation();">
-        <input value="${s.screener||''}" placeholder="Origen…"
-          onblur="wlUpdateScreener('${s.symbol}',this.value)"
-          onkeydown="if(event.key==='Enter')this.blur()"
-          style="background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--muted);font-size:11px;width:100%;outline:none;padding:1px 2px;cursor:text;">
+      <td style="min-width:100px;" onclick="event.stopPropagation();">
+        <select onchange="wlUpdateScreener('${s.symbol}',this.value)"
+          style="background:var(--card);border:1px solid var(--border);border-radius:5px;color:var(--muted);font-size:11px;width:100%;outline:none;padding:2px 4px;cursor:pointer;">
+          <option value="" ${!s.screener?'selected':''}>—</option>
+          <option value="📍 Cerca EMAs" ${ s.screener==='📍 Cerca EMAs'?'selected':''}>📍 Cerca EMAs</option>
+          <option value="SIGMA"         ${ s.screener==='SIGMA'?'selected':''}>SIGMA</option>
+          <option value="INGRESARIOS"   ${ s.screener==='INGRESARIOS'?'selected':''}>INGRESARIOS</option>
+          <option value="ALEJANDRO"     ${ s.screener==='ALEJANDRO'?'selected':''}>ALEJANDRO</option>
+          <option value="OTROS"         ${ s.screener==='OTROS'?'selected':''}>OTROS</option>
+        </select>
       </td>
       <td>${scoreStr}</td>
       <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${pb?.date||'—'}</td>
@@ -3463,9 +3468,10 @@ async function deleteWlSelected() {
 async function wlUpdateScreener(sym, value) {
   try {
     await api('/api/watchlist/' + sym, 'PUT', { screener: value });
-    const s = wlData?.stocks?.find(s => s.symbol === sym);
+    const s = wlData?.stocks?.find(st => st.symbol === sym);
     if (s) s.screener = value;
     wlRenderFilters();
+    renderWatchlistTable();
   } catch(e) { console.warn('wlUpdateScreener', e.message); }
 }
 
