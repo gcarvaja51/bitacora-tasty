@@ -3732,7 +3732,7 @@ async function scEvalPlaybook(scId) {
   scAutoResults[scId]._loading = true;
   renderScreeners();
   try {
-    const data = await api('/api/screener/' + scId + '/playbook-auto');
+    const data = await api('/api/screener-eval/' + scId);
     scAutoResults[scId] = { ...data, _loading: false, ts: Date.now() };
   } catch(e) {
     scAutoResults[scId] = { _loading: false, error: e.message, results: [] };

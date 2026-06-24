@@ -1042,7 +1042,7 @@ const CACHE_TTL = 15 * 60 * 1000; // 15 min
 
 
 // ── Playbook Auto Score — evalúa todos los tickers de un screener ──────────
-app.get('/api/screener/:id/playbook-auto', async (req, res) => {
+app.get('/api/screener-eval/:id', async (req, res) => {
   const id = req.params.id;
   const sc = SCREENERS[id];
   if (!sc) return res.status(404).json({ error: 'Screener no encontrado' });
