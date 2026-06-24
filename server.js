@@ -1266,7 +1266,7 @@ app.get('/api/screener-eval/:id', async (req, res) => {
       });
 
       // Pausa entre requests para no saturar Yahoo
-      await new Promise(r => setTimeout(r, 120));
+      await new Promise(r => setTimeout(r, 80));
 
     } catch(e) {
       results.push({ sym, error: e.message });
@@ -1318,7 +1318,7 @@ app.get('/api/screener/:id', async (req, res) => {
       tickers.push(...pageTickers);
       if (pageTickers.length < 20) break; // última página
     }
-    const unique = [...new Set(tickers)].slice(0, 60);
+    const unique = [...new Set(tickers)].slice(0, 20);
     _screenerCache[id] = { ts: Date.now(), data: unique };
     res.json(unique);
   } catch(e) {
