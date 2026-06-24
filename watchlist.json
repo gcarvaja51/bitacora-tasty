@@ -4,7 +4,7 @@
       "symbol": "ABNB",
       "name": "ABNB",
       "status": "green",
-      "screener": "💪 Fuerza",
+      "screener": "SIGMA",
       "addedDate": "2026-06-02",
       "notes": [],
       "scoreHistory": [
@@ -39,7 +39,7 @@
       "symbol": "HOOD",
       "name": "HOOD",
       "status": "green",
-      "screener": "",
+      "screener": "SIGMA",
       "addedDate": "2026-06-03",
       "notes": [
         {
@@ -82,7 +82,7 @@
       "symbol": "SOFI",
       "name": "SOFI",
       "status": "green",
-      "screener": "",
+      "screener": "SIGMA",
       "addedDate": "2026-06-16",
       "notes": [],
       "scoreHistory": [
@@ -117,7 +117,7 @@
       "symbol": "NFLX",
       "name": "NFLX",
       "status": "orange",
-      "screener": "",
+      "screener": "INGRESARIOS",
       "addedDate": "2026-06-16",
       "notes": [],
       "scoreHistory": [
@@ -152,7 +152,7 @@
       "symbol": "UBER",
       "name": "UBER",
       "status": "yellow",
-      "screener": "",
+      "screener": "SIGMA",
       "addedDate": "2026-06-16",
       "notes": [
         {
@@ -195,7 +195,7 @@
       "symbol": "ABBV",
       "name": "ABBV",
       "status": "green",
-      "screener": "💪 Fuerza",
+      "screener": "SIGMA",
       "addedDate": "2026-06-24",
       "notes": [],
       "scoreHistory": [

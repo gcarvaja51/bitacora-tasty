@@ -280,6 +280,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .wl-status-yellow { background:rgba(245,200,66,.15); border:1px solid rgba(245,200,66,.4); color:#f5c842; }
 .wl-status-violet { background:rgba(160,100,255,.15);border:1px solid rgba(160,100,255,.4);color:#a064ff; }
 .wl-status-green  { background:rgba(19,214,143,.15); border:1px solid rgba(19,214,143,.4); color:#13d68f; }
+.wl-status-gray   { background:rgba(100,116,139,.15); border:1px solid rgba(100,116,139,.4); color:#64748b; }
+.wl-dot-gray      { background:#64748b; }
 .wl-badge { display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.04em; }
 .wl-dot   { width:7px;height:7px;border-radius:50%;flex-shrink:0; }
 .wl-dot-orange { background:#ff8c00; }
@@ -3189,10 +3191,11 @@ async function saveJournal() {
   } catch(e) { alert('Error guardando: '+e.message); }
 }
 const WL_STATUS = {
+  blue:   { label:'1era Evaluación', dot:'wl-dot-violet', badge:'wl-status-violet', emoji:'🔵' },
   orange: { label:'En seguimiento', dot:'wl-dot-orange', badge:'wl-status-orange', emoji:'🟠' },
   yellow: { label:'Casi lista',     dot:'wl-dot-yellow', badge:'wl-status-yellow', emoji:'🟡' },
-  violet: { label:'Esperar earnings',dot:'wl-dot-violet',badge:'wl-status-violet', emoji:'🟣' },
   green:  { label:'En el mercado',  dot:'wl-dot-green',  badge:'wl-status-green',  emoji:'🟢' },
+  gray:   { label:'Descartado',     dot:'wl-dot-gray',   badge:'wl-status-gray',   emoji:'⚫' },
 };
 let wlData      = null;
 let wlActive    = null; // symbol currently open
@@ -3329,7 +3332,7 @@ function renderWatchlistTable() {
   }, 50);
 
   const rows = sorted.map(s => {
-    const st   = WL_STATUS[s.status] || WL_STATUS.orange;
+    const st   = WL_STATUS[s.status] || WL_STATUS.blue;
     const fund = wlFundCache[s.symbol];
     const pb   = wlPbCache[s.symbol];
     const priceStr = fund ? fa$(fund.price) : '—';
@@ -3415,10 +3418,11 @@ function renderWatchlistTable() {
       <input id="wl-new-name" type="text" placeholder="Nombre (opcional)"
         style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--bright);font-size:12px;flex:1;min-width:130px;">
       <select id="wl-new-status" class="wl-status-select">
+        <option value="blue">🔵 1era Evaluación</option>
         <option value="orange">🟠 En seguimiento</option>
         <option value="yellow">🟡 Casi lista</option>
-        <option value="violet">🟣 Esperar earnings</option>
         <option value="green">🟢 En el mercado</option>
+        <option value="gray">⚫ Descartado</option>
       </select>
       <button onclick="addWatchlistStock()" class="btn btn-primary" style="padding:7px 14px;font-size:12px;">+ Agregar</button>
       <button onclick="wlEvalAll()" id="wl-eval-all-btn" class="btn" style="padding:7px 14px;font-size:12px;border-color:#a78bfa;color:#a78bfa;background:rgba(167,139,250,.1);">🧠 Evaluar todos</button>
@@ -3626,7 +3630,7 @@ function wlClearFilters() {
 }
 
 // ── Cambiar estado con click ───────────────────────────────────
-const WL_STATUS_ORDER = ['orange','yellow','violet','green'];
+const WL_STATUS_ORDER = ['blue','orange','yellow','green','gray'];
 async function wlCycleStatus(sym, currentStatus) {
   const idx = WL_STATUS_ORDER.indexOf(currentStatus);
   const next = WL_STATUS_ORDER[(idx + 1) % WL_STATUS_ORDER.length];
