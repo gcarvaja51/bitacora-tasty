@@ -2141,7 +2141,10 @@ ${Object.entries(m.byTimeSlot||{}).map(([sl,d])=>`- ${sl}: ${d.trades} trades, W
 DURACIÓN:
 ${Object.entries(m.byDuration||{}).map(([dur,d])=>`- ${dur}: ${d.trades} trades, Win ${d.trades?((d.wins/d.trades)*100).toFixed(1):0}%, P&L $${d.pnl.toFixed(2)}`).join('\n')}
 
-Responde en español, de forma concisa y directa. Usa bullet points cuando sea útil. Sé específico con números de los datos reales. Máximo 300 palabras.`;
+TRADES INDIVIDUALES CERRADOS (todos en el período, ordenados por fecha de cierre):
+${(m.strategies||[]).sort((a,b)=>a.closeDate?.localeCompare(b.closeDate)).map(s=>`- ${s.closeDate} | ${s.underlying} | ${s.stratType} | ${s.durationCat} | Prima cobrada: $${Math.abs(s.openValue||0).toFixed(2)} | P&L: $${(s.pnl||0).toFixed(2)} | ${s.win?'WIN':'LOSS'}`).join('\n')}
+
+Responde en español, de forma concisa y directa. Usa bullet points cuando sea útil. Sé específico con números de los datos reales. Máximo 500 palabras.`;
 
     const messages = [
       ...history.slice(-8).map(h => ({ role: h.role, content: h.content })),
