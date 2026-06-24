@@ -3229,8 +3229,18 @@ async function loadWatchlist() {
         const fund = await api('/api/watchlist/'+s.symbol+'/fundamentals');
         if (fund) {
           wlFundCache[s.symbol] = fund;
+          // Si fundamentals no trajo sector, complementar con market-data
+          if (!fund.sector) {
+            try {
+              const md = await api('/api/market-data/'+s.symbol);
+              if (md?.sector) {
+                wlFundCache[s.symbol].sector   = md.sector;
+                wlFundCache[s.symbol].industry = md.industry || fund.industry;
+              }
+            } catch(e2) {}
+          }
           renderWatchlistTable();
-          wlRenderFilters(); // actualizar chips de sector
+          wlRenderFilters();
         }
       } catch(e) {}
       // Cargar fase preliminar en background
