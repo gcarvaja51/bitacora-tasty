@@ -63,6 +63,86 @@
       "screener": "💪 Fuerza",
       "addedDate": "2026-06-24",
       "notes": []
+    },
+    {
+      "symbol": "ADPT",
+      "name": "ADPT",
+      "status": "orange",
+      "screener": "📍 Cerca EMAs",
+      "addedDate": "2026-06-24",
+      "notes": [],
+      "scoreAuto": 85,
+      "tesisAuto": "alcista"
+    },
+    {
+      "symbol": "ALGM",
+      "name": "ALGM",
+      "status": "orange",
+      "screener": "📍 Cerca EMAs",
+      "addedDate": "2026-06-24",
+      "notes": [],
+      "scoreAuto": 81,
+      "tesisAuto": "alcista"
+    },
+    {
+      "symbol": "AMAT",
+      "name": "AMAT",
+      "status": "orange",
+      "screener": "📍 Cerca EMAs",
+      "addedDate": "2026-06-24",
+      "notes": [],
+      "scoreAuto": 81,
+      "tesisAuto": "alcista"
+    },
+    {
+      "symbol": "ABSI",
+      "name": "ABSI",
+      "status": "orange",
+      "screener": "📍 Cerca EMAs",
+      "addedDate": "2026-06-24",
+      "notes": [],
+      "scoreAuto": 80,
+      "tesisAuto": "alcista"
+    },
+    {
+      "symbol": "ALIT",
+      "name": "ALIT",
+      "status": "orange",
+      "screener": "📍 Cerca EMAs",
+      "addedDate": "2026-06-24",
+      "notes": [],
+      "scoreAuto": 78,
+      "tesisAuto": "bajista"
+    },
+    {
+      "symbol": "AMZU",
+      "name": "AMZU",
+      "status": "orange",
+      "screener": "📍 Cerca EMAs",
+      "addedDate": "2026-06-24",
+      "notes": [],
+      "scoreAuto": 78,
+      "tesisAuto": "bajista"
+    },
+    {
+      "symbol": "ACHR",
+      "name": "ACHR",
+      "status": "orange",
+      "screener": "📍 Cerca EMAs",
+      "addedDate": "2026-06-24",
+      "notes": [],
+      "scoreAuto": 75,
+      "tesisAuto": "bajista"
+    },
+    {
+      "symbol": "AMPX",
+      "name": "AMPX",
+      "status": "orange",
+      "screener": "📍 Cerca EMAs",
+      "addedDate": "2026-06-24",
+      "notes": [],
+      "scoreAuto": 75,
+      "tesisAuto": "bajista"
     }
   ]
 }

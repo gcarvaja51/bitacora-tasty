@@ -735,8 +735,9 @@ app.put('/api/watchlist/:symbol', (req, res) => {
   const wl = loadWatchlist();
   const s  = wl.stocks.find(s => s.symbol === req.params.symbol.toUpperCase());
   if (!s) return res.status(404).json({ error:'No encontrado' });
-  if (req.body.status) s.status = req.body.status;
-  if (req.body.name)   s.name   = req.body.name;
+  if (req.body.status)  s.status  = req.body.status;
+  if (req.body.name)    s.name    = req.body.name;
+  if (req.body.screener !== undefined) s.screener = req.body.screener;
   saveWatchlist(wl);
   res.json(s);
 });
