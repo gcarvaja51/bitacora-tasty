@@ -3643,7 +3643,7 @@ async function renderScreeners() {
           </button>
           <a href="${sc.url}" target="_blank" style="padding:5px 10px;border-radius:7px;font-size:11px;border:1px solid var(--border);color:var(--muted);text-decoration:none;">↗ Finviz</a>
           ${hasResults&&newCount>0 ? `<button onclick="scImportAll('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #5b82e6;background:rgba(91,130,230,.15);color:#5b82e6;">⬇ Importar ${newCount}</button>` : ''}
-          ${hasResults ? `<button onclick="scEvalPlaybook('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #a78bfa;background:rgba(167,139,250,.15);color:#a78bfa;">${scAutoResults['${sc.id}']?._loading?'⏳ Evaluando...':'🧠 Evaluar Playbook'}</button>` : ''}
+          ${hasResults ? `<button onclick="scEvalPlaybook('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #a78bfa;background:rgba(167,139,250,.15);color:#a78bfa;">${(scAutoResults[sc.id]||{})._loading?'⏳ Evaluando...':'🧠 Evaluar Playbook'}</button>` : ''}
         </div>
       </div>
       ${hasResults ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:6px;">${chips}</div>` : ''}
