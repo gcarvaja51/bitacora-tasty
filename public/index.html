@@ -1835,18 +1835,14 @@ function renderDashPositions(positions=[]) {
 function consolidateStrategies(legs) {
   const map = new Map();
   for (const leg of legs) {
-    const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
-    // leg.key ya viene único desde metrics.js (closeOrderId_underlying_closeDate)
-    // Usarlo siempre que exista para evitar fusionar múltiples trades del mismo día
-    const key = leg.key
-      ? leg.key
-      : isSpread
-        ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
-        : (leg.symbol || Math.random().toString());
+    // Usar SIEMPRE leg.key (viene único desde metrics.js: closeOrderId_underlying_closeDate)
+    // Fallback solo si no hay key (datos muy viejos)
+    const key = leg.key || `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}_${leg.openValue}`;
     if (!map.has(key)) {
       map.set(key, { underlying:leg.underlying, openDate:leg.openDate,
         closeDate:leg.closeDate, stratType:leg.stratType,
-        durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0 });
+        durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0,
+        amPm:leg.amPm, win:leg.win, key:leg.key });
     }
     const s = map.get(key);
     s.openValue  += leg.openValue  || 0;
