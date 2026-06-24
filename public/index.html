@@ -3201,6 +3201,7 @@ let wlSelectMode = false;
 let wlSelected   = new Set();
 let scAutoResults = {};  // { scId: { results, loading, ts } }
 let scAutoSort    = { col: 'scoreMejor', asc: false }; // sort tabla evaluacion
+let wlEvalLoading = false; // estado del botón Evaluar todos
 let wlPbCache   = {};
 let wlFaseCache = {};
 let wlSort      = { col:'sym', asc:true };
@@ -3420,6 +3421,7 @@ function renderWatchlistTable() {
         <option value="green">🟢 En el mercado</option>
       </select>
       <button onclick="addWatchlistStock()" class="btn btn-primary" style="padding:7px 14px;font-size:12px;">+ Agregar</button>
+      <button onclick="wlEvalAll()" id="wl-eval-all-btn" class="btn" style="padding:7px 14px;font-size:12px;border-color:#a78bfa;color:#a78bfa;background:rgba(167,139,250,.1);">🧠 Evaluar todos</button>
     </div>
 
     ${stocks.length === 0
@@ -3472,6 +3474,32 @@ async function deleteWlSelected() {
     wlData = await api('/api/watchlist');
     renderWatchlistTable();
   } catch(e) { alert('Error eliminando: ' + e.message); }
+}
+
+async function wlEvalAll() {
+  if (wlEvalLoading) return;
+  const stocks = wlData?.stocks || [];
+  if (!stocks.length) { alert('No hay activos en el watchlist.'); return; }
+  wlEvalLoading = true;
+  const btn = document.getElementById('wl-eval-all-btn');
+  if (btn) { btn.textContent = '⏳ Evaluando...'; btn.disabled = true; }
+  try {
+    const res = await api('/api/watchlist/eval-all', 'POST');
+    // Actualizar scoreAuto y tesisAuto en wlData local
+    (res.results || []).forEach(r => {
+      const s = wlData?.stocks?.find(st => st.symbol === r.sym);
+      if (s && !r.error) { s.scoreAuto = r.scoreMejor; s.tesisAuto = r.tesis; }
+    });
+    wlData = await api('/api/watchlist'); // recargar para tener scoreHistory
+    renderWatchlistTable();
+    const aptos = (res.results||[]).filter(r => r.scoreMejor >= 75).length;
+    if (btn) btn.textContent = `✅ ${res.evaluated} evaluados · ${aptos} aptos`;
+    setTimeout(() => { if (btn) { btn.textContent = '🧠 Evaluar todos'; btn.disabled = false; } wlEvalLoading = false; }, 3000);
+  } catch(e) {
+    alert('Error evaluando: ' + e.message);
+    if (btn) { btn.textContent = '🧠 Evaluar todos'; btn.disabled = false; }
+    wlEvalLoading = false;
+  }
 }
 
 async function wlUpdateScreener(sym, value) {
@@ -3856,6 +3884,11 @@ async function openWatchlistDetail(symbol) {
         </div>
       </div>
       <div>
+        <!-- Gráfico Score History -->
+        <div style="margin-bottom:20px;">
+          <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;">📈 PRECIO + EVALUACIONES</div>
+          <div id="wl-score-chart-${symbol}" style="width:100%;border-radius:8px;overflow:hidden;background:#131722;min-height:260px;"></div>
+        </div>
         <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;margin-bottom:12px;">DIARIO DE SEGUIMIENTO</div>
         <!-- Agregar nota -->
         <div class="wl-add-note" style="margin-bottom:16px;">
@@ -3881,6 +3914,85 @@ async function openWatchlistDetail(symbol) {
 
   // Cargar fundamentales automáticamente
   loadWlFundamentals(symbol);
+  // Cargar gráfico con score history
+  renderWlScoreChart(symbol);
+}
+
+let _wlScoreChart = null;
+let _wlPriceSeries = null;
+
+async function renderWlScoreChart(symbol) {
+  const container = document.getElementById('wl-score-chart-' + symbol);
+  if (!container) return;
+
+  // Cargar precio e historial de scores en paralelo
+  let priceData = [], scoreHistory = [];
+  try {
+    const [pr, sh] = await Promise.all([
+      fetch('/api/price-history/' + encodeURIComponent(symbol) + '?interval=1d&range=6mo').then(r=>r.json()),
+      api('/api/watchlist/' + symbol + '/score-history'),
+    ]);
+    priceData = pr;
+    scoreHistory = sh;
+  } catch(e) { console.error('wlScoreChart', e); return; }
+
+  if (!priceData.length) { container.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:10px;">Sin datos de precio</div>'; return; }
+
+  if (_wlScoreChart) { _wlScoreChart.remove(); _wlScoreChart = null; }
+  container.innerHTML = '';
+
+  const W = container.offsetWidth || 600;
+  _wlScoreChart = LightweightCharts.createChart(container, {
+    width: W, height: 260,
+    layout: { background: { color: '#131722' }, textColor: '#b2b5be' },
+    grid:   { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#2a2e39' },
+    timeScale: { borderColor: '#2a2e39', timeVisible: false },
+  });
+
+  _wlPriceSeries = _wlScoreChart.addCandlestickSeries({
+    upColor: '#26a69a', downColor: '#ef5350',
+    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+  });
+  _wlPriceSeries.setData(priceData);
+
+  // EMAs
+  const calcEMAL = (data, p) => {
+    const k=2/(p+1); let e=null,cnt=0; const out=[];
+    for (const d of data) { cnt++; if(cnt<p) continue; if(cnt===p) e=data.slice(0,p).reduce((a,b)=>a+b.close,0)/p; else e=d.close*k+e*(1-k); out.push({time:d.time,value:+e.toFixed(3)}); }
+    return out;
+  };
+  _wlScoreChart.addLineSeries({ color:'#f5c842', lineWidth:1, priceLineVisible:false, lastValueVisible:false }).setData(calcEMAL(priceData,10));
+  _wlScoreChart.addLineSeries({ color:'#5b82e6', lineWidth:1, priceLineVisible:false, lastValueVisible:false }).setData(calcEMAL(priceData,20));
+
+  // Marcadores de score history
+  if (scoreHistory.length) {
+    const priceTimeMap = {};
+    priceData.forEach(d => { priceTimeMap[new Date(d.time*1000).toISOString().slice(0,10)] = d.time; });
+
+    const markers = scoreHistory.map(h => {
+      const ts = priceTimeMap[h.date] || Math.floor(new Date(h.date+'T20:00:00Z').getTime()/1000);
+      const col = h.scoreMejor>=75?'#13d68f':h.scoreMejor>=60?'#f5c842':'#f04f5a';
+      const shape = h.tesis==='alcista' ? 'arrowUp' : 'arrowDown';
+      const position = h.tesis==='alcista' ? 'belowBar' : 'aboveBar';
+      const label = (h.tesis==='alcista'?'▲':'▼') + ' ' + h.scoreMejor + '%';
+      return { time: ts, position, color: col, shape, text: label, size: 1 };
+    }).sort((a,b) => a.time - b.time);
+
+    _wlPriceSeries.setMarkers(markers);
+
+    // Zoom a zona con evaluaciones
+    const last = scoreHistory.at(-1);
+    if (last) {
+      const ts = Math.floor(new Date(last.date+'T20:00:00Z').getTime()/1000);
+      _wlScoreChart.timeScale().setVisibleRange({ from: ts - 45*86400, to: ts + 15*86400 });
+    }
+  } else {
+    _wlScoreChart.timeScale().fitContent();
+    container.insertAdjacentHTML('afterend', '<div style="font-size:11px;color:var(--muted);padding:4px 0;">Sin evaluaciones aún — presiona 🧠 Evaluar todos</div>');
+  }
 }
 
 function renderWlTimeline(s) {

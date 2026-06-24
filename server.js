@@ -715,6 +715,161 @@ function loadWatchlist() {
 }
 function saveWatchlist(d) { fs.writeFileSync(WL_FILE, JSON.stringify(d,null,2),'utf8'); }
 
+
+// ── Evaluar todos los tickers del watchlist con Playbook Auto ─
+app.post('/api/watchlist/eval-all', async (req, res) => {
+  try {
+    const wl = loadWatchlist();
+    const tickers = wl.stocks.map(s => s.symbol);
+    if (!tickers.length) return res.json({ ok: true, evaluated: 0 });
+
+    const calcEMA = (data, period) => {
+      const k = 2/(period+1); let e = null;
+      for (let i = 0; i < data.length; i++) {
+        if (i < period-1) continue;
+        if (i === period-1) e = data.slice(0, period).reduce((a,b) => a+b, 0) / period;
+        else e = data[i]*k + e*(1-k);
+      }
+      return e ? +e.toFixed(4) : null;
+    };
+    const calcMACD = (data) => {
+      const k12=2/13, k26=2/27, k9=2/10;
+      let e12=null, e26=null, sig=null;
+      for (let i = 0; i < data.length; i++) {
+        const c = data[i];
+        e12 = e12===null ? c : c*k12 + e12*(1-k12);
+        e26 = e26===null ? c : c*k26 + e26*(1-k26);
+        if (i < 25) continue;
+        const m = e12-e26; sig = sig===null ? m : m*k9 + sig*(1-k9);
+      }
+      return { line: e12-e26, signal: sig, hist: (e12-e26)-sig };
+    };
+    const calcRSILocal = (data, period=14) => {
+      if (data.length < period+1) return 50;
+      let gains=0, losses=0;
+      for (let i=1; i<=period; i++) { const d=data[i]-data[i-1]; if(d>0) gains+=d; else losses+=Math.abs(d); }
+      let ag=gains/period, al=losses/period;
+      for (let i=period+1; i<data.length; i++) { const d=data[i]-data[i-1]; ag=(ag*(period-1)+(d>0?d:0))/period; al=(al*(period-1)+(d<0?Math.abs(d):0))/period; }
+      return al===0 ? 100 : +( 100 - 100/(1+ag/al) ).toFixed(1);
+    };
+
+    const today = new Date().toISOString().slice(0,10);
+    const signals = loadSignals ? loadSignals() : {};
+    const results = [];
+
+    for (const sym of tickers) {
+      try {
+        const yhSym = encodeURIComponent(sym);
+        const r = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${yhSym}?interval=1d&range=6mo`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' } }
+        );
+        const j = await r.json();
+        const result = j.chart?.result?.[0];
+        if (!result) { results.push({ sym, error: 'Sin datos' }); continue; }
+
+        const closes = result.indicators.quote[0].close.filter(v => v != null);
+        const vols   = result.indicators.quote[0].volume.filter(v => v != null);
+        if (closes.length < 30) { results.push({ sym, error: 'Insuficientes' }); continue; }
+
+        const precio = closes.at(-1);
+        const ema10  = calcEMA(closes, 10);
+        const ema20  = calcEMA(closes, 20);
+        const ema50  = calcEMA(closes, 50);
+        const ema200 = closes.length >= 200 ? calcEMA(closes, 200) : null;
+        const macd   = calcMACD(closes);
+        const rsi    = calcRSILocal(closes);
+        const volReciente = vols.slice(-5).reduce((a,b)=>a+b,0)/5;
+        const volMedia20  = vols.slice(-20).reduce((a,b)=>a+b,0)/20;
+        const relVol = volMedia20 > 0 ? +(volReciente/volMedia20).toFixed(2) : 1;
+
+        const sobreEma20  = precio > ema20;
+        const sobreEma50  = precio > (ema50||ema20);
+        const sobreEma200 = ema200 ? precio > ema200 : null;
+        const ema10Alc    = ema10 > ema20;
+        const ema20Alc    = ema50 ? ema20 > ema50 : null;
+        const ema50Alc    = ema200 ? ema50 > ema200 : null;
+        const emasAlc = [ema10Alc, ema20Alc, ema50Alc].filter(v=>v===true).length;
+        const emasBaj = [!ema10Alc, ema20Alc===false, ema50Alc===false].filter(v=>v===true).length;
+        const macdAlc = macd.line > 0 && macd.hist > 0;
+        const macdBaj = macd.line < 0 && macd.hist < 0;
+
+        const ciar = signals[sym];
+        const ciarAge = ciar ? Math.floor((Date.now()-new Date(ciar.receivedAt).getTime())/60000) : null;
+        const ciarFresh = ciarAge !== null && ciarAge < 1440;
+
+        // Score alcista
+        const dir_alc = ((sobreEma20?0.4:0)+(sobreEma50?0.3:0)+(sobreEma200===true?0.3:sobreEma200===null?0.15:0))*30/100
+                      + (emasAlc>=2?1.0:emasAlc===1?0.5:0)*40/100
+                      + ((sobreEma20?0.5:0)+(rsi>=50&&rsi<=70?0.5:rsi>30&&rsi<50?0.25:0))*30/100;
+        const trig_alc = (ema10Alc?1.0:0)*60/100 + (relVol>=1.5?1.0:relVol>=1?0.5:0)*20/100
+                       + ((ciarFresh&&ciar.signal==='BUY')?1.0:relVol>1.2&&sobreEma20?0.5:0)*20/100;
+        const fuerz_alc = (macdAlc?1.0:macd.hist>0?0.5:0)*45/100
+                        + ((ciarFresh&&ciar.signal==='BUY')?1.0:macdAlc?0.4:0)*45/100 + 0.5*10/100;
+        const scoreAlc = Math.round((dir_alc+trig_alc+fuerz_alc)/3*100);
+
+        // Score bajista
+        const dir_baj = ((!sobreEma20?0.4:0)+(!sobreEma50?0.3:0)+(sobreEma200===false?0.3:sobreEma200===null?0.15:0))*30/100
+                      + (emasBaj>=2?1.0:emasBaj===1?0.5:0)*40/100
+                      + ((!sobreEma20?0.5:0)+(rsi>=30&&rsi<=50?0.5:rsi>50&&rsi<70?0.25:0))*30/100;
+        const trig_baj = (!ema10Alc?1.0:0)*60/100 + (relVol>=1.5?1.0:relVol>=1?0.5:0)*20/100
+                       + ((ciarFresh&&ciar.signal==='SELL')?1.0:relVol>1.2&&!sobreEma20?0.5:0)*20/100;
+        const fuerz_baj = (macdBaj?1.0:macd.hist<0?0.5:0)*45/100
+                        + ((ciarFresh&&ciar.signal==='SELL')?1.0:macdBaj?0.4:0)*45/100 + 0.5*10/100;
+        const scoreBaj = Math.round((dir_baj+trig_baj+fuerz_baj)/3*100);
+
+        const scoreMejor = Math.max(scoreAlc, scoreBaj);
+        const tesis = scoreAlc >= scoreBaj ? 'alcista' : 'bajista';
+
+        let fase = 'F1';
+        if (emasAlc >= 2 && sobreEma20) fase = emasAlc === 3 ? 'F2' : 'F2~';
+        else if (emasBaj >= 2 && !sobreEma20) fase = emasBaj === 3 ? 'F4' : 'F4~';
+        else if (sobreEma20 && !ema10Alc) fase = 'F3';
+
+        // Guardar en scoreHistory del stock
+        const stock = wl.stocks.find(s => s.symbol === sym);
+        if (stock) {
+          if (!stock.scoreHistory) stock.scoreHistory = [];
+          // Sobreescribir si ya hay entrada de hoy
+          const idx = stock.scoreHistory.findIndex(e => e.date === today);
+          const entry = {
+            date: today,
+            scoreAlc, scoreBaj, scoreMejor, tesis, fase,
+            modulos: {
+              alc: { dir: Math.round(dir_alc*100), trig: Math.round(trig_alc*100), fuerz: Math.round(fuerz_alc*100) },
+              baj: { dir: Math.round(dir_baj*100), trig: Math.round(trig_baj*100), fuerz: Math.round(fuerz_baj*100) },
+            },
+            precio: +precio.toFixed(2), rsi, relVol,
+          };
+          if (idx >= 0) stock.scoreHistory[idx] = entry;
+          else stock.scoreHistory.push(entry);
+          // Actualizar también scoreAuto y tesisAuto del stock
+          stock.scoreAuto = scoreMejor;
+          stock.tesisAuto = tesis;
+        }
+        results.push({ sym, scoreMejor, tesis, fase });
+        await new Promise(r => setTimeout(r, 100));
+      } catch(e) {
+        results.push({ sym, error: e.message });
+      }
+    }
+
+    saveWatchlist(wl);
+    res.json({ ok: true, evaluated: results.length, date: today, results });
+  } catch(e) {
+    console.error('[eval-all]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Score History por ticker ──────────────────────────────────
+app.get('/api/watchlist/:symbol/score-history', (req, res) => {
+  const wl = loadWatchlist();
+  const stock = wl.stocks.find(s => s.symbol === req.params.symbol.toUpperCase());
+  if (!stock) return res.status(404).json({ error: 'No encontrado' });
+  res.json(stock.scoreHistory || []);
+});
+
 app.get('/api/watchlist', (req, res) => res.json(loadWatchlist()));
 
 app.post('/api/watchlist', (req, res) => {
