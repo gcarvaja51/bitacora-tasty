@@ -3375,17 +3375,17 @@ function renderWatchlistTable() {
         const c = s.tesisAuto==='alcista'?'#13d68f':'#f04f5a';
         return '<span style="font-weight:700;font-size:11px;color:'+c+';">'+(s.tesisAuto==='alcista'?'▲ alcista':'▼ bajista')+'</span>';
       })()}</td>
-      <td style="min-width:100px;" onclick="event.stopPropagation();">
-        <select onchange="wlUpdateScreener('${s.symbol}',this.value)"
+      <td style="min-width:100px;" onclick="event.stopPropagation();">${(()=>{
+        const fixed = ['📍 Cerca EMAs','💪 Fuerza','🚀 X2','📈 Máximos Anuales','🎯 Gangas','💥 Volumazo','⚡ Gapeadoras','SIGMA','INGRESARIOS','ALEJANDRO','OTROS'];
+        const val = s.screener || '';
+        const extraOpt = val && !fixed.includes(val) ? `<option value="${val}" selected>${val}</option>` : '';
+        const opts = fixed.map(f => `<option value="${f}" ${val===f?'selected':''}>${f}</option>`).join('');
+        return `<select onchange="wlUpdateScreener('${s.symbol}',this.value)"
           style="background:var(--card);border:1px solid var(--border);border-radius:5px;color:var(--muted);font-size:11px;width:100%;outline:none;padding:2px 4px;cursor:pointer;">
-          <option value="" ${!s.screener?'selected':''}>—</option>
-          <option value="📍 Cerca EMAs" ${ s.screener==='📍 Cerca EMAs'?'selected':''}>📍 Cerca EMAs</option>
-          <option value="SIGMA"         ${ s.screener==='SIGMA'?'selected':''}>SIGMA</option>
-          <option value="INGRESARIOS"   ${ s.screener==='INGRESARIOS'?'selected':''}>INGRESARIOS</option>
-          <option value="ALEJANDRO"     ${ s.screener==='ALEJANDRO'?'selected':''}>ALEJANDRO</option>
-          <option value="OTROS"         ${ s.screener==='OTROS'?'selected':''}>OTROS</option>
-        </select>
-      </td>
+          <option value="" ${!val?'selected':''}>—</option>
+          ${extraOpt}${opts}
+        </select>`;
+      })()}</td>
       <td>${sectorHtml}</td>
       <td>${scoreStr}</td>
       <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${pb?.date||'—'}</td>

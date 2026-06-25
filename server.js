@@ -730,7 +730,10 @@ app.post('/api/tv-screenshot', async (req, res) => {
 
 // ── Watchlist ─────────────────────────────────────────────────
 function loadWatchlist() {
-  try { return JSON.parse(fs.readFileSync(WL_FILE,'utf8')); }
+  try {
+    let raw = fs.readFileSync(WL_FILE,'utf8');
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1); // strip BOM
+    return JSON.parse(raw); }
   catch(e) { return { stocks:[] }; }
 }
 function saveWatchlist(d) { fs.writeFileSync(WL_FILE, JSON.stringify(d,null,2),'utf8'); }
