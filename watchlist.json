@@ -3,7 +3,7 @@
     {
       "symbol": "ABNB",
       "name": "ABNB",
-      "status": "yellow",
+      "status": "orange",
       "screener": "SIGMA",
       "addedDate": "2026-06-02",
       "notes": [],
@@ -38,7 +38,7 @@
     {
       "symbol": "HOOD",
       "name": "HOOD",
-      "status": "blue",
+      "status": "orange",
       "screener": "SIGMA",
       "addedDate": "2026-06-03",
       "notes": [
@@ -81,7 +81,7 @@
     {
       "symbol": "SOFI",
       "name": "SOFI",
-      "status": "gray",
+      "status": "orange",
       "screener": "SIGMA",
       "addedDate": "2026-06-16",
       "notes": [],
@@ -116,7 +116,7 @@
     {
       "symbol": "NFLX",
       "name": "NFLX",
-      "status": "yellow",
+      "status": "orange",
       "screener": "INGRESARIOS",
       "addedDate": "2026-06-16",
       "notes": [],
@@ -151,7 +151,7 @@
     {
       "symbol": "UBER",
       "name": "UBER",
-      "status": "gray",
+      "status": "orange",
       "screener": "SIGMA",
       "addedDate": "2026-06-16",
       "notes": [
@@ -194,7 +194,7 @@
     {
       "symbol": "ABBV",
       "name": "ABBV",
-      "status": "gray",
+      "status": "blue",
       "screener": "SIGMA",
       "addedDate": "2026-06-24",
       "notes": [],
@@ -229,7 +229,7 @@
     {
       "symbol": "ADPT",
       "name": "ADPT",
-      "status": "blue",
+      "status": "yellow",
       "screener": "📍 Cerca EMAs",
       "addedDate": "2026-06-24",
       "notes": [],
@@ -264,7 +264,7 @@
     {
       "symbol": "ALGM",
       "name": "ALGM",
-      "status": "gray",
+      "status": "yellow",
       "screener": "📍 Cerca EMAs",
       "addedDate": "2026-06-24",
       "notes": [],
@@ -381,6 +381,56 @@
           "relVol": 1.83
         }
       ]
+    },
+    {
+      "symbol": "ABCB",
+      "name": "ABCB",
+      "status": "orange",
+      "screener": "💪 Fuerza",
+      "addedDate": "2026-06-25",
+      "notes": [],
+      "scoreAuto": 81,
+      "tesisAuto": "alcista"
+    },
+    {
+      "symbol": "ACIW",
+      "name": "ACIW",
+      "status": "orange",
+      "screener": "💪 Fuerza",
+      "addedDate": "2026-06-25",
+      "notes": [],
+      "scoreAuto": 81,
+      "tesisAuto": "alcista"
+    },
+    {
+      "symbol": "ACMR",
+      "name": "ACMR",
+      "status": "orange",
+      "screener": "💪 Fuerza",
+      "addedDate": "2026-06-25",
+      "notes": [],
+      "scoreAuto": 78,
+      "tesisAuto": "alcista"
+    },
+    {
+      "symbol": "ABM",
+      "name": "ABM",
+      "status": "orange",
+      "screener": "💪 Fuerza",
+      "addedDate": "2026-06-25",
+      "notes": [],
+      "scoreAuto": 75,
+      "tesisAuto": "alcista"
+    },
+    {
+      "symbol": "ACAD",
+      "name": "ACAD",
+      "status": "orange",
+      "screener": "💪 Fuerza",
+      "addedDate": "2026-06-25",
+      "notes": [],
+      "scoreAuto": 75,
+      "tesisAuto": "alcista"
     }
   ]
 }
