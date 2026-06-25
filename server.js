@@ -2795,6 +2795,14 @@ Responde SOLO en JSON con esta estructura exacta (sin markdown, sin texto extra)
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Test manual extrínseco ───────────────────────────────────
+app.get('/api/test-extrinsic', async (req, res) => {
+  try {
+    await checkExtrinsicAndNotify();
+    res.json({ ok: true, msg: 'Chequeo completado - revisa ntfy' });
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // ── Alerta extrínseco → ntfy.sh ──────────────────────────────
 app.post('/api/notify-extrinsic', async (req, res) => {
   try {
