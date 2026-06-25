@@ -3357,7 +3357,7 @@ function renderWatchlistTable() {
     return `<tr style="${isSel?'background:rgba(91,130,230,.08);':''}">
       <td style="text-align:center;"><input type="checkbox" ${isSel?'checked':''} onclick="event.stopPropagation();toggleWlSelect('${s.symbol}')" style="width:16px;height:16px;cursor:pointer;accent-color:var(--blue);"></td>
       <td style="font-weight:700;font-family:var(--mono);color:var(--bright);cursor:pointer;" data-wl-action="detail" data-wl-sym="${s.symbol}">${s.symbol}</td>
-      <td><span class="wl-badge ${st.badge}" style="cursor:pointer;" onclick="wlCycleStatus('${s.symbol}','${s.status}')"><span class="wl-dot ${st.dot}"></span>${st.label}</span></td>
+      <td id="wl-status-td-${s.symbol}"><span class="wl-badge ${st.badge}" style="cursor:pointer;" onclick="wlCycleStatus(event,'${s.symbol}','${s.status}')"><span class="wl-dot ${st.dot}"></span>${st.label}</span></td>
       <td style="font-family:var(--mono);">${priceStr}</td>
       <td>${chgStr}</td>
       <td>${faseAutoHtml}</td>
@@ -3633,13 +3633,20 @@ function wlClearFilters() {
 
 // ── Cambiar estado con click ───────────────────────────────────
 const WL_STATUS_ORDER = ['blue','orange','yellow','green','gray'];
-async function wlCycleStatus(sym, currentStatus) {
+async function wlCycleStatus(evt, sym, currentStatus) {
+  evt.stopPropagation();
   const idx = WL_STATUS_ORDER.indexOf(currentStatus);
   const next = WL_STATUS_ORDER[(idx + 1) % WL_STATUS_ORDER.length];
+  const st = WL_STATUS[next];
+  // Actualizar DOM inmediatamente — sin esperar al servidor
+  const td = document.getElementById('wl-status-td-' + sym);
+  if (td) td.innerHTML = `<span class="wl-badge ${st.badge}" style="cursor:pointer;" onclick="wlCycleStatus(event,'${sym}','${next}')"><span class="wl-dot ${st.dot}"></span>${st.label}</span>`;
+  // Actualizar en memoria
+  const s = wlData?.stocks?.find(s => s.symbol === sym);
+  if (s) s.status = next;
+  // Guardar en servidor en background
   try {
     await api('/api/watchlist/' + sym, 'PUT', { status: next });
-    wlData = await api('/api/watchlist');
-    renderWatchlistTable();
   } catch(e) { console.error(e); }
 }
 
