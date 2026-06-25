@@ -2692,9 +2692,10 @@ Responde SOLO en JSON con esta estructura exacta (sin markdown, sin texto extra)
 app.post('/api/notify-extrinsic', async (req, res) => {
   try {
     const { title = '⚠ Extrínseco casi cero', body = '' } = req.body || {};
+    const safeTitle = title.replace(/[^ -]/g, '').trim() || 'Alerta Bitacora';
     const resp = await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
       method: 'POST',
-      headers: { 'Title': title, 'Priority': 'high', 'Tags': 'warning,chart_decreasing', 'Content-Type': 'text/plain' },
+      headers: { 'Title': safeTitle, 'Priority': 'high', 'Tags': 'warning,chart_decreasing', 'Content-Type': 'text/plain' },
       body
     });
     res.json({ ok: resp.ok, status: resp.status });
