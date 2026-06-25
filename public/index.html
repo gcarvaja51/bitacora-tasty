@@ -2431,16 +2431,17 @@ function buildPosRow(g) {
   if (!g.isStock) {
     for (const leg of g.legs) {
       const mp      = parseFloat(leg['mark-price'] || leg['average-daily-market-close-price'] || leg['close-price'] || 0);
-      const sym     = (leg.symbol || '').trim();
-      const parsed  = parseOCC(sym);
-      const strike  = parseFloat(parsed.strike || 0);
-      const isCall  = sym.match(/C\d{8}$/);
-      const uPrice  = g.underlyingPrice || g.currentPrice || 0;
+      const sym     = (leg.symbol || '').replace(/\s+/g,' ').trim();
+      // Extraer strike directo del símbolo OCC: últimos 8 dígitos / 1000
+      const occMatch = sym.match(/([CP])(\d{8})$/);
+      const isCall   = occMatch && occMatch[1] === 'C';
+      const strike   = occMatch ? parseInt(occMatch[2]) / 1000 : 0;
+      const uPrice   = g.underlyingPrice || g.currentPrice || 0;
       const intrinsic = isCall ? Math.max(0, uPrice - strike) : Math.max(0, strike - uPrice);
-      const extrLeg = Math.max(0, mp - intrinsic);
-      const qty     = parseFloat(leg.quantity || 1);
-      const mul     = parseFloat(leg.multiplier || 100);
-      const legDir  = leg['quantity-direction'] === 'Short' ? -1 : 1;
+      const extrLeg  = Math.max(0, mp - intrinsic);
+      const qty      = parseFloat(leg.quantity || 1);
+      const mul      = parseFloat(leg.multiplier || 100);
+      const legDir   = leg['quantity-direction'] === 'Short' ? -1 : 1;
       extrinsicTotal += legDir * extrLeg * qty * mul;
     }
   }
