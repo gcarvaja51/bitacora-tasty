@@ -2447,6 +2447,111 @@ function scheduleDaily() {
   }, ms);
 }
 
+// ══════════════════════════════════════════════════════════
+//  CHEQUEO EXTRÍNSECO — 10am, 12pm, 2:30pm hora Colombia
+// ══════════════════════════════════════════════════════════
+async function checkExtrinsicAndNotify() {
+  console.log('[EXTR] Iniciando chequeo de extrínseco...');
+  try {
+    const positions = await tt.getPositions();
+    if (!positions || !positions.length) return;
+
+    // Obtener precio del subyacente para cada posición única
+    const underlyings = [...new Set(positions.map(p => p['underlying-symbol'] || p.symbol))];
+    const priceMap = {};
+    await Promise.all(underlyings.map(async sym => {
+      try {
+        const q = await tt.getMarketData(sym);
+        priceMap[sym] = parseFloat(q?.last || q?.mark || 0);
+      } catch(e) { priceMap[sym] = 0; }
+    }));
+
+    // Agrupar por subyacente + vencimiento
+    const groups = {};
+    for (const p of positions) {
+      if (p['instrument-type'] === 'Equity') continue;
+      const und = p['underlying-symbol'] || p.symbol;
+      const exp = p['expires-at'] ? new Date(p['expires-at']).toISOString().slice(0,10) : '';
+      const key = `${und}::${exp}`;
+      if (!groups[key]) groups[key] = { underlying: und, legs: [], premiumNet: 0 };
+      const g = groups[key];
+      g.legs.push(p);
+      const qty = parseFloat(p.quantity || 0);
+      const op  = parseFloat(p['average-open-price'] || 0);
+      const mul = parseFloat(p.multiplier || 100);
+      if (p['quantity-direction'] === 'Short') g.premiumNet += op * qty * mul;
+      else                                      g.premiumNet -= op * qty * mul;
+    }
+
+    for (const [key, g] of Object.entries(groups)) {
+      const absPrem = Math.abs(g.premiumNet);
+      if (!absPrem) continue;
+
+      let extrinsicTotal = 0;
+      const uPrice = priceMap[g.underlying] || 0;
+      for (const leg of g.legs) {
+        const mp  = parseFloat(leg['mark-price'] || leg['close-price'] || 0);
+        const sym = (leg.symbol || '').replace(/\s+/g,' ').trim();
+        const occMatch = sym.match(/([CP])(\d{8})$/);
+        if (!occMatch) continue;
+        const isCall  = occMatch[1] === 'C';
+        const strike  = parseInt(occMatch[2]) / 1000;
+        const intrinsic = isCall ? Math.max(0, uPrice - strike) : Math.max(0, strike - uPrice);
+        const extrLeg   = Math.max(0, mp - intrinsic);
+        const qty       = parseFloat(leg.quantity || 1);
+        const mul       = parseFloat(leg.multiplier || 100);
+        const legDir    = leg['quantity-direction'] === 'Short' ? -1 : 1;
+        extrinsicTotal += legDir * extrLeg * qty * mul;
+      }
+
+      const extrPct = Math.abs(extrinsicTotal) / absPrem * 100;
+      console.log(`[EXTR] ${g.underlying}: $${Math.abs(extrinsicTotal).toFixed(2)} (${extrPct.toFixed(1)}%)`);
+
+      if (extrPct < 5) {
+        const title = 'Bitacora Alerta Extrinseco';
+        const body  = `${g.underlying} — extrinseco $${Math.abs(extrinsicTotal).toFixed(2)} (${extrPct.toFixed(1)}% del premium). Considera cerrar.`;
+        console.log(`[EXTR] ALERTA: ${body}`);
+        try {
+          await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+            method: 'POST',
+            headers: { 'Title': title, 'Priority': 'high', 'Tags': 'warning,chart_decreasing', 'Content-Type': 'text/plain' },
+            body
+          });
+        } catch(e) { console.warn('[EXTR] ntfy error:', e.message); }
+      }
+    }
+    console.log('[EXTR] Chequeo completado.');
+  } catch(e) { console.error('[EXTR] Error:', e.message); }
+}
+
+function scheduleExtrinsicChecks() {
+  // Horarios Colombia (UTC-5): 10:00, 12:00, 14:30 → UTC: 15:00, 17:00, 19:30
+  const slots = [
+    { h: 15, m: 0,  label: '10:00am COL' },
+    { h: 17, m: 0,  label: '12:00pm COL' },
+    { h: 19, m: 30, label: '2:30pm COL'  },
+  ];
+
+  function msUntilNext(h, m) {
+    const now = new Date();
+    const target = new Date(now);
+    target.setUTCHours(h, m, 0, 0);
+    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+    return target - now;
+  }
+
+  for (const slot of slots) {
+    (function schedule(slot) {
+      const ms = msUntilNext(slot.h, slot.m);
+      console.log(`[EXTR] Próximo chequeo ${slot.label} en ${Math.round(ms/60000)} min`);
+      setTimeout(async () => {
+        await checkExtrinsicAndNotify();
+        schedule(slot); // reprogramar para mañana
+      }, ms);
+    })(slot);
+  }
+}
+
 app.listen(PORT, async () => {
   console.log(`\n🚀  Bitácora Tasty → http://localhost:${PORT}`);
   console.log(`[ENV] Token length: ${(process.env.TT_SESSION_TOKEN || '').length}`);
@@ -2459,6 +2564,8 @@ app.listen(PORT, async () => {
     saveNlvSnapshot(todayStr(), nlv);
     // Programar guardado diario a las 4:35 PM ET
     scheduleDaily();
+    // Programar chequeos de extrínseco: 10am, 12pm, 2:30pm COL
+    scheduleExtrinsicChecks();
   } catch (e) {
     console.error(`⚠️   Auth falló: ${e.message}\n`);
   }
