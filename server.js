@@ -2687,3 +2687,5 @@ Responde SOLO en JSON con esta estructura exacta (sin markdown, sin texto extra)
 
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
+app.post('/api/notify-extrinsic', async (req, res) => { try { const { title = 'Extrinseco casi cero', body = '' } = req.body || {}; const resp = await fetch('https://ntfy.sh/bitacora_gcarvaja51', { method: 'POST', headers: { 'Title': title, 'Priority': 'high', 'Content-Type': 'text/plain' }, body }); res.json({ ok: resp.ok }); } catch(e) { res.status(500).json({ ok: false, error: e.message }); } });
