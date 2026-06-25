@@ -6905,7 +6905,7 @@ function sendBrowserNotif(title, body) {
 
 async function sendNtfyNotif(title, body) {
   try {
-    await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+    await fetch('/api/notify-extrinsic', {
       method: 'POST',
       headers: { 'Title': title, 'Priority': 'high', 'Tags': 'warning,chart_decreasing' },
       body: body
