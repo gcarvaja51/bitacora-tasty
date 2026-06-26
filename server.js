@@ -2457,10 +2457,21 @@ async function checkExtrinsicAndNotify() {
       const absPrem = Math.abs(g.premiumNet);
       if (!absPrem) continue;
 
-      let extrinsicTotal = 0;
       const uPrice = priceMap[g.underlying] || 0;
+      if (!uPrice) {
+        console.log(`[EXTR] ${g.underlying}: precio del subyacente no disponible, saltando`);
+        continue;
+      }
+
+      let extrinsicTotal = 0;
+      let skipGroup = false;
       for (const leg of g.legs) {
         const mp  = parseFloat(leg['mark-price'] || leg['close-price'] || 0);
+        if (!mp) {
+          console.log(`[EXTR] ${g.underlying}: mark-price no disponible en pata ${leg.symbol}, saltando grupo`);
+          skipGroup = true;
+          break;
+        }
         const sym = (leg.symbol || '').replace(/\s+/g,' ').trim();
         const occMatch = sym.match(/([CP])(\d{8})$/);
         if (!occMatch) continue;
@@ -2473,6 +2484,7 @@ async function checkExtrinsicAndNotify() {
         const legDir    = leg['quantity-direction'] === 'Short' ? -1 : 1;
         extrinsicTotal += legDir * extrLeg * qty * mul;
       }
+      if (skipGroup) continue;
 
       const extrPct = Math.abs(extrinsicTotal) / absPrem * 100;
       console.log(`[EXTR] ${g.underlying}: $${Math.abs(extrinsicTotal).toFixed(2)} (${extrPct.toFixed(1)}%)`);
