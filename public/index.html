@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -280,6 +280,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .wl-status-yellow { background:rgba(245,200,66,.15); border:1px solid rgba(245,200,66,.4); color:#f5c842; }
 .wl-status-violet { background:rgba(160,100,255,.15);border:1px solid rgba(160,100,255,.4);color:#a064ff; }
 .wl-status-green  { background:rgba(19,214,143,.15); border:1px solid rgba(19,214,143,.4); color:#13d68f; }
+.wl-status-blue   { background:rgba(59,130,246,.15);  border:1px solid rgba(59,130,246,.4);  color:#3b82f6; }
+.wl-dot-blue      { background:#3b82f6; }
+.wl-status-gray   { background:rgba(100,116,139,.15); border:1px solid rgba(100,116,139,.4); color:#64748b; }
+.wl-dot-gray      { background:#64748b; }
 .wl-badge { display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.04em; }
 .wl-dot   { width:7px;height:7px;border-radius:50%;flex-shrink:0; }
 .wl-dot-orange { background:#ff8c00; }
@@ -949,27 +953,24 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <div class="nav-item" onclick="nav('playbooks',this)">
       <span class="icon">📋</span> Playbooks
     </div>
-    <div class="nav-item" onclick="nav('ai',this)">
-      <span class="icon">🤖</span> IA Análisis
-    </div>
     <div class="nav-item" onclick="nav('spx',this)">
       <span class="nav-icon">⚡</span>
       <span class="nav-label">SPX Señales</span>
     </div>
+    <div class="nav-item" onclick="nav('backtester',this)">
+      <span class="icon">🔬</span> Backtester SPX
+    </div>
     <div class="nav-item" onclick="nav('wheel',this)">
       <span class="icon">🔄</span> La Rueda
-    </div>
-    <div class="nav-item" onclick="nav('chain',this)">
-      <span class="icon">📊</span> Cadena Opciones
     </div>
     <div class="nav-item" onclick="nav('alejandro',this)">
       <span class="icon">🎯</span> Playbook Alejandro
     </div>
+    <div class="nav-item" onclick="nav('ai',this)">
+      <span class="icon">🤖</span> IA Análisis
+    </div>
     <div class="nav-item" onclick="nav('today',this)">
       <span class="icon">◎</span> Hoy
-    </div>
-    <div class="nav-item" onclick="nav('backtester',this)">
-      <span class="icon">🔬</span> Backtester SPX
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -1135,11 +1136,10 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
               <th onclick="posSort('delta')"  style="cursor:pointer;user-select:none;">Delta <span id="sort-delta"></span></th>
               <th onclick="posSort('theta')"  style="cursor:pointer;user-select:none;">Theta/día <span id="sort-theta"></span></th>
               <th onclick="posSort('open')"   style="cursor:pointer;user-select:none;">Apertura <span id="sort-open"></span></th>
-              <th onclick="posSort('extrinsic')" style="cursor:pointer;user-select:none;">Extrínseco <span id="sort-extrinsic"></span></th>
               <th onclick="posSort('pct')"    style="cursor:pointer;user-select:none;">% Capturado <span id="sort-pct"></span></th>
             </tr></thead>
             <tbody id="pos-tbody">
-              <tr><td colspan="15"><div class="loader"><div class="spinner"></div></div></td></tr>
+              <tr><td colspan="14"><div class="loader"><div class="spinner"></div></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -1836,18 +1836,14 @@ function renderDashPositions(positions=[]) {
 function consolidateStrategies(legs) {
   const map = new Map();
   for (const leg of legs) {
-    const isSpread = /Spread|Condor|Strangle/i.test(leg.stratType||'');
-    // leg.key ya viene único desde metrics.js (closeOrderId_underlying_closeDate)
-    // Usarlo siempre que exista para evitar fusionar múltiples trades del mismo día
-    const key = leg.key
-      ? leg.key
-      : isSpread
-        ? `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}`
-        : (leg.symbol || Math.random().toString());
+    // Usar SIEMPRE leg.key (viene único desde metrics.js: closeOrderId_underlying_closeDate)
+    // Fallback solo si no hay key (datos muy viejos)
+    const key = leg.key || `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}_${leg.openValue}`;
     if (!map.has(key)) {
       map.set(key, { underlying:leg.underlying, openDate:leg.openDate,
         closeDate:leg.closeDate, stratType:leg.stratType,
-        durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0 });
+        durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0,
+        amPm:leg.amPm, win:leg.win, key:leg.key });
     }
     const s = map.get(key);
     s.openValue  += leg.openValue  || 0;
@@ -2423,33 +2419,10 @@ function buildPosRow(g) {
   const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
   const strikeFs = strat === 'Iron Condor' ? '9px' : '11px';
   const absPrem = Math.abs(g.premiumNet);
+  // Para credit spreads (premiumNet > 0): % capturado = P&L / premium cobrado
+  // Para debit spreads (premiumNet < 0): % capturado = P&L / costo pagado (también positivo)
   const pct = absPrem > 0 ? (g.unrealizedPnL / absPrem * 100) : 0;
   const osLink = osGetLinks()[g.underlying] ? '🔗' : '';
-
-  // ── Valor extrínseco ─────────────────────────────────────
-  let extrinsicTotal = 0;
-  if (!g.isStock) {
-    for (const leg of g.legs) {
-      const mp      = parseFloat(leg['mark-price'] || leg['average-daily-market-close-price'] || leg['close-price'] || 0);
-      const sym     = (leg.symbol || '').replace(/\s+/g,' ').trim();
-      // Extraer strike directo del símbolo OCC: últimos 8 dígitos / 1000
-      const occMatch = sym.match(/([CP])(\d{8})$/);
-      const isCall   = occMatch && occMatch[1] === 'C';
-      const strike   = occMatch ? parseInt(occMatch[2]) / 1000 : 0;
-      const uPrice   = g.underlyingPrice || g.currentPrice || 0;
-      const intrinsic = isCall ? Math.max(0, uPrice - strike) : Math.max(0, strike - uPrice);
-      const extrLeg  = Math.max(0, mp - intrinsic);
-      const qty      = parseFloat(leg.quantity || 1);
-      const mul      = parseFloat(leg.multiplier || 100);
-      const legDir   = leg['quantity-direction'] === 'Short' ? -1 : 1;
-      extrinsicTotal += legDir * extrLeg * qty * mul;
-    }
-  }
-  g.extrinsic = extrinsicTotal;
-  const extrPct   = absPrem > 0 ? Math.abs(extrinsicTotal) / absPrem * 100 : 100;
-  const extrAlert = !g.isStock && absPrem > 0 && extrPct < 5;
-  const extrColor = extrAlert ? 'var(--red)' : extrPct < 15 ? 'var(--gold)' : 'var(--muted)';
-
   return `<tr>
     <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${g.underlying}',event)" title="Ver en OptionStrat">${g.underlying} <span style="font-size:9px;color:var(--muted);">${osLink}</span></td>
     <td class="dim">${strat}</td>
@@ -2464,8 +2437,12 @@ function buildPosRow(g) {
     <td class="td-mono dim">${g.delta!==0?g.delta.toFixed(2):'—'}</td>
     <td class="td-mono ${g.theta>0?'pos':g.theta<0?'neg':'dim'}">${g.theta!==0?'$'+g.theta.toFixed(2):'—'}</td>
     <td class="td-mono dim" style="font-size:11px;">${g.openDate||'—'}</td>
-    <td class="td-mono" style="color:${extrColor};font-weight:${extrAlert?'700':'400'};">${g.isStock?'—':'$'+Math.abs(extrinsicTotal).toFixed(2)+(extrAlert?' ⚠':'')}</td>
-    <td class="td-mono ${pct>=0?'pos':'neg'}" style="font-size:11px;">${pct.toFixed(0)}%</td>
+    <td>
+      <div class="pct-bar">
+        <div class="pct-track"><div class="pct-fill" style="width:${Math.min(100,Math.abs(pct)).toFixed(0)}%;background:${pct>=20?'var(--green)':pct>=0?'var(--gold)':'var(--red)'}"></div></div>
+        <span class="td-mono ${pct>=0?'pos':'neg'}" style="font-size:10px;min-width:40px;">${pct.toFixed(0)}%</span>
+      </div>
+    </td>
   </tr>`;
 }
 
@@ -2530,7 +2507,6 @@ function renderPosRows(groups) {
     else if (col==='delta')  { va=a.delta; vb=b.delta; }
     else if (col==='theta')  { va=a.theta; vb=b.theta; }
     else if (col==='open')   { va=a.openDate||''; vb=b.openDate||''; }
-    else if (col==='extrinsic') { va=Math.abs(a.extrinsic||0); vb=Math.abs(b.extrinsic||0); }
     else if (col==='pct')    { va=a.premiumNet?a.unrealizedPnL/Math.abs(a.premiumNet)*100:0;
                                vb=b.premiumNet?b.unrealizedPnL/Math.abs(b.premiumNet)*100:0; }
     if (typeof va==='string') return asc?va.localeCompare(vb):vb.localeCompare(va);
@@ -2540,7 +2516,7 @@ function renderPosRows(groups) {
   // Regenerar HTML con los grupos en el nuevo orden
   const tbody = $('pos-tbody');
   if (!tbody) return;
-  tbody.innerHTML = sorted.map(g => buildPosRow(g)).join('') || '<tr><td colspan="15" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
+  tbody.innerHTML = sorted.map(g => buildPosRow(g)).join('') || '<tr><td colspan="14" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
 }
 
 async function loadPositions() {
@@ -2612,7 +2588,7 @@ async function loadPositions() {
     _posRows   = rows;
     _posRowMap = {};
     groups.forEach((g,i) => { _posRowMap[g.underlying+'_'+i] = i; });
-    $('pos-tbody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="15" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
+    $('pos-tbody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="14" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
 
     // Gráfico de torta por sector
     renderPosSectorChart(groups);
@@ -2622,7 +2598,6 @@ async function loadPositions() {
       kpiCard('Premium Neto Rec.', fa$(totalPremium), 'en posiciones SHORT', 'pos'),
       kpiCard('P&L No Realizado', f$(totalUnreal), 'mark-to-market actual', cc(totalUnreal)),
     ].join('');
-    setTimeout(checkExtrinsicAlerts, 500);
   } catch(e) { $('pos-tbody').innerHTML=`<tr><td colspan="13"><div class="error-box">${e.message}</div></td></tr>`; }
 }
 
@@ -2767,6 +2742,12 @@ async function loadReports(forceRefresh) {
       stratByDay[s.closeDate] = (stratByDay[s.closeDate]||0) + s.pnl;
       const mo = s.closeDate.slice(0,7);
       strategyByMonth[mo] = (strategyByMonth[mo]||0) + s.pnl;
+      // Construir strategyByWeek filtrado
+      const d    = new Date(s.closeDate + 'T12:00:00Z');
+      const jan1 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const wk   = Math.ceil((((d - jan1) / 86400000) + jan1.getUTCDay() + 1) / 7);
+      const wkKey = `${d.getUTCFullYear()}-W${String(wk).padStart(2,'0')}`;
+      strategyByWeek[wkKey] = (strategyByWeek[wkKey]||0) + s.pnl;
     });
     // Comisiones solo del rango filtrado (por mes de closeDate de estrategias)
     const activeMos = new Set(filteredStrats.map(s => s.closeDate?.slice(0,7)).filter(Boolean));
@@ -2789,6 +2770,7 @@ async function loadReports(forceRefresh) {
       byDuration:      byDur,
       stratByDay,
       strategyByMonth,
+      strategyByWeek,
       totalComm:       +totalCommFiltered.toFixed(2),
       brokerByMonth:   brokerByMonthFiltered,
     };
@@ -2860,7 +2842,7 @@ async function loadReports(forceRefresh) {
       <div style="margin-top:12px;font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">Comisiones por Mes</div>
       ${brokerMos.map(([mo,comm])=>{
         const label = new Date(+mo.slice(0,4),+mo.slice(5,7)-1).toLocaleDateString('es-CO',{month:'short',year:'2-digit'});
-        const moPnL = (m.byMonth||{})[mo] || 0;
+        const moPnL = (m.strategyByMonth||m.byMonth||{})[mo] || 0;
         return `<div class="stat-row"><span class="stat-lbl">${label}</span>
           <span class="dim td-mono" style="font-size:11px;">broker: -${fa$(comm)}</span>
           <span class="td-mono ${cc(moPnL)}" style="font-size:11px;">${f$(moPnL)}</span></div>`;
@@ -2936,8 +2918,9 @@ async function loadReports(forceRefresh) {
     }
     renderStratRows(stratList);
 
-    // Monthly table — NLV change como fuente principal (coincide con TastyTrade)
-    const curveByMonth = S.curve?.nlvByMonth || m.strategyByMonth || m.byMonth || {};
+    // Monthly table — usar strategyByMonth filtrado; NLV solo si no hay filtro activo
+    const isFiltered = sd !== '2026-02-01' || ed !== todayStr();
+    const curveByMonth = isFiltered ? m.strategyByMonth : (S.curve?.nlvByMonth || m.strategyByMonth || m.byMonth || {});
     const months = Object.keys(curveByMonth).sort().reverse();
     const byDay  = m.stratByDay || m.byDay || {};
     const initial = S.curve?.curve?.initial || 10644;
@@ -3210,14 +3193,20 @@ async function saveJournal() {
   } catch(e) { alert('Error guardando: '+e.message); }
 }
 const WL_STATUS = {
+  blue:   { label:'1era Evaluación', dot:'wl-dot-blue',   badge:'wl-status-blue',   emoji:'🔵' },
   orange: { label:'En seguimiento', dot:'wl-dot-orange', badge:'wl-status-orange', emoji:'🟠' },
   yellow: { label:'Casi lista',     dot:'wl-dot-yellow', badge:'wl-status-yellow', emoji:'🟡' },
-  violet: { label:'Esperar earnings',dot:'wl-dot-violet',badge:'wl-status-violet', emoji:'🟣' },
   green:  { label:'En el mercado',  dot:'wl-dot-green',  badge:'wl-status-green',  emoji:'🟢' },
+  gray:   { label:'Descartado',     dot:'wl-dot-gray',   badge:'wl-status-gray',   emoji:'⚫' },
 };
 let wlData      = null;
 let wlActive    = null; // symbol currently open
 let wlFundCache = {};
+let wlSelectMode = false;
+let wlSelected   = new Set();
+let scAutoResults = {};  // { scId: { results, loading, ts } }
+let scAutoSort    = { col: 'scoreMejor', asc: false }; // sort tabla evaluacion
+let wlEvalLoading = false; // estado del botón Evaluar todos
 let wlPbCache   = {};
 let wlFaseCache = {};
 let wlSort      = { col:'sym', asc:true };
@@ -3246,8 +3235,18 @@ async function loadWatchlist() {
         const fund = await api('/api/watchlist/'+s.symbol+'/fundamentals');
         if (fund) {
           wlFundCache[s.symbol] = fund;
+          // Si fundamentals no trajo sector, complementar con market-data
+          if (!fund.sector) {
+            try {
+              const md = await api('/api/market-data/'+s.symbol);
+              if (md?.sector) {
+                wlFundCache[s.symbol].sector   = md.sector;
+                wlFundCache[s.symbol].industry = md.industry || fund.industry;
+              }
+            } catch(e2) {}
+          }
           renderWatchlistTable();
-          wlRenderFilters(); // actualizar chips de sector
+          wlRenderFilters();
         }
       } catch(e) {}
       // Cargar fase preliminar en background
@@ -3310,6 +3309,9 @@ function renderWatchlistTable() {
     else if (col==='fase')   { va=pa?.fase||'';      vb=pb?.fase||''; }
     else if (col==='status') { va=a.status||'';      vb=b.status||''; }
     else if (col==='screener'){va=a.screener||'';    vb=b.screener||''; }
+    else if (col==='scoreAuto'){ va=a.scoreAuto||0;  vb=b.scoreAuto||0; }
+    else if (col==='sector')    { va=wlFundCache[a.symbol]?.sector||''; vb=wlFundCache[b.symbol]?.sector||''; }
+    else if (col==='tesisAuto') { va=a.tesisAuto||''; vb=b.tesisAuto||''; }
     if (typeof va==='string') return asc?va.localeCompare(vb):vb.localeCompare(va);
     return asc?va-vb:vb-va;
   });
@@ -3332,7 +3334,7 @@ function renderWatchlistTable() {
   }, 50);
 
   const rows = sorted.map(s => {
-    const st   = WL_STATUS[s.status] || WL_STATUS.orange;
+    const st   = WL_STATUS[s.status] || WL_STATUS.blue;
     const fund = wlFundCache[s.symbol];
     const pb   = wlPbCache[s.symbol];
     const priceStr = fund ? fa$(fund.price) : '—';
@@ -3340,30 +3342,51 @@ function renderWatchlistTable() {
     const rsiStr   = fund?.rsi ? `<span style="color:${fund.rsi<40?'#f04f5a':fund.rsi>70?'#f5c842':'#8b96a8'}">${Math.round(fund.rsi)}</span>` : '—';
     const faseStr  = pb?.fase ? `<span class="wl-fase wl-fase-${pb.fase.toLowerCase()}">${pb.fase}</span>` : '<span style="color:var(--muted)">—</span>';
     const scoreStr = pb?.score != null
-      ? `<span style="font-weight:700;color:${pb.score>=95?'#13d68f':pb.score>=85?'#f5c842':'#f04f5a'}">${pb.score}%</span>
-         <div class="wl-score-bar"><div style="width:${pb.score}%;height:100%;background:${pb.score>=95?'#13d68f':pb.score>=85?'#f5c842':'#f04f5a'};border-radius:2px;"></div></div>`
+      ? `<span style="font-weight:700;color:${pb.score>=95?'#13d68f':pb.score>=85?'#f5c842':'#f04f5a'}">${pb.score}%</span>`
       : '<span style="color:var(--muted)">—</span>';
     const scTag = s.screener ? `<span style="font-size:9px;color:#5b82e6;background:rgba(91,130,230,.15);padding:1px 5px;border-radius:3px;">${s.screener}</span>` : '';
     // Fase Auto
     const fp = wlFaseCache[s.symbol];
     const faseAutoHtml = fp
-      ? '<div style="display:flex;align-items:center;gap:4px;">'
-        + '<span style="font-weight:700;font-size:11px;color:'+(fp.fase?.startsWith('F2')?'#13d68f':fp.fase?.startsWith('F4')?'#f04f5a':'#6b7280')+';font-family:var(--mono);">'+fp.fase+'</span>'
-        + wlRenderDots(fp.fase, fp.dots)
-        + (fp.confirmado?'<span style="font-size:9px;color:#13d68f;">✅</span>':'')
-        + '</div>'
+      ? '<span style="font-weight:700;font-size:12px;font-family:var(--mono);color:'+(fp.fase?.startsWith('F2')?'#13d68f':fp.fase?.startsWith('F4')?'#f04f5a':'#6b7280')+';">'+fp.fase.replace('~','')+'</span>'
       : '<span style="color:var(--muted);font-size:10px;">⏳</span>';
     const sectorHtml = fund?.sector
       ? '<span style="font-size:10px;color:var(--muted);" title="'+(fund.industry||'')+'">'+fund.sector+'</span>'
       : '<span style="color:var(--muted);font-size:10px;">⏳</span>';
-    return `<tr>
+    const isSel = wlSelected.has(s.symbol);
+    return `<tr style="${isSel?'background:rgba(91,130,230,.08);':''}">
+      <td style="text-align:center;"><input type="checkbox" ${isSel?'checked':''} onclick="event.stopPropagation();toggleWlSelect('${s.symbol}')" style="width:16px;height:16px;cursor:pointer;accent-color:var(--blue);"></td>
       <td style="font-weight:700;font-family:var(--mono);color:var(--bright);cursor:pointer;" data-wl-action="detail" data-wl-sym="${s.symbol}">${s.symbol}</td>
-      <td><span class="wl-badge ${st.badge}" style="cursor:pointer;" onclick="wlCycleStatus('${s.symbol}','${s.status}')"><span class="wl-dot ${st.dot}"></span>${st.label}</span></td>
+      <td id="wl-status-td-${s.symbol}"><span class="wl-badge ${st.badge}" style="cursor:pointer;" onclick="wlCycleStatus(event,'${s.symbol}','${s.status}')"><span class="wl-dot ${st.dot}"></span>${st.label}</span></td>
       <td style="font-family:var(--mono);">${priceStr}</td>
       <td>${chgStr}</td>
-      <td>${rsiStr}</td>
       <td>${faseAutoHtml}</td>
       <td>${faseStr}</td>
+      <td>${(()=>{
+        const sa = s.scoreAuto;
+        if (sa == null) return '<span style="color:var(--muted)">—</span>';
+        const col = sa>=75?'#13d68f':sa>=60?'#f5c842':'#f04f5a';
+        const tc = s.tesisAuto==='alcista'?'▲':'▼';
+        const tc2 = s.tesisAuto==='alcista'?'#13d68f':'#f04f5a';
+        return `<span style="font-weight:700;font-size:13px;color:${col};">${sa}%</span> <span style="font-size:10px;color:${tc2};">${tc}</span>`;
+      })()}</td>
+      <td>${(()=>{
+        if (!s.tesisAuto) return '<span style="color:var(--muted)">—</span>';
+        const c = s.tesisAuto==='alcista'?'#13d68f':'#f04f5a';
+        return '<span style="font-weight:700;font-size:11px;color:'+c+';">'+(s.tesisAuto==='alcista'?'▲ alcista':'▼ bajista')+'</span>';
+      })()}</td>
+      <td style="min-width:100px;" onclick="event.stopPropagation();">${(()=>{
+        const fixed = ['📍 Cerca EMAs','💪 Fuerza','🚀 X2','📈 Máximos Anuales','🎯 Gangas','💥 Volumazo','⚡ Gapeadoras','SIGMA','INGRESARIOS','ALEJANDRO','OTROS'];
+        const val = s.screener || '';
+        const extraOpt = val && !fixed.includes(val) ? `<option value="${val}" selected>${val}</option>` : '';
+        const opts = fixed.map(f => `<option value="${f}" ${val===f?'selected':''}>${f}</option>`).join('');
+        return `<select onchange="wlUpdateScreener('${s.symbol}',this.value)"
+          style="background:var(--card);border:1px solid var(--border);border-radius:5px;color:var(--muted);font-size:11px;width:100%;outline:none;padding:2px 4px;cursor:pointer;">
+          <option value="" ${!val?'selected':''}>—</option>
+          ${extraOpt}${opts}
+        </select>`;
+      })()}</td>
+      <td>${sectorHtml}</td>
       <td>${scoreStr}</td>
       <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${pb?.date||'—'}</td>
       <td style="text-align:center;white-space:nowrap;">
@@ -3375,6 +3398,13 @@ function renderWatchlistTable() {
   }).join('');
 
   $('wl-tab-content').innerHTML = `
+    <!-- Barra borrado masivo -->
+    ${wlSelected.size>0 ? `<div style="display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--card);border:1px solid var(--blue);border-radius:10px;margin-bottom:12px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:var(--blue);font-weight:600;">${wlSelected.size} seleccionada${wlSelected.size!==1?'s':''}</span>
+      <button onclick="deleteWlSelected()" class="btn" style="padding:5px 12px;font-size:11px;color:var(--red);border-color:var(--red);">🗑 Eliminar (${wlSelected.size})</button>
+      <button onclick="wlClearSelection()" class="btn" style="padding:5px 12px;font-size:11px;margin-left:auto;">✕ Limpiar</button>
+    </div>` : ''}
+
     <!-- Filtros rápidos -->
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
       <span style="font-size:11px;color:var(--muted);">Filtrar:</span>
@@ -3390,12 +3420,14 @@ function renderWatchlistTable() {
       <input id="wl-new-name" type="text" placeholder="Nombre (opcional)"
         style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--bright);font-size:12px;flex:1;min-width:130px;">
       <select id="wl-new-status" class="wl-status-select">
+        <option value="blue">🔵 1era Evaluación</option>
         <option value="orange">🟠 En seguimiento</option>
         <option value="yellow">🟡 Casi lista</option>
-        <option value="violet">🟣 Esperar earnings</option>
         <option value="green">🟢 En el mercado</option>
+        <option value="gray">⚫ Descartado</option>
       </select>
       <button onclick="addWatchlistStock()" class="btn btn-primary" style="padding:7px 14px;font-size:12px;">+ Agregar</button>
+      <button onclick="wlEvalAll()" id="wl-eval-all-btn" class="btn" style="padding:7px 14px;font-size:12px;border-color:#a78bfa;color:#a78bfa;background:rgba(167,139,250,.1);">🧠 Evaluar todos</button>
     </div>
 
     ${stocks.length === 0
@@ -3403,11 +3435,12 @@ function renderWatchlistTable() {
       : `<div style="overflow-x:auto;">
           <table class="wl-table">
             <thead><tr>
+              <th style="width:32px;"><input type="checkbox" id="wl-check-all" onclick="toggleAllWlSelect(this)" style="width:16px;height:16px;cursor:pointer;accent-color:var(--blue);"></th>
               ${th('sym','Ticker')}
               ${th('status','Estado')}
-              ${th('price','Precio')}${th('chg','Chg%')}${th('rsi','RSI')}
+              ${th('price','Precio')}${th('chg','Chg%')}
               ${th('fasePrel','Fase Auto')}${th('fase','Fase PB')}
-              ${th('score','Score PA')}${th('date','Últ. Análisis')}
+              ${th('scoreAuto','Score Auto')}${th('tesisAuto','Tesis')}${th('screener','Origen')}${th('sector','Sector')}${th('score','Score PA')}${th('date','Últ. Análisis')}
               <th>Acciones</th>
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -3415,6 +3448,74 @@ function renderWatchlistTable() {
          </div>`
     }
   `;
+}
+
+function toggleWlSelect(symbol) {
+  if (wlSelected.has(symbol)) wlSelected.delete(symbol);
+  else wlSelected.add(symbol);
+  renderWatchlistTable();
+}
+
+function toggleAllWlSelect(cb) {
+  const stocks = wlData?.stocks || [];
+  if (cb.checked) stocks.forEach(s => wlSelected.add(s.symbol));
+  else wlSelected.clear();
+  renderWatchlistTable();
+}
+
+function wlClearSelection() {
+  wlSelected.clear();
+  renderWatchlistTable();
+}
+
+async function deleteWlSelected() {
+  if (wlSelected.size === 0) return;
+  const list = [...wlSelected];
+  if (!confirm(`¿Eliminar ${list.length} acción${list.length!==1?'es':''} del watchlist?\n\n${list.join(', ')}`)) return;
+  try {
+    for (const sym of list) {
+      await api(`/api/watchlist/${sym}`, 'DELETE');
+    }
+    wlSelected.clear();
+    wlData = await api('/api/watchlist');
+    renderWatchlistTable();
+  } catch(e) { alert('Error eliminando: ' + e.message); }
+}
+
+async function wlEvalAll() {
+  if (wlEvalLoading) return;
+  const stocks = wlData?.stocks || [];
+  if (!stocks.length) { alert('No hay activos en el watchlist.'); return; }
+  wlEvalLoading = true;
+  const btn = document.getElementById('wl-eval-all-btn');
+  if (btn) { btn.textContent = '⏳ Evaluando...'; btn.disabled = true; }
+  try {
+    const res = await api('/api/watchlist/eval-all', 'POST');
+    // Actualizar scoreAuto y tesisAuto en wlData local
+    (res.results || []).forEach(r => {
+      const s = wlData?.stocks?.find(st => st.symbol === r.sym);
+      if (s && !r.error) { s.scoreAuto = r.scoreMejor; s.tesisAuto = r.tesis; }
+    });
+    wlData = await api('/api/watchlist'); // recargar para tener scoreHistory
+    renderWatchlistTable();
+    const aptos = (res.results||[]).filter(r => r.scoreMejor >= 75).length;
+    if (btn) btn.textContent = `✅ ${res.evaluated} evaluados · ${aptos} aptos`;
+    setTimeout(() => { if (btn) { btn.textContent = '🧠 Evaluar todos'; btn.disabled = false; } wlEvalLoading = false; }, 3000);
+  } catch(e) {
+    alert('Error evaluando: ' + e.message);
+    if (btn) { btn.textContent = '🧠 Evaluar todos'; btn.disabled = false; }
+    wlEvalLoading = false;
+  }
+}
+
+async function wlUpdateScreener(sym, value) {
+  try {
+    await api('/api/watchlist/' + sym, 'PUT', { screener: value });
+    const s = wlData?.stocks?.find(st => st.symbol === sym);
+    if (s) s.screener = value;
+    wlRenderFilters();
+    renderWatchlistTable();
+  } catch(e) { console.warn('wlUpdateScreener', e.message); }
 }
 
 async function wlDeleteStock(sym) {
@@ -3531,14 +3632,21 @@ function wlClearFilters() {
 }
 
 // ── Cambiar estado con click ───────────────────────────────────
-const WL_STATUS_ORDER = ['orange','yellow','violet','green'];
-async function wlCycleStatus(sym, currentStatus) {
+const WL_STATUS_ORDER = ['blue','orange','yellow','green','gray'];
+async function wlCycleStatus(evt, sym, currentStatus) {
+  evt.stopPropagation();
   const idx = WL_STATUS_ORDER.indexOf(currentStatus);
   const next = WL_STATUS_ORDER[(idx + 1) % WL_STATUS_ORDER.length];
+  const st = WL_STATUS[next];
+  // Actualizar DOM inmediatamente — sin esperar al servidor
+  const td = document.getElementById('wl-status-td-' + sym);
+  if (td) td.innerHTML = `<span class="wl-badge ${st.badge}" style="cursor:pointer;" onclick="wlCycleStatus(event,'${sym}','${next}')"><span class="wl-dot ${st.dot}"></span>${st.label}</span>`;
+  // Actualizar en memoria
+  const s = wlData?.stocks?.find(s => s.symbol === sym);
+  if (s) s.status = next;
+  // Guardar en servidor en background
   try {
     await api('/api/watchlist/' + sym, 'PUT', { status: next });
-    wlData = await api('/api/watchlist');
-    renderWatchlistTable();
   } catch(e) { console.error(e); }
 }
 
@@ -3604,9 +3712,65 @@ async function renderScreeners() {
           </button>
           <a href="${sc.url}" target="_blank" style="padding:5px 10px;border-radius:7px;font-size:11px;border:1px solid var(--border);color:var(--muted);text-decoration:none;">↗ Finviz</a>
           ${hasResults&&newCount>0 ? `<button onclick="scImportAll('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #5b82e6;background:rgba(91,130,230,.15);color:#5b82e6;">⬇ Importar ${newCount}</button>` : ''}
+          ${hasResults ? `<button onclick="scEvalPlaybook('${sc.id}')" style="padding:5px 12px;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid #a78bfa;background:rgba(167,139,250,.15);color:#a78bfa;">${(scAutoResults[sc.id]||{})._loading?'⏳ Evaluando...':'🧠 Evaluar Playbook'}</button>` : ''}
         </div>
       </div>
       ${hasResults ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:6px;">${chips}</div>` : ''}
+      ${(()=>{
+        const ar = scAutoResults[sc.id];
+        if (!ar || ar._loading) return ar?._loading ? '<div style="padding:8px;color:var(--muted);font-size:11px;">⏳ Evaluando tickers con Playbook Alejandro...</div>' : '';
+        const sorted = [...ar.results.filter(r=>!r.error)].sort((a,b)=>{
+          const col = scAutoSort.col;
+          let va = a[col], vb = b[col];
+          if (col==='sym' || col==='tesis' || col==='fase' || col==='estrategia') {
+            va=(va||'').toLowerCase(); vb=(vb||'').toLowerCase();
+            return scAutoSort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+          }
+          va = parseFloat(va)||0; vb = parseFloat(vb)||0;
+          return scAutoSort.asc ? va-vb : vb-va;
+        });
+        const rows = sorted.map(r=>{
+          const col = r.scoreMejor>=75?'#13d68f':r.scoreMejor>=60?'#f5c842':'#f04f5a';
+          const tesisCol = r.tesis==='alcista'?'#13d68f':'#f04f5a';
+          const earW = r.earningsDays<=14?`<span style="font-size:9px;color:#f5c842;margin-left:4px;" title="Earnings en ${r.earningsDays}d">⚠️${r.earningsDays}d</span>`:'';
+          const ciarBadge = r.ciar?`<span style="font-size:9px;background:rgba(167,139,250,.2);color:#a78bfa;padding:1px 4px;border-radius:3px;margin-left:4px;">CIAR ${r.ciar}</span>`:'';
+          return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:4px 8px;font-family:var(--mono);font-weight:700;font-size:12px;color:var(--bright);">${r.sym}</td>
+            <td style="padding:4px 8px;font-size:11px;color:var(--muted);">$${r.precio}</td>
+            <td style="padding:4px 8px;text-align:center;"><span style="font-size:10px;color:#6b7280;background:rgba(107,114,128,.1);padding:1px 5px;border-radius:3px;">${r.fase}</span></td>
+            <td style="padding:4px 8px;font-size:11px;text-align:center;"><span style="color:${tesisCol};font-weight:700;">${r.tesis==='alcista'?'▲':'▼'} ${r.tesis}</span></td>
+            <td style="padding:4px 8px;text-align:center;"><span style="font-weight:700;font-size:13px;color:${col};">${r.scoreMejor}%</span></td>
+            <td style="padding:4px 6px;font-size:10px;color:var(--muted);">${r.modulos?.[r.tesis==='alcista'?'alc':'baj']?`D:${r.modulos[r.tesis==='alcista'?'alc':'baj'].dir}% T:${r.modulos[r.tesis==='alcista'?'alc':'baj'].trig}% F:${r.modulos[r.tesis==='alcista'?'alc':'baj'].fuerz}%`:''}</td>
+            <td style="padding:4px 8px;font-size:11px;color:var(--muted);">${r.estrategia}${earW}${ciarBadge}</td>
+            <td style="padding:4px 8px;text-align:center;">
+              <button onclick="scAddWithScore('${r.sym}','${sc.label||sc.id}',${r.scoreMejor},'${r.tesis}')" style="padding:2px 8px;border-radius:5px;font-size:10px;cursor:pointer;border:1px solid #5b82e6;background:rgba(91,130,230,.1);color:#5b82e6;">+ WL</button>
+            </td>
+          </tr>`;
+        }).join('');
+        const total = ar.results.filter(r=>!r.error).length;
+        const aptos = ar.results.filter(r=>r.scoreMejor>=75).length;
+        return rows ? `<div style="margin-top:10px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="padding:6px 10px;background:rgba(167,139,250,.08);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;font-weight:700;color:#a78bfa;">🧠 Playbook Alejandro — Evaluación automática</span>
+            <span style="font-size:10px;color:var(--muted);">${total} evaluados · <span style="color:#13d68f;font-weight:700;">${aptos} aptos (≥75%)</span></span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:rgba(255,255,255,.03);">
+              ${[
+                ['sym','Ticker','left'],['precio','Precio','center'],['fase','Fase','center'],
+                ['tesis','Tesis','center'],['scoreMejor','Score','center'],['','D/T/F','center'],
+                ['estrategia','Estrategia','left'],['','','center']
+              ].map(([col,label,align])=> col
+                ? `<th onclick="${col?`scAutoSortBy('${col}')`:''}" style="padding:4px 8px;font-size:10px;color:${scAutoSort.col===col?'#a78bfa':'var(--muted)'};text-align:${align};${col?'cursor:pointer;user-select:none;':''};white-space:nowrap;">
+                    ${label}${scAutoSort.col===col?(scAutoSort.asc?' ▲':' ▼'):col?' ↕':''}
+                  </th>`
+                : `<th style="padding:4px 8px;font-size:10px;color:var(--muted);text-align:${align};">${label}</th>`
+              ).join('')}
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>` : '<div style="padding:8px;color:var(--muted);font-size:11px;">Sin resultados evaluables.</div>';
+      })()}
     </div>`;
   }).join('');
 
@@ -3634,6 +3798,43 @@ async function scAddSingle(ticker, screenerLabel) {
     const chips = document.querySelectorAll('.sc-chip');
     chips.forEach(c => { if (c.textContent.trim()===ticker) { c.classList.add('added'); c.removeAttribute('onclick'); c.textContent=ticker+' ✓'; c.style.borderColor='var(--border)'; c.style.color='var(--muted)'; } });
     // Actualizar contador
+    renderScreeners();
+  } catch(e) {
+    if (!e.message?.includes('409')) console.error(e);
+  }
+}
+
+function scAutoSortBy(col) {
+  if (scAutoSort.col === col) scAutoSort.asc = !scAutoSort.asc;
+  else { scAutoSort.col = col; scAutoSort.asc = col === 'sym' || col === 'tesis'; }
+  renderScreeners();
+}
+
+async function scEvalPlaybook(scId) {
+  if (!scData[scId] || !scData[scId].length) {
+    alert('Primero ejecuta el screener para cargar los tickers.');
+    return;
+  }
+  if (!scAutoResults[scId]) scAutoResults[scId] = {};
+  scAutoResults[scId]._loading = true;
+  renderScreeners();
+  try {
+    const data = await api('/api/screener-eval/' + scId);
+    scAutoResults[scId] = { ...data, _loading: false, ts: Date.now() };
+  } catch(e) {
+    scAutoResults[scId] = { _loading: false, error: e.message, results: [] };
+    alert('Error evaluando: ' + e.message);
+  }
+  renderScreeners();
+}
+
+async function scAddWithScore(ticker, screenerLabel, scoreAuto, tesisAuto) {
+  try {
+    await api('/api/watchlist', 'POST', {
+      symbol: ticker, name: ticker, status: 'orange',
+      screener: screenerLabel, scoreAuto, tesisAuto
+    });
+    wlData = await api('/api/watchlist');
     renderScreeners();
   } catch(e) {
     if (!e.message?.includes('409')) console.error(e);
@@ -3696,6 +3897,11 @@ async function openWatchlistDetail(symbol) {
         </div>
       </div>
       <div>
+        <!-- Gráfico Score History -->
+        <div style="margin-bottom:20px;">
+          <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;">📈 PRECIO + EVALUACIONES</div>
+          <div id="wl-score-chart-${symbol}" style="width:100%;border-radius:8px;overflow:hidden;background:#131722;min-height:260px;"></div>
+        </div>
         <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.08em;margin-bottom:12px;">DIARIO DE SEGUIMIENTO</div>
         <!-- Agregar nota -->
         <div class="wl-add-note" style="margin-bottom:16px;">
@@ -3721,6 +3927,85 @@ async function openWatchlistDetail(symbol) {
 
   // Cargar fundamentales automáticamente
   loadWlFundamentals(symbol);
+  // Cargar gráfico con score history
+  renderWlScoreChart(symbol);
+}
+
+let _wlScoreChart = null;
+let _wlPriceSeries = null;
+
+async function renderWlScoreChart(symbol) {
+  const container = document.getElementById('wl-score-chart-' + symbol);
+  if (!container) return;
+
+  // Cargar precio e historial de scores en paralelo
+  let priceData = [], scoreHistory = [];
+  try {
+    const [pr, sh] = await Promise.all([
+      fetch('/api/price-history/' + encodeURIComponent(symbol) + '?interval=1d&range=6mo').then(r=>r.json()),
+      api('/api/watchlist/' + symbol + '/score-history'),
+    ]);
+    priceData = pr;
+    scoreHistory = sh;
+  } catch(e) { console.error('wlScoreChart', e); return; }
+
+  if (!priceData.length) { container.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:10px;">Sin datos de precio</div>'; return; }
+
+  if (_wlScoreChart) { _wlScoreChart.remove(); _wlScoreChart = null; }
+  container.innerHTML = '';
+
+  const W = container.offsetWidth || 600;
+  _wlScoreChart = LightweightCharts.createChart(container, {
+    width: W, height: 260,
+    layout: { background: { color: '#131722' }, textColor: '#b2b5be' },
+    grid:   { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#2a2e39' },
+    timeScale: { borderColor: '#2a2e39', timeVisible: false },
+  });
+
+  _wlPriceSeries = _wlScoreChart.addCandlestickSeries({
+    upColor: '#26a69a', downColor: '#ef5350',
+    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+  });
+  _wlPriceSeries.setData(priceData);
+
+  // EMAs
+  const calcEMAL = (data, p) => {
+    const k=2/(p+1); let e=null,cnt=0; const out=[];
+    for (const d of data) { cnt++; if(cnt<p) continue; if(cnt===p) e=data.slice(0,p).reduce((a,b)=>a+b.close,0)/p; else e=d.close*k+e*(1-k); out.push({time:d.time,value:+e.toFixed(3)}); }
+    return out;
+  };
+  _wlScoreChart.addLineSeries({ color:'#f5c842', lineWidth:1, priceLineVisible:false, lastValueVisible:false }).setData(calcEMAL(priceData,10));
+  _wlScoreChart.addLineSeries({ color:'#5b82e6', lineWidth:1, priceLineVisible:false, lastValueVisible:false }).setData(calcEMAL(priceData,20));
+
+  // Marcadores de score history
+  if (scoreHistory.length) {
+    const priceTimeMap = {};
+    priceData.forEach(d => { priceTimeMap[new Date(d.time*1000).toISOString().slice(0,10)] = d.time; });
+
+    const markers = scoreHistory.map(h => {
+      const ts = priceTimeMap[h.date] || Math.floor(new Date(h.date+'T20:00:00Z').getTime()/1000);
+      const col = h.scoreMejor>=75?'#13d68f':h.scoreMejor>=60?'#f5c842':'#f04f5a';
+      const shape = h.tesis==='alcista' ? 'arrowUp' : 'arrowDown';
+      const position = h.tesis==='alcista' ? 'belowBar' : 'aboveBar';
+      const label = (h.tesis==='alcista'?'▲':'▼') + ' ' + h.scoreMejor + '%';
+      return { time: ts, position, color: col, shape, text: label, size: 1 };
+    }).sort((a,b) => a.time - b.time);
+
+    _wlPriceSeries.setMarkers(markers);
+
+    // Zoom a zona con evaluaciones
+    const last = scoreHistory.at(-1);
+    if (last) {
+      const ts = Math.floor(new Date(last.date+'T20:00:00Z').getTime()/1000);
+      _wlScoreChart.timeScale().setVisibleRange({ from: ts - 45*86400, to: ts + 15*86400 });
+    }
+  } else {
+    _wlScoreChart.timeScale().fitContent();
+    container.insertAdjacentHTML('afterend', '<div style="font-size:11px;color:var(--muted);padding:4px 0;">Sin evaluaciones aún — presiona 🧠 Evaluar todos</div>');
+  }
 }
 
 function renderWlTimeline(s) {
@@ -6882,57 +7167,6 @@ function renderStrikeByDates() {
     </div>`;
 }
 
-
-// ══════════════════════════════════════════════════════════
-//  ALERTA EXTRÍNSECO — Push Notification + ntfy.sh
-// ══════════════════════════════════════════════════════════
-const EXTR_ALERTED = new Set();
-
-async function requestNotifPermission() {
-  if (!('Notification' in window)) return false;
-  if (Notification.permission === 'granted') return true;
-  if (Notification.permission === 'denied') return false;
-  const perm = await Notification.requestPermission();
-  return perm === 'granted';
-}
-
-function sendBrowserNotif(title, body) {
-  if (Notification.permission === 'granted') {
-    new Notification(title, { body, icon: '/favicon.ico' });
-  }
-}
-
-async function sendNtfyNotif(title, body) {
-  try {
-    await fetch('/api/notify-extrinsic', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, body })
-    });
-  } catch(e) { console.warn('[ntfy] error:', e); }
-}
-
-async function checkExtrinsicAlerts() {
-  if (!_posGroups || !_posGroups.length) return;
-  const canNotif = await requestNotifPermission();
-  for (const g of _posGroups) {
-    if (g.isStock) continue;
-    const absPrem = Math.abs(g.premiumNet);
-    if (!absPrem) continue;
-    const extrPct = Math.abs(g.extrinsic||0) / absPrem * 100;
-    if (extrPct < 5) {
-      const key = g.underlying + '_' + (g.expiry||'');
-      if (EXTR_ALERTED.has(key)) continue;
-      EXTR_ALERTED.add(key);
-      const title = '⚠ Extrínseco casi cero';
-      const body  = `${g.underlying} — extrínseco $${Math.abs(g.extrinsic||0).toFixed(2)} (${extrPct.toFixed(1)}% del premium). Considera cerrar.`;
-      if (canNotif) sendBrowserNotif(title, body);
-      await sendNtfyNotif(title, body);
-    }
-  }
-}
-
-setInterval(checkExtrinsicAlerts, 60000);
 
 // PWA Service Worker
 if ('serviceWorker' in navigator) {
