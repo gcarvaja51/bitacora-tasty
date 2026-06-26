@@ -19,7 +19,7 @@ if (DATA_DIR !== __dirname) {
   console.log('[DATA] Usando volumen persistente:', DATA_DIR);
 }
 
-const NLV_FILE = path.join(__dirname, 'nlv_history.json');
+const NLV_FILE = path.join(DATA_DIR, 'nlv_history.json');
 const NLV_SEED = {
   '2026-02-13': 10644.00,   // depósito inicial
   '2026-02-28': 11328.69,
@@ -667,7 +667,7 @@ const WL_FILE = path.join(DATA_DIR, 'watchlist.json');
 // Copiar archivos base al DATA_DIR si no existen (primera vez)
 if (DATA_DIR !== __dirname) {
   const baseFiles = ['watchlist.json','trade_notes.json','playbooks.json',
-    'alejandro_checklists.json','spx_config.json','algo_signals.json','wheel_config.json'];
+    'alejandro_checklists.json','spx_config.json','algo_signals.json','wheel_config.json','nlv_history.json'];
   baseFiles.forEach(f => {
     const dest = path.join(DATA_DIR, f);
     const src  = path.join(__dirname, f);
