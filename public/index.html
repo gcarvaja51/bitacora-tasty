@@ -2464,7 +2464,8 @@ function buildPosRow(g) {
     <td class="td-mono ${g.theta>0?'pos':g.theta<0?'neg':'dim'}">${g.theta!==0?'$'+g.theta.toFixed(2):'—'}</td>
     <td class="td-mono dim" style="font-size:11px;">${g.openDate||'—'}</td>
     <td class="td-mono" style="color:${extrColor};font-weight:${extrAlert?'700':'400'};">${g.isStock?'—':'$'+Math.abs(extrinsicTotal).toFixed(2)+(extrAlert?' ⚠':'')}</td>
-    
+    <td>
+      <div class="pct-bar">
         <div class="pct-track"><div class="pct-fill" style="width:${Math.min(100,Math.abs(pct)).toFixed(0)}%;background:${pct>=20?'var(--green)':pct>=0?'var(--gold)':'var(--red)'}"></div></div>
         <span class="td-mono ${pct>=0?'pos':'neg'}" style="font-size:10px;min-width:40px;">${pct.toFixed(0)}%</span>
       </div>
