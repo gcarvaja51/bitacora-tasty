@@ -1,0 +1,14 @@
+{
+  "underlyings": [
+    "JBLU",
+    {
+      "symbol": "NU",
+      "startDate": "2026-05-01"
+    },
+    "GAP",
+    {
+      "symbol": "SOFI",
+      "startDate": "2026-06-01"
+    }
+  ]
+}

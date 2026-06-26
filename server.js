@@ -299,7 +299,7 @@ app.get('/api/today', async (req, res) => {
 app.post('/api/refresh', (req, res) => { bustCache(); res.json({ ok: true }); });
 
 // La Rueda — configuración de activos
-const WHEEL_CFG = path.join(__dirname, 'wheel_config.json');
+const WHEEL_CFG = path.join(DATA_DIR, 'wheel_config.json');
 
 function loadWheelConfig() {
   try {
@@ -667,7 +667,7 @@ const WL_FILE = path.join(DATA_DIR, 'watchlist.json');
 // Copiar archivos base al DATA_DIR si no existen (primera vez)
 if (DATA_DIR !== __dirname) {
   const baseFiles = ['watchlist.json','trade_notes.json','playbooks.json',
-    'alejandro_checklists.json','spx_config.json','algo_signals.json'];
+    'alejandro_checklists.json','spx_config.json','algo_signals.json','wheel_config.json'];
   baseFiles.forEach(f => {
     const dest = path.join(DATA_DIR, f);
     const src  = path.join(__dirname, f);
