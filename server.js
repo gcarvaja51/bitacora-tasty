@@ -2418,38 +2418,8 @@ app.post('/api/spx/signals/:id/action', async (req, res) => {
   }
 });
 
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// ── Guardado automático diario de NLV ─────────────────────────
-async function snapshotNlv() {
-  try {
-    const bal = await tt.getBalances();
-    const nlv = parseFloat(bal?.['net-liquidating-value'] || 0);
-    if (nlv > 0) {
-      const date = todayStr();
-      saveNlvSnapshot(date, nlv);
-      console.log(`[NLV] Snapshot guardado: ${date} = $${nlv.toFixed(2)}`);
-    }
-  } catch(e) { console.log('[NLV] Error guardando snapshot:', e.message); }
-}
-
-function scheduleDaily() {
-  // Calcular milisegundos hasta las 4:35 PM ET (20:35 UTC)
-  const now = new Date();
-  const target = new Date(now);
-  target.setUTCHours(20, 35, 0, 0);
-  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-  const ms = target - now;
-  console.log(`[NLV] Próximo snapshot automático en ${Math.round(ms/60000)} minutos`);
-  setTimeout(async () => {
-    await snapshotNlv();
-    scheduleDaily(); // reprogramar para mañana
-  }, ms);
-}
-
-// ══════════════════════════════════════════════════════════
-//  CHEQUEO EXTRÍNSECO — 10am, 12pm, 2:30pm hora Colombia
-// ══════════════════════════════════════════════════════════
+// ── Extrínseco — chequeo automático ─────────────────────────
 async function checkExtrinsicAndNotify() {
   console.log('[EXTR] Iniciando chequeo de extrínseco...');
   try {
@@ -2552,8 +2522,93 @@ function scheduleExtrinsicChecks() {
   }
 }
 
+
+function scheduleExtrinsicChecks() {
+  // Horarios Colombia (UTC-5): 10:00, 12:00, 14:30 → UTC: 15:00, 17:00, 19:30
+  const slots = [
+    { h: 15, m: 0,  label: '10:00am COL' },
+    { h: 17, m: 0,  label: '12:00pm COL' },
+    { h: 19, m: 30, label: '2:30pm COL'  },
+  ];
+
+  function msUntilNext(h, m) {
+    const now = new Date();
+    const target = new Date(now);
+    target.setUTCHours(h, m, 0, 0);
+    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+    return target - now;
+  }
+
+  for (const slot of slots) {
+    (function schedule(slot) {
+      const ms = msUntilNext(slot.h, slot.m);
+      console.log(`[EXTR] Próximo chequeo ${slot.label} en ${Math.round(ms/60000)} min`);
+      setTimeout(async () => {
+        await checkExtrinsicAndNotify();
+        schedule(slot); // reprogramar para mañana
+      }, ms);
+    })(slot);
+  }
+}
+
+
+// ── Extrínseco — notify endpoint ─────────────────────────────
+app.post('/api/notify-extrinsic', async (req, res) => {
+  try {
+    const { title = '⚠ Extrínseco casi cero', body = '' } = req.body || {};
+    const safeTitle = title.replace(/[^-]/g, '').trim() || 'Alerta Bitacora';
+    const resp = await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+      method: 'POST',
+      headers: { 'Title': safeTitle, 'Priority': 'high', 'Tags': 'warning,chart_decreasing', 'Content-Type': 'text/plain' },
+      body
+    });
+    res.json({ ok: resp.ok, status: resp.status });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Extrínseco — test endpoint ───────────────────────────────
+app.get('/api/test-extrinsic', async (req, res) => {
+  try {
+    await checkExtrinsicAndNotify();
+    res.json({ ok: true, msg: 'Chequeo completado - revisa ntfy' });
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+// ── Guardado automático diario de NLV ─────────────────────────
+async function snapshotNlv() {
+  try {
+    const bal = await tt.getBalances();
+    const nlv = parseFloat(bal?.['net-liquidating-value'] || 0);
+    if (nlv > 0) {
+      const date = todayStr();
+      saveNlvSnapshot(date, nlv);
+      console.log(`[NLV] Snapshot guardado: ${date} = $${nlv.toFixed(2)}`);
+    }
+  } catch(e) { console.log('[NLV] Error guardando snapshot:', e.message); }
+}
+
+function scheduleDaily() {
+  // Calcular milisegundos hasta las 4:35 PM ET (20:35 UTC)
+  const now = new Date();
+  const target = new Date(now);
+  target.setUTCHours(20, 35, 0, 0);
+  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+  const ms = target - now;
+  console.log(`[NLV] Próximo snapshot automático en ${Math.round(ms/60000)} minutos`);
+  setTimeout(async () => {
+    await snapshotNlv();
+    scheduleDaily(); // reprogramar para mañana
+  }, ms);
+}
+
 app.listen(PORT, async () => {
   console.log(`\n🚀  Bitácora Tasty → http://localhost:${PORT}`);
+  scheduleExtrinsicChecks();
   console.log(`[ENV] Token length: ${(process.env.TT_SESSION_TOKEN || '').length}`);
   try {
     await tt.authenticate();
@@ -2564,8 +2619,6 @@ app.listen(PORT, async () => {
     saveNlvSnapshot(todayStr(), nlv);
     // Programar guardado diario a las 4:35 PM ET
     scheduleDaily();
-    // Programar chequeos de extrínseco: 10am, 12pm, 2:30pm COL
-    scheduleExtrinsicChecks();
   } catch (e) {
     console.error(`⚠️   Auth falló: ${e.message}\n`);
   }
@@ -2793,28 +2846,4 @@ Responde SOLO en JSON con esta estructura exacta (sin markdown, sin texto extra)
     res.json({ analysis, generatedAt: new Date().toISOString() });
 
   } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// ── Test manual extrínseco ───────────────────────────────────
-app.get('/api/test-extrinsic', async (req, res) => {
-  try {
-    await checkExtrinsicAndNotify();
-    res.json({ ok: true, msg: 'Chequeo completado - revisa ntfy' });
-  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-
-// ── Alerta extrínseco → ntfy.sh ──────────────────────────────
-app.post('/api/notify-extrinsic', async (req, res) => {
-  try {
-    const { title = '⚠ Extrínseco casi cero', body = '' } = req.body || {};
-    const safeTitle = title.replace(/[^ -]/g, '').trim() || 'Alerta Bitacora';
-    const resp = await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
-      method: 'POST',
-      headers: { 'Title': safeTitle, 'Priority': 'high', 'Tags': 'warning,chart_decreasing', 'Content-Type': 'text/plain' },
-      body
-    });
-    res.json({ ok: resp.ok, status: resp.status });
-  } catch(e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
 });
