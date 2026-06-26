@@ -4840,45 +4840,57 @@ async function loadWheel() {
       }
 
       const today = new Date().toISOString().slice(0,10);
-      const premiumTypes = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
 
-      // Posiciones cerradas por underlying: strike|expiry que tienen BTC
-      const closedMap = {};
-      for (const w of wheels) {
-        closedMap[w.underlying] = new Set();
-        for (const ev of w.events) {
-          if ((ev.type === 'BTC_PUT' || ev.type === 'BTC_CALL') && ev.strike != null && ev.expiry) {
-            closedMap[w.underlying].add(`${ev.strike}|${ev.expiry}`);
-          }
-        }
-      }
-
-      // Devuelve true si el evento debe incluirse como realizado
-      function isRealized(ev, underlying) {
-        if (ev.type === 'ROLL') return true;
-        // BTC standalone (cierre sin roll): realizado
-        if (ev.type === 'BTC_PUT' || ev.type === 'BTC_CALL') return true;
-        // STO: solo si ya expiró O tiene BTC matching
-        if (ev.type === 'STO_PUT' || ev.type === 'STO_CALL') {
-          if (!ev.expiry || ev.expiry < today) return true;
-          return closedMap[underlying]?.has(`${ev.strike}|${ev.expiry}`) || false;
-        }
-        return false;
-      }
-
-      // tickerMap: { ticker: { weekStart: amount } } — solo realizados
+      // tickerMap: { ticker: { weekStart: amount } } — solo P&L realizados
       const tickerMap = {};
       const allWeeksSet = new Set();
       const allTickers = wheels.map(w => w.underlying);
 
       for (const w of wheels) {
         if (!tickerMap[w.underlying]) tickerMap[w.underlying] = {};
+
+        // Indexar todos los STOs por strike|expiry para vincularlos con su BTC
+        const stoIndex = new Map(); // 'strike|expiry' → { amount, date, used }
         for (const ev of w.events) {
-          if (!premiumTypes.has(ev.type)) continue;
-          if (!isRealized(ev, w.underlying)) continue;
-          const wk = mondayOf(ev.date);
+          if ((ev.type === 'STO_PUT' || ev.type === 'STO_CALL') && ev.strike != null && ev.expiry) {
+            stoIndex.set(`${ev.strike}|${ev.expiry}`, { amount: ev.amount || 0, date: ev.date, used: false });
+          }
+        }
+
+        const addAmt = (date, amt) => {
+          const wk = mondayOf(date);
           allWeeksSet.add(wk);
-          tickerMap[w.underlying][wk] = (tickerMap[w.underlying][wk] || 0) + (ev.amount || 0);
+          tickerMap[w.underlying][wk] = (tickerMap[w.underlying][wk] || 0) + amt;
+        };
+
+        for (const ev of w.events) {
+          if (ev.type === 'ROLL') {
+            // ROLL = neto de BTC+STO ya calculado → mostrar en su semana
+            addAmt(ev.date, ev.amount || 0);
+
+          } else if (ev.type === 'BTC_PUT' || ev.type === 'BTC_CALL') {
+            // BTC: buscar el STO que lo originó y mostrar el neto en la semana del cierre
+            const key = `${ev.strike}|${ev.expiry}`;
+            const sto = stoIndex.get(key);
+            if (sto) {
+              sto.used = true;
+              addAmt(ev.date, sto.amount + (ev.amount || 0)); // neto en semana del BTC
+            }
+            // Si no hay STO matching (caso raro), mostrar el BTC solo
+            else { addAmt(ev.date, ev.amount || 0); }
+
+          }
+          // STO_PUT/STO_CALL: se procesan al llegar su BTC o al expirar (ver abajo)
+        }
+
+        // STOs que expiraron sin BTC → mostrar prima en la semana de su expiry
+        for (const [key, sto] of stoIndex) {
+          if (!sto.used) {
+            const expiry = key.split('|')[1];
+            if (expiry && expiry < today) {
+              addAmt(expiry, sto.amount); // semana de la expiry
+            }
+          }
         }
       }
 
