@@ -101,32 +101,35 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       }
     }
 
-    // ── Consolidar rolls: BTC_PUT + STO_PUT mismo día ──────────────
-    // FIX multi-contrato: con 2 contratos TastyTrade genera 2 pares de tx el mismo día.
-    // Agrupamos TODOS los BTC_PUT y STO_PUT del mismo día en un único evento ROLL
-    // cuyo monto es la suma neta de todos ellos.
+    // ── Consolidar rolls: BTC+STO mismo día (puts Y calls) ──────────
+    // Si el mismo día hay un BTC y un STO del mismo tipo (P o C),
+    // se trata como un ROLL y se consolida en un único evento neto.
     const rollsByDate = {};
     const nonRollEvents = [];
 
     for (const ev of events) {
-      if (ev.type === 'BTC_PUT' || ev.type === 'STO_PUT') {
-        if (!rollsByDate[ev.date]) rollsByDate[ev.date] = { btc: [], sto: [] };
-        if (ev.type === 'BTC_PUT') rollsByDate[ev.date].btc.push(ev);
-        else                       rollsByDate[ev.date].sto.push(ev);
+      const isRollable = ev.type === 'BTC_PUT' || ev.type === 'STO_PUT' ||
+                         ev.type === 'BTC_CALL' || ev.type === 'STO_CALL';
+      if (isRollable) {
+        const kind = ev.type.endsWith('PUT') ? 'put' : 'call';
+        const key  = `${ev.date}::${kind}`;
+        if (!rollsByDate[key]) rollsByDate[key] = { btc: [], sto: [] };
+        if (ev.type.startsWith('BTC')) rollsByDate[key].btc.push(ev);
+        else                           rollsByDate[key].sto.push(ev);
       } else {
         nonRollEvents.push(ev);
       }
     }
 
     const rollEvents = [];
-    for (const [date, { btc, sto }] of Object.entries(rollsByDate)) {
+    for (const [key, { btc, sto }] of Object.entries(rollsByDate)) {
       if (btc.length > 0 && sto.length > 0) {
-        // Es un roll — consolidar todos en uno
+        // Es un roll — consolidar en un único evento ROLL neto
         const netAmount = sto.reduce((s, e) => s + e.amount, 0) +
                           btc.reduce((s, e) => s + e.amount, 0);
         rollEvents.push({
-          date,
-          type: 'ROLL',
+          date:       btc[0].date,
+          type:       'ROLL',
           fromStrike: btc[0].strike,
           fromExpiry: btc[0].expiry,
           toStrike:   sto[0].strike,

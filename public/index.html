@@ -4842,7 +4842,7 @@ async function loadWheel() {
       const today = new Date().toISOString().slice(0,10);
       const premiumTypes = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
 
-      // Para cada underlying, construir set de posiciones cerradas (tienen BTC)
+      // Posiciones cerradas por underlying: strike|expiry que tienen BTC
       const closedMap = {};
       for (const w of wheels) {
         closedMap[w.underlying] = new Set();
@@ -4853,15 +4853,20 @@ async function loadWheel() {
         }
       }
 
-      // Un STO es "abierto" si su expiry es futuro Y no tiene BTC matching
-      function isOpenSTO(ev, underlying) {
-        if (ev.type !== 'STO_PUT' && ev.type !== 'STO_CALL') return false;
-        if (!ev.expiry || ev.expiry < today) return false; // ya expiró → realizado
-        if (closedMap[underlying]?.has(`${ev.strike}|${ev.expiry}`)) return false; // tiene BTC → realizado
-        return true; // todavía abierto
+      // Devuelve true si el evento debe incluirse como realizado
+      function isRealized(ev, underlying) {
+        if (ev.type === 'ROLL') return true;
+        // BTC standalone (cierre sin roll): realizado
+        if (ev.type === 'BTC_PUT' || ev.type === 'BTC_CALL') return true;
+        // STO: solo si ya expiró O tiene BTC matching
+        if (ev.type === 'STO_PUT' || ev.type === 'STO_CALL') {
+          if (!ev.expiry || ev.expiry < today) return true;
+          return closedMap[underlying]?.has(`${ev.strike}|${ev.expiry}`) || false;
+        }
+        return false;
       }
 
-      // tickerMap: { ticker: { weekStart: { realized, open } } }
+      // tickerMap: { ticker: { weekStart: amount } } — solo realizados
       const tickerMap = {};
       const allWeeksSet = new Set();
       const allTickers = wheels.map(w => w.underlying);
@@ -4870,12 +4875,10 @@ async function loadWheel() {
         if (!tickerMap[w.underlying]) tickerMap[w.underlying] = {};
         for (const ev of w.events) {
           if (!premiumTypes.has(ev.type)) continue;
+          if (!isRealized(ev, w.underlying)) continue;
           const wk = mondayOf(ev.date);
           allWeeksSet.add(wk);
-          if (!tickerMap[w.underlying][wk]) tickerMap[w.underlying][wk] = { realized: 0, open: 0 };
-          const amt = ev.amount || 0;
-          if (isOpenSTO(ev, w.underlying)) tickerMap[w.underlying][wk].open += amt;
-          else                              tickerMap[w.underlying][wk].realized += amt;
+          tickerMap[w.underlying][wk] = (tickerMap[w.underlying][wk] || 0) + (ev.amount || 0);
         }
       }
 
@@ -4892,37 +4895,25 @@ async function loadWheel() {
       // Filas: un ticker por fila
       const tRows = allTickers.map(t => {
         const weekCells = allWeeks.map(wk => {
-          const cell = tickerMap[t]?.[wk] || { realized: 0, open: 0 };
-          const r = cell.realized, o = cell.open;
-          if (r === 0 && o === 0) return '<td class="dim">—</td>';
-          let html = '';
-          if (r !== 0) html += `<span class="${r>=0?'pos':'neg'}">${r>=0?'+$':'-$'}${Math.abs(r).toFixed(2)}</span>`;
-          if (o !== 0) html += `${r!==0?'<br>':''}
-            <span style="color:var(--gold);font-size:10px;" title="Posición abierta — no realizado aún">
-              📋 $${Math.abs(o).toFixed(2)}
-            </span>`;
-          return `<td style="line-height:1.6;">${html}</td>`;
+          const v = tickerMap[t]?.[wk] || 0;
+          if (v === 0) return '<td class="dim">—</td>';
+          return `<td class="${v>=0?'pos':'neg'}">${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}</td>`;
         }).join('');
-        const tickerRealized = allWeeks.reduce((s,wk) => s + (tickerMap[t]?.[wk]?.realized||0), 0);
-        const tickerOpen     = allWeeks.reduce((s,wk) => s + (tickerMap[t]?.[wk]?.open||0), 0);
+        const tickerTotal = allWeeks.reduce((s,wk) => s + (tickerMap[t]?.[wk]||0), 0);
         const wksWithData = allWeeks.filter(wk => tickerMap[t]?.[wk]).length || 1;
-        const avg = tickerRealized / wksWithData;
-        const openLabel = tickerOpen ? ` <span style="color:var(--gold);font-size:10px;">+📋$${Math.abs(tickerOpen).toFixed(2)}</span>` : '';
+        const avg = tickerTotal / wksWithData;
         return `<tr>
           <td class="td-sym">${t}</td>
           ${weekCells}
-          <td style="font-weight:700;"><span class="pos">+$${tickerRealized.toFixed(2)}</span>${openLabel}</td>
+          <td class="pos" style="font-weight:700;">+$${tickerTotal.toFixed(2)}</td>
           <td class="dim">$${avg.toFixed(2)}</td>
         </tr>`;
       }).join('');
 
-      // Fila de totales por semana (solo realizados)
+      // Fila de totales por semana
       const totWeekCells = allWeeks.map(wk => {
-        const tot = allTickers.reduce((s,t) => s + (tickerMap[t]?.[wk]?.realized||0), 0);
-        const totOpen = allTickers.reduce((s,t) => s + (tickerMap[t]?.[wk]?.open||0), 0);
-        let html = `<span class="${tot>=0?'pos':'neg'}" style="font-weight:700;">${tot>=0?'+$':'-$'}${Math.abs(tot).toFixed(2)}</span>`;
-        if (totOpen) html += `<br><span style="color:var(--gold);font-size:10px;">📋$${Math.abs(totOpen).toFixed(2)}</span>`;
-        return `<td style="line-height:1.6;">${html}</td>`;
+        const tot = allTickers.reduce((s,t) => s + (tickerMap[t]?.[wk]||0), 0);
+        return `<td class="${tot>=0?'pos':'neg'}" style="font-weight:700;">${tot>=0?'+$':'-$'}${Math.abs(tot).toFixed(2)}</td>`;
       }).join('');
       const grandTotal = wheels.reduce((s,w)=>s+w.totalPremium,0);
       const avgTotal   = allWeeks.length ? grandTotal/allWeeks.length : 0;
