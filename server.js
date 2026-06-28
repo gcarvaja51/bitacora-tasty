@@ -344,98 +344,135 @@ app.get('/api/bp-dashboard', async (req, res) => {
       const cfg = loadWheelConfig();
       const wheelSymbols = new Set(cfg.underlyings.map(u => typeof u === 'string' ? u : u.symbol));
 
-      // BP total disponible según TastyTrade
-      const derivBP    = parseFloat(balances['derivative-buying-power'] || 0);
-      const equityBP   = parseFloat(balances['equity-buying-power'] || 0);
-      const nlv        = parseFloat(balances['net-liquidating-value'] || 0);
-      const freeBP     = parseFloat(balances['buying-power'] || derivBP || 0);
+      const derivAvail  = parseFloat(balances['derivative-buying-power'] || 0);
+      const equityAvail = parseFloat(balances['equity-buying-power'] || 0);
+      const nlv         = parseFloat(balances['net-liquidating-value'] || 0);
 
-      // Clasificar posiciones y calcular BP usado por cada una
-      const ruedaPos = [];
-      const specPos  = [];
-
-      // Parsear strike/expiry/tipo desde símbolo OCC (e.g. "JBLU 260821P00005000")
       function parseSym(sym) {
-        const m = sym.match(/([A-Z/ ]+?)\s*(\d{6})([CP])(\d{8})$/);
+        const m = (sym||'').trim().match(/([A-Z/ ]+?)\s*(\d{6})([CP])(\d{8})$/);
         if (!m) return {};
         return {
-          isOption: true,
-          optType:  m[3],                        // 'P' o 'C'
-          strike:   parseInt(m[4]) / 1000,       // 5000 → 5.00
-          expiry:   `20${m[2].slice(0,2)}-${m[2].slice(2,4)}-${m[2].slice(4,6)}`,
+          optType: m[3],
+          strike:  parseInt(m[4]) / 1000,
+          expiry:  `20${m[2].slice(0,2)}-${m[2].slice(2,4)}-${m[2].slice(4,6)}`,
         };
       }
 
-      for (const p of positions) {
-        const und   = p['underlying-symbol'] || p.symbol || '';
-        const type  = p['instrument-type'] || '';
-        const qty   = Math.abs(parseFloat(p.quantity || 0));
-        const avgP  = parseFloat(p['average-open-price'] || p['close-price'] || 0);
-        const sym   = p.symbol || '';
-        // TastyTrade devuelve qty positivo + 'quantity-direction': "Short"/"Long"
-        const isShort = (p['quantity-direction'] || '').toLowerCase() === 'short'
-                     || parseFloat(p.quantity || 0) < 0;
+      // Separar equity (acciones) de opciones
+      const equityPos = positions.filter(p => p['instrument-type'] === 'Equity');
+      const optPos    = positions.filter(p => p['instrument-type'] === 'Equity Option');
 
-        let bpUsed = 0;
-        let label  = '';
+      // Underlyings con acciones (para saber qué calls son CCs cubiertas)
+      const stockUnds = new Set(equityPos.map(p => p['underlying-symbol']));
 
-        if (type === 'Equity Option') {
-          const parsed = parseSym(sym);
-          const strike = parsed.strike || parseFloat(p['strike-price'] || 0);
-          const isPut  = parsed.optType === 'P';
-          const isCall = parsed.optType === 'C';
-
-          if (isShort && isPut) {
-            // CSP: colateral = strike × 100 × contratos
-            bpUsed = strike * 100 * qty;
-            label  = `CSP $${strike} (${(p['expires-at']||'').slice(0,10) || parsed.expiry || ''})`;
-          } else if (isShort && isCall) {
-            // CC cubierta → $0 BP adicional
-            bpUsed = 0;
-            label  = `CC $${strike} cubierta`;
-          } else {
-            // Long option: prima pagada
-            bpUsed = avgP * 100 * qty;
-            label  = `Long ${isPut?'Put':'Call'} $${strike}`;
-          }
-        } else if (type === 'Equity') {
-          bpUsed = avgP * qty;
-          label  = `${qty} acciones @ $${avgP.toFixed(2)}`;
-        } else {
-          bpUsed = 0;
-          label  = type;
-        }
-
-        const entry = { symbol: sym, underlying: und, type, qty, bpUsed: +bpUsed.toFixed(2), label };
-        if (wheelSymbols.has(und)) ruedaPos.push(entry);
-        else                       specPos.push(entry);
+      // Agrupar opciones por (underlying, expiry, optType) para detectar spreads
+      const optGroups = {};
+      for (const p of optPos) {
+        const und   = p['underlying-symbol'] || '';
+        const parsed = parseSym(p.symbol || '');
+        const key   = `${und}|${parsed.expiry}|${parsed.optType}`;
+        if (!optGroups[key]) optGroups[key] = { und, expiry: parsed.expiry, optType: parsed.optType, shorts: [], longs: [] };
+        const isShort = (p['quantity-direction'] || '').toLowerCase() === 'short';
+        const entry = {
+          sym: (p.symbol||'').trim(), strike: parsed.strike,
+          qty: Math.abs(parseFloat(p.quantity || 0)),
+          avgP: parseFloat(p['average-open-price'] || 0),
+        };
+        if (isShort) optGroups[key].shorts.push(entry);
+        else          optGroups[key].longs.push(entry);
       }
 
-      const ruedaBP = ruedaPos.reduce((s, p) => s + p.bpUsed, 0);
-      const specBP  = specPos.reduce((s, p)  => s + p.bpUsed, 0);
-      // Base = Net Liq (capital real, independiente del multiplicador de margin)
-      const base    = nlv || 1;
-      const libreBP = Math.max(0, base - ruedaBP - specBP);
+      // Calcular BP de cada grupo de opciones (detectando spreads)
+      const ruedaOptPos = [];
+      const specOptPos  = [];
 
-      // BP disponible por tipo (solo informativo, no parte del pie)
-      const derivAvail  = parseFloat(balances['derivative-buying-power'] || 0);
-      const equityAvail = parseFloat(balances['equity-buying-power'] || equityBP || 0);
+      for (const g of Object.values(optGroups)) {
+        const isWheel = wheelSymbols.has(g.und);
+        const arr = isWheel ? ruedaOptPos : specOptPos;
+        const { shorts, longs, und, expiry, optType } = g;
+
+        if (shorts.length > 0 && longs.length > 0) {
+          // SPREAD: calcular ancho máximo de spread × 100 × qty mínima
+          const shortStrikes = shorts.map(s => s.strike);
+          const longStrikes  = longs.map(s => s.strike);
+          const qty = Math.min(
+            shorts.reduce((s,x) => s + x.qty, 0),
+            longs.reduce((s,x)  => s + x.qty, 0)
+          );
+          let width;
+          if (optType === 'P') {
+            width = Math.max(...shortStrikes) - Math.min(...longStrikes);
+          } else {
+            width = Math.max(...longStrikes) - Math.min(...shortStrikes);
+          }
+          const bpUsed = Math.max(0, width) * 100 * qty;
+          const sS = optType === 'P' ? Math.min(...shortStrikes) : Math.min(...shortStrikes);
+          const lS = optType === 'P' ? Math.min(...longStrikes)  : Math.max(...longStrikes);
+          arr.push({ underlying: und, type: 'Spread', qty, bpUsed: +bpUsed.toFixed(2),
+            label: `${optType === 'P' ? 'Put' : 'Call'} spread $${lS}/$${Math.max(...shortStrikes)} (${expiry})` });
+
+        } else if (shorts.length > 0) {
+          // SHORT sin long: CSP/CC naked
+          for (const s of shorts) {
+            let bpUsed, label;
+            if (optType === 'C' && (isWheel || stockUnds.has(und))) {
+              bpUsed = 0;
+              label  = `CC $${s.strike} cubierta (${expiry})`;
+            } else {
+              bpUsed = s.strike * 100 * s.qty;
+              label  = `${optType === 'P' ? 'CSP' : 'Short Call'} $${s.strike} (${expiry})`;
+            }
+            arr.push({ underlying: und, type: 'Short Option', qty: s.qty, bpUsed: +bpUsed.toFixed(2), label });
+          }
+        }
+        // Longs sin short: no consumen BP adicional (prima ya pagada)
+      }
+
+      // Acciones: avgPrice × qty (usan equity BP, no derivative)
+      const ruedaStockPos = [];
+      const specStockPos  = [];
+      for (const p of equityPos) {
+        const und  = p['underlying-symbol'] || p.symbol || '';
+        const qty  = Math.abs(parseFloat(p.quantity || 0));
+        const avgP = parseFloat(p['average-open-price'] || 0);
+        const entry = { underlying: und, type: 'Equity', qty,
+          bpUsed: +(avgP * qty).toFixed(2), label: `${qty} acc @ $${avgP.toFixed(2)}` };
+        if (wheelSymbols.has(und)) ruedaStockPos.push(entry);
+        else                       specStockPos.push(entry);
+      }
+
+      const ruedaOptBP   = ruedaOptPos.reduce((s, p)   => s + p.bpUsed, 0);
+      const specOptBP    = specOptPos.reduce((s, p)    => s + p.bpUsed, 0);
+      const ruedaStockBP = ruedaStockPos.reduce((s, p) => s + p.bpUsed, 0);
+      const specStockBP  = specStockPos.reduce((s, p)  => s + p.bpUsed, 0);
+
+      // Base del pie = total derivative BP (options used + options available)
+      const optionsBase = ruedaOptBP + specOptBP + derivAvail || 1;
+      const ruedaBP = ruedaOptBP + ruedaStockBP;
+      const specBP  = specOptBP  + specStockBP;
+      const libreBP = derivAvail;
+      const base    = optionsBase;
+
+      // Pie = derivative BP (options only): used_rueda + used_spec + available
+      // Stocks se muestran por separado (equity BP pool diferente)
+      const pctRueda = +(ruedaOptBP / base * 100).toFixed(1);
+      const pctSpec  = +(specOptBP  / base * 100).toFixed(1);
+      const pctLibre = +(libreBP    / base * 100).toFixed(1);
 
       return {
-        base:     +base.toFixed(2),       // Net Liq = denominador del pie
-        ruedaBP:  +ruedaBP.toFixed(2),
-        specBP:   +specBP.toFixed(2),
-        libreBP:  +libreBP.toFixed(2),
+        base,                             // optionsBase = total derivative BP capacity
+        ruedaBP:     +ruedaOptBP.toFixed(2),   // pie: solo opciones Rueda
+        specBP:      +specOptBP.toFixed(2),    // pie: solo opciones Spec
+        libreBP:     +libreBP.toFixed(2),      // pie: derivative BP disponible
+        ruedaStockBP: +ruedaStockBP.toFixed(2), // info adicional: stocks Rueda
+        specStockBP:  +specStockBP.toFixed(2),  // info adicional: stocks Spec
         nlv,
-        pctRueda: +(ruedaBP / base * 100).toFixed(1),
-        pctSpec:  +(specBP  / base * 100).toFixed(1),
-        pctLibre: +(libreBP / base * 100).toFixed(1),
-        // Info adicional: BP disponible por tipo
+        pctRueda, pctSpec, pctLibre,
         derivAvail:  +derivAvail.toFixed(2),
         equityAvail: +equityAvail.toFixed(2),
         targets:  { rueda: 50, spec: 25, libre: 25 },
-        ruedaPos,
-        specPos,
+        ruedaPos:  [...ruedaOptPos, ...ruedaStockPos],
+        specPos:   [...specOptPos,  ...specStockPos],
         ts: new Date().toISOString(),
       };
     });

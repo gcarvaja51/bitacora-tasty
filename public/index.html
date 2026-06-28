@@ -4485,12 +4485,15 @@ async function loadBP() {
     return pct > target * 1.15 ? 'var(--neg)' : pct > target * 0.85 ? 'var(--pos)' : 'var(--muted)';
   };
 
-  // Donut chart via Canvas
+  // Donut chart via Canvas — solo opciones BP (derivados)
   const segments = [
     { label:'La Rueda',     pct: d.pctRueda, bp: d.ruedaBP, color:'#4f8ef7', target: d.targets.rueda },
     { label:'Especulación', pct: d.pctSpec,  bp: d.specBP,  color:'#f7a54f', target: d.targets.spec  },
     { label:'Libre',        pct: d.pctLibre, bp: d.libreBP, color: d.pctLibre < d.targets.libre ? '#e05c5c' : '#4fca7a', target: d.targets.libre },
   ];
+  // Stock positions en wheel y spec (equity BP, pool separado)
+  const ruedaStockBP = d.ruedaStockBP || 0;
+  const specStockBP  = d.specStockBP  || 0;
 
   function posRows(posArr) {
     if (!posArr.length) return '<tr><td colspan="3" class="dim" style="text-align:center;padding:12px;">Sin posiciones</td></tr>';
@@ -4506,11 +4509,12 @@ async function loadBP() {
     <div style="padding:24px;max-width:1100px;margin:0 auto;">
       <!-- Header -->
       <div style="margin-bottom:24px;">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;">Buying Power — base: Net Liq</div>
-        <div style="font-size:28px;font-weight:700;margin-top:4px;">${fmt(d.nlv)} <span style="font-size:14px;color:var(--muted);font-weight:400;">Net Liquidating Value</span></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;display:flex;gap:20px;">
-          <span>BP opciones disponible: <strong style="color:var(--text);">${fmt(d.derivAvail)}</strong></span>
-          <span>BP acciones disponible: <strong style="color:var(--text);">${fmt(d.equityAvail)}</strong></span>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;">Buying Power — opciones (derivados)</div>
+        <div style="font-size:28px;font-weight:700;margin-top:4px;">${fmt(d.base)} <span style="font-size:14px;color:var(--muted);font-weight:400;">Total BP opciones</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;display:flex;gap:20px;flex-wrap:wrap;">
+          <span>NLV: <strong style="color:var(--text);">${fmt(d.nlv)}</strong></span>
+          <span>BP opciones libre: <strong style="color:var(--text);">${fmt(d.derivAvail)}</strong></span>
+          <span>BP acciones libre: <strong style="color:var(--text);">${fmt(d.equityAvail)}</strong></span>
           <span>Actualizado: ${new Date(d.ts).toLocaleTimeString()}</span>
         </div>
       </div>
@@ -4533,7 +4537,7 @@ async function loadBP() {
                 <div style="width:${Math.min(s.pct/s.target*100,130)}%;height:100%;background:${s.color};border-radius:4px;transition:width .4s;"></div>
               </div>
               <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;">
-                <span style="color:${s.color};font-weight:600;">${s.pct}% del NLV</span>
+                <span style="color:${s.color};font-weight:600;">${s.pct}% del BP</span>
                 <span style="color:var(--muted);">meta: ${s.target}%</span>
               </div>
             </div>
@@ -4546,7 +4550,7 @@ async function loadBP() {
 
         <!-- Donut chart -->
         <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:20px;text-align:center;">
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;">% del Net Liq</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;">% del BP opciones</div>
           <div style="position:relative;display:inline-block;">
             <canvas id="bp-donut" width="200" height="200"></canvas>
             <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;">
@@ -4572,7 +4576,11 @@ async function loadBP() {
           <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;overflow:hidden;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:12px;font-weight:600;color:#4f8ef7;">🔄 La Rueda</span>
-              <span style="font-size:13px;font-weight:700;color:#4f8ef7;">${fmt(d.ruedaBP)} <span style="font-size:11px;font-weight:400;color:var(--muted);">${d.pctRueda}% del NLV</span></span>
+              <div style="text-align:right;">
+                <span style="font-size:13px;font-weight:700;color:#4f8ef7;">${fmt(d.ruedaBP)}</span>
+                <span style="font-size:11px;color:var(--muted);"> opciones (${d.pctRueda}% BP)</span>
+                ${ruedaStockBP > 0 ? `<br><span style="font-size:10px;color:var(--muted);">+ ${fmt(ruedaStockBP)} acciones (equity BP)</span>` : ''}
+              </div>
             </div>
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase;">
@@ -4588,7 +4596,11 @@ async function loadBP() {
           <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;overflow:hidden;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:12px;font-weight:600;color:#f7a54f;">⚡ Especulación</span>
-              <span style="font-size:13px;font-weight:700;color:#f7a54f;">${fmt(d.specBP)} <span style="font-size:11px;font-weight:400;color:var(--muted);">${d.pctSpec}% del NLV</span></span>
+              <div style="text-align:right;">
+                <span style="font-size:13px;font-weight:700;color:#f7a54f;">${fmt(d.specBP)}</span>
+                <span style="font-size:11px;color:var(--muted);"> opciones (${d.pctSpec}% BP)</span>
+                ${specStockBP > 0 ? `<br><span style="font-size:10px;color:var(--muted);">+ ${fmt(specStockBP)} acciones (equity BP)</span>` : ''}
+              </div>
             </div>
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase;">
