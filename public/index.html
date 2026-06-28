@@ -4487,19 +4487,18 @@ async function loadBP() {
 
   // Donut chart via Canvas
   const segments = [
-    { label:'La Rueda', pct: d.pctRueda, bp: d.ruedaBP, color:'#4f8ef7', target: d.targets.rueda },
+    { label:'La Rueda',     pct: d.pctRueda, bp: d.ruedaBP, color:'#4f8ef7', target: d.targets.rueda },
     { label:'Especulación', pct: d.pctSpec,  bp: d.specBP,  color:'#f7a54f', target: d.targets.spec  },
-    { label:'Libre',    pct: d.pctFree,  bp: d.freeBP,  color: d.pctFree < d.targets.free ? '#e05c5c' : '#4fca7a', target: d.targets.free },
+    { label:'Libre',        pct: d.pctLibre, bp: d.libreBP, color: d.pctLibre < d.targets.libre ? '#e05c5c' : '#4fca7a', target: d.targets.libre },
   ];
 
-  // Filas de detalle de posiciones
   function posRows(posArr) {
     if (!posArr.length) return '<tr><td colspan="3" class="dim" style="text-align:center;padding:12px;">Sin posiciones</td></tr>';
     return posArr.map(p => `
       <tr>
         <td style="font-weight:600;">${p.underlying}</td>
         <td style="color:var(--muted);font-size:11px;">${p.label}</td>
-        <td style="text-align:right;color:var(--pos);">${fmt(p.bpUsed)}</td>
+        <td style="text-align:right;color:${p.bpUsed>0?'var(--pos)':'var(--muted)'};">${p.bpUsed > 0 ? fmt(p.bpUsed) : '—'}</td>
       </tr>`).join('');
   }
 
@@ -4507,9 +4506,13 @@ async function loadBP() {
     <div style="padding:24px;max-width:1100px;margin:0 auto;">
       <!-- Header -->
       <div style="margin-bottom:24px;">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;">Buying Power</div>
-        <div style="font-size:28px;font-weight:700;margin-top:4px;">${fmt(d.totalBP)} <span style="font-size:14px;color:var(--muted);font-weight:400;">capital total</span></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Net Liq: ${fmt(d.nlv)} · Actualizado: ${new Date(d.ts).toLocaleTimeString()}</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;">Buying Power — base: Net Liq</div>
+        <div style="font-size:28px;font-weight:700;margin-top:4px;">${fmt(d.nlv)} <span style="font-size:14px;color:var(--muted);font-weight:400;">Net Liquidating Value</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;display:flex;gap:20px;">
+          <span>BP opciones disponible: <strong style="color:var(--text);">${fmt(d.derivAvail)}</strong></span>
+          <span>BP acciones disponible: <strong style="color:var(--text);">${fmt(d.equityAvail)}</strong></span>
+          <span>Actualizado: ${new Date(d.ts).toLocaleTimeString()}</span>
+        </div>
       </div>
 
       <!-- Cards de métricas -->
@@ -4526,12 +4529,11 @@ async function loadBP() {
             </div>
             <div style="font-size:26px;font-weight:700;color:${s.color};">${fmt(s.bp)}</div>
             <div style="margin-top:12px;">
-              <!-- Barra de progreso -->
               <div style="background:var(--bg2);border-radius:4px;height:6px;overflow:hidden;">
                 <div style="width:${Math.min(s.pct/s.target*100,130)}%;height:100%;background:${s.color};border-radius:4px;transition:width .4s;"></div>
               </div>
               <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;">
-                <span style="color:${s.color};font-weight:600;">${s.pct}% actual</span>
+                <span style="color:${s.color};font-weight:600;">${s.pct}% del NLV</span>
                 <span style="color:var(--muted);">meta: ${s.target}%</span>
               </div>
             </div>
@@ -4544,7 +4546,7 @@ async function loadBP() {
 
         <!-- Donut chart -->
         <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:20px;text-align:center;">
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;">Distribución actual</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;">% del Net Liq</div>
           <div style="position:relative;display:inline-block;">
             <canvas id="bp-donut" width="200" height="200"></canvas>
             <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;">
@@ -4552,18 +4554,16 @@ async function loadBP() {
               <div id="bp-center-lbl" style="font-size:10px;color:var(--muted);">hover</div>
             </div>
           </div>
-          <!-- Leyenda -->
           <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
             ${segments.map(s=>`
               <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
                 <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
                 <span style="flex:1;text-align:left;">${s.label}</span>
                 <span style="color:${s.color};font-weight:600;">${s.pct}%</span>
-                <span style="color:var(--muted);">(${s.target}%)</span>
+                <span style="color:var(--muted);">(meta ${s.target}%)</span>
               </div>`).join('')}
           </div>
-          <!-- Anillo target -->
-          <div style="margin-top:12px;font-size:10px;color:var(--muted);">Las líneas punteadas indican el target</div>
+          <div style="margin-top:12px;font-size:10px;color:var(--muted);">Líneas punteadas = targets</div>
         </div>
 
         <!-- Tablas de detalle -->
@@ -4572,7 +4572,7 @@ async function loadBP() {
           <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;overflow:hidden;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:12px;font-weight:600;color:#4f8ef7;">🔄 La Rueda</span>
-              <span style="font-size:13px;font-weight:700;color:#4f8ef7;">${fmt(d.ruedaBP)} <span style="font-size:11px;font-weight:400;color:var(--muted);">${d.pctRueda}% del total</span></span>
+              <span style="font-size:13px;font-weight:700;color:#4f8ef7;">${fmt(d.ruedaBP)} <span style="font-size:11px;font-weight:400;color:var(--muted);">${d.pctRueda}% del NLV</span></span>
             </div>
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase;">
@@ -4588,7 +4588,7 @@ async function loadBP() {
           <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;overflow:hidden;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:12px;font-weight:600;color:#f7a54f;">⚡ Especulación</span>
-              <span style="font-size:13px;font-weight:700;color:#f7a54f;">${fmt(d.specBP)} <span style="font-size:11px;font-weight:400;color:var(--muted);">${d.pctSpec}% del total</span></span>
+              <span style="font-size:13px;font-weight:700;color:#f7a54f;">${fmt(d.specBP)} <span style="font-size:11px;font-weight:400;color:var(--muted);">${d.pctSpec}% del NLV</span></span>
             </div>
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase;">

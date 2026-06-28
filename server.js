@@ -413,18 +413,27 @@ app.get('/api/bp-dashboard', async (req, res) => {
 
       const ruedaBP = ruedaPos.reduce((s, p) => s + p.bpUsed, 0);
       const specBP  = specPos.reduce((s, p)  => s + p.bpUsed, 0);
-      const totalBP = ruedaBP + specBP + freeBP;
+      // Base = Net Liq (capital real, independiente del multiplicador de margin)
+      const base    = nlv || 1;
+      const libreBP = Math.max(0, base - ruedaBP - specBP);
+
+      // BP disponible por tipo (solo informativo, no parte del pie)
+      const derivAvail  = parseFloat(balances['derivative-buying-power'] || 0);
+      const equityAvail = parseFloat(balances['equity-buying-power'] || equityBP || 0);
 
       return {
-        totalBP:  +totalBP.toFixed(2),
-        freeBP:   +freeBP.toFixed(2),
+        base:     +base.toFixed(2),       // Net Liq = denominador del pie
         ruedaBP:  +ruedaBP.toFixed(2),
         specBP:   +specBP.toFixed(2),
+        libreBP:  +libreBP.toFixed(2),
         nlv,
-        pctRueda: totalBP ? +(ruedaBP / totalBP * 100).toFixed(1) : 0,
-        pctSpec:  totalBP ? +(specBP  / totalBP * 100).toFixed(1) : 0,
-        pctFree:  totalBP ? +(freeBP  / totalBP * 100).toFixed(1) : 0,
-        targets:  { rueda: 50, spec: 25, free: 25 },
+        pctRueda: +(ruedaBP / base * 100).toFixed(1),
+        pctSpec:  +(specBP  / base * 100).toFixed(1),
+        pctLibre: +(libreBP / base * 100).toFixed(1),
+        // Info adicional: BP disponible por tipo
+        derivAvail:  +derivAvail.toFixed(2),
+        equityAvail: +equityAvail.toFixed(2),
+        targets:  { rueda: 50, spec: 25, libre: 25 },
         ruedaPos,
         specPos,
         ts: new Date().toISOString(),
