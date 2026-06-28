@@ -489,6 +489,11 @@ app.get('/api/debug-today-strategies', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/margin-raw', async (req, res) => {
+  try { res.json(await tt.getMarginRequirements()); }
+  catch(e) { res.status(500).json({ error: e.message, stack: e.stack?.split('\n').slice(0,3) }); }
+});
+
 app.get('/api/health', (req, res) => res.json({
   ok: true, auth: !!tt.accessToken,
   tokenLen: (tt.accessToken || '').length,

@@ -142,6 +142,11 @@ class TastytradeClient {
     return d.data?.items ?? [];
   }
 
+  async getMarginRequirements() {
+    const d = await this._req(`/accounts/${this.accountNumber}/margin-requirements`);
+    return d.data;
+  }
+
   async getGreeks(symbols = []) {
     if (!symbols.length) return {};
 
