@@ -354,36 +354,51 @@ app.get('/api/bp-dashboard', async (req, res) => {
       const ruedaPos = [];
       const specPos  = [];
 
+      // Parsear strike/expiry/tipo desde símbolo OCC (e.g. "JBLU 260821P00005000")
+      function parseSym(sym) {
+        const m = sym.match(/([A-Z/ ]+?)\s*(\d{6})([CP])(\d{8})$/);
+        if (!m) return {};
+        return {
+          isOption: true,
+          optType:  m[3],                        // 'P' o 'C'
+          strike:   parseInt(m[4]) / 1000,       // 5000 → 5.00
+          expiry:   `20${m[2].slice(0,2)}-${m[2].slice(2,4)}-${m[2].slice(4,6)}`,
+        };
+      }
+
       for (const p of positions) {
-        const und  = p['underlying-symbol'] || p.symbol || '';
-        const type = p['instrument-type'] || '';
-        const qty  = Math.abs(parseFloat(p.quantity || 0));
-        const avgP = parseFloat(p['average-open-price'] || p['close-price'] || 0);
-        const strike = parseFloat(p['strike-price'] || 0);
-        const sym  = p.symbol || '';
-        const desc = p.description || sym;
+        const und   = p['underlying-symbol'] || p.symbol || '';
+        const type  = p['instrument-type'] || '';
+        const qty   = Math.abs(parseFloat(p.quantity || 0));
+        const avgP  = parseFloat(p['average-open-price'] || p['close-price'] || 0);
+        const sym   = p.symbol || '';
+        // TastyTrade devuelve qty positivo + 'quantity-direction': "Short"/"Long"
+        const isShort = (p['quantity-direction'] || '').toLowerCase() === 'short'
+                     || parseFloat(p.quantity || 0) < 0;
 
         let bpUsed = 0;
         let label  = '';
 
         if (type === 'Equity Option') {
-          const isShortPut  = /P\d{8}$/.test(sym) && parseFloat(p.quantity) < 0;
-          const isShortCall = /C\d{8}$/.test(sym) && parseFloat(p.quantity) < 0;
-          if (isShortPut) {
-            // CSP: colateral completo = strike × 100 × contratos
+          const parsed = parseSym(sym);
+          const strike = parsed.strike || parseFloat(p['strike-price'] || 0);
+          const isPut  = parsed.optType === 'P';
+          const isCall = parsed.optType === 'C';
+
+          if (isShort && isPut) {
+            // CSP: colateral = strike × 100 × contratos
             bpUsed = strike * 100 * qty;
-            label  = `CSP ${strike}`;
-          } else if (isShortCall) {
-            // CC cubierta → 0 BP adicional (cubierta por acciones)
+            label  = `CSP $${strike} (${(p['expires-at']||'').slice(0,10) || parsed.expiry || ''})`;
+          } else if (isShort && isCall) {
+            // CC cubierta → $0 BP adicional
             bpUsed = 0;
-            label  = `CC ${strike} (cubierta)`;
+            label  = `CC $${strike} cubierta`;
           } else {
             // Long option: prima pagada
             bpUsed = avgP * 100 * qty;
-            label  = type;
+            label  = `Long ${isPut?'Put':'Call'} $${strike}`;
           }
         } else if (type === 'Equity') {
-          // Acciones: valor al precio promedio de compra
           bpUsed = avgP * qty;
           label  = `${qty} acciones @ $${avgP.toFixed(2)}`;
         } else {
