@@ -336,6 +336,89 @@ app.post('/api/wheel-config', (req, res) => {
   res.json(cfg);
 });
 
+// Buying Power Dashboard
+app.get('/api/bp-dashboard', async (req, res) => {
+  try {
+    const data = await cached('bp-dashboard', 60, async () => {
+      const [balances, positions] = await Promise.all([tt.getBalances(), tt.getPositions()]);
+      const cfg = loadWheelConfig();
+      const wheelSymbols = new Set(cfg.underlyings.map(u => typeof u === 'string' ? u : u.symbol));
+
+      // BP total disponible según TastyTrade
+      const derivBP    = parseFloat(balances['derivative-buying-power'] || 0);
+      const equityBP   = parseFloat(balances['equity-buying-power'] || 0);
+      const nlv        = parseFloat(balances['net-liquidating-value'] || 0);
+      const freeBP     = parseFloat(balances['buying-power'] || derivBP || 0);
+
+      // Clasificar posiciones y calcular BP usado por cada una
+      const ruedaPos = [];
+      const specPos  = [];
+
+      for (const p of positions) {
+        const und  = p['underlying-symbol'] || p.symbol || '';
+        const type = p['instrument-type'] || '';
+        const qty  = Math.abs(parseFloat(p.quantity || 0));
+        const avgP = parseFloat(p['average-open-price'] || p['close-price'] || 0);
+        const strike = parseFloat(p['strike-price'] || 0);
+        const sym  = p.symbol || '';
+        const desc = p.description || sym;
+
+        let bpUsed = 0;
+        let label  = '';
+
+        if (type === 'Equity Option') {
+          const isShortPut  = /P\d{8}$/.test(sym) && parseFloat(p.quantity) < 0;
+          const isShortCall = /C\d{8}$/.test(sym) && parseFloat(p.quantity) < 0;
+          if (isShortPut) {
+            // CSP: colateral completo = strike × 100 × contratos
+            bpUsed = strike * 100 * qty;
+            label  = `CSP ${strike}`;
+          } else if (isShortCall) {
+            // CC cubierta → 0 BP adicional (cubierta por acciones)
+            bpUsed = 0;
+            label  = `CC ${strike} (cubierta)`;
+          } else {
+            // Long option: prima pagada
+            bpUsed = avgP * 100 * qty;
+            label  = type;
+          }
+        } else if (type === 'Equity') {
+          // Acciones: valor al precio promedio de compra
+          bpUsed = avgP * qty;
+          label  = `${qty} acciones @ $${avgP.toFixed(2)}`;
+        } else {
+          bpUsed = 0;
+          label  = type;
+        }
+
+        const entry = { symbol: sym, underlying: und, type, qty, bpUsed: +bpUsed.toFixed(2), label };
+        if (wheelSymbols.has(und)) ruedaPos.push(entry);
+        else                       specPos.push(entry);
+      }
+
+      const ruedaBP = ruedaPos.reduce((s, p) => s + p.bpUsed, 0);
+      const specBP  = specPos.reduce((s, p)  => s + p.bpUsed, 0);
+      const totalBP = ruedaBP + specBP + freeBP;
+
+      return {
+        totalBP:  +totalBP.toFixed(2),
+        freeBP:   +freeBP.toFixed(2),
+        ruedaBP:  +ruedaBP.toFixed(2),
+        specBP:   +specBP.toFixed(2),
+        nlv,
+        pctRueda: totalBP ? +(ruedaBP / totalBP * 100).toFixed(1) : 0,
+        pctSpec:  totalBP ? +(specBP  / totalBP * 100).toFixed(1) : 0,
+        pctFree:  totalBP ? +(freeBP  / totalBP * 100).toFixed(1) : 0,
+        targets:  { rueda: 50, spec: 25, free: 25 },
+        ruedaPos,
+        specPos,
+        ts: new Date().toISOString(),
+      };
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // La Rueda — datos
 app.get('/api/wheel', async (req, res) => {
   try {
