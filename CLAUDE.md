@@ -71,6 +71,27 @@ NTFY_TOPIC=
 RAILWAY_VOLUME_MOUNT_PATH=   # solo en Railway
 ```
 
+## BP Dashboard (`/api/bp-dashboard`)
+
+Panel dedicado al seguimiento de Buying Power con metas 50/25/25 (Rueda/Especulación/Libre).
+
+**Lógica de cálculo:**
+- Agrupa opciones por `(underlying, expiry, optType)` para detectar spreads
+- Si el grupo tiene Short + Long → **spread**: `ancho × 100 × qty` (GAP $19.5/$20 = $150)
+- Si el grupo tiene solo Short → **naked**: `strike × 100 × qty` (JBLU CSP $5 = $500)
+- Short calls con underlying en stock → **CC cubierta = $0**
+- Stocks → `avgPrice × qty` (equity BP pool separado, mostrado aparte)
+
+**Base del pie chart** = `ruedaOptBP + specOptBP + derivAvail` (suma los tres segmentos = 100%)
+- No coincide con ningún valor único de TastyTrade (es usado + disponible)
+- `derivative-buying-power` de TastyTrade = solo el disponible (Libre en el pie)
+- `equity-buying-power` de TastyTrade = BP para acciones (pool separado, mostrado en header)
+
+**TastyTrade API:**
+- `quantity-direction: "Short"/"Long"` determina si es posición corta o larga
+- `cost-effect` está **invertido**: Short put = "Debit", Long put = "Credit" → no usar para dirección
+- `/accounts/{account}/margin-requirements` → 404, no existe
+
 ## Caché del servidor
 
 El servidor mantiene caché en memoria con TTL de 120 segundos para llamadas a TastyTrade. Se invalida con `POST /api/refresh`.
@@ -81,3 +102,8 @@ Cache actual: `bitacora-v2`. Para forzar actualización en todos los clientes, b
 ```js
 navigator.serviceWorker.getRegistrations().then(r=>Promise.all(r.map(x=>x.unregister()))).then(()=>caches.keys()).then(k=>Promise.all(k.map(x=>caches.delete(x)))).then(()=>location.reload())
 ```
+
+## Desarrollo local
+
+- `npm run dev` — nodemon (recomendado). Configurado en `nodemon.json` para ignorar `*.json` y `public/*`, evitando bucle de reinicios cuando el servidor escribe datos.
+- `node server.js` — alternativa sin nodemon si hay problemas.
