@@ -260,7 +260,19 @@ function buildMetrics(items) {
   const inventory = new Map(); // sym → [{orderId, value, date, ...}]
   const rawPairs  = [];
 
+  // Detectar si una orden es un ROLL: tiene patas "to Close" y "to Open" del mismo tipo (C o P)
+  function detectRoll(order) {
+    const openLegs  = order.legs.filter(l => /to Open/i.test(l.action||''));
+    const closeLegs = order.legs.filter(l => /to Close/i.test(l.action||''));
+    if (!openLegs.length || !closeLegs.length) return false;
+    const openTypes  = new Set(openLegs.map(l  => ((l.symbol||'').match(/([CP])\d{8}$/)||[])[1]));
+    const closeTypes = new Set(closeLegs.map(l => ((l.symbol||'').match(/([CP])\d{8}$/)||[])[1]));
+    return [...openTypes].some(t => t && closeTypes.has(t));
+  }
+
   for (const order of orders) {
+    const isRoll = detectRoll(order);
+
     for (const leg of order.legs) {
       const sym    = leg.symbol || '';
       const action = leg.action || '';
@@ -288,26 +300,52 @@ function buildMetrics(items) {
             if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
           }
           const open = stack.splice(bestIdx, 1)[0];
-          const pnl  = open.value + lv;
-          const key  = `${open.orderId}_${order.id}_${sym}`;
-          rawPairs.push({
-            key,
-            closeOrderId: order.id,
-            underlying:   open.underlying || order.underlying,
-            symbol:       sym,
-            openDate:     open.date,
-            closeDate:    order.date,
-            desc:         open.desc || order.desc,
-            openValue:    open.value,
-            closeValue:   lv,
-            pnl,
-            stratType:    open.stratType || 'Otro',
-            amPm:         getAmPm(order.executedAt),
-            durationDays: Math.round((new Date(order.date) - new Date(open.date)) / 86400000),
-            durationCat:  getDurationCat(open.date, order.date),
-          });
+
+          if (isRoll) {
+            // Roll: consumir el inventario viejo pero NO crear par aquí
+            // El par se crea abajo como evento único con el neto del roll
+          } else {
+            const pnl = open.value + lv;
+            const key = `${open.orderId}_${order.id}_${sym}`;
+            rawPairs.push({
+              key,
+              closeOrderId: order.id,
+              underlying:   open.underlying || order.underlying,
+              symbol:       sym,
+              openDate:     open.date,
+              closeDate:    order.date,
+              desc:         open.desc || order.desc,
+              openValue:    open.value,
+              closeValue:   lv,
+              pnl,
+              stratType:    open.stratType || 'Otro',
+              amPm:         getAmPm(order.executedAt),
+              durationDays: Math.round((new Date(order.date) - new Date(open.date)) / 86400000),
+              durationCat:  getDurationCat(open.date, order.date),
+            });
+          }
         }
       }
+    }
+
+    // Roll: registrar como evento único con el crédito/débito neto
+    if (isRoll) {
+      rawPairs.push({
+        key:          `ROLL_${order.id}`,
+        closeOrderId: order.id,
+        underlying:   order.underlying,
+        symbol:       order.legs.find(l => /to Open/i.test(l.action||''))?.symbol || '',
+        openDate:     order.date,
+        closeDate:    order.date,
+        desc:         order.desc,
+        openValue:    order.netValue,
+        closeValue:   0,
+        pnl:          order.netValue,
+        stratType:    'Roll',
+        amPm:         getAmPm(order.executedAt),
+        durationDays: 0,
+        durationCat:  'Intradía',
+      });
     }
   }
 
