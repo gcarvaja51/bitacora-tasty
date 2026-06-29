@@ -71,6 +71,12 @@ NTFY_TOPIC=
 RAILWAY_VOLUME_MOUNT_PATH=   # solo en Railway
 ```
 
+## buildMetrics (`src/metrics.js`)
+
+- **Rolls**: órdenes con "to Close" + "to Open" del mismo tipo (C o P) se detectan como ROLL. El leg de cierre consume el inventario viejo pero NO crea par negativo — se registra como evento único con `pnl = order.netValue` (crédito neto del roll).
+- **P&L neto vs bruto**: usa `net-value` de la API de TastyTrade que ya incluye fees regulatorios. TastyTrade muestra P&L bruto (sin fees), la bitácora muestra neto real. Diferencia típica: $1-2.50 por leg.
+- **FIFO**: empareja cierres con la apertura más cercana en fecha. Multi-leg se consolida por `closeOrderId + underlying + closeDate`.
+
 ## BP Dashboard (`/api/bp-dashboard`)
 
 Panel dedicado al seguimiento de Buying Power con metas 50/25/25 (Rueda/Especulación/Libre).
