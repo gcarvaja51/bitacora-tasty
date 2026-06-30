@@ -1635,7 +1635,7 @@ app.get('/api/screener/:id', async (req, res) => {
 
   try {
     const tickers = [];
-    for (let page = 1; page <= 3; page++) {
+    for (let page = 1; page <= 5; page++) {
       const pageUrl = sc.url + `&r=${(page-1)*20+1}`;
       const r = await fetch(pageUrl, {
         headers: {
@@ -1644,14 +1644,16 @@ app.get('/api/screener/:id', async (req, res) => {
         }
       });
       const html = await r.text();
-      // Extraer tickers del HTML de Finviz
-      const matches = [...html.matchAll(/data-boxover-ticker="([A-Z]+)"/g)];
-      const pageTickers = [...new Set(matches.map(m => m[1]))];
+      // Múltiples patrones para capturar tickers en distintas versiones del HTML de Finviz
+      const m1 = [...html.matchAll(/data-boxover-ticker="([A-Z]{1,6})"/g)].map(m => m[1]);
+      const m2 = [...html.matchAll(/ticker=([A-Z]{1,6})&/g)].map(m => m[1]);
+      const m3 = [...html.matchAll(/quote\.ashx\?t=([A-Z]{1,6})"/g)].map(m => m[1]);
+      const pageTickers = [...new Set([...m1, ...m2, ...m3])];
       if (!pageTickers.length) break;
       tickers.push(...pageTickers);
       if (pageTickers.length < 20) break; // última página
     }
-    const unique = [...new Set(tickers)].slice(0, 20);
+    const unique = [...new Set(tickers)];
     _screenerCache[id] = { ts: Date.now(), data: unique };
     res.json(unique);
   } catch(e) {
