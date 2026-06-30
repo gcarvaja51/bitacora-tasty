@@ -1363,6 +1363,11 @@ const SCREENERS = {
     desc:  'Precio cruzando SMA20 | Beta >1.5 | Vol >1M | RelVol >1',
     url:   'https://finviz.com/screener.ashx?v=111&f=op_option_optionshort,sh_avgvol_o1000,sh_relvol_o1,ta_beta_o1.5,ta_sma20_cross&ft=4',
   },
+  rueda: {
+    label: '🔄 La Rueda',
+    desc:  'Candidatos para CSP: opciones, precio $15-$200, Beta <1.3, sobre SMA200, volumen >500k',
+    url:   'https://finviz.com/screener.ashx?v=111&f=cap_midover,fa_curratio_o1,fa_div_o1,fa_pe_u28,sh_avgvol_o500,sh_opt_option,sh_price_o15,sh_price_u200,ta_beta_u1.3,ta_sma200_pa,ta_rsi_nob65&ft=4',
+  },
 };
 
 const _screenerCache = {};
