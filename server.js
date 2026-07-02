@@ -2246,6 +2246,27 @@ app.get('/api/spx/context', async (req, res) => {
         };
       }
 
+      // Función Weinstein: Fase 2 (alcista) o Fase 4 (bajista) o indeterminado
+      function calcWeinstein(closes) {
+        if (!closes || closes.length < 30) return { fase: null, label: '—' };
+        const price = closes[closes.length - 1];
+        const ema10 = calcEMA(closes, 10);
+        const ema20 = calcEMA(closes, 20);
+        const ema30 = calcEMA(closes, Math.min(30, closes.length));
+        // Fase 2: precio > EMA20, EMA10 > EMA20, EMAs subiendo
+        const ema10prev = calcEMA(closes.slice(0, -1), 10);
+        const ema20prev = calcEMA(closes.slice(0, -1), 20);
+        const ema10Rising = ema10 > ema10prev;
+        const ema20Rising = ema20 > ema20prev;
+        if (price > ema20 && ema10 > ema20 && ema20Rising) return { fase: 2, label: 'Fase 2 ▲', price, ema10, ema20 };
+        // Fase 4: precio < EMA20, EMA10 < EMA20, EMAs bajando
+        if (price < ema20 && ema10 < ema20 && !ema20Rising) return { fase: 4, label: 'Fase 4 ▼', price, ema10, ema20 };
+        // Fase 1: precio cerca EMA20, EMAs planas (acumulación)
+        if (price >= ema20 * 0.99 && price <= ema20 * 1.01) return { fase: 1, label: 'Fase 1 ◆', price, ema10, ema20 };
+        // Fase 3: precio sobre EMA20 pero EMAs divergiendo (distribución)
+        return { fase: 3, label: 'Fase 3 ●', price, ema10, ema20 };
+      }
+
       // 15m SPX (últimos 5 días)
       const r15 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=15m&range=5d',
         { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -2260,8 +2281,29 @@ app.get('/api/spx/context', async (req, res) => {
           ext10: priceExtension(price15, ema10_15),
           ext20: priceExtension(price15, ema20_15),
           macd:  calcMACD(closes15),
+          weinstein: calcWeinstein(closes15),
         };
       }
+
+      // 2m SPX (últimas 2 horas) — marco de ejecución fina
+      try {
+        const r2 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=2m&range=1d',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const j2 = await r2.json();
+        const closes2 = j2.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+        if (closes2.length >= 20) {
+          const price2 = closes2[closes2.length - 1];
+          const ema10_2 = calcEMA(closes2, 10);
+          const ema20_2 = calcEMA(closes2, 20);
+          indicators.m2 = {
+            price: price2, ema10: ema10_2, ema20: ema20_2,
+            ext10: priceExtension(price2, ema10_2),
+            ext20: priceExtension(price2, ema20_2),
+            macd:  calcMACD(closes2),
+            weinstein: calcWeinstein(closes2),
+          };
+        }
+      } catch(e2) { console.error('[SPX] 2m error:', e2.message); }
 
       // Volumen SPY — intraday vs promedio 20d
       try {
@@ -2316,6 +2358,12 @@ app.get('/api/spx/context', async (req, res) => {
     // Score del playbook (dirección neutral por defecto en contexto)
     const spxConfig = loadSPXConfig();
 
+    // Confluencia Weinstein: GATE OBLIGATORIO
+    const fase2m  = indicators.m2?.weinstein?.fase  || null;
+    const fase15m = indicators.m15?.weinstein?.fase || null;
+    const weinsteinConfluence = fase2m !== null && fase15m !== null && fase2m === fase15m && (fase2m === 2 || fase2m === 4);
+    const weinsteinDirection  = fase2m === 2 ? 'BULLISH' : fase2m === 4 ? 'BEARISH' : null;
+
     res.json({
       spxPrice: +spxPrice.toFixed(2),
       vix:      +vix.toFixed(2),
@@ -2325,11 +2373,25 @@ app.get('/api/spx/context', async (req, res) => {
       ema20,
       ema50,
       indicators,
+      weinstein: {
+        fase2m,
+        fase15m,
+        label2m:    indicators.m2?.weinstein?.label  || '—',
+        label15m:   indicators.m15?.weinstein?.label || '—',
+        confluence: weinsteinConfluence,
+        direction:  weinsteinDirection,
+        gateOK:     weinsteinConfluence,
+        reason:     weinsteinConfluence
+          ? `✅ Confluencia ${fase2m === 2 ? 'Fase 2 ▲ (alcista)' : 'Fase 4 ▼ (bajista)'} en 2m y 15m`
+          : fase2m === fase15m && fase2m !== null
+            ? `⏳ Confluencia ${fase2m === 1 ? 'Fase 1' : 'Fase 3'} — no operable`
+            : `❌ Sin confluencia: 2m=${indicators.m2?.weinstein?.label||'—'} vs 15m=${indicators.m15?.weinstein?.label||'—'}`,
+      },
       config:   spxConfig,
       etTime:   et.time,
       etHour:   et.hour,
       etMin:    et.min,
-      windowOK: (et.hour > 9 || (et.hour === 9 && et.min >= 0)) && et.hour < 16,  // desde 09:00 ET (evita apertura 08:30)
+      windowOK: (et.hour > 9 || (et.hour === 9 && et.min >= 0)) && et.hour < 16,
       ts:       new Date().toISOString(),
     });
   } catch(e) {
@@ -2352,21 +2414,28 @@ app.post('/api/spx/webhook', async (req, res) => {
     if (!['BULLISH','BEARISH','NEUTRAL'].includes(direction))
       return res.status(400).json({ error: `direction inválido: ${direction}. Usar BULLISH|BEARISH|NEUTRAL` });
 
-    // ── SEÑAL 15min: guardar como contexto direccional ────────
+    // ── SEÑAL 15min: guardar como contexto (fase Weinstein + dirección) ──
     if (timeframe === '15m' || timeframe === '15') {
-      spx15mContext = { direction, timestamp: new Date().toISOString(), price };
+      // Obtener fase Weinstein actual del contexto de mercado
+      let fase15m = null;
+      try {
+        const ctxR = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
+        const ctxJ = await ctxR.json();
+        fase15m = ctxJ.weinstein?.fase15m || null;
+      } catch(e) {}
+      spx15mContext = { direction, fase: fase15m, timestamp: new Date().toISOString(), price };
       save15mContext(spx15mContext);
-      console.log(`[SPX] Contexto 15m actualizado y persistido: ${direction}`);
-      return res.json({ signal: false, saved: true, message: `Contexto 15m guardado: ${direction}` });
+      console.log(`[SPX] Contexto 15m guardado: ${direction} | Fase ${fase15m}`);
+      return res.json({ signal: false, saved: true, message: `Contexto 15m guardado: ${direction} (Fase ${fase15m})` });
     }
 
-    // ── SEÑAL 2min: verificar alineación con 15min ────────────
+    // ── SEÑAL 2min: GATE OBLIGATORIO — confluencia Weinstein 2m + 15m ──
     if (timeframe === '2m' || timeframe === '2') {
       if (!spx15mContext) {
         return res.json({ signal: false, reason: 'Sin contexto 15m. Espera que llegue primero la señal de 15 minutos.' });
       }
 
-      // Verificar que el contexto 15m no sea demasiado viejo (máx 4 horas)
+      // Verificar que el contexto 15m no sea demasiado viejo (máx 8h)
       const age = Date.now() - new Date(spx15mContext.timestamp).getTime();
       if (age > 8 * 3600 * 1000) {
         spx15mContext = null;
@@ -2374,15 +2443,35 @@ app.post('/api/spx/webhook', async (req, res) => {
         return res.json({ signal: false, reason: 'Contexto 15m expirado (>8h). Espera nueva señal de 15m.' });
       }
 
-      // Verificar alineación
-      if (spx15mContext.direction !== direction) {
-        return res.json({ 
-          signal: false, 
-          reason: `Divergencia temporal: 15m dice ${spx15mContext.direction} pero 2m dice ${direction}. Sin entrada.` 
-        });
+      // Obtener fase 2m actual
+      let fase2m = null;
+      try {
+        const ctxR = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
+        const ctxJ = await ctxR.json();
+        fase2m = ctxJ.weinstein?.fase2m || null;
+      } catch(e) {}
+
+      const fase15m = spx15mContext.fase;
+
+      // GATE: confluencia obligatoria Fase 2 en ambos TFs (alcista) o Fase 4 en ambos (bajista)
+      if (fase2m === null || fase15m === null) {
+        return res.json({ signal: false, reason: `No se pudo determinar fase Weinstein (2m:${fase2m} 15m:${fase15m}). Sin entrada.` });
+      }
+      if (fase2m !== fase15m) {
+        return res.json({ signal: false, reason: `❌ Sin confluencia Weinstein: 2m=Fase${fase2m} vs 15m=Fase${fase15m}. Gate no cumplido.` });
+      }
+      if (fase2m !== 2 && fase2m !== 4) {
+        return res.json({ signal: false, reason: `⏳ Confluencia en Fase${fase2m} — solo operable en Fase 2 (alcista) o Fase 4 (bajista).` });
       }
 
-      console.log(`[SPX] Señal confirmada — 15m: ${spx15mContext.direction} | 2m: ${direction}`);
+      // Forzar dirección según fase (la fase manda sobre el webhook)
+      const weinsteinDirection = fase2m === 2 ? 'BULLISH' : 'BEARISH';
+      if (direction !== weinsteinDirection) {
+        console.log(`[SPX] Dirección webhook (${direction}) ajustada a Weinstein (${weinsteinDirection})`);
+        direction = weinsteinDirection;
+      }
+
+      console.log(`[SPX] ✅ Gate Weinstein OK — Fase${fase2m} en 2m y 15m → ${direction}`);
     }
 
     // ── RESPONDER INMEDIATAMENTE para evitar timeout en TradingView ──

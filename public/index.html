@@ -5333,6 +5333,16 @@ function renderSPXContext(ctx) {
       <div class="stat-label">SEÑAL 15M</div>
       <div class="stat-value ${tf15Cls}" style="font-size:11px;">${tf15Label}</div>
     </div>
+    <div class="stat-card" style="border:1px solid ${ctx.weinstein?.confluence?'rgba(19,214,143,.4)':'rgba(240,79,90,.3)'};grid-column:span 2;">
+      <div class="stat-label">WEINSTEIN GATE</div>
+      <div class="stat-value" style="font-size:11px;color:${ctx.weinstein?.gateOK?'var(--pos)':'var(--neg)'};">
+        ${ctx.weinstein?.gateOK ? '✅' : '❌'} ${ctx.weinstein?.reason || '—'}
+      </div>
+      <div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--muted);">
+        <span>2m: <strong style="color:${ctx.weinstein?.fase2m===2?'var(--pos)':ctx.weinstein?.fase2m===4?'var(--neg)':'var(--muted)'}">${ctx.weinstein?.label2m||'—'}</strong></span>
+        <span>15m: <strong style="color:${ctx.weinstein?.fase15m===2?'var(--pos)':ctx.weinstein?.fase15m===4?'var(--neg)':'var(--muted)'}">${ctx.weinstein?.label15m||'—'}</strong></span>
+      </div>
+    </div>
   `;
 }
 
