@@ -125,7 +125,7 @@ function bustCache() { _cache.clear(); }
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const daysAgo  = n  => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '25mb', type: ['application/json', 'text/plain'] }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -2059,7 +2059,7 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
-const { calcGEX, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour } = require('./src/spx');
+const { calcGEX, calcMaxPain, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour } = require('./src/spx');
 const { calcPlaybookScore, calcRelativeVolume, priceExtension } = require('./src/spx_indicators');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -2069,9 +2069,9 @@ const SPX_CONFIG_DEFAULTS = {
   weights: {
     precio_ema200:         5,
     emas_alineadas_diario: 5,
-    emas_alineadas_15m:   22,
-    macd_alineado_15m:    28,
-    precio_cerca_ema:     20,
+    emas_alineadas_15m:   32,
+    macd_alineado_15m:     8,
+    precio_cerca_ema:     30,
     volumen_spy:          12,
     gex_compatible:        8,
   },
@@ -2081,8 +2081,8 @@ const SPX_CONFIG_DEFAULTS = {
     experiencia: 'intermedio', // principiante / intermedio / avanzado
     riesgoPct:   2,       // % máximo de riesgo por operación
     targetDelta: 0.40,    // Delta objetivo para el strike short
-    tpPct:       50,      // Take Profit % del crédito
-    slMult:      1.0,     // Stop Loss multiplicador del crédito
+    tpPct:       25,      // Take Profit % del crédito (25% → 94% prob. éxito, playbook Alejandro)
+    slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
   }
 };
@@ -2116,19 +2116,12 @@ app.post('/api/spx/config', (req, res) => {
   res.json(cfg);
 });
 const SPX_SIGNALS_FILE = path.join(DATA_DIR, 'spx_signals.json');
-const SPX_15M_FILE     = path.join(__dirname, 'spx_15m_context.json');
 
 function loadSPXSignals() {
   try { return JSON.parse(fs.readFileSync(SPX_SIGNALS_FILE, 'utf8')); } catch(e) { return []; }
 }
 function saveSPXSignals(signals) {
   fs.writeFileSync(SPX_SIGNALS_FILE, JSON.stringify(signals, null, 2), 'utf8');
-}
-function load15mContext() {
-  try { return JSON.parse(fs.readFileSync(SPX_15M_FILE, 'utf8')); } catch(e) { return null; }
-}
-function save15mContext(ctx) {
-  try { fs.writeFileSync(SPX_15M_FILE, JSON.stringify(ctx, null, 2), 'utf8'); } catch(e) {}
 }
 
 // GET /api/spx/context — contexto completo del mercado
@@ -2204,6 +2197,8 @@ app.get('/api/spx/context', async (req, res) => {
 
     // 6. GEX
     const gex = calcGEX(enrichedExps, spxPrice);
+    // Max Pain — se calcula por vencimiento (no agregado como el GEX), usamos el más cercano (0DTE)
+    gex.maxPain = calcMaxPain(enrichedExps[0]?.strikes || []);
 
     // Calcular Gamma Flip si no viene de calcGEX (interpolación entre levels)
     if (!gex.gammaFlip && gex.levels && gex.levels.length > 1) {
@@ -2290,7 +2285,8 @@ app.get('/api/spx/context', async (req, res) => {
         const r2 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=2m&range=1d',
           { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const j2 = await r2.json();
-        const closes2 = j2.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+        const result2 = j2.chart?.result?.[0];
+        const closes2 = result2?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
         if (closes2.length >= 20) {
           const price2 = closes2[closes2.length - 1];
           const ema10_2 = calcEMA(closes2, 10);
@@ -2303,6 +2299,40 @@ app.get('/api/spx/context', async (req, res) => {
             weinstein: calcWeinstein(closes2),
           };
         }
+
+        // Rango de apertura 9:30-10:00 ET — para la ventana Iron Condor de las 10am
+        const ts2    = result2?.timestamp || [];
+        const highs2 = result2?.indicators?.quote?.[0]?.high || [];
+        const lows2  = result2?.indicators?.quote?.[0]?.low  || [];
+        let orHigh = -Infinity, orLow = Infinity;
+        for (let i = 0; i < ts2.length; i++) {
+          if (highs2[i] == null || lows2[i] == null) continue;
+          const etStr = new Date(ts2[i] * 1000).toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
+          const [hh, mm] = etStr.split(':').map(Number);
+          const mins = hh * 60 + mm;
+          if (mins >= 9 * 60 + 30 && mins < 10 * 60) {
+            if (highs2[i] > orHigh) orHigh = highs2[i];
+            if (lows2[i]  < orLow)  orLow  = lows2[i];
+          }
+        }
+        if (orHigh > -Infinity && orLow < Infinity) {
+          indicators.openingRange = { high: +orHigh.toFixed(2), low: +orLow.toFixed(2) };
+        }
+
+        // Fractal (Williams, 5 barras) sobre 2m — último swing low/high confirmado,
+        // candidato a stop técnico junto al Muro Gamma
+        let lastFractalLow = null, lastFractalHigh = null;
+        for (let i = 2; i < highs2.length - 2; i++) {
+          if (highs2[i] == null || lows2[i] == null) continue;
+          const isHigh = highs2[i] > highs2[i-1] && highs2[i] > highs2[i-2] && highs2[i] > highs2[i+1] && highs2[i] > highs2[i+2];
+          const isLow  = lows2[i]  < lows2[i-1]  && lows2[i]  < lows2[i-2]  && lows2[i]  < lows2[i+1]  && lows2[i]  < lows2[i+2];
+          if (isHigh) lastFractalHigh = highs2[i];
+          if (isLow)  lastFractalLow  = lows2[i];
+        }
+        indicators.fractal = {
+          low:  lastFractalLow  != null ? +lastFractalLow.toFixed(2)  : null,
+          high: lastFractalHigh != null ? +lastFractalHigh.toFixed(2) : null,
+        };
       } catch(e2) { console.error('[SPX] 2m error:', e2.message); }
 
       // Volumen SPY — intraday vs promedio 20d
@@ -2364,6 +2394,12 @@ app.get('/api/spx/context', async (req, res) => {
     const weinsteinConfluence = fase2m !== null && fase15m !== null && fase2m === fase15m && (fase2m === 2 || fase2m === 4);
     const weinsteinDirection  = fase2m === 2 ? 'BULLISH' : fase2m === 4 ? 'BEARISH' : null;
 
+    // Rango de apertura respetado — precondición del playbook para Iron Condor a las 10am
+    const openingRange = indicators.openingRange || null;
+    const openingRangeRespected = openingRange
+      ? (spxPrice >= openingRange.low && spxPrice <= openingRange.high)
+      : null;
+
     res.json({
       spxPrice: +spxPrice.toFixed(2),
       vix:      +vix.toFixed(2),
@@ -2373,6 +2409,8 @@ app.get('/api/spx/context', async (req, res) => {
       ema20,
       ema50,
       indicators,
+      openingRange,
+      openingRangeRespected,
       weinstein: {
         fase2m,
         fase15m,
@@ -2399,10 +2437,7 @@ app.get('/api/spx/context', async (req, res) => {
   }
 });
 
-// ── Estado de contexto 15min en memoria ──────────────────────
-let spx15mContext = load15mContext(); // persiste entre reinicios
-
-// POST /api/spx/webhook — recibe señal de TradingView
+// POST /api/spx/webhook — recibe señal de entrada de TradingView (compra/venta)
 app.post('/api/spx/webhook', async (req, res) => {
   try {
     let { direction, timeframe = '2m', source = 'TradingView', playbook_score = null, price, time } = req.body;
@@ -2414,65 +2449,35 @@ app.post('/api/spx/webhook', async (req, res) => {
     if (!['BULLISH','BEARISH','NEUTRAL'].includes(direction))
       return res.status(400).json({ error: `direction inválido: ${direction}. Usar BULLISH|BEARISH|NEUTRAL` });
 
-    // ── SEÑAL 15min: guardar como contexto (fase Weinstein + dirección) ──
-    if (timeframe === '15m' || timeframe === '15') {
-      // Obtener fase Weinstein actual del contexto de mercado
-      let fase15m = null;
-      try {
-        const ctxR = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
-        const ctxJ = await ctxR.json();
-        fase15m = ctxJ.weinstein?.fase15m || null;
-      } catch(e) {}
-      spx15mContext = { direction, fase: fase15m, timestamp: new Date().toISOString(), price };
-      save15mContext(spx15mContext);
-      console.log(`[SPX] Contexto 15m guardado: ${direction} | Fase ${fase15m}`);
-      return res.json({ signal: false, saved: true, message: `Contexto 15m guardado: ${direction} (Fase ${fase15m})` });
+    // ── GATE OBLIGATORIO — confluencia Weinstein 2m + 15m ──
+    // El servidor calcula ambas fases de forma independiente (no depende
+    // de que TradingView le avise el contexto 15m por separado).
+    let fase2m = null, fase15m = null;
+    try {
+      const ctxR = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
+      const ctxJ = await ctxR.json();
+      fase2m  = ctxJ.weinstein?.fase2m  || null;
+      fase15m = ctxJ.weinstein?.fase15m || null;
+    } catch(e) {}
+
+    if (fase2m === null || fase15m === null) {
+      return res.json({ signal: false, reason: `No se pudo determinar fase Weinstein (2m:${fase2m} 15m:${fase15m}). Sin entrada.` });
+    }
+    if (fase2m !== fase15m) {
+      return res.json({ signal: false, reason: `❌ Sin confluencia Weinstein: 2m=Fase${fase2m} vs 15m=Fase${fase15m}. Gate no cumplido.` });
+    }
+    if (fase2m !== 2 && fase2m !== 4) {
+      return res.json({ signal: false, reason: `⏳ Confluencia en Fase${fase2m} — solo operable en Fase 2 (alcista) o Fase 4 (bajista).` });
     }
 
-    // ── SEÑAL 2min: GATE OBLIGATORIO — confluencia Weinstein 2m + 15m ──
-    if (timeframe === '2m' || timeframe === '2') {
-      if (!spx15mContext) {
-        return res.json({ signal: false, reason: 'Sin contexto 15m. Espera que llegue primero la señal de 15 minutos.' });
-      }
-
-      // Verificar que el contexto 15m no sea demasiado viejo (máx 8h)
-      const age = Date.now() - new Date(spx15mContext.timestamp).getTime();
-      if (age > 8 * 3600 * 1000) {
-        spx15mContext = null;
-        save15mContext(null);
-        return res.json({ signal: false, reason: 'Contexto 15m expirado (>8h). Espera nueva señal de 15m.' });
-      }
-
-      // Obtener fase 2m actual
-      let fase2m = null;
-      try {
-        const ctxR = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
-        const ctxJ = await ctxR.json();
-        fase2m = ctxJ.weinstein?.fase2m || null;
-      } catch(e) {}
-
-      const fase15m = spx15mContext.fase;
-
-      // GATE: confluencia obligatoria Fase 2 en ambos TFs (alcista) o Fase 4 en ambos (bajista)
-      if (fase2m === null || fase15m === null) {
-        return res.json({ signal: false, reason: `No se pudo determinar fase Weinstein (2m:${fase2m} 15m:${fase15m}). Sin entrada.` });
-      }
-      if (fase2m !== fase15m) {
-        return res.json({ signal: false, reason: `❌ Sin confluencia Weinstein: 2m=Fase${fase2m} vs 15m=Fase${fase15m}. Gate no cumplido.` });
-      }
-      if (fase2m !== 2 && fase2m !== 4) {
-        return res.json({ signal: false, reason: `⏳ Confluencia en Fase${fase2m} — solo operable en Fase 2 (alcista) o Fase 4 (bajista).` });
-      }
-
-      // Forzar dirección según fase (la fase manda sobre el webhook)
-      const weinsteinDirection = fase2m === 2 ? 'BULLISH' : 'BEARISH';
-      if (direction !== weinsteinDirection) {
-        console.log(`[SPX] Dirección webhook (${direction}) ajustada a Weinstein (${weinsteinDirection})`);
-        direction = weinsteinDirection;
-      }
-
-      console.log(`[SPX] ✅ Gate Weinstein OK — Fase${fase2m} en 2m y 15m → ${direction}`);
+    // Forzar dirección según fase (la fase manda sobre el webhook)
+    const weinsteinDirection = fase2m === 2 ? 'BULLISH' : 'BEARISH';
+    if (direction !== weinsteinDirection) {
+      console.log(`[SPX] Dirección webhook (${direction}) ajustada a Weinstein (${weinsteinDirection})`);
+      direction = weinsteinDirection;
     }
+
+    console.log(`[SPX] ✅ Gate Weinstein OK — Fase${fase2m} en 2m y 15m → ${direction}`);
 
     // ── RESPONDER INMEDIATAMENTE para evitar timeout en TradingView ──
     res.json({ signal: 'processing', message: 'Señal recibida, procesando en background...' });
@@ -2555,6 +2560,12 @@ app.post('/api/spx/webhook', async (req, res) => {
       return;
     }
 
+    // Fuerza total (Mundo 3): todos los criterios de fuerza cumplidos.
+    // Informativo — el playbook dice que ATM (débito, R:R 1:1) solo aplica
+    // cuando la fuerza es total; hoy el switch OTM/ATM sigue decidido por
+    // IV Rank/VIX, esto solo lo deja visible en la señal para revisión manual.
+    const fuerzaTotal = (playbookResult.mundo3 || []).length > 0 && playbookResult.mundo3.every(c => c.ok);
+
     // Seleccionar estrategia
     const sel = selectStrategy({
       direction,
@@ -2564,6 +2575,7 @@ app.post('/api/spx/webhook', async (req, res) => {
       etHour:      ctx.etHour,
       etMin:       ctx.etMin,
       capital,
+      openingRangeRespected: ctx.openingRangeRespected,
     });
 
     if (!sel.valid) {
@@ -2588,6 +2600,25 @@ app.post('/api/spx/webhook', async (req, res) => {
       return;
     }
 
+    // Stop técnico sugerido — el más conservador entre el último Fractal (2m)
+    // y el Muro Gamma en contra de la dirección. Solo informativo en la señal,
+    // sin monitoreo/alertas en vivo.
+    const fractal = ctx.indicators?.fractal || {};
+    let technicalStop = null, technicalStopSource = null;
+    if (direction === 'BULLISH') {
+      const candidates = [fractal.low, ctx.gex?.putWall].filter(v => v != null && v > 0);
+      if (candidates.length) {
+        technicalStop = Math.max(...candidates);
+        technicalStopSource = technicalStop === fractal.low ? 'Fractal' : 'Muro Gamma (Put Wall)';
+      }
+    } else if (direction === 'BEARISH') {
+      const candidates = [fractal.high, ctx.gex?.callWall].filter(v => v != null && v > 0);
+      if (candidates.length) {
+        technicalStop = Math.min(...candidates);
+        technicalStopSource = technicalStop === fractal.high ? 'Fractal' : 'Muro Gamma (Call Wall)';
+      }
+    }
+
     // Construir señal
     const signal = buildSignalSummary(sel.strategy, strikes, sel, {
       ...ctx,
@@ -2596,13 +2627,17 @@ app.post('/api/spx/webhook', async (req, res) => {
       callWall:    ctx.gex?.callWall,
       putWall:     ctx.gex?.putWall,
       gammaFlip:   ctx.gex?.gammaFlip,
+      maxPain:     ctx.gex?.maxPain,
+      technicalStop,
+      technicalStopSource,
       etTime:      ctx.etTime,
     });
 
-    signal.playbook  = playbookResult;
-    signal.source    = source;
-    signal.timeframe = timeframe;
-    signal.tf15m     = spx15mContext?.direction || direction;
+    signal.playbook    = playbookResult;
+    signal.fuerzaTotal = fuerzaTotal;
+    signal.source      = source;
+    signal.timeframe   = timeframe;
+    signal.tf15m       = weinsteinDirection;
 
     // Agregar parámetros de trading y TP/SL calculados
     const credito = signal.credit || signal.maxProfit || 0;
@@ -2634,11 +2669,6 @@ app.post('/api/spx/webhook', async (req, res) => {
   }
 });
 
-// GET /api/spx/15m — estado del contexto 15min
-app.get('/api/spx/15m', (req, res) => {
-  res.json(spx15mContext || { direction: null, message: 'Sin contexto 15m activo' });
-});
-
 // GET /api/spx/signals — lista de señales pendientes/historial
 app.get('/api/spx/signals', (req, res) => {
   res.json(loadSPXSignals());
@@ -2662,7 +2692,6 @@ app.post('/api/spx/signals/:id/action', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
 
 // ── Extrínseco — chequeo automático ─────────────────────────
 // Estado de alertas: { 'UNDERLYING::EXP': { firstAlert: Date, lastAlert: Date } }

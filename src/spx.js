@@ -54,9 +54,50 @@ function calcGEX(expirations, spxPrice) {
   };
 }
 
+// ── Calcula Max Pain — strike donde el payout total a tenedores de
+// opciones (calls+puts ITM por OI) se minimiza al vencimiento ────
+function calcMaxPain(strikes) {
+  if (!strikes || !strikes.length) return null;
+
+  let maxPainStrike = null;
+  let minPain = Infinity;
+
+  for (const candidate of strikes) {
+    let totalPain = 0;
+    for (const s of strikes) {
+      const callOi = s.call?.oi || 0;
+      const putOi  = s.put?.oi  || 0;
+      if (candidate.strike > s.strike) totalPain += (candidate.strike - s.strike) * callOi * 100;
+      if (candidate.strike < s.strike) totalPain += (s.strike - candidate.strike) * putOi  * 100;
+    }
+    if (totalPain < minPain) {
+      minPain = totalPain;
+      maxPainStrike = candidate.strike;
+    }
+  }
+
+  return maxPainStrike;
+}
+
+// ── Ventanas horarias del playbook (ET) ───────────────────────
+// 9:45-10:00  → apertura, recién habilitado (evitar fintas de los primeros min)
+// 10:00-13:00 → favorable para Iron Condor (si Gamma+ y rango de apertura respetado)
+// 13:00-13:30 → ventana frecuente de impulsos/direccionales fuertes
+// 13:30-15:00 → general, sin sesgo horario particular
+// 15:45-15:50 → cierre intradía / evaluar 1DTE
+function classifyWindow(etMins) {
+  if (etMins >= 9 * 60 + 45 && etMins < 10 * 60)          return 'APERTURA';
+  if (etMins >= 10 * 60     && etMins < 13 * 60)          return 'IC_FAVORABLE';
+  if (etMins >= 13 * 60     && etMins < 13 * 60 + 30)     return 'IMPULSO';
+  if (etMins >= 13 * 60 + 30 && etMins < 15 * 60)         return 'GENERAL';
+  if (etMins >= 15 * 60 + 45 && etMins < 15 * 60 + 50)    return 'CIERRE_1DTE';
+  return 'FUERA_VENTANA';
+}
+
 // ── Selecciona estrategia según contexto ──────────────────────
 function selectStrategy(context) {
-  const { direction, ivRank, vix, gammaRegime, etHour, etMin, capital } = context;
+  const { direction, ivRank, vix, gammaRegime, etHour, etMin, capital, openingRangeRespected } = context;
+  const etMins = etHour * 60 + etMin;
 
   // 1. Validar ventana horaria ET
   const timeOK_0DTE = (etHour > 9 || (etHour === 9 && etMin >= 45)) && etHour < 15;
@@ -67,6 +108,7 @@ function selectStrategy(context) {
   }
 
   const expType = timeOK_1DTE ? '1DTE' : '0DTE';
+  const window  = classifyWindow(etMins);
 
   // 2. Decidir crédito o débito
   const isCredit = ivRank > 30 || vix > 20;
@@ -79,8 +121,18 @@ function selectStrategy(context) {
   if (isCredit) {
     // Crédito: vender primas infladas
     if (gammaRegime === 'POSITIVO') {
-      // Gamma positivo + crédito = Iron Condor (rango)
+      // Gamma positivo + crédito = Iron Condor (rango) — solo en ventana favorable (10am+)
+      // y con el rango de apertura (9:30-10:00) respetado, según el playbook
       if (!direction || direction === 'NEUTRAL') {
+        if (etMins < 10 * 60) {
+          return { valid: false, reason: `Iron Condor requiere ventana ≥10:00am ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}). Esperando confirmación del rango de apertura.` };
+        }
+        if (openingRangeRespected === false) {
+          return { valid: false, reason: `Rango de apertura (9:30-10:00) roto — Iron Condor no recomendado, esperar nueva estructura.` };
+        }
+        if (openingRangeRespected == null) {
+          return { valid: false, reason: `No se pudo determinar si el rango de apertura fue respetado — sin datos suficientes para Iron Condor.` };
+        }
         strategy = 'IRON_CONDOR';
       } else if (direction === 'BULLISH') {
         strategy = 'BULL_PUT_SPREAD';
@@ -118,6 +170,7 @@ function selectStrategy(context) {
     strategy,
     isCredit,
     expType,
+    window,
     spreadWidth,
     contracts: maxContracts,
     maxRisk:   maxContracts * spreadWidth * 100,
@@ -279,6 +332,22 @@ function buildSignalSummary(strategy, strikes, sel, context) {
     : debit;
   const maxProfit = sel.isCredit ? credit : (sel.spreadWidth * 100 * sel.contracts) - (debit || 0);
   const probSuccess = strikes.shortDelta ? +((1 - strikes.shortDelta) * 100).toFixed(1) : null;
+  const riskReward  = maxProfit && maxRisk ? +(maxProfit / maxRisk).toFixed(2) : null;
+
+  // Nota de R:R — el playbook espera ~1:3-1:4 (reward/risk 0.20-0.35) en las
+  // verticales OTM de crédito (Bull Put/Bear Call), y ~1:1 en las ATM de débito.
+  let rrNote = null;
+  if (riskReward != null) {
+    if (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_CALL_SPREAD') {
+      rrNote = riskReward >= 0.20 && riskReward <= 0.35
+        ? `R:R ${riskReward} — dentro del rango OTM esperado (1:3-1:4)`
+        : `R:R ${riskReward} — fuera del rango OTM esperado (1:3-1:4), revisar antes de ejecutar`;
+    } else if (strategy === 'BULL_CALL_SPREAD' || strategy === 'BEAR_PUT_SPREAD') {
+      rrNote = riskReward >= 0.80 && riskReward <= 1.20
+        ? `R:R ${riskReward} — dentro del rango ATM esperado (~1:1)`
+        : `R:R ${riskReward} — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar`;
+    }
+  }
 
   return {
     id:          `spx-${Date.now()}`,
@@ -298,7 +367,8 @@ function buildSignalSummary(strategy, strikes, sel, context) {
     maxRisk:     +maxRisk.toFixed(2),
     maxProfit:   maxProfit ? +maxProfit.toFixed(2) : null,
     probSuccess,
-    riskReward:  maxProfit && maxRisk ? +(maxProfit / maxRisk).toFixed(2) : null,
+    riskReward,
+    rrNote,
     context: {
       spxPrice:    context.spxPrice,
       vix:         context.vix,
@@ -307,10 +377,13 @@ function buildSignalSummary(strategy, strikes, sel, context) {
       callWall:    context.callWall,
       putWall:     context.putWall,
       gammaFlip:   context.gammaFlip,
+      technicalStop:       context.technicalStop,
+      technicalStopSource: context.technicalStopSource,
+      maxPain:     context.maxPain,
       etTime:      context.etTime,
     },
     status: 'PENDING', // PENDING | EXECUTED | REJECTED
   };
 }
 
-module.exports = { calcGEX, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour };
+module.exports = { calcGEX, calcMaxPain, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour };

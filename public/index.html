@@ -5325,6 +5325,8 @@ function renderSPXContext(ctx) {
     <div class="stat-card"><div class="stat-label">CALL WALL</div><div class="stat-value">${ctx.gex?.callWall||'—'}</div></div>
     <div class="stat-card"><div class="stat-label">PUT WALL</div><div class="stat-value">${ctx.gex?.putWall||'—'}</div></div>
     <div class="stat-card"><div class="stat-label">GAMMA FLIP</div><div class="stat-value">${ctx.gex?.gammaFlip||'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">MAX PAIN</div><div class="stat-value">${ctx.gex?.maxPain||'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">RANGO APERTURA</div><div class="stat-value ${ctx.openingRangeRespected===false?'neg':ctx.openingRangeRespected===true?'pos':''}" style="font-size:11px;">${ctx.openingRange ? `${ctx.openingRange.low}-${ctx.openingRange.high} ${ctx.openingRangeRespected?'✅':'❌'}` : '—'}</div></div>
     <div class="stat-card"><div class="stat-label">HORA COL</div><div class="stat-value">${ctx.etTime}</div></div>
     <div class="stat-card"><div class="stat-label">VENTANA</div><div class="stat-value ${windowCls}" style="font-size:11px;">${windowLabel}</div></div>
     <div class="stat-card"><div class="stat-label">EMA 20</div><div class="stat-value">${ctx.ema20||'—'}</div></div>
@@ -5475,7 +5477,15 @@ function renderSignalCard(s, isPending) {
       <span>IV Rank: ${s.context?.ivRank||'—'}%</span>
       <span>Gamma: ${s.context?.gammaRegime||'—'}</span>
       <span>Flip: ${s.context?.gammaFlip||'—'}</span>
+      <span>Max Pain: ${s.context?.maxPain||'—'}</span>
+      <span>Fuerza total: ${s.fuerzaTotal ? '✅' : '❌'}</span>
     </div>
+    ${s.context?.technicalStop ? `
+    <div style="font-size:10px;color:var(--gold);padding-top:6px;">Stop técnico sugerido: $${s.context.technicalStop} (${s.context.technicalStopSource||'—'})</div>
+    ` : ''}
+    ${s.rrNote ? `
+    <div style="font-size:10px;color:var(--muted);padding-top:4px;">${s.rrNote}</div>
+    ` : ''}
     ${s.trading ? `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;padding:10px;background:var(--bg);border-radius:8px;">
       <div style="text-align:center;">

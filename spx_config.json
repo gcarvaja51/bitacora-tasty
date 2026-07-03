@@ -3,9 +3,9 @@
   "weights": {
     "precio_ema200": 5,
     "emas_alineadas_diario": 5,
-    "emas_alineadas_15m": 22,
-    "macd_alineado_15m": 28,
-    "precio_cerca_ema": 20,
+    "emas_alineadas_15m": 32,
+    "macd_alineado_15m": 8,
+    "precio_cerca_ema": 30,
     "volumen_spy": 12,
     "gex_compatible": 8
   }
