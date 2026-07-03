@@ -5463,7 +5463,7 @@ function renderSignalCard(s, isPending) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
       <div>
         <div style="font-size:14px;font-weight:700;color:var(--bright);">SPX · ${s.expType} · Vence ${s.expiry||''}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${time}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${time} · ${s.source||'—'}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <span class="${dirCls}" style="font-size:13px;font-weight:700;">${dirIcon} ${s.direction}</span>

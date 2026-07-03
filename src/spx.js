@@ -4,13 +4,14 @@
 // Analiza contexto de mercado y genera sugerencias de entrada
 // para estrategias de opciones en SPX
 
-const ET_OFFSET = -5; // UTC-5 (ET sin DST)
-
 function getETHour() {
+  // Usa la zona horaria real de Nueva York (America/New_York) en vez de un
+  // offset fijo, para que ajuste solo con el horario de verano (EDT/EST).
   const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const et  = new Date(utc + ET_OFFSET * 3600000);
-  return { hour: et.getHours(), min: et.getMinutes(), time: `${et.getHours()}:${String(et.getMinutes()).padStart(2,'0')}` };
+  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
+  let [hour, min] = etStr.split(':').map(Number);
+  if (hour === 24) hour = 0;
+  return { hour, min, time: `${hour}:${String(min).padStart(2,'0')}` };
 }
 
 // ── Calcula GEX por strike ────────────────────────────────────
