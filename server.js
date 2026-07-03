@@ -2665,86 +2665,191 @@ app.post('/api/spx/signals/:id/action', async (req, res) => {
 
 
 // ── Extrínseco — chequeo automático ─────────────────────────
+// Estado de alertas: { 'UNDERLYING::EXP': { firstAlert: Date, lastAlert: Date } }
+const extrinsicAlertState = new Map();
+const EXTR_REMINDER_MS   = 2 * 60 * 60 * 1000; // 2 horas
+const EXTR_CHECK_MS      = 15 * 60 * 1000;       // chequeo cada 15 min
+
+function detectStrategy(legs) {
+  const shorts = legs.filter(l => l['quantity-direction'] === 'Short');
+  const longs  = legs.filter(l => l['quantity-direction'] === 'Long');
+  const hasShortPut  = shorts.some(l => /P\d{8}$/.test(l.symbol));
+  const hasShortCall = shorts.some(l => /C\d{8}$/.test(l.symbol));
+  const hasLongPut   = longs.some(l =>  /P\d{8}$/.test(l.symbol));
+  const hasLongCall  = longs.some(l =>  /C\d{8}$/.test(l.symbol));
+  if (hasShortPut  && hasLongPut  && !hasShortCall) return 'Bull Put Spread';
+  if (hasShortCall && hasLongCall && !hasShortPut)  return 'Bear Call Spread';
+  if (hasShortPut  && hasShortCall)                 return 'Short Strangle';
+  if (hasShortPut  && !hasLongPut)                  return 'CSP';
+  if (hasShortCall && !hasLongCall)                 return 'Covered Call';
+  return 'Spread';
+}
+
+const NYSE_HOLIDAYS = new Set([
+  // 2026
+  '2026-01-01','2026-01-19','2026-02-16','2026-04-03',
+  '2026-05-25','2026-06-19','2026-07-03','2026-09-07',
+  '2026-11-26','2026-12-25',
+  // 2027
+  '2027-01-01','2027-01-18','2027-02-15','2027-03-26',
+  '2027-05-31','2027-06-18','2027-07-05','2027-09-06',
+  '2027-11-25','2027-12-24',
+]);
+
+function isMarketHours() {
+  const now  = new Date();
+  const et   = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day  = et.getDay();
+  if (day === 0 || day === 6) return false;
+  const dateStr = et.toISOString().slice(0, 10);
+  if (NYSE_HOLIDAYS.has(dateStr)) return false;
+  const mins = et.getHours() * 60 + et.getMinutes();
+  return mins >= 9 * 60 + 30 && mins < 16 * 60;
+}
+
 async function checkExtrinsicAndNotify() {
   console.log('[EXTR] Iniciando chequeo de extrínseco...');
   try {
     const positions = await tt.getPositions();
     if (!positions || !positions.length) return;
 
-    // Obtener precio del subyacente para cada posición única
-    const underlyings = [...new Set(positions.map(p => p['underlying-symbol'] || p.symbol))];
-    const priceMap = {};
-    await Promise.all(underlyings.map(async sym => {
-      try {
-        const q = await tt.getMarketData(sym);
-        priceMap[sym] = parseFloat(q?.last || q?.mark || 0);
-      } catch(e) { priceMap[sym] = 0; }
-    }));
+    const optPositions = positions.filter(p => p['instrument-type'] !== 'Equity');
+    const underlyings  = [...new Set(optPositions.map(p => p['underlying-symbol'] || p.symbol))];
+    const optSymbols   = optPositions.map(p => p.symbol).filter(Boolean);
 
-    // Agrupar por subyacente + vencimiento
-    const groups = {};
+    const priceMap = {};
+    const markMap  = {};
+
+    // Fetch subyacentes por separado para no contaminar con precios de opciones
+    try {
+      const params = underlyings.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+      const d = await tt._req(`/market-data?${params}`);
+      for (const item of (d?.data?.items || [])) {
+        const price = parseFloat(item.last || item.mark || item.mid || 0);
+        if (price > 0) priceMap[item.symbol] = price;
+      }
+    } catch(e) { console.warn('[EXTR] Error precios subyacentes:', e.message); }
+
+    // Fetch opciones por separado
+    try {
+      const BATCH = 50;
+      for (let i = 0; i < optSymbols.length; i += BATCH) {
+        const batch  = optSymbols.slice(i, i + BATCH);
+        const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+        const d      = await tt._req(`/market-data?${params}`);
+        for (const item of (d?.data?.items || [])) {
+          const price = parseFloat(item.mark || item.mid || item.last || 0);
+          if (price > 0) markMap[item.symbol] = price;
+        }
+      }
+    } catch(e) { console.warn('[EXTR] Error precios opciones:', e.message); }
+
+    console.log('[EXTR] Subyacentes:', JSON.stringify(priceMap));
+    console.log('[EXTR] Opciones mark:', JSON.stringify(markMap));
+
+
+    // Construir grupos por underlying+exp para detectar estrategia
+    const legGroups = {};
     for (const p of positions) {
       if (p['instrument-type'] === 'Equity') continue;
       const und = p['underlying-symbol'] || p.symbol;
       const exp = p['expires-at'] ? new Date(p['expires-at']).toISOString().slice(0,10) : '';
       const key = `${und}::${exp}`;
-      if (!groups[key]) groups[key] = { underlying: und, legs: [], premiumNet: 0 };
-      const g = groups[key];
-      g.legs.push(p);
-      const qty = parseFloat(p.quantity || 0);
-      const op  = parseFloat(p['average-open-price'] || 0);
-      const mul = parseFloat(p.multiplier || 100);
-      if (p['quantity-direction'] === 'Short') g.premiumNet += op * qty * mul;
-      else                                      g.premiumNet -= op * qty * mul;
+      if (!legGroups[key]) legGroups[key] = [];
+      legGroups[key].push(p);
     }
 
-    for (const [key, g] of Object.entries(groups)) {
-      const absPrem = Math.abs(g.premiumNet);
-      if (!absPrem) continue;
+    const activeKeys = new Set();
+    for (const p of positions) {
+      if (p['instrument-type'] === 'Equity') continue;
+      if (p['quantity-direction'] !== 'Short') continue;
+      const und = p['underlying-symbol'] || p.symbol;
+      const exp = p['expires-at'] ? new Date(p['expires-at']).toISOString().slice(0,10) : '';
+      activeKeys.add(`${und}::${exp}::${p.symbol}`);
+    }
+    for (const k of extrinsicAlertState.keys()) {
+      if (!activeKeys.has(k)) extrinsicAlertState.delete(k);
+    }
 
-      const uPrice = priceMap[g.underlying] || 0;
+    // Revisar cada short leg individualmente (risk de asignacion)
+    for (const p of positions) {
+      if (p['instrument-type'] === 'Equity') continue;
+      if (p['quantity-direction'] !== 'Short') continue;
+
+      const und    = p['underlying-symbol'] || p.symbol;
+      const exp    = p['expires-at'] ? new Date(p['expires-at']).toISOString().slice(0,10) : '';
+      const legKey = `${und}::${exp}::${p.symbol}`;
+
+      const uPrice = priceMap[und] || 0;
       if (!uPrice) {
-        console.log(`[EXTR] ${g.underlying}: precio del subyacente no disponible, saltando`);
+        console.log(`[EXTR] ${und}: precio no disponible, saltando`);
         continue;
       }
 
-      let extrinsicTotal = 0;
-      let skipGroup = false;
-      for (const leg of g.legs) {
-        const mp  = parseFloat(leg['mark-price'] || leg['close-price'] || 0);
-        if (!mp) {
-          console.log(`[EXTR] ${g.underlying}: mark-price no disponible en pata ${leg.symbol}, saltando grupo`);
-          skipGroup = true;
-          break;
-        }
-        const sym = (leg.symbol || '').replace(/\s+/g,' ').trim();
-        const occMatch = sym.match(/([CP])(\d{8})$/);
-        if (!occMatch) continue;
-        const isCall  = occMatch[1] === 'C';
-        const strike  = parseInt(occMatch[2]) / 1000;
-        const intrinsic = isCall ? Math.max(0, uPrice - strike) : Math.max(0, strike - uPrice);
-        const extrLeg   = Math.max(0, mp - intrinsic);
-        const qty       = parseFloat(leg.quantity || 1);
-        const mul       = parseFloat(leg.multiplier || 100);
-        const legDir    = leg['quantity-direction'] === 'Short' ? -1 : 1;
-        extrinsicTotal += legDir * extrLeg * qty * mul;
+      const mp  = markMap[p.symbol] || parseFloat(p['mark-price'] || p['close-price'] || 0);
+      if (!mp) {
+        console.log(`[EXTR] ${und} ${p.symbol}: mark-price no disponible, saltando`);
+        continue;
       }
-      if (skipGroup) continue;
 
-      const extrPct = Math.abs(extrinsicTotal) / absPrem * 100;
-      console.log(`[EXTR] ${g.underlying}: $${Math.abs(extrinsicTotal).toFixed(2)} (${extrPct.toFixed(1)}%)`);
+      const sym      = (p.symbol || '').replace(/\s+/g,' ').trim();
+      const occMatch = sym.match(/([CP])(\d{8})$/);
+      if (!occMatch) continue;
+
+      const isCall    = occMatch[1] === 'C';
+      const strike    = parseInt(occMatch[2]) / 1000;
+      const intrinsic = isCall ? Math.max(0, uPrice - strike) : Math.max(0, strike - uPrice);
+      const extrLeg   = Math.max(0, mp - intrinsic);
+      const qty       = parseFloat(p.quantity || 1);
+      const mul       = parseFloat(p.multiplier || 100);
+      const premium   = parseFloat(p['average-open-price'] || 0) * qty * mul;
+      const extrPct   = premium > 0 ? (extrLeg * qty * mul) / premium * 100 : 0;
+      const optType   = isCall ? 'Call' : 'Put';
+      const groupKey  = `${und}::${exp}`;
+      const strategy  = legGroups[groupKey] ? detectStrategy(legGroups[groupKey]) : 'Opcion';
+
+      console.log(`[EXTR] Short ${optType} ${und} strike ${strike} exp ${exp}: mp=$${mp} extr=$${extrLeg.toFixed(2)} (${extrPct.toFixed(1)}% del premium)`);
 
       if (extrPct < 5) {
-        const title = 'Bitacora Alerta Extrinseco';
-        const body  = `${g.underlying} — extrinseco $${Math.abs(extrinsicTotal).toFixed(2)} (${extrPct.toFixed(1)}% del premium). Considera cerrar.`;
-        console.log(`[EXTR] ALERTA: ${body}`);
-        try {
-          await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
-            method: 'POST',
-            headers: { 'Title': title, 'Priority': 'high', 'Tags': 'warning,chart_decreasing', 'Content-Type': 'text/plain' },
-            body
+        const now   = Date.now();
+        const state = extrinsicAlertState.get(legKey);
+        const isNew = !state;
+        const isReminder = state && (now - state.lastAlert) >= EXTR_REMINDER_MS && isMarketHours();
+
+        if (isNew || isReminder) {
+          const tag   = isNew ? 'NUEVA ALERTA' : 'RECORDATORIO';
+          const title = `Bitacora - ${tag}`;
+          const body  = [
+            tag,
+            `Activo: ${und}`,
+            `Estrategia: ${strategy}`,
+            `Riesgo: Short ${optType} en ${strategy}`,
+            `Strike $${strike} — Vence ${exp}`,
+            `Extrínseco $${extrLeg.toFixed(2)} (${extrPct.toFixed(1)}% de la prima)`,
+            `Riesgo de Asignacion`
+          ].join('\n');
+          console.log(`[EXTR] Enviando ntfy: ${body}`);
+          try {
+            const ntfyResp = await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+              method: 'POST',
+              headers: { 'Title': title, 'Priority': 'urgent', 'Tags': 'warning,rotating_light', 'Content-Type': 'text/plain' },
+              body
+            });
+            const ntfyJson = await ntfyResp.json();
+            console.log(`[EXTR] ntfy resp:`, JSON.stringify(ntfyJson));
+          } catch(e) { console.warn('[EXTR] ntfy error:', e.message); }
+
+          extrinsicAlertState.set(legKey, {
+            firstAlert: state?.firstAlert || now,
+            lastAlert: now
           });
-        } catch(e) { console.warn('[EXTR] ntfy error:', e.message); }
+        }
+      } else {
+        // Volvió sobre 5% — resetear estado
+        if (extrinsicAlertState.has(legKey)) {
+          console.log(`[EXTR] ${und} volvió sobre 5%, reseteando alerta`);
+          extrinsicAlertState.delete(legKey);
+        }
       }
     }
     console.log('[EXTR] Chequeo completado.');
@@ -2752,60 +2857,17 @@ async function checkExtrinsicAndNotify() {
 }
 
 function scheduleExtrinsicChecks() {
-  // Horarios Colombia (UTC-5): 10:00, 12:00, 14:30 → UTC: 15:00, 17:00, 19:30
-  const slots = [
-    { h: 15, m: 0,  label: '10:00am COL' },
-    { h: 17, m: 0,  label: '12:00pm COL' },
-    { h: 19, m: 30, label: '2:30pm COL'  },
-  ];
-
-  function msUntilNext(h, m) {
-    const now = new Date();
-    const target = new Date(now);
-    target.setUTCHours(h, m, 0, 0);
-    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-    return target - now;
+  async function tick() {
+    if (isMarketHours()) {
+      await checkExtrinsicAndNotify();
+    } else {
+      console.log('[EXTR] Fuera de horario de mercado, saltando chequeo');
+    }
+    setTimeout(tick, EXTR_CHECK_MS);
   }
-
-  for (const slot of slots) {
-    (function schedule(slot) {
-      const ms = msUntilNext(slot.h, slot.m);
-      console.log(`[EXTR] Próximo chequeo ${slot.label} en ${Math.round(ms/60000)} min`);
-      setTimeout(async () => {
-        await checkExtrinsicAndNotify();
-        schedule(slot); // reprogramar para mañana
-      }, ms);
-    })(slot);
-  }
-}
-
-
-function scheduleExtrinsicChecks() {
-  // Horarios Colombia (UTC-5): 10:00, 12:00, 14:30 → UTC: 15:00, 17:00, 19:30
-  const slots = [
-    { h: 15, m: 0,  label: '10:00am COL' },
-    { h: 17, m: 0,  label: '12:00pm COL' },
-    { h: 19, m: 30, label: '2:30pm COL'  },
-  ];
-
-  function msUntilNext(h, m) {
-    const now = new Date();
-    const target = new Date(now);
-    target.setUTCHours(h, m, 0, 0);
-    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-    return target - now;
-  }
-
-  for (const slot of slots) {
-    (function schedule(slot) {
-      const ms = msUntilNext(slot.h, slot.m);
-      console.log(`[EXTR] Próximo chequeo ${slot.label} en ${Math.round(ms/60000)} min`);
-      setTimeout(async () => {
-        await checkExtrinsicAndNotify();
-        schedule(slot); // reprogramar para mañana
-      }, ms);
-    })(slot);
-  }
+  // Primer chequeo en 1 minuto para que el servidor termine de iniciar
+  setTimeout(tick, 60 * 1000);
+  console.log(`[EXTR] Monitor iniciado — chequeo cada 15 min en horario de mercado`);
 }
 
 
@@ -2831,6 +2893,131 @@ app.get('/api/test-extrinsic', async (req, res) => {
     await checkExtrinsicAndNotify();
     res.json({ ok: true, msg: 'Chequeo completado - revisa ntfy' });
   } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.get('/api/extrinsic-report', async (req, res) => {
+  try {
+    const positions = await tt.getPositions();
+    if (!positions || !positions.length) return res.json({ results: [] });
+
+    const optPos      = positions.filter(p => p['instrument-type'] !== 'Equity');
+    const underlyings = [...new Set(optPos.map(p => p['underlying-symbol'] || p.symbol))];
+    const optSymbols  = optPos.map(p => p.symbol).filter(Boolean);
+    const priceMap = {};
+    const markMap  = {};
+    try {
+      const params = underlyings.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+      const d = await tt._req(`/market-data?${params}`);
+      for (const item of (d?.data?.items || [])) {
+        const price = parseFloat(item.last || item.mark || item.mid || 0);
+        if (price > 0) priceMap[item.symbol] = price;
+      }
+    } catch(e) { console.warn('[EXTR-REPORT] Error precios subyacentes:', e.message); }
+    try {
+      const BATCH = 50;
+      for (let i = 0; i < optSymbols.length; i += BATCH) {
+        const batch  = optSymbols.slice(i, i + BATCH);
+        const params = batch.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+        const d      = await tt._req(`/market-data?${params}`);
+        for (const item of (d?.data?.items || [])) {
+          const price = parseFloat(item.mark || item.mid || item.last || 0);
+          if (price > 0) markMap[item.symbol] = price;
+        }
+      }
+    } catch(e) { console.warn('[EXTR-REPORT] Error precios opciones:', e.message); }
+
+    const groups = {};
+    for (const p of positions) {
+      if (p['instrument-type'] === 'Equity') continue;
+      const und = p['underlying-symbol'] || p.symbol;
+      const exp = p['expires-at'] ? new Date(p['expires-at']).toISOString().slice(0,10) : '';
+      const key = `${und}::${exp}`;
+      if (!groups[key]) groups[key] = { underlying: und, exp, legs: [], premiumNet: 0 };
+      const g = groups[key];
+      g.legs.push(p);
+      const qty = parseFloat(p.quantity || 0);
+      const op  = parseFloat(p['average-open-price'] || 0);
+      const mul = parseFloat(p.multiplier || 100);
+      if (p['quantity-direction'] === 'Short') g.premiumNet += op * qty * mul;
+      else                                      g.premiumNet -= op * qty * mul;
+    }
+
+    // Detectar estrategia por grupo (underlying + exp)
+    function detectStrategy(legs) {
+      const shorts = legs.filter(l => l['quantity-direction'] === 'Short');
+      const longs  = legs.filter(l => l['quantity-direction'] === 'Long');
+      const hasShortPut  = shorts.some(l => /P\d{8}$/.test(l.symbol));
+      const hasShortCall = shorts.some(l => /C\d{8}$/.test(l.symbol));
+      const hasLongPut   = longs.some(l =>  /P\d{8}$/.test(l.symbol));
+      const hasLongCall  = longs.some(l =>  /C\d{8}$/.test(l.symbol));
+      if (hasShortPut  && hasLongPut  && !hasShortCall) return 'Bull Put Spread';
+      if (hasShortCall && hasLongCall && !hasShortPut)  return 'Bear Call Spread';
+      if (hasShortPut  && hasLongCall)                  return 'Short Strangle';
+      if (hasShortPut  && hasShortCall)                 return 'Short Strangle';
+      if (hasShortPut  && !hasLongPut)                  return 'CSP';
+      if (hasShortCall && !hasLongCall)                 return 'Covered Call';
+      return 'Spread';
+    }
+
+    // Agrupar por underlying+exp para detectar estrategia
+    const legGroups = {};
+    for (const p of positions) {
+      if (p['instrument-type'] === 'Equity') continue;
+      const und = p['underlying-symbol'] || p.symbol;
+      const exp = p['expires-at'] ? new Date(p['expires-at']).toISOString().slice(0,10) : '';
+      const key = `${und}::${exp}`;
+      if (!legGroups[key]) legGroups[key] = { und, exp, legs: [] };
+      legGroups[key].legs.push(p);
+    }
+
+    // Revisar cada short leg individualmente
+    const results = [];
+    for (const p of positions) {
+      if (p['instrument-type'] === 'Equity') continue;
+      if (p['quantity-direction'] !== 'Short') continue;
+
+      const und    = p['underlying-symbol'] || p.symbol;
+      const exp    = p['expires-at'] ? new Date(p['expires-at']).toISOString().slice(0,10) : '';
+      const groupKey = `${und}::${exp}`;
+      const strategy = legGroups[groupKey] ? detectStrategy(legGroups[groupKey].legs) : '—';
+
+      const uPrice = priceMap[und] || 0;
+      const mp     = markMap[p.symbol] || parseFloat(p['mark-price'] || p['close-price'] || 0);
+
+      const sym      = (p.symbol || '').replace(/\s+/g,' ').trim();
+      const occMatch = sym.match(/([CP])(\d{8})$/);
+      if (!occMatch) continue;
+
+      const isCall    = occMatch[1] === 'C';
+      const optType   = isCall ? 'Call' : 'Put';
+      const strike    = parseInt(occMatch[2]) / 1000;
+      const intrinsic = uPrice > 0 ? (isCall ? Math.max(0, uPrice - strike) : Math.max(0, strike - uPrice)) : null;
+      const extrLeg   = intrinsic !== null && mp > 0 ? Math.max(0, mp - intrinsic) : null;
+      const qty       = parseFloat(p.quantity || 1);
+      const mul       = parseFloat(p.multiplier || 100);
+      const premium   = parseFloat(p['average-open-price'] || 0) * qty * mul;
+      const extrPct   = extrLeg !== null && premium > 0 ? (extrLeg * qty * mul) / premium * 100 : null;
+
+      results.push({
+        label: `Short ${optType} — ${strategy} — ${und}`,
+        underlying: und,
+        strategy,
+        optType,
+        strike,
+        exp,
+        markPrice: mp,
+        uPrice: uPrice || null,
+        intrinsic: intrinsic !== null ? +intrinsic.toFixed(2) : null,
+        extrinsic: extrLeg !== null ? +(extrLeg * qty * mul).toFixed(2) : null,
+        premium: +premium.toFixed(2),
+        extrPct: extrPct !== null ? +extrPct.toFixed(1) : null,
+        alerta: extrPct !== null && extrPct < 5
+      });
+    }
+
+    results.sort((a, b) => (a.extrPct ?? 999) - (b.extrPct ?? 999));
+    res.json({ results });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 
