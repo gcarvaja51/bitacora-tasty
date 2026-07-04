@@ -63,6 +63,14 @@ class TradierClient {
     return data.order || null;
   }
 
+  // Cancela una orden pendiente (limpieza de pruebas — las ordenes de prueba en
+  // sandbox a veces quedan 'pending' indefinidamente y bloquean hasOpenPosition)
+  async cancelOrder(orderId) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const data = await this._req(`/accounts/${this.accountNumber}/orders/${orderId}`, { method: 'DELETE' });
+    return data.order || null;
+  }
+
   // P&L realizado de posiciones ya cerradas, desde una fecha (YYYY-MM-DD).
   // Devuelve null si Tradier no trae el dato limpio — nunca inventa un numero.
   async getClosedPnl(sinceDate) {
