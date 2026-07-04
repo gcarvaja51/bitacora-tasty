@@ -5334,30 +5334,39 @@ async function loadTradierDemo() {
   if (kpisEl) kpisEl.innerHTML = '<div style="color:var(--muted);font-size:11px;">Cargando...</div>';
   try {
     const r = await fetch('/api/tradier/executions');
-    const execs = await r.json();
-    renderTradierDemo(execs);
+    const data = await r.json();
+    renderTradierDemo(data.executions || [], data.account || null);
   } catch(e) {
     if (kpisEl) kpisEl.innerHTML = `<div style="color:var(--red);font-size:11px;">Error: ${e.message}</div>`;
     console.error('Tradier demo error:', e);
   }
 }
 
-function renderTradierDemo(execs) {
+function renderTradierDemo(execs, account) {
   const total   = execs.length;
   const closed  = execs.filter(e => e.status === 'closed' && typeof e.pnl === 'number');
   const wins    = closed.filter(e => e.pnl > 0);
   const losers  = closed.filter(e => e.pnl <= 0);
   const winRate = closed.length ? +((wins.length / closed.length) * 100).toFixed(1) : 0;
-  const totalPnl = closed.reduce((s,e) => s + (e.pnl||0), 0);
   const avgWin  = wins.length ? wins.reduce((s,e)=>s+e.pnl,0)/wins.length : 0;
   const avgLoss = losers.length ? losers.reduce((s,e)=>s+e.pnl,0)/losers.length : 0;
 
-  $('tdemo-kpis').innerHTML = [
-    kpiCard('Ejecutadas', total, `${closed.length} cerradas, ${total-closed.length} en curso`),
-    kpiCard('P&L Acumulado', f$(totalPnl), `${closed.length} trades cerrados`, cc(totalPnl)),
-    kpiCard('Ganancia Prom.', fa$(avgWin), 'por trade ganador', 'pos'),
-    kpiCard('Pérdida Prom.', '-'+fa$(Math.abs(avgLoss)), 'por trade perdedor', 'neg'),
-  ].join('');
+  // KPIs principales — balance REAL de la cuenta Tradier, no calculado por nosotros
+  if (account) {
+    $('tdemo-kpis').innerHTML = [
+      kpiCard('Net Liq (Tradier)', f$(account.netLiq), `Cta. sandbox real`),
+      kpiCard('P&L Total', f$(account.pnlTotal), `vs $${account.startingBalance.toLocaleString()} inicial`, cc(account.pnlTotal)),
+      kpiCard('Buying Power', f$(account.buyingPower), 'disponible en Tradier'),
+      kpiCard('Ejecutadas', total, `${closed.length} cerradas, ${total-closed.length} en curso`),
+    ].join('');
+  } else {
+    $('tdemo-kpis').innerHTML = [
+      kpiCard('Ejecutadas', total, `${closed.length} cerradas, ${total-closed.length} en curso`),
+      kpiCard('P&L Acumulado (interno)', f$(closed.reduce((s,e)=>s+(e.pnl||0),0)), `${closed.length} trades cerrados`),
+      kpiCard('Net Liq (Tradier)', '—', 'no disponible ahora'),
+      kpiCard('Buying Power', '—', 'no disponible ahora'),
+    ].join('');
+  }
 
   $('tdemo-gauge-ring').style.setProperty('--pct', winRate.toFixed(1)+'%');
   $('tdemo-gauge-pct').textContent = winRate+'%';
@@ -5365,6 +5374,8 @@ function renderTradierDemo(execs) {
     <div class="stat-row"><span class="stat-lbl">Ganadoras</span><span class="stat-val pos">${wins.length}</span></div>
     <div class="stat-row"><span class="stat-lbl">Perdedoras</span><span class="stat-val neg">${losers.length}</span></div>
     <div class="stat-row"><span class="stat-lbl">Sin cerrar</span><span class="stat-val dim">${total-closed.length}</span></div>
+    <div class="stat-row"><span class="stat-lbl">Ganancia Prom.</span><span class="stat-val pos">${fa$(avgWin)}</span></div>
+    <div class="stat-row"><span class="stat-lbl">Pérdida Prom.</span><span class="stat-val neg">-${fa$(Math.abs(avgLoss))}</span></div>
   `;
 
   // P&L por estrategia

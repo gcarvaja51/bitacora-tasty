@@ -33,6 +33,13 @@ class TradierClient {
     return `${root}${yymmdd}${optType}${strikeStr}`;
   }
 
+  // Balance real de la cuenta (Net Liq, cash, buying power)
+  async getBalances() {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const data = await this._req(`/accounts/${this.accountNumber}/balances`);
+    return data.balances || null;
+  }
+
   // Lista de posiciones abiertas de la cuenta (array normalizado, nunca null)
   async getPositions() {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');

@@ -2743,9 +2743,26 @@ app.get('/api/spx/signals', (req, res) => {
   res.json(loadSPXSignals());
 });
 
-// GET /api/tradier/executions — historial de ejecuciones para el dashboard demo
-app.get('/api/tradier/executions', (req, res) => {
-  res.json(loadTradierExecutions());
+// GET /api/tradier/executions — historial + balance real de la cuenta demo
+const TRADIER_STARTING_BALANCE = 100000; // capital inicial de la cuenta sandbox
+app.get('/api/tradier/executions', async (req, res) => {
+  const executions = loadTradierExecutions();
+  let account = null;
+  try {
+    const balances = await tradier.getBalances();
+    if (balances) {
+      account = {
+        netLiq:        balances.total_equity,
+        totalCash:     balances.total_cash,
+        buyingPower:   balances.margin?.option_buying_power ?? balances.margin?.stock_buying_power ?? null,
+        startingBalance: TRADIER_STARTING_BALANCE,
+        pnlTotal:      balances.total_equity - TRADIER_STARTING_BALANCE,
+      };
+    }
+  } catch(e) {
+    console.error('[TRADIER] Error obteniendo balance:', e.message);
+  }
+  res.json({ executions, account });
 });
 
 // POST /api/spx/signals/:id/action — ejecutar o rechazar
