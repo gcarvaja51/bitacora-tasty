@@ -27,6 +27,10 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
+  // Solo interceptar http/https — esquemas como chrome-extension:// no son
+  // cacheables (Cache API los rechaza) y no son nuestros para empezar.
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
   // Llamadas a la API siempre van a la red
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(fetch(e.request));

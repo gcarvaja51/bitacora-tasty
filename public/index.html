@@ -992,7 +992,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 <div class="main">
 
   <!-- Top bar KPIs -->
-  <div class="topbar">
+  <div class="topbar" id="topbar">
     <div class="topbar-kpis">
       <div class="topbar-kpi">
         <div class="tb-label">Net Liq</div>
@@ -1716,6 +1716,8 @@ function nav(tab, el) {
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
   $(`panel-${tab}`).classList.add('active');
+  // Top bar muestra la cuenta real de TastyTrade — no aplica en Demo Tradier
+  $('topbar').style.display = tab==='tradierdemo' ? 'none' : '';
   if (tab==='dashboard') loadDashboard();
   else if (tab==='calendar') loadCalendar();
   else if (tab==='positions') loadPositions();
