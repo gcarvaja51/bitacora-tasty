@@ -1530,6 +1530,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       </select>
     </div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Score mín.</label><input type="number" id="bt-minscore" value="75" min="50" max="100" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;" title="Camino A (retroceso clasico) resulto perdedor neto en el backtest historico — desactivado por defecto"><label style="font-size:11px;color:var(--muted);">Camino A</label><input type="checkbox" id="bt-camino-a"></div>
     <div style="height:20px;width:1px;background:var(--border);"></div>
     <!-- Parámetros de posición -->
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Capital $</label><input type="number" id="bt-capital" value="10000" step="1000" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:80px;"></div>
@@ -8097,6 +8098,7 @@ async function runBT() {
   const tpPct       = parseFloat(document.getElementById('bt-tp')?.value)||30;
   const slMult      = parseFloat(document.getElementById('bt-sl')?.value)||1.5;
   const targetDelta = parseFloat(document.getElementById('bt-delta')?.value)||0.12;
+  const caminoAOn   = document.getElementById('bt-camino-a')?.checked || false;
   const spreadWidth = calcSpreadWidth(capital,exp,riesgoPct);
   if(document.getElementById('bt-spread-display')) document.getElementById('bt-spread-display').textContent=spreadWidth;
 
@@ -8125,8 +8127,11 @@ async function runBT() {
     const entryDn = c.ema10 < c.ema20 && prevC.close > prevC.ema10 && c.close < c.ema10;
     const emaSlope  = c.ema10 - prevC.ema10;
     const macdSlope = c.macdL - prevC.macdL;
-    const longConditionA  = emaSlope>0 && c.close>c.magicTrend && entryUp && macdSlope>0 && c.macdL>c.macdS;
-    const shortConditionA = emaSlope<0 && c.close<c.magicTrend && entryDn && macdSlope<0 && c.macdL<c.macdS;
+    // Camino A resulto perdedor neto en el backtest (48.8% WR, -$130 sobre 41
+    // señales, vs 67.8% WR / +$975 del Camino B) — desactivado por defecto,
+    // el checkbox permite reactivarlo para comparar.
+    const longConditionA  = caminoAOn && emaSlope>0 && c.close>c.magicTrend && entryUp && macdSlope>0 && c.macdL>c.macdS;
+    const shortConditionA = caminoAOn && emaSlope<0 && c.close<c.magicTrend && entryDn && macdSlope<0 && c.macdL<c.macdS;
 
     // Camino B — confluencia fresca sostenida, gateada por el marco maestro 15m,
     // con gap minimo de 20 min entre disparos (evita re-disparar cada vela)
