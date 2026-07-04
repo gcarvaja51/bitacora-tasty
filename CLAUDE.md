@@ -30,6 +30,10 @@ Archivos que viven en `DATA_DIR` (no en `__dirname`):
 - `wheel_config.json` — lista de underlyings de La Rueda
 - `nlv_history.json` — snapshots históricos de Net Liq
 - `watchlist.json`, `trade_notes.json`, `playbooks.json`, etc.
+- `spx_config.json` — pesos del playbook SPX, TP/SL, `tradierAutoExecute` (ver sección
+  SPX 0DTE — un push a git **no** actualiza este archivo en Railway, hay que empujar el
+  cambio también vía `POST /api/spx/config`)
+- `spx_signals.json` — historial de señales SPX (últimas 50)
 
 Estos archivos están en `.gitignore` excepto `wheel_config.json` y `nlv_history.json` (sirven como seed inicial).
 
@@ -55,6 +59,56 @@ Muestra solo P&L **realizados**. Lógica:
 - `STO` sin BTC y expirado (`expiry < today`) → muestra prima en la semana del **expiry**
 - `STO` aún abierto → **excluido silenciosamente**
 
+## SPX 0DTE — CIARG_V1 + Signal Center
+
+Sistema de señales para SPX 0DTE/1DTE, con ejecución automática en Tradier (sandbox) para
+las estrategias direccionales de crédito.
+
+**Flujo completo:**
+1. **TradingView** (`CIARG_V1`, chart SPX 2m) corre el indicador base del mentor (Trend Magic
+   CCI+ATR, CM SlingShot EMA10/20+retroceso, MACD slope) + una capa nuestra encima: fase
+   Weinstein de 15m como marco maestro, y la señal final por **Camino A** (retroceso clásico
+   del mentor) **o Camino B** (confluencia recién formada — sin exigir retroceso, con gap
+   mínimo de 20 min entre disparos para no repetir en cada barra de una tendencia sostenida).
+   Solo dispara `alert()` para la entrada (BULLISH/BEARISH); no manda contexto 15m ni stop
+   técnico — el servidor calcula esas dos cosas por su cuenta.
+2. **`POST /api/spx/webhook`** recibe la alerta y **revalida todo de forma independiente**
+   (no confía en lo que diga Pine): confluencia Weinstein 2m+15m con su propio cálculo desde
+   Yahoo Finance, score del playbook (`calcPlaybookScore`, pesos en `SPX_CONFIG_DEFAULTS.weights`
+   de `server.js` — MACD pesa poco a propósito, es una confirmación rezagada, no un gate de
+   alto impacto), ventana horaria (`selectStrategy` en `src/spx.js`: 9:45am-3pm ET para 0DTE,
+   3:45-3:50pm para 1DTE — ojo, hay un hueco sin ventana operable entre 3pm y 3:45pm),
+   Iron Condor solo si son ≥10am y el rango de apertura 9:30-10:00 fue respetado.
+3. Si pasa todo, busca strikes reales en la cadena de opciones y arma la señal
+   (`buildSignalSummary`, `src/spx.js`) con stop técnico sugerido (Fractal 2m + Muro Gamma,
+   el más conservador de los dos — solo informativo, sin monitoreo en vivo) y nota de R:R
+   esperado según el tipo de vertical.
+4. Si la estrategia es `BULL_PUT_SPREAD` o `BEAR_CALL_SPREAD` y el kill-switch
+   `tradierAutoExecute` está activo (`spxConfig.trading`), se ejecuta automáticamente en
+   Tradier sandbox (`src/tradier.js`) — **sin confirmación manual**. Antes de mandar la orden,
+   `hasOpenPosition('SPXW')` revisa posiciones y órdenes en curso; si ya hay un trade abierto,
+   la señal se guarda como sugerencia pero no se ejecuta (evita apilar posiciones).
+5. Iron Condor y verticales de débito (Bull Call/Bear Put) llegan al Signal Center como
+   sugerencia manual — todavía no están conectadas a Tradier.
+
+**Gotcha importante:** `spx_config.json` (pesos del playbook, TP/SL, `tradierAutoExecute`)
+vive en `DATA_DIR`, que en Railway es el **volumen persistente**, no el código desplegado.
+Cambiar los defaults en `server.js` y hacer push **no actualiza el archivo real que usa
+producción** si ya existe uno guardado ahí — hay que empujar el cambio también vía
+`POST /api/spx/config` contra la URL de producción.
+
+**Símbolos de opciones:** el root correcto para las semanales/0DTE de SPX en Tradier es
+`SPXW` (no `SPX`, que es solo mensual) — confirmado contra su sandbox real.
+
+**Variables de entorno Tradier** (`.env`, prefijo `TRADIER_*` igual que `TT_*` para
+TastyTrade): `TRADIER_ACCESS_TOKEN`, `TRADIER_ACCOUNT_NUMBER`, `TRADIER_BASE_URL`
+(sandbox por defecto). No están en el volumen — hay que agregarlas también en las
+Variables del servicio en Railway (Settings → Variables), o el auto-deploy no las tiene.
+
+**Zona horaria:** `getETHour()` (`src/spx.js`) usa `America/New_York` real (vía
+`toLocaleString`), no un offset fijo — se ajusta solo con el horario de verano (EDT/EST).
+Antes tenía un bug de offset fijo UTC-5 que atrasaba 1 hora las ventanas en época de EDT.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`
@@ -69,6 +123,11 @@ TASTYTRADE_PASSWORD=
 TASTYTRADE_ACCOUNT=
 NTFY_TOPIC=
 RAILWAY_VOLUME_MOUNT_PATH=   # solo en Railway
+
+# Tradier (sandbox) — ver sección SPX 0DTE
+TRADIER_ACCESS_TOKEN=
+TRADIER_ACCOUNT_NUMBER=
+TRADIER_BASE_URL=https://sandbox.tradier.com/v1
 ```
 
 ## buildMetrics (`src/metrics.js`)
