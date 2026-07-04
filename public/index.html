@@ -1521,14 +1521,6 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   <div style="padding:8px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--card);">
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Desde</label><input type="date" id="bt-from" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;"></div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Hasta</label><input type="date" id="bt-to" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;"></div>
-    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Temporalidad</label>
-      <select id="bt-interval" onchange="btChangeInterval()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;">
-        <option value="2m">2 min</option>
-        <option value="15m" selected>15 min</option>
-        <option value="30m">30 min</option>
-        <option value="1h">1 hora</option>
-      </select>
-    </div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Score mín.</label><input type="number" id="bt-minscore" value="75" min="50" max="100" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
     <div style="display:flex;align-items:center;gap:5px;" title="Camino A (retroceso clasico) resulto perdedor neto en el backtest historico — desactivado por defecto"><label style="font-size:11px;color:var(--muted);">Camino A</label><input type="checkbox" id="bt-camino-a"></div>
     <div style="height:20px;width:1px;background:var(--border);"></div>
@@ -7844,10 +7836,6 @@ async function loadBacktester() {
   }, 200);
 }
 
-async function btChangeInterval() {
-  btChartData = [];
-  await runBT();
-}
 
 async function fetchBTData() {
   try {
@@ -7901,13 +7889,13 @@ async function fetchBTData() {
       c.fase2m = fase2mArr[i];
     });
 
-    // Cargar EMAs diarias desde Yahoo Finance
+    // Cargar EMAs diarias — via nuestro propio endpoint (no directo a Yahoo,
+    // que bloquea el fetch desde el navegador por CORS y dejaba estos criterios
+    // del playbook siempre en falso, aplanando el score a ~90% para toda señal)
     try {
-      const rd = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=2y',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const jd = await rd.json();
-      const closesD = jd.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(Boolean) || [];
-      const tsD     = jd.chart?.result?.[0]?.timestamp || [];
+      const rd = await fetch('/api/price-history/SPX?interval=1d&range=2y');
+      const dailyRaw = await rd.json();
+      const closesD = dailyRaw.map(d => d.close);
       if (closesD.length >= 200) {
         const calcEMA = (prices, p) => {
           const k=2/(p+1); let e=prices.slice(0,p).reduce((a,b)=>a+b,0)/p;
@@ -7917,13 +7905,9 @@ async function fetchBTData() {
         };
         const e10d=calcEMA(closesD,10), e20d=calcEMA(closesD,20), e200d=calcEMA(closesD,200);
         const dailyMap={};
-        let vi=0;
-        tsD.forEach((t,i)=>{
-          if(jd.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.[i]){
-            const d=new Date((t-18000)*1000).toISOString().slice(0,10);
-            dailyMap[d]={ema10:e10d[vi],ema20:e20d[vi],ema200:e200d[vi]};
-            vi++;
-          }
+        dailyRaw.forEach((d,i)=>{
+          const dateStr=new Date((d.time-18000)*1000).toISOString().slice(0,10);
+          dailyMap[dateStr]={ema10:e10d[i],ema20:e20d[i],ema200:e200d[i]};
         });
         // Asignar EMAs diarias a cada vela
         btChartData.forEach(c=>{
