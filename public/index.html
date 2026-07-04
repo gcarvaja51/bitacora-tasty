@@ -1593,15 +1593,13 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <!-- Bloques estadísticos -->
     <div id="bt-stats-blocks" style="margin-bottom:10px;"></div>
     <!-- Curva de capital + tabla días -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <div>
-        <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Curva de Capital</div>
-        <div id="bt-equity-chart" style="height:120px;"></div>
-      </div>
-      <div>
-        <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">P&L por Día</div>
-        <div id="bt-daily-bars" style="display:flex;gap:3px;align-items:flex-end;height:120px;overflow-x:auto;"></div>
-      </div>
+    <div>
+      <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Curva de Capital</div>
+      <div id="bt-equity-chart" style="height:420px;margin-bottom:14px;"></div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">P&L por Día</div>
+      <div id="bt-daily-bars" style="display:flex;gap:3px;align-items:flex-end;height:140px;overflow-x:auto;"></div>
     </div>
   </div>
 
@@ -8577,7 +8575,7 @@ function renderBTReport() {
   const eqEl = document.getElementById('bt-equity-chart');
   eqEl.innerHTML = '';
   const eqChart = LightweightCharts.createChart(eqEl, {
-    width: eqEl.clientWidth||400, height: 120,
+    width: eqEl.clientWidth||400, height: 420,
     layout:{background:{color:'transparent'},textColor:'#64748b'},
     grid:{vertLines:{color:'#1e2433'},horzLines:{color:'#1e2433'}},
     rightPriceScale:{borderColor:'#2d3748',scaleMargins:{top:0.1,bottom:0.1}},
