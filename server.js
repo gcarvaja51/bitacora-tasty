@@ -2129,6 +2129,15 @@ function saveSPXSignals(signals) {
   fs.writeFileSync(SPX_SIGNALS_FILE, JSON.stringify(signals, null, 2), 'utf8');
 }
 
+// ── Historial de ejecuciones en Tradier (dashboard independiente) ──
+const TRADIER_EXECUTIONS_FILE = path.join(DATA_DIR, 'tradier_executions.json');
+function loadTradierExecutions() {
+  try { return JSON.parse(fs.readFileSync(TRADIER_EXECUTIONS_FILE, 'utf8')); } catch(e) { return []; }
+}
+function saveTradierExecutions(execs) {
+  fs.writeFileSync(TRADIER_EXECUTIONS_FILE, JSON.stringify(execs, null, 2), 'utf8');
+}
+
 // GET /api/spx/context — contexto completo del mercado
 app.get('/api/spx/context', async (req, res) => {
   try {
@@ -2685,6 +2694,29 @@ app.post('/api/spx/webhook', async (req, res) => {
           signal.notes     = 'Auto-ejecutado en Tradier sandbox';
           signal.actionAt  = new Date().toISOString();
           console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym}`);
+
+          // Registro dedicado para el dashboard de seguimiento (no comparte
+          // el cap de 50 de spx_signals.json)
+          const executions = loadTradierExecutions();
+          executions.unshift({
+            id:            `tex-${Date.now()}`,
+            signalId:      signal.id,
+            timestamp:     signal.timestamp,
+            strategy:      signal.strategy,
+            direction:     signal.direction,
+            strikes:       signal.strikes,
+            expiry:        signal.strikes?.expiry,
+            contracts:     signal.contracts,
+            orderId:       order.orderId,
+            legs:          order.legs,
+            status:        'submitted',
+            entryFillPrice: null,
+            filledAt:      null,
+            closedAt:      null,
+            pnl:           null,
+            pnlSource:     null,
+          });
+          saveTradierExecutions(executions);
         }
       } catch(e) {
         signal.tradierOrder = { error: e.message };
@@ -2709,6 +2741,11 @@ app.post('/api/spx/webhook', async (req, res) => {
 // GET /api/spx/signals — lista de señales pendientes/historial
 app.get('/api/spx/signals', (req, res) => {
   res.json(loadSPXSignals());
+});
+
+// GET /api/tradier/executions — historial de ejecuciones para el dashboard demo
+app.get('/api/tradier/executions', (req, res) => {
+  res.json(loadTradierExecutions());
 });
 
 // POST /api/spx/signals/:id/action — ejecutar o rechazar
@@ -2936,6 +2973,73 @@ function scheduleExtrinsicChecks() {
   console.log(`[EXTR] Monitor iniciado — chequeo cada 15 min en horario de mercado`);
 }
 
+// ── Seguimiento de ejecuciones en Tradier (dashboard independiente) ──
+const TRADIER_TRACK_MS = 5 * 60 * 1000; // 5 min
+
+async function checkTradierExecutions() {
+  const executions = loadTradierExecutions();
+  const pendientes = executions.filter(e => e.status === 'submitted' || e.status === 'filled');
+  if (!pendientes.length) return;
+
+  console.log(`[TRADIER-TRACK] Revisando ${pendientes.length} ejecución(es) en curso...`);
+  let cambios = false;
+
+  for (const ex of pendientes) {
+    try {
+      const order = await tradier.getOrder(ex.orderId);
+      if (!order) continue;
+
+      // ¿Ya tiene fill?
+      if (ex.status === 'submitted' && (order.exec_quantity || 0) > 0) {
+        ex.status = 'filled';
+        ex.entryFillPrice = order.avg_fill_price || null;
+        ex.filledAt = new Date().toISOString();
+        cambios = true;
+        console.log(`[TRADIER-TRACK] Orden ${ex.orderId} llenada a $${ex.entryFillPrice}`);
+      }
+
+      // ¿La posición ya no existe? (se cerró, manual o por vencimiento)
+      if (ex.status === 'filled') {
+        const positions = await tradier.getPositions();
+        const symbolsAbiertos = new Set(positions.map(p => p.symbol));
+        const legSymbols = [ex.legs?.shortSym, ex.legs?.longSym].filter(Boolean);
+        const sigueAbierta = legSymbols.some(s => symbolsAbiertos.has(s));
+
+        if (!sigueAbierta) {
+          ex.status = 'closed';
+          ex.closedAt = new Date().toISOString();
+          const pnlList = await tradier.getClosedPnl(ex.timestamp.slice(0, 10));
+          const match = pnlList?.find(p => legSymbols.includes(p.symbol));
+          if (match && typeof match.gain_loss === 'number') {
+            ex.pnl = match.gain_loss;
+            ex.pnlSource = 'gainloss';
+          } else {
+            ex.pnl = null;
+            ex.pnlSource = 'pendiente_verificar';
+          }
+          cambios = true;
+          console.log(`[TRADIER-TRACK] Ejecución ${ex.orderId} cerrada — P&L: ${ex.pnl ?? 'pendiente de verificar'}`);
+        }
+      }
+    } catch(e) {
+      console.error(`[TRADIER-TRACK] Error revisando orden ${ex.orderId}:`, e.message);
+    }
+  }
+
+  if (cambios) saveTradierExecutions(executions);
+}
+
+function scheduleTradierTracking() {
+  async function tick() {
+    if (isMarketHours()) {
+      await checkTradierExecutions();
+    }
+    setTimeout(tick, TRADIER_TRACK_MS);
+  }
+  setTimeout(tick, 90 * 1000); // arranca 90s despues del boot
+  console.log('[TRADIER-TRACK] Monitor iniciado — chequeo cada 5 min en horario de mercado');
+}
+
 
 // ── Extrínseco — notify endpoint ─────────────────────────────
 app.post('/api/notify-extrinsic', async (req, res) => {
@@ -3119,6 +3223,7 @@ function scheduleDaily() {
 app.listen(PORT, async () => {
   console.log(`\n🚀  Bitácora Tasty → http://localhost:${PORT}`);
   scheduleExtrinsicChecks();
+  scheduleTradierTracking();
   console.log(`[ENV] Token length: ${(process.env.TT_SESSION_TOKEN || '').length}`);
   try {
     await tt.authenticate();

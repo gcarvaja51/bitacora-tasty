@@ -957,6 +957,9 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       <span class="nav-icon">⚡</span>
       <span class="nav-label">SPX Señales</span>
     </div>
+    <div class="nav-item" onclick="nav('tradierdemo',this)">
+      <span class="icon">🧪</span> Demo Tradier
+    </div>
     <div class="nav-item" onclick="nav('backtester',this)">
       <span class="icon">🔬</span> Backtester SPX
     </div>
@@ -1396,6 +1399,54 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       </div>
     </div>
 
+    <!-- ══ DEMO TRADIER ═══════════════════ -->
+    <div id="panel-tradierdemo" class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <div style="font-size:18px;font-weight:700;color:var(--bright);">🧪 Demo Tradier — Seguimiento</div>
+        <button onclick="loadTradierDemo()" class="btn btn-primary" style="padding:8px 18px;font-size:12px;">🔄 Actualizar</button>
+      </div>
+      <div class="kpi-row cols-4" id="tdemo-kpis" style="margin-bottom:16px;"></div>
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-header">Win Rate</div>
+          <div class="card-body">
+            <div class="gauge-wrap">
+              <div class="gauge-ring" id="tdemo-gauge-ring" style="--pct:0%">
+                <div class="gauge-inner">
+                  <div class="gauge-pct" id="tdemo-gauge-pct">—</div>
+                  <div class="gauge-lbl">WIN RATE</div>
+                </div>
+              </div>
+            </div>
+            <div id="tdemo-wr-detail" style="margin-top:8px;"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">P&amp;L por Estrategia</div>
+          <div class="card-body" id="tdemo-by-strategy"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">P&amp;L por Semana</div>
+          <div class="card-body chart-wrap">
+            <canvas id="tdemoWeeklyChart"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <div class="card-header">Historial de Ejecuciones</div>
+        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Solo Bull Put/Bear Call ejecutados automáticamente en el sandbox — no incluye Iron Condor ni débito (todavía manuales).</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Fecha</th><th>Dirección</th><th>Estrategia</th><th>Strikes</th>
+              <th>Estado</th><th>Fill entrada</th><th>P&amp;L</th>
+            </tr></thead>
+            <tbody id="tdemo-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div id="panel-wheel" class="panel">
       <div id="wheel-content"><div class="loader"><div class="spinner"></div></div></div>
     </div>
@@ -1680,6 +1731,7 @@ function nav(tab, el) {
   else if (tab==='alejandro') loadAlejandro();
   else if (tab==='today') loadToday();
   else if (tab==='backtester') loadBacktester();
+  else if (tab==='tradierdemo') loadTradierDemo();
 }
 
 // ══════════════════════════════════════════
@@ -5272,6 +5324,104 @@ async function loadSPX() {
     if (pendEl) pendEl.innerHTML = `<div style="color:var(--red);font-size:11px;">Error señales: ${e.message}</div>`;
     console.error('SPX signals error:', e);
   }
+}
+
+// ══════════════════════════════════════════
+//  DEMO TRADIER — dashboard de seguimiento
+// ══════════════════════════════════════════
+async function loadTradierDemo() {
+  const kpisEl = $('tdemo-kpis');
+  if (kpisEl) kpisEl.innerHTML = '<div style="color:var(--muted);font-size:11px;">Cargando...</div>';
+  try {
+    const r = await fetch('/api/tradier/executions');
+    const execs = await r.json();
+    renderTradierDemo(execs);
+  } catch(e) {
+    if (kpisEl) kpisEl.innerHTML = `<div style="color:var(--red);font-size:11px;">Error: ${e.message}</div>`;
+    console.error('Tradier demo error:', e);
+  }
+}
+
+function renderTradierDemo(execs) {
+  const total   = execs.length;
+  const closed  = execs.filter(e => e.status === 'closed' && typeof e.pnl === 'number');
+  const wins    = closed.filter(e => e.pnl > 0);
+  const losers  = closed.filter(e => e.pnl <= 0);
+  const winRate = closed.length ? +((wins.length / closed.length) * 100).toFixed(1) : 0;
+  const totalPnl = closed.reduce((s,e) => s + (e.pnl||0), 0);
+  const avgWin  = wins.length ? wins.reduce((s,e)=>s+e.pnl,0)/wins.length : 0;
+  const avgLoss = losers.length ? losers.reduce((s,e)=>s+e.pnl,0)/losers.length : 0;
+
+  $('tdemo-kpis').innerHTML = [
+    kpiCard('Ejecutadas', total, `${closed.length} cerradas, ${total-closed.length} en curso`),
+    kpiCard('P&L Acumulado', f$(totalPnl), `${closed.length} trades cerrados`, cc(totalPnl)),
+    kpiCard('Ganancia Prom.', fa$(avgWin), 'por trade ganador', 'pos'),
+    kpiCard('Pérdida Prom.', '-'+fa$(Math.abs(avgLoss)), 'por trade perdedor', 'neg'),
+  ].join('');
+
+  $('tdemo-gauge-ring').style.setProperty('--pct', winRate.toFixed(1)+'%');
+  $('tdemo-gauge-pct').textContent = winRate+'%';
+  $('tdemo-wr-detail').innerHTML = `
+    <div class="stat-row"><span class="stat-lbl">Ganadoras</span><span class="stat-val pos">${wins.length}</span></div>
+    <div class="stat-row"><span class="stat-lbl">Perdedoras</span><span class="stat-val neg">${losers.length}</span></div>
+    <div class="stat-row"><span class="stat-lbl">Sin cerrar</span><span class="stat-val dim">${total-closed.length}</span></div>
+  `;
+
+  // P&L por estrategia
+  const byStrat = {};
+  for (const e of closed) {
+    const k = e.strategy || '—';
+    if (!byStrat[k]) byStrat[k] = { trades: 0, pnl: 0 };
+    byStrat[k].trades++;
+    byStrat[k].pnl += e.pnl || 0;
+  }
+  const stratEntries = Object.entries(byStrat).sort((a,b)=>Math.abs(b[1].pnl)-Math.abs(a[1].pnl));
+  $('tdemo-by-strategy').innerHTML = stratEntries.length ? stratEntries.map(([k,d])=>`
+    <div class="stat-row">
+      <div><span class="td-bright" style="font-size:12px;">${k}</span><span class="dim" style="font-size:10px;margin-left:6px;">${d.trades} trades</span></div>
+      <span class="td-mono ${cc(d.pnl)}" style="font-size:12px;">${f$(d.pnl)}</span>
+    </div>`).join('') : '<div class="dim">Sin trades cerrados aún</div>';
+
+  // Weekly P&L chart
+  const byWeek = {};
+  for (const e of closed) {
+    const d = new Date(e.closedAt || e.timestamp);
+    const weekStart = new Date(d);
+    weekStart.setDate(d.getDate() - d.getDay());
+    const wk = weekStart.toISOString().slice(0,10);
+    byWeek[wk] = (byWeek[wk]||0) + (e.pnl||0);
+  }
+  const weeks = Object.keys(byWeek).sort();
+  const wVals = weeks.map(w=>byWeek[w]);
+  const ctx = $('tdemoWeeklyChart').getContext('2d');
+  if (S.charts.tdemoWeekly) S.charts.tdemoWeekly.destroy();
+  S.charts.tdemoWeekly = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: weeks.map(w=>w.slice(5)), datasets: [{ data: wVals, backgroundColor: wVals.map(v=>v>=0?'rgba(19,214,143,.7)':'rgba(240,79,90,.7)'), borderColor: wVals.map(v=>v>=0?'#13d68f':'#f04f5a'), borderWidth:1, borderRadius:3 }] },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}}},
+      scales:{x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9}},grid:{display:false}},y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.5)'}}}
+    }
+  });
+
+  // Tabla historial
+  $('tdemo-tbody').innerHTML = execs.length ? execs.map(e => {
+    const fecha = new Date(e.timestamp).toLocaleString('es-CO',{timeZone:'America/Bogota', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+    const strikesLabel = e.strikes ? `${e.strikes.shortStrike}/${e.strikes.longStrike}` : '—';
+    const estadoLabel = e.status === 'closed' ? '✅ Cerrado' : e.status === 'filled' ? '🟢 Llenado' : '⏳ Pendiente';
+    const pnlLabel = typeof e.pnl === 'number' ? f$(e.pnl) : (e.status==='closed' ? '⚠️ Verificar manual' : '—');
+    const pnlCls = typeof e.pnl === 'number' ? cc(e.pnl) : 'dim';
+    return `<tr>
+      <td class="td-mono" style="font-size:11px;">${fecha}</td>
+      <td class="${e.direction==='BULLISH'?'pos':'neg'}">${e.direction}</td>
+      <td>${e.strategy}</td>
+      <td class="td-mono">${strikesLabel}</td>
+      <td>${estadoLabel}</td>
+      <td class="td-mono">${e.entryFillPrice ? '$'+e.entryFillPrice : '—'}</td>
+      <td class="td-mono ${pnlCls}">${pnlLabel}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
 }
 
 async function testSPXSignal(direction) {

@@ -33,19 +33,50 @@ class TradierClient {
     return `${root}${yymmdd}${optType}${strikeStr}`;
   }
 
+  // Lista de posiciones abiertas de la cuenta (array normalizado, nunca null)
+  async getPositions() {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const data = await this._req(`/accounts/${this.accountNumber}/positions`);
+    const raw  = data.positions?.position;
+    return Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  }
+
+  // Lista de ordenes de la cuenta (array normalizado, nunca null)
+  async getOrders() {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`);
+    const raw  = data.orders?.order;
+    return Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  }
+
+  // Detalle de una orden puntual (fills por pata incluidos)
+  async getOrder(orderId) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const data = await this._req(`/accounts/${this.accountNumber}/orders/${orderId}`);
+    return data.order || null;
+  }
+
+  // P&L realizado de posiciones ya cerradas, desde una fecha (YYYY-MM-DD).
+  // Devuelve null si Tradier no trae el dato limpio — nunca inventa un numero.
+  async getClosedPnl(sinceDate) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    try {
+      const data = await this._req(`/accounts/${this.accountNumber}/gainloss?start=${sinceDate}`);
+      const raw  = data.gainloss?.closed_position;
+      const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+      return list;
+    } catch(e) {
+      return null;
+    }
+  }
+
   // Revisa si ya hay una posicion abierta o una orden en curso para el root dado
   // (ej. "SPXW") — evita apilar un trade nuevo antes de que el anterior cierre.
   async hasOpenPosition(root) {
-    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
-
-    const posData = await this._req(`/accounts/${this.accountNumber}/positions`);
-    const posRaw  = posData.positions?.position;
-    const posList = Array.isArray(posRaw) ? posRaw : (posRaw ? [posRaw] : []);
+    const posList = await this.getPositions();
     const hasPosition = posList.some(p => (p.symbol || '').startsWith(root));
 
-    const ordData = await this._req(`/accounts/${this.accountNumber}/orders`);
-    const ordRaw  = ordData.orders?.order;
-    const ordList = Array.isArray(ordRaw) ? ordRaw : (ordRaw ? [ordRaw] : []);
+    const ordList = await this.getOrders();
     const openStates = ['open', 'pending', 'partially_filled'];
     const hasOpenOrder = ordList.some(o => {
       if (!openStates.includes((o.status || '').toLowerCase())) return false;
