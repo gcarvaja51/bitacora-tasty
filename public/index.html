@@ -1519,8 +1519,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   </div>
   <!-- Fila 1: Fechas y temporalidad -->
   <div style="padding:8px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--card);">
-    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Desde</label><input type="date" id="bt-from" value="2026-06-10" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;"></div>
-    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Hasta</label><input type="date" id="bt-to" value="2026-06-19" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Desde</label><input type="date" id="bt-from" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Hasta</label><input type="date" id="bt-to" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;"></div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Temporalidad</label>
       <select id="bt-interval" onchange="btChangeInterval()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;">
         <option value="2m">2 min</option>
@@ -1541,8 +1541,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       </select>
     </div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Riesgo %</label><input type="number" id="bt-riesgo" value="2" min="0.5" max="10" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
-    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">TP %</label><input type="number" id="bt-tp" value="30" min="10" max="90" step="5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
-    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">SL x</label><input type="number" id="bt-sl" value="1.5" min="1" max="3" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">TP %</label><input type="number" id="bt-tp" value="25" min="10" max="90" step="5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">SL x</label><input type="number" id="bt-sl" value="2.0" min="1" max="3" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Delta</label><input type="number" id="bt-delta" value="0.12" min="0.05" max="0.50" step="0.01" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
     <div style="height:20px;width:1px;background:var(--border);"></div>
     <button onclick="runBT()" style="background:#3b82f6;color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">▶ Ejecutar</button>
@@ -7816,9 +7816,9 @@ function setChTipo(t) {
 const BT_WEIGHTS = {
   precio_ema200:         { label:'Precio > EMA200',    w:5  },
   emas_alineadas_diario: { label:'EMAs diarias',       w:5  },
-  emas_alineadas_15m:    { label:'EMAs 15m',           w:22 },
-  macd_alineado_15m:     { label:'MACD 15m',           w:28 },
-  precio_cerca_ema:      { label:'Precio cerca EMA',   w:20 },
+  emas_alineadas_15m:    { label:'EMAs 15m',           w:32 },
+  macd_alineado_15m:     { label:'MACD 15m',           w:8  },
+  precio_cerca_ema:      { label:'Precio cerca EMA',   w:30 },
   volumen_spy:           { label:'Volumen SPY',        w:12 },
   gex_compatible:        { label:'GEX compatible',     w:8  },
 };
@@ -7828,6 +7828,16 @@ let btSignals   = [];
 let btActiveIdx = null;
 
 async function loadBacktester() {
+  // Rango por defecto: la mayor cantidad de historia disponible (58 dias,
+  // limite real de Yahoo Finance para velas de 2m) — solo si el usuario no
+  // ya ajusto las fechas manualmente.
+  const fromEl = document.getElementById('bt-from'), toEl = document.getElementById('bt-to');
+  if (fromEl && !fromEl.value) {
+    const today = new Date();
+    const from = new Date(today.getTime() - 58*86400000);
+    toEl.value = today.toISOString().slice(0,10);
+    fromEl.value = from.toISOString().slice(0,10);
+  }
   if (!btChartData.length) await fetchBTData();
   setTimeout(() => {
     resizeBTCanvas();
@@ -7842,24 +7852,56 @@ async function btChangeInterval() {
 
 async function fetchBTData() {
   try {
-    const interval = document.getElementById('bt-interval')?.value || '15m';
-    // Usar endpoint local que trae datos de TastyTrade (hasta 42 días en 2m)
-    const rangeMap = {'2m':'60d','15m':'60d','30m':'60d','1h':'60d','1d':'1y'};
-    const range = rangeMap[interval] || '60d';
-    const r = await fetch(`/api/price-history/SPX?interval=${interval}&range=${range}`);
+    // CIARG_V1 necesita 2m (entrada) y 15m (marco maestro) simultaneamente —
+    // siempre traemos 2m (60 dias, limite real de Yahoo) y derivamos el 15m
+    // remuestreando del lado del cliente. El dropdown de "Temporalidad" ya no
+    // cambia la granularidad de evaluacion (CIARG_V1 siempre corre en 2m+15m).
+    const r = await fetch(`/api/price-history/SPX?interval=2m&range=60d`);
     const raw = await r.json();
-    // Calcular EMAs y MACD
+    // Calcular EMAs, MACD, CCI/ATR (Trend Magic)
     const closes = raw.map(c => c.close);
     const e10 = btEMA(closes, 10);
     const e20 = btEMA(closes, 20);
     const [ml, ms, mh] = btMACD(closes);
+    const cciArr = btCCI(raw, 20);
+    const atrArr = btATR(raw, 5);
+    const magicTrend = new Array(raw.length).fill(null);
+    for (let i = 0; i < raw.length; i++) {
+      if (cciArr[i] == null || atrArr[i] == null) continue;
+      const upT = raw[i].low - atrArr[i];
+      const downT = raw[i].high + atrArr[i];
+      const prev = magicTrend[i - 1];
+      if (cciArr[i] >= 0) magicTrend[i] = (prev != null && upT < prev) ? prev : upT;
+      else magicTrend[i] = (prev != null && downT > prev) ? prev : downT;
+    }
     btChartData = raw.map((c,i) => ({
       ...c,
       ema10: e10[i], ema20: e20[i],
-      macdL: ml[i],  macdH: mh[i],
+      macdL: ml[i], macdS: ms[i], macdH: mh[i],
+      magicTrend: magicTrend[i],
       dt_col: (() => { const d = new Date((c.time - 18000) * 1000); return d.toISOString().slice(0,16).replace('T',' '); })(),
       timeCol: c.time - 18000
     }));
+
+    // Marco maestro 15m — remuestreo de las mismas velas de 2m, alineado a
+    // bloques de reloj ET (9:30, 9:45, 10:00...), para el gate Weinstein.
+    const btMaster15 = btResample15m(btChartData);
+    const master15Closes = btMaster15.map(b => b.close);
+    const master15Phases = new Array(btMaster15.length).fill(null);
+    for (let j = 29; j < btMaster15.length; j++) master15Phases[j] = btWeinsteinPhase(master15Closes.slice(0, j + 1));
+
+    // Fase Weinstein del propio 2m (incremental sobre EMAs ya calculadas —
+    // equivalente matematicamente a recalcular desde cero por vela, pero O(n))
+    const fase2mArr = btFasePorBar(closes, e10, e20);
+
+    // Mapear cada vela de 2m a la fase del bucket de 15m vigente (una sola pasada)
+    let masterIdx = -1;
+    btChartData.forEach((c, i) => {
+      while (masterIdx + 1 < btMaster15.length && btMaster15[masterIdx + 1].time <= c.time) masterIdx++;
+      c.faseMaster15 = masterIdx >= 29 ? master15Phases[masterIdx] : null;
+      c.fase2m = fase2mArr[i];
+    });
+
     // Cargar EMAs diarias desde Yahoo Finance
     try {
       const rd = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=2y',
@@ -7921,6 +7963,99 @@ function btMACD(closes, fast=12, slow=26, signal=9) {
   return [ml, sf, mh];
 }
 
+// ── CIARG_V1: Trend Magic (CCI+ATR), remuestreo 15m, fases Weinstein ──
+function btCCI(bars, period) {
+  const tp = bars.map(b => (b.high + b.low + b.close) / 3);
+  const out = new Array(bars.length).fill(null);
+  for (let i = 0; i < bars.length; i++) {
+    if (i < period - 1) continue;
+    const slice = tp.slice(i - period + 1, i + 1);
+    const sma = slice.reduce((a,b)=>a+b,0) / period;
+    const meanDev = slice.reduce((a,b)=>a+Math.abs(b-sma),0) / period;
+    out[i] = meanDev === 0 ? 0 : (tp[i]-sma) / (0.015*meanDev);
+  }
+  return out;
+}
+
+function btATR(bars, period) {
+  const tr = bars.map((b,i) => {
+    if (i===0) return b.high-b.low;
+    const pc = bars[i-1].close;
+    return Math.max(b.high-b.low, Math.abs(b.high-pc), Math.abs(b.low-pc));
+  });
+  const out = new Array(bars.length).fill(null);
+  for (let i=0;i<bars.length;i++){
+    if (i<period-1) continue;
+    let sum=0; for(let j=i-period+1;j<=i;j++) sum+=tr[j];
+    out[i]=sum/period;
+  }
+  return out;
+}
+
+function btEtParts(unixSec) {
+  const d = new Date(unixSec * 1000);
+  const etStr = d.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
+  let [hh, mm] = etStr.split(':').map(Number);
+  if (hh === 24) hh = 0;
+  const dateStr = d.toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+  return { hour: hh, min: mm, mins: hh * 60 + mm, date: dateStr };
+}
+
+// Bloques de 15 min alineados al reloj ET (9:30, 9:45, 10:00...) — no una
+// agrupacion por conteo fijo de velas (2m no divide exacto en 15m).
+function btResample15m(bars2m) {
+  const buckets = [];
+  let cur = null, curKey = null;
+  for (const b of bars2m) {
+    const et = btEtParts(b.time);
+    const key = et.date + '_' + Math.floor(et.mins / 15);
+    if (key !== curKey) {
+      if (cur) buckets.push(cur);
+      cur = { time: b.time, close: b.close, high: b.high, low: b.low };
+      curKey = key;
+    } else {
+      cur.close = b.close;
+      cur.high = Math.max(cur.high, b.high);
+      cur.low = Math.min(cur.low, b.low);
+    }
+  }
+  if (cur) buckets.push(cur);
+  return buckets;
+}
+
+function btWeinsteinPhase(closesUpTo) {
+  if (closesUpTo.length < 30) return null;
+  const price = closesUpTo[closesUpTo.length-1];
+  const e10arr = btEMA(closesUpTo, 10);
+  const e20arr = btEMA(closesUpTo, 20);
+  const e10 = e10arr[e10arr.length-1];
+  const e20 = e20arr[e20arr.length-1];
+  const e20prevArr = btEMA(closesUpTo.slice(0,-1), 20);
+  const e20prev = e20prevArr[e20prevArr.length-1];
+  const rising = e20 > e20prev;
+  if (price > e20 && e10 > e20 && rising) return 2;
+  if (price < e20 && e10 < e20 && !rising) return 4;
+  if (price >= e20*0.99 && price <= e20*1.01) return 1;
+  return 3;
+}
+
+// Version O(n) de btWeinsteinPhase para el propio 2m — usa los arrays de EMA
+// ya calculados sobre toda la serie (equivalente matematicamente, ya que EMA
+// es un filtro causal: no cambia si se "mira" desde un indice posterior).
+function btFasePorBar(closes, e10arr, e20arr) {
+  const out = new Array(closes.length).fill(null);
+  for (let i = 29; i < closes.length; i++) {
+    const price = closes[i], e10 = e10arr[i], e20 = e20arr[i], e20prev = e20arr[i-1];
+    if (e10==null || e20==null || e20prev==null) continue;
+    const rising = e20 > e20prev;
+    if (price > e20 && e10 > e20 && rising) out[i] = 2;
+    else if (price < e20 && e10 < e20 && !rising) out[i] = 4;
+    else if (price >= e20*0.99 && price <= e20*1.01) out[i] = 1;
+    else out[i] = 3;
+  }
+  return out;
+}
+
 // ── BS helpers ─────────────────────────────────────────────
 function btN(x){return 0.5*(1+btErf(x/Math.sqrt(2)));}
 function btErf(x){const t=1/(1+0.3275911*Math.abs(x));const y=1-t*(0.254829592+t*(-0.284496736+t*(1.421413741+t*(-1.453152027+t*1.061405429))))*Math.exp(-x*x);return x>=0?y:-y;}
@@ -7971,15 +8106,51 @@ async function runBT() {
   });
 
   btSignals = [];
-  let prevDir = null;
-  let lastSigI = -99;
+  let lastFireBull = -999, lastFireBear = -999;
+  const GAP_BARS_B = 10; // 20 min entre disparos del Camino B (confluencia fresca)
 
   filtered.forEach((c,i) => {
-    if (i < 25 || !c.ema10 || !c.ema20 || c.macdH==null) return;
-    const secsInDay = (c.timeCol||c.time-18000) % 86400; // segundos del día en COL
-    if (secsInDay < 30600 || secsInDay > 54000) return; // 8:30-15:00 COL
-    if (i - lastSigI < 8) return;
+    if (i < 30 || !c.ema10 || !c.ema20 || c.macdL==null || c.macdS==null || c.magicTrend==null) return;
 
+    // Ventana horaria real de produccion: 9:45am-3pm ET (DST-aware, no COL fijo)
+    const et = btEtParts(c.time);
+    const inTimeWindow = (et.hour > 9 || (et.hour === 9 && et.min >= 45)) && et.hour < 15;
+    if (!inTimeWindow) return;
+
+    const prevC = filtered[i-1];
+    if (!prevC || prevC.ema10==null || prevC.macdL==null) return;
+
+    // Camino A — retroceso clasico (Trend Magic + SlingShot + MACD), igual que Pine
+    const entryUp = c.ema10 > c.ema20 && prevC.close < prevC.ema10 && c.close > c.ema10;
+    const entryDn = c.ema10 < c.ema20 && prevC.close > prevC.ema10 && c.close < c.ema10;
+    const emaSlope  = c.ema10 - prevC.ema10;
+    const macdSlope = c.macdL - prevC.macdL;
+    const longConditionA  = emaSlope>0 && c.close>c.magicTrend && entryUp && macdSlope>0 && c.macdL>c.macdS;
+    const shortConditionA = emaSlope<0 && c.close<c.magicTrend && entryDn && macdSlope<0 && c.macdL<c.macdS;
+
+    // Camino B — confluencia fresca sostenida, gateada por el marco maestro 15m,
+    // con gap minimo de 20 min entre disparos (evita re-disparar cada vela)
+    const coreAlignBull = c.close>c.magicTrend && c.ema10>c.ema20 && c.macdL>c.macdS && c.faseMaster15===2;
+    const coreAlignBear = c.close<c.magicTrend && c.ema10<c.ema20 && c.macdL<c.macdS && c.faseMaster15===4;
+    const freshBull = coreAlignBull && (i - lastFireBull) >= GAP_BARS_B;
+    const freshBear = coreAlignBear && (i - lastFireBear) >= GAP_BARS_B;
+    if (freshBull) lastFireBull = i;
+    if (freshBear) lastFireBear = i;
+
+    const bullFires = longConditionA || freshBull;
+    const bearFires = shortConditionA || freshBear;
+    if (!bullFires && !bearFires) return;
+
+    const dirCandidate = bullFires ? 'BULLISH' : 'BEARISH';
+    const camino = dirCandidate==='BULLISH' ? (longConditionA?'A':'B') : (shortConditionA?'A':'B');
+
+    // Gate Weinstein — confluencia 2m+15m, mismo re-chequeo independiente que hace
+    // el servidor en /api/spx/webhook antes de aceptar la señal de Pine
+    const gateOK = c.fase2m!=null && c.faseMaster15!=null && c.fase2m===c.faseMaster15 && (c.fase2m===2||c.fase2m===4);
+    const passWeinstein = gateOK && ((dirCandidate==='BULLISH' && c.fase2m===2) || (dirCandidate==='BEARISH' && c.fase2m===4));
+    if (!passWeinstein) return;
+
+    // Gate adicional: score del playbook (pesos corregidos), igual que produccion
     const evalDir = (dir) => {
       const isBear = dir==='BEARISH';
 
@@ -8002,13 +8173,10 @@ async function runBT() {
       return {score,cr};
     };
 
-    const bear = evalDir('BEARISH');
-    const bull = evalDir('BULLISH');
-    let dir=null, score=0, criterios={};
-    if (bear.score>=minS && bear.score>=bull.score) { dir='BEARISH'; score=bear.score; criterios=bear.cr; }
-    else if (bull.score>=minS) { dir='BULLISH'; score=bull.score; criterios=bull.cr; }
-    if (!dir || dir===prevDir) return;
-    prevDir=dir; lastSigI=i;
+    const evald = evalDir(dirCandidate);
+    if (evald.score < minS) return;
+
+    const dir = dirCandidate, score = evald.score, criterios = evald.cr;
 
     const isBear = dir==='BEARISH';
     const S = c.close;
@@ -8070,7 +8238,7 @@ async function runBT() {
 
     btSignals.push({
       fecha:(c.dt_col||'').slice(0,10), hora_col:(c.dt_col||'').slice(11,16),
-      direction:dir, price:c.close, ema10:c.ema10, ema20:c.ema20,
+      direction:dir, camino, price:c.close, ema10:c.ema10, ema20:c.ema20,
       macd_hist:c.macdH, score, criterios,
       estrategia:`${isBear?'Bear Call':'Bull Put'} ${shortS}/${longS}`,
       shortStrike:shortS, longStrike:longS, credito, dist:+dist.toFixed(0),
@@ -8136,7 +8304,7 @@ async function runBT() {
               </span>
             </td>
             <td style="padding:4px 8px;font-family:monospace;font-size:10px;">$${s.price.toFixed(0)}</td>
-            <td style="padding:4px 8px;color:#60a5fa;font-size:9px;">${s.estrategia}</td>
+            <td style="padding:4px 8px;color:#60a5fa;font-size:9px;">${s.estrategia} <span style="color:var(--muted)">· ${s.camino}</span></td>
             <td style="padding:4px 8px;color:var(--muted);font-size:9px;">${s.dist}p</td>
             <td style="padding:4px 8px;font-family:monospace;font-size:10px;">$${s.credito}</td>
             <td style="padding:4px 8px;color:#fbbf24;font-size:10px;">⚡${s.score}%</td>
@@ -8173,6 +8341,7 @@ function showBTDetail(idx) {
   const colateral=(s.spreadWidth||20)*100;
   grid.innerHTML=`
     <div class="bt-di"><div class="lbl">Estrategia</div><div class="val" style="color:#60a5fa;font-size:11px">${s.estrategia}</div></div>
+    <div class="bt-di"><div class="lbl">Camino</div><div class="val">${s.camino==='A'?'A (retroceso)':'B (confl. fresca)'}</div></div>
     <div class="bt-di"><div class="lbl">SPX entrada</div><div class="val">$${s.price.toLocaleString()}</div></div>
     <div class="bt-di"><div class="lbl">Crédito neto</div><div class="val" style="color:#34d399">$${(s.credito*100).toFixed(0)}</div></div>
     <div class="bt-di"><div class="lbl">Spread width</div><div class="val">${s.spreadWidth||20} pts</div></div>
@@ -8187,13 +8356,14 @@ function showBTDetail(idx) {
     <div class="bt-di"><div class="lbl">Colateral</div><div class="val">$${colateral.toLocaleString()}</div></div>
   `;
   const bars=document.getElementById('bt-pb-bars');
+  const btMaxW = Math.max(...Object.values(BT_WEIGHTS).map(x=>x.w));
   bars.innerHTML='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Playbook Score</div>'+
     Object.keys(BT_WEIGHTS).map(k=>{
       const ok=s.criterios&&s.criterios[k];
       const w=BT_WEIGHTS[k].w;
       return `<div class="bt-pb-row">
         <div class="bt-pb-lbl">${ok?'✅':'❌'} ${BT_WEIGHTS[k].label}</div>
-        <div class="bt-pb-bg"><div class="bt-pb-fill" style="width:${ok?(w/28*100):0}%;background:${ok?'#3b82f6':'#374151'}"></div></div>
+        <div class="bt-pb-bg"><div class="bt-pb-fill" style="width:${ok?(w/btMaxW*100):0}%;background:${ok?'#3b82f6':'#374151'}"></div></div>
         <div class="bt-pb-pts">${ok?w:0}</div>
       </div>`;
     }).join('');
