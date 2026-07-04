@@ -18,7 +18,13 @@ Dashboard de trading personal conectado a TastyTrade. Node.js/Express + vanilla 
 | `src/tastytrade.js` | Cliente HTTP a la API de TastyTrade (auth, transacciones, posiciones, precios) |
 | `src/metrics.js` | Cálculo de P&L, equity curve, calendar |
 | `public/index.html` | SPA completa (~5000 líneas). Todo el frontend en un archivo |
-| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v2`) |
+| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v3`) |
+
+**Archivos sueltos sin usar (pendiente de revisar/limpiar):** `index.html` y
+`spx_backtester.html` en la raíz del repo, y un `public/server.js` duplicado — no están
+documentados en este archivo ni referenciados por `server.js` (el real, en la raíz). Parecen
+prototipos previos al `Backtester SPX` actual dentro de `public/index.html`. No se tocaron
+esta sesión — confirmar antes de borrar si tienen algo de valor.
 
 ## Persistencia de datos
 
@@ -67,11 +73,14 @@ las estrategias direccionales de crédito.
 **Flujo completo:**
 1. **TradingView** (`CIARG_V1`, chart SPX 2m) corre el indicador base del mentor (Trend Magic
    CCI+ATR, CM SlingShot EMA10/20+retroceso, MACD slope) + una capa nuestra encima: fase
-   Weinstein de 15m como marco maestro, y la señal final por **Camino A** (retroceso clásico
-   del mentor) **o Camino B** (confluencia recién formada — sin exigir retroceso, con gap
-   mínimo de 20 min entre disparos para no repetir en cada barra de una tendencia sostenida).
-   Solo dispara `alert()` para la entrada (BULLISH/BEARISH); no manda contexto 15m ni stop
-   técnico — el servidor calcula esas dos cosas por su cuenta.
+   Weinstein de 15m como marco maestro, y la señal final **solo por Camino B** (confluencia
+   recién formada — sin exigir retroceso, gap mínimo de **60 min** entre disparos para no
+   repetir en cada barra de una tendencia sostenida). El **Camino A** (retroceso clásico del
+   mentor) se desactivó en `sig_bull_B`/`sig_bear_B` tras el backtest del 2026-07-03: 48.8%
+   WR y P&L neto negativo en 41 señales sobre 58 días, vs 67.8% WR / +$975 del Camino B —
+   `longCondition`/`shortCondition` se siguen calculando y mostrando en la tabla de info,
+   solo ya no disparan la alerta. Solo dispara `alert()` para la entrada (BULLISH/BEARISH);
+   no manda contexto 15m ni stop técnico — el servidor calcula esas dos cosas por su cuenta.
 2. **`POST /api/spx/webhook`** recibe la alerta y **revalida todo de forma independiente**
    (no confía en lo que diga Pine): confluencia Weinstein 2m+15m con su propio cálculo desde
    Yahoo Finance, score del playbook (`calcPlaybookScore`, pesos en `SPX_CONFIG_DEFAULTS.weights`
@@ -96,6 +105,19 @@ vive en `DATA_DIR`, que en Railway es el **volumen persistente**, no el código 
 Cambiar los defaults en `server.js` y hacer push **no actualiza el archivo real que usa
 producción** si ya existe uno guardado ahí — hay que empujar el cambio también vía
 `POST /api/spx/config` contra la URL de producción.
+
+**Parámetros de trading actuales en producción** (`spxConfig.trading`, ajustados el
+2026-07-03 tras el backtest de 58 días): `targetDelta: 0.30`, `tpPct: 30`, `slMult: 1.5`.
+El default de `SPX_CONFIG_DEFAULTS.trading.targetDelta` en `server.js` sigue en `0.40` —
+no coincide con el valor real de producción a propósito (ver gotcha de arriba): si alguna
+vez se borra `spx_config.json` en el volumen, el sistema caería de vuelta al 0.40 sin avisar.
+
+**Backtester SPX** (`public/index.html`, tab "Backtester SPX", función `runBT()`): corre la
+misma lógica de entrada de CIARG_V1 (Trend Magic + SlingShot + MACD + gate Weinstein 2m+15m
++ Camino B únicamente) contra 58 días reales de Yahoo Finance (límite de velas de 2m), con
+P&L simulado vía Black-Scholes (IV fija 17.5%, sin datos históricos de cadena de opciones
+reales — no existen en ningún proveedor). Pesos del playbook (`BT_WEIGHTS`) deben mantenerse
+sincronizados a mano con `SPX_CONFIG_DEFAULTS.weights` de `server.js` si se vuelven a tocar.
 
 **Símbolos de opciones:** el root correcto para las semanales/0DTE de SPX en Tradier es
 `SPXW` (no `SPX`, que es solo mensual) — confirmado contra su sandbox real.
@@ -163,7 +185,7 @@ El servidor mantiene caché en memoria con TTL de 120 segundos para llamadas a T
 
 ## Service Worker
 
-Cache actual: `bitacora-v2`. Para forzar actualización en todos los clientes, bumpar la versión en `public/sw.js`. Si un cliente tiene cache viejo, ejecutar en consola del browser:
+Cache actual: `bitacora-v3`. Para forzar actualización en todos los clientes, bumpar la versión en `public/sw.js`. El fetch handler solo intercepta esquemas `http`/`https` (esquemas como `chrome-extension://` rompían `cache.put()`). Si un cliente tiene cache viejo, ejecutar en consola del browser:
 ```js
 navigator.serviceWorker.getRegistrations().then(r=>Promise.all(r.map(x=>x.unregister()))).then(()=>caches.keys()).then(k=>Promise.all(k.map(x=>caches.delete(x)))).then(()=>location.reload())
 ```
