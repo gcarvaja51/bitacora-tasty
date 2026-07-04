@@ -97,8 +97,9 @@ las estrategias direccionales de crédito.
    Tradier sandbox (`src/tradier.js`) — **sin confirmación manual**. Antes de mandar la orden,
    `hasOpenPosition('SPXW')` revisa posiciones y órdenes en curso; si ya hay un trade abierto,
    la señal se guarda como sugerencia pero no se ejecuta (evita apilar posiciones).
-5. Iron Condor y verticales de débito (Bull Call/Bear Put) llegan al Signal Center como
-   sugerencia manual — todavía no están conectadas a Tradier.
+5. Iron Condor (0DTE y 1DTE) tiene su propio pipeline paralelo, ver sección dedicada
+   abajo. Las verticales de débito (Bull Call/Bear Put) siguen llegando al Signal Center
+   como sugerencia manual — no están conectadas a Tradier.
 
 **Gotcha importante:** `spx_config.json` (pesos del playbook, TP/SL, `tradierAutoExecute`)
 vive en `DATA_DIR`, que en Railway es el **volumen persistente**, no el código desplegado.
@@ -111,6 +112,52 @@ producción** si ya existe uno guardado ahí — hay que empujar el cambio tambi
 El default de `SPX_CONFIG_DEFAULTS.trading.targetDelta` en `server.js` sigue en `0.40` —
 no coincide con el valor real de producción a propósito (ver gotcha de arriba): si alguna
 vez se borra `spx_config.json` en el volumen, el sistema caería de vuelta al 0.40 sin avisar.
+
+**Bug corregido (2026-07-04):** `findStrikesByDelta` (`src/spx.js`) recibía `targetDelta`/
+`spreadWidth` como argumentos desde `server.js` pero no los declaraba en su firma — los
+ignoraba silenciosamente y usaba 0.10-0.14/20pts fijos para toda estrategia. Esto
+significaba que los cambios de delta/ancho en `spx_config.json` **nunca se aplicaban de
+verdad** a las señales en vivo. Ya está arreglado (parámetros con default = comportamiento
+viejo si no se pasan).
+
+## Iron Condor (0DTE + 1DTE) — pipeline independiente
+
+A diferencia de las direccionales, el Iron Condor **no depende de una alerta de Pine** —
+CIARG_V1 nunca manda `direction: NEUTRAL`, y el gate obligatorio de confluencia Weinstein
+(fase 2/4) es incompatible con la tesis del IC (rango, sin tendencia). En vez de eso:
+
+1. `checkIronCondor()` en `server.js` corre cada 5 min via `setInterval`, evaluando el
+   contexto de mercado (`buildSPXContext()`, la misma función que usa
+   `GET /api/spx/context`) contra `evaluateIronCondorGate(ctx, dte)` en `src/spx.js` —
+   gate propio, playbook profesor Alejandro: GEX positivo + buffer de Gamma Flip
+   (compartido 0DTE/1DTE), más para 0DTE: Fase Weinstein 15m 1 o 3, MACD 15m aplanado,
+   rango de apertura respetado, ventana 10am-1pm ET; para 1DTE: ventana 3:45-3:50pm ET,
+   rechazo total si VIX>24 (el 0DTE solo ajusta el ancho de alas a 10pts si VIX>24, no
+   rechaza). El chequeo de calendario económico del 1DTE (eventos macro de la mañana
+   siguiente) **no se automatiza** — no hay fuente de datos, queda como nota manual en
+   la señal.
+2. Si pasa, arma la señal (4 patas: put corta/larga + call corta/larga, delta configurable
+   vía `spxConfig.trading.ironCondor`) y, si `ironCondor.tradierAutoExecute !== false`
+   (kill-switch **propio**, separado del de las direccionales), la ejecuta en Tradier vía
+   `tradier.placeIronCondorOrder()` (orden multi-leg de 4 patas).
+3. `checkIronCondorTPSL()` (cada 90s en horario de mercado) es el **primer cierre activo
+   de posiciones de todo el sistema** — todo lo demás (`checkTradierExecutions`, cada
+   5 min) es pasivo: solo detecta que una posición desapareció y registra el P&L después
+   del hecho, nunca coloca una orden de cierre. Este monitor sí lo hace: confirma el
+   fill (crédito neto real desde `avg_fill_price`), trae cotizaciones en vivo de las 4
+   patas (`tradier.getQuotes()`, contra el propio sandbox de Tradier — no TastyTrade,
+   la posición vive ahí), calcula cuánto costaría cerrar ahora, y cierra
+   (`tradier.closeIronCondorOrder()`) cuando el P&L cruza `tpPct` o `-slMult` del
+   crédito recibido.
+4. **Fuera de alcance a propósito:** el stop técnico (Fractal/Muro Gamma) sigue siendo
+   solo informativo, igual que en las direccionales; la defensa "lotería" (cerrar solo
+   la pata amenazada y dejar la otra como cobertura) no está automatizada.
+
+**Gotcha de limpieza:** las órdenes de prueba en el sandbox de Tradier a veces quedan en
+estado `pending` indefinidamente (no auto-fillean) — mientras existan, `hasOpenPosition`
+las cuenta como "trade en curso" y bloquea que se genere una señal real nueva. Si el
+sistema deja de generar señales sin motivo aparente, revisar `tradier.getOrders()` por
+huérfanas de pruebas anteriores.
 
 **Backtester SPX** (`public/index.html`, tab "Backtester SPX", función `runBT()`): corre la
 misma lógica de entrada de CIARG_V1 (Trend Magic + SlingShot + MACD + gate Weinstein 2m+15m
