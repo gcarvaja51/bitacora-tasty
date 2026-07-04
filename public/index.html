@@ -1543,8 +1543,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     </div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Riesgo %</label><input type="number" id="bt-riesgo" value="2" min="0.5" max="10" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">TP %</label><input type="number" id="bt-tp" value="25" min="10" max="90" step="5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
-    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">SL x</label><input type="number" id="bt-sl" value="2.0" min="1" max="3" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
-    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Delta</label><input type="number" id="bt-delta" value="0.12" min="0.05" max="0.50" step="0.01" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">SL x</label><input type="number" id="bt-sl" value="1.5" min="1" max="3" step="0.5" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:50px;"></div>
+    <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Delta</label><input type="number" id="bt-delta" value="0.11" min="0.05" max="0.50" step="0.01" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
     <div style="height:20px;width:1px;background:var(--border);"></div>
     <button onclick="runBT()" style="background:#3b82f6;color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">▶ Ejecutar</button>
     <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;color:var(--muted);">Señales: <span id="bt-total" style="color:var(--text);font-weight:600;">—</span></span>
@@ -8109,7 +8109,10 @@ async function runBT() {
 
   btSignals = [];
   let lastFireBull = -999, lastFireBear = -999;
-  const GAP_BARS_B = 10; // 20 min entre disparos del Camino B (confluencia fresca)
+  // 30 barras (60 min) entre disparos del Camino B — el backtest de 58 dias mostro
+  // que 20 min (10 barras) permitia demasiadas entradas tardias en una misma tendencia
+  // ya extendida (peor R:R): 64.6% WR -> 76.8% WR al ampliar el gap a 60 min.
+  const GAP_BARS_B = 30;
 
   filtered.forEach((c,i) => {
     if (i < 30 || !c.ema10 || !c.ema20 || c.macdL==null || c.macdS==null || c.magicTrend==null) return;
