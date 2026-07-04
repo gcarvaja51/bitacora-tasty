@@ -2097,6 +2097,7 @@ const SPX_CONFIG_DEFAULTS = {
       tpPct:       25,          // 25-40% del credito — cerrar al 25% eleva la prob. de exito a 94%
       slMult:      1.5,         // 1.5x o 2x el credito recibido
       gammaFlipBufferPts: 20,   // no operar si el precio esta a menos de esto del Gamma Flip
+      tradierAutoExecute: true, // kill-switch propio del IC, separado del de las direccionales
     },
   }
 };
@@ -2832,6 +2833,54 @@ async function checkIronCondor() {
     signal.trading = { tpPct: icCfg.tpPct, slMult: icCfg.slMult, spreadWidth: gate.spreadWidth };
     if (gate.note) signal.notes = gate.note;
 
+    // ── Ejecución automática en Tradier (sandbox) — kill-switch propio del IC ──
+    if (icCfg.tradierAutoExecute !== false) {
+      try {
+        const order = await tradier.placeIronCondorOrder({
+          underlyingRoot:   'SPXW',
+          expiry:           strikes.expiry,
+          putShortStrike:   strikes.shortStrike,
+          putLongStrike:    strikes.longStrike,
+          callShortStrike:  strikes.callShortStrike,
+          callLongStrike:   strikes.callLongStrike,
+          quantity:         contracts,
+        });
+        signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
+        signal.status   = 'EXECUTED';
+        signal.notes    = (signal.notes ? signal.notes + ' | ' : '') + 'Auto-ejecutado en Tradier sandbox';
+        signal.actionAt = new Date().toISOString();
+        console.log(`[Tradier-IC] ✅ Orden enviada: ${order.orderId} (${order.status})`);
+
+        const executions = loadTradierExecutions();
+        executions.unshift({
+          id:            `tex-${Date.now()}`,
+          signalId:      signal.id,
+          timestamp:     signal.timestamp,
+          strategy:      'IRON_CONDOR',
+          expType:       dte,
+          strikes:       signal.strikes,
+          expiry:        strikes.expiry,
+          contracts,
+          orderId:       order.orderId,
+          legs:          order.legs,
+          status:        'submitted',
+          entryFillPrice: null,
+          creditReceived: null,
+          tpPct:         icCfg.tpPct,
+          slMult:        icCfg.slMult,
+          filledAt:      null,
+          closedAt:      null,
+          closeReason:   null,
+          pnl:           null,
+          pnlSource:     null,
+        });
+        saveTradierExecutions(executions);
+      } catch(e) {
+        signal.tradierOrder = { error: e.message };
+        console.error('[Tradier-IC] ❌ Error enviando orden:', e.message);
+      }
+    }
+
     signals.unshift(signal);
     saveSPXSignals(signals.slice(0, 50));
     console.log(`[SPX-IC ${dte}] ✅ Señal generada: put ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} — call ${signal.strikes?.callShortStrike}/${signal.strikes?.callLongStrike}`);
@@ -2840,6 +2889,82 @@ async function checkIronCondor() {
   }
 }
 setInterval(checkIronCondor, 5 * 60 * 1000);
+
+// ── Monitor activo de TP/SL para Iron Condor (primer cierre activo del sistema —
+// todo lo demas hoy solo registra P&L despues del hecho, ver checkTradierExecutions) ──
+async function checkIronCondorTPSL() {
+  try {
+    if (!isMarketHours()) return;
+    const executions = loadTradierExecutions();
+    const abiertas = executions.filter(e => e.strategy === 'IRON_CONDOR' && (e.status === 'submitted' || e.status === 'filled'));
+    if (!abiertas.length) return;
+
+    let cambios = false;
+    for (const ex of abiertas) {
+      // 1. Confirmar fill si aun no se confirmo — esperar al siguiente ciclo para
+      // evaluar TP/SL una vez que sepamos el credito real recibido.
+      if (ex.status === 'submitted') {
+        const order = await tradier.getOrder(ex.orderId);
+        if (order && (order.exec_quantity || 0) > 0) {
+          ex.status = 'filled';
+          ex.entryFillPrice = order.avg_fill_price || null;
+          ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
+          ex.filledAt = new Date().toISOString();
+          cambios = true;
+          console.log(`[Tradier-IC-TPSL] Orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
+        }
+        continue;
+      }
+
+      if (ex.creditReceived == null) continue;
+
+      const legSymbols = [ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym].filter(Boolean);
+      if (legSymbols.length < 4) continue;
+
+      const quotes = await tradier.getQuotes(legSymbols);
+      const q = {};
+      quotes.forEach(x => { q[x.symbol] = x.mark; });
+      if (q[ex.legs.putShortSym] == null || q[ex.legs.putLongSym] == null || q[ex.legs.callShortSym] == null || q[ex.legs.callLongSym] == null) {
+        console.warn(`[Tradier-IC-TPSL] Cotizaciones incompletas para ${ex.orderId}, se salta este ciclo.`);
+        continue;
+      }
+
+      // Costo de cerrar ahora = recomprar las cortas + vender las largas
+      const costoDeCerrar = (q[ex.legs.putShortSym] - q[ex.legs.putLongSym]) + (q[ex.legs.callShortSym] - q[ex.legs.callLongSym]);
+      const pnlActual = ex.creditReceived - costoDeCerrar;
+      const tpUmbral   = ex.creditReceived * ((ex.tpPct || 25) / 100);
+      const slUmbral   = ex.creditReceived * (ex.slMult || 1.5);
+
+      let cerrarPor = null;
+      if (pnlActual >= tpUmbral) cerrarPor = 'TP';
+      else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
+      if (!cerrarPor) continue;
+
+      try {
+        await tradier.closeIronCondorOrder({
+          underlyingRoot:  'SPXW', expiry: ex.expiry,
+          putShortStrike:  ex.strikes.shortStrike,     putLongStrike:  ex.strikes.longStrike,
+          callShortStrike: ex.strikes.callShortStrike, callLongStrike: ex.strikes.callLongStrike,
+          quantity:        ex.contracts,
+        });
+        ex.status      = 'closed';
+        ex.closedAt    = new Date().toISOString();
+        ex.pnl         = +(pnlActual * 100 * ex.contracts).toFixed(2);
+        ex.pnlSource   = 'tp_sl_auto';
+        ex.closeReason = cerrarPor;
+        cambios = true;
+        console.log(`[Tradier-IC-TPSL] ✅ Cerrado por ${cerrarPor} — P&L: $${ex.pnl}`);
+      } catch(e) {
+        console.error(`[Tradier-IC-TPSL] ❌ Error cerrando ${ex.orderId}:`, e.message);
+      }
+    }
+
+    if (cambios) saveTradierExecutions(executions);
+  } catch(e) {
+    console.error('[Tradier-IC-TPSL] Error:', e.message);
+  }
+}
+setInterval(checkIronCondorTPSL, 90 * 1000); // cada 90s — el TP/SL necesita reaccionar rapido
 
 // GET /api/tradier/executions — historial + balance real de la cuenta demo
 const TRADIER_STARTING_BALANCE = 100000; // capital inicial de la cuenta sandbox

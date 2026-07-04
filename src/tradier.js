@@ -127,6 +127,90 @@ class TradierClient {
       raw:     data,
     };
   }
+
+  // Cotizaciones actuales (mark/bid/ask) para una lista de simbolos OCC — necesario
+  // para calcular cuanto costaria cerrar una posicion abierta ahora mismo (no habia
+  // ningun metodo de cotizacion en este cliente).
+  async getQuotes(symbols) {
+    if (!symbols || !symbols.length) return [];
+    const data = await this._req(`/markets/quotes?symbols=${encodeURIComponent(symbols.join(','))}`);
+    const raw  = data.quotes?.quote;
+    const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    return list.map(q => ({
+      symbol: q.symbol,
+      mark: q.bid != null && q.ask != null ? (parseFloat(q.bid) + parseFloat(q.ask)) / 2 : parseFloat(q.last || 0),
+      bid:  parseFloat(q.bid  || 0),
+      ask:  parseFloat(q.ask  || 0),
+      last: parseFloat(q.last || 0),
+    }));
+  }
+
+  // Coloca la orden multi-leg (4 patas) para Iron Condor: short put + long put +
+  // short call + long call, todas en la misma orden combinada.
+  async placeIronCondorOrder({ underlyingRoot, expiry, putShortStrike, putLongStrike, callShortStrike, callLongStrike, quantity }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const putShortSym  = this.buildOccSymbol(underlyingRoot, expiry, 'P', putShortStrike);
+    const putLongSym   = this.buildOccSymbol(underlyingRoot, expiry, 'P', putLongStrike);
+    const callShortSym = this.buildOccSymbol(underlyingRoot, expiry, 'C', callShortStrike);
+    const callLongSym  = this.buildOccSymbol(underlyingRoot, expiry, 'C', callLongStrike);
+
+    const body = new URLSearchParams({
+      class:    'multileg',
+      symbol:   underlyingRoot,
+      type:     'market',
+      duration: 'day',
+      'option_symbol[0]': putShortSym,  'side[0]': 'sell_to_open', 'quantity[0]': String(quantity),
+      'option_symbol[1]': putLongSym,   'side[1]': 'buy_to_open',  'quantity[1]': String(quantity),
+      'option_symbol[2]': callShortSym, 'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),
+      'option_symbol[3]': callLongSym,  'side[3]': 'buy_to_open',  'quantity[3]': String(quantity),
+    });
+
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString(),
+    });
+
+    return {
+      orderId: data.order?.id ?? null,
+      status:  data.order?.status ?? 'unknown',
+      legs:    { putShortSym, putLongSym, callShortSym, callLongSym },
+      raw:     data,
+    };
+  }
+
+  // Cierra las 4 patas del Iron Condor — orden inversa (buy_to_close en las cortas,
+  // sell_to_close en las largas).
+  async closeIronCondorOrder({ underlyingRoot, expiry, putShortStrike, putLongStrike, callShortStrike, callLongStrike, quantity }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const putShortSym  = this.buildOccSymbol(underlyingRoot, expiry, 'P', putShortStrike);
+    const putLongSym   = this.buildOccSymbol(underlyingRoot, expiry, 'P', putLongStrike);
+    const callShortSym = this.buildOccSymbol(underlyingRoot, expiry, 'C', callShortStrike);
+    const callLongSym  = this.buildOccSymbol(underlyingRoot, expiry, 'C', callLongStrike);
+
+    const body = new URLSearchParams({
+      class:    'multileg',
+      symbol:   underlyingRoot,
+      type:     'market',
+      duration: 'day',
+      'option_symbol[0]': putShortSym,  'side[0]': 'buy_to_close',  'quantity[0]': String(quantity),
+      'option_symbol[1]': putLongSym,   'side[1]': 'sell_to_close', 'quantity[1]': String(quantity),
+      'option_symbol[2]': callShortSym, 'side[2]': 'buy_to_close',  'quantity[2]': String(quantity),
+      'option_symbol[3]': callLongSym,  'side[3]': 'sell_to_close', 'quantity[3]': String(quantity),
+    });
+
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString(),
+    });
+
+    return {
+      orderId: data.order?.id ?? null,
+      status:  data.order?.status ?? 'unknown',
+      raw:     data,
+    };
+  }
 }
 
 module.exports = { TradierClient };
