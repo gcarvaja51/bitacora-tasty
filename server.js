@@ -2063,7 +2063,7 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
-const { calcGEX, calcMaxPain, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour } = require('./src/spx');
+const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow } = require('./src/spx');
 const { calcPlaybookScore, calcRelativeVolume, priceExtension } = require('./src/spx_indicators');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -2089,6 +2089,15 @@ const SPX_CONFIG_DEFAULTS = {
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
     tradierAutoExecute: true, // kill-switch: false pausa la ejecucion automatica en Tradier
+    // Iron Condor — playbook profesor Alejandro. Parametros propios, separados de los
+    // de las direccionales de arriba (no comparten targetDelta/spreadWidth/tpPct/slMult).
+    ironCondor: {
+      targetDelta: 0.12,        // delta 0.10-0.14, 0.12 = ~88% prob. de expirar sin valor
+      spreadWidth: 10,          // ancho estandar del playbook (10-15, hasta 20-25 con mas experiencia)
+      tpPct:       25,          // 25-40% del credito — cerrar al 25% eleva la prob. de exito a 94%
+      slMult:      1.5,         // 1.5x o 2x el credito recibido
+      gammaFlipBufferPts: 20,   // no operar si el precio esta a menos de esto del Gamma Flip
+    },
   }
 };
 function loadSPXConfig() {
@@ -2139,8 +2148,10 @@ function saveTradierExecutions(execs) {
 }
 
 // GET /api/spx/context — contexto completo del mercado
-app.get('/api/spx/context', async (req, res) => {
-  try {
+// Construye el contexto de mercado completo para SPX (precio, VIX, IV Rank, GEX,
+// indicadores 2m/15m/diario, rango de apertura, confluencia Weinstein). Usado tanto
+// por GET /api/spx/context como por el chequeo periódico de Iron Condor.
+async function buildSPXContext() {
     // 1. Cadena SPX para GEX y precio
     const chainData = await tt._req('/option-chains/SPX/nested');
     const expirations = chainData.data?.items?.[0]?.expirations || [];
@@ -2414,7 +2425,7 @@ app.get('/api/spx/context', async (req, res) => {
       ? (spxPrice >= openingRange.low && spxPrice <= openingRange.high)
       : null;
 
-    res.json({
+    return {
       spxPrice: +spxPrice.toFixed(2),
       vix:      +vix.toFixed(2),
       ivRank:   +ivRank.toFixed(1),
@@ -2445,7 +2456,13 @@ app.get('/api/spx/context', async (req, res) => {
       etMin:    et.min,
       windowOK: (et.hour > 9 || (et.hour === 9 && et.min >= 0)) && et.hour < 16,
       ts:       new Date().toISOString(),
-    });
+    };
+}
+
+app.get('/api/spx/context', async (req, res) => {
+  try {
+    const ctx = await buildSPXContext();
+    res.json(ctx);
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -2742,6 +2759,87 @@ app.post('/api/spx/webhook', async (req, res) => {
 app.get('/api/spx/signals', (req, res) => {
   res.json(loadSPXSignals());
 });
+
+// ── Chequeo periódico de Iron Condor (0DTE y 1DTE) ──────────────────────
+// A diferencia de las direccionales (disparadas por alerta de Pine), el Iron Condor
+// no tiene un "trigger" — se evalúa el régimen de mercado cada 5 min durante las
+// ventanas favorables (10am-1pm ET para 0DTE, 3:45-3:50pm ET para 1DTE) y se genera
+// la señal si pasa el gate (`evaluateIronCondorGate`, playbook profesor Alejandro).
+// Solo sugerencia manual en el Signal Center — NO se ejecuta en Tradier todavía.
+async function checkIronCondor() {
+  try {
+    const et = getETHour();
+    const etMins = et.hour * 60 + et.min;
+    const window0DTE = classifyWindow(etMins) === 'IC_FAVORABLE';
+    const window1DTE = classifyWindow(etMins) === 'CIERRE_1DTE';
+    if (!window0DTE && !window1DTE) return;
+
+    const dte = window1DTE ? '1DTE' : '0DTE';
+    const today = new Date().toISOString().slice(0, 10);
+
+    // No duplicar: si ya hay una señal de Iron Condor de esta variante generada
+    // hoy, o ya hay un trade SPXW abierto/en curso en Tradier, no generar otra.
+    const signals = loadSPXSignals();
+    const yaExiste = signals.some(s =>
+      s.strategy === 'IRON_CONDOR' && s.expType === dte && (s.timestamp || '').slice(0, 10) === today
+    );
+    if (yaExiste) return;
+
+    const yaHayTradeAbierto = await tradier.hasOpenPosition('SPXW');
+    if (yaHayTradeAbierto) return;
+
+    const ctx = await buildSPXContext();
+    const spxConfig = loadSPXConfig();
+    const tradingCfg = spxConfig.trading || SPX_CONFIG_DEFAULTS.trading;
+    const icCfg = tradingCfg.ironCondor || SPX_CONFIG_DEFAULTS.trading.ironCondor;
+
+    const gate = evaluateIronCondorGate({
+      spxPrice: ctx.spxPrice, vix: ctx.vix, gex: ctx.gex, indicators: ctx.indicators,
+      openingRangeRespected: ctx.openingRangeRespected, etHour: et.hour, etMin: et.min,
+    }, dte, icCfg);
+
+    if (!gate.valid) {
+      console.log(`[SPX-IC ${dte}] ❌ ${gate.reason}`);
+      return;
+    }
+
+    const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
+    const chainData = await chainRes.json();
+    const strikes = findStrikesByDelta(chainData.expirations || [], 'IRON_CONDOR', ctx.spxPrice, dte, icCfg.targetDelta, gate.spreadWidth);
+    if (!strikes || !strikes.callShortStrike) {
+      console.log(`[SPX-IC ${dte}] ❌ No se encontraron strikes completos (put+call) con delta ${icCfg.targetDelta}`);
+      return;
+    }
+
+    const capital = tradingCfg.capital || 10000;
+    const maxRisk = capital * 0.02;
+    const contracts = Math.max(1, Math.floor(maxRisk / (gate.spreadWidth * 100)));
+    const sel = {
+      valid: true, strategy: 'IRON_CONDOR', isCredit: true, expType: dte,
+      window: dte === '0DTE' ? 'IC_FAVORABLE' : 'CIERRE_1DTE',
+      spreadWidth: gate.spreadWidth, contracts,
+      maxRisk: contracts * gate.spreadWidth * 100,
+      creditReason: `GEX positivo, ${dte === '0DTE' ? 'Fase 1/3 15m + MACD aplanado' : 'ventana overnight 3:50pm'}`,
+    };
+
+    const signal = buildSignalSummary('IRON_CONDOR', strikes, sel, {
+      direction: 'NEUTRAL',
+      spxPrice: ctx.spxPrice, vix: ctx.vix, ivRank: ctx.ivRank,
+      gammaRegime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall,
+      gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain,
+      technicalStop: null, technicalStopSource: null, etTime: ctx.etTime,
+    });
+    signal.trading = { tpPct: icCfg.tpPct, slMult: icCfg.slMult, spreadWidth: gate.spreadWidth };
+    if (gate.note) signal.notes = gate.note;
+
+    signals.unshift(signal);
+    saveSPXSignals(signals.slice(0, 50));
+    console.log(`[SPX-IC ${dte}] ✅ Señal generada: put ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} — call ${signal.strikes?.callShortStrike}/${signal.strikes?.callLongStrike}`);
+  } catch(e) {
+    console.error('[SPX-IC] Error:', e.message);
+  }
+}
+setInterval(checkIronCondor, 5 * 60 * 1000);
 
 // GET /api/tradier/executions — historial + balance real de la cuenta demo
 const TRADIER_STARTING_BALANCE = 100000; // capital inicial de la cuenta sandbox

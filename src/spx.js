@@ -95,6 +95,63 @@ function classifyWindow(etMins) {
   return 'FUERA_VENTANA';
 }
 
+// ── Gate del Iron Condor (0DTE y 1DTE) — playbook profesor Alejandro ──
+// Gate PROPIO, en paralelo a selectStrategy() (no lo reemplaza): el Iron Condor no
+// depende de una alerta direccional de Pine — se evalúa de forma periódica
+// server-side buscando condiciones de rango/no-tendencia, no de tendencia.
+function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
+  const { spxPrice, vix, gex, indicators, openingRangeRespected, etHour, etMin } = ctx;
+  const etMins = etHour * 60 + etMin;
+  const gammaFlipBufferPts = icConfig.gammaFlipBufferPts || 20;
+  let spreadWidth = icConfig.spreadWidth || 10;
+
+  // ── Checks compartidos (0DTE y 1DTE) ──
+  if (gex?.regime !== 'POSITIVO') {
+    return { valid: false, reason: `Gamma régimen ${gex?.regime || 'desconocido'} — Iron Condor requiere GEX POSITIVO.` };
+  }
+  if (gex?.gammaFlip != null && Math.abs(spxPrice - gex.gammaFlip) < gammaFlipBufferPts) {
+    return { valid: false, reason: `Precio (${spxPrice}) a menos de ${gammaFlipBufferPts}pts del Gamma Flip (${gex.gammaFlip}) — el régimen puede cambiar de golpe.` };
+  }
+
+  if (dte === '1DTE') {
+    if (classifyWindow(etMins) !== 'CIERRE_1DTE') {
+      return { valid: false, reason: `Iron Condor 1DTE solo en ventana 3:45-3:50pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+    }
+    if (vix > 24) {
+      return { valid: false, reason: `VIX ${vix} > 24 — el playbook 1DTE indica NO entrar (riesgo overnight demasiado alto).` };
+    }
+    return {
+      valid: true,
+      dte: '1DTE',
+      spreadWidth,
+      note: 'Revisar calendario económico de mañana antes de confirmar — el sistema no tiene fuente de eventos macro, este chequeo es manual.',
+    };
+  }
+
+  // ── 0DTE ──
+  if (classifyWindow(etMins) !== 'IC_FAVORABLE') {
+    return { valid: false, reason: `Iron Condor 0DTE solo en ventana 10:00am-1:00pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+  }
+  if (openingRangeRespected === false) {
+    return { valid: false, reason: 'Rango de apertura (9:30-10:00) roto — Iron Condor no recomendado, esperar nueva estructura.' };
+  }
+  if (openingRangeRespected == null) {
+    return { valid: false, reason: 'No se pudo determinar si el rango de apertura fue respetado — sin datos suficientes para Iron Condor.' };
+  }
+  const fase15m = indicators?.m15?.weinstein?.fase;
+  if (fase15m !== 1 && fase15m !== 3) {
+    return { valid: false, reason: `Fase Weinstein 15m = ${fase15m ?? '—'} — Iron Condor requiere Fase 1 o 3 (consolidación/rango, sin tendencia clara).` };
+  }
+  const macdHist = indicators?.m15?.macd?.hist;
+  const flatThreshold = spxPrice * 0.0005;
+  if (macdHist == null || Math.abs(macdHist) >= flatThreshold) {
+    return { valid: false, reason: `MACD 15m no está aplanado (hist=${macdHist ?? '—'}, umbral ±${flatThreshold.toFixed(2)}) — todavía hay momentum direccional, Mundo 3 no cumplido.` };
+  }
+  if (vix > 24) spreadWidth = Math.min(spreadWidth, 10); // playbook: alas mas ajustadas, no bloquea
+
+  return { valid: true, dte: '0DTE', spreadWidth };
+}
+
 // ── Selecciona estrategia según contexto ──────────────────────
 function selectStrategy(context) {
   const { direction, ivRank, vix, gammaRegime, etHour, etMin, capital, openingRangeRespected } = context;
@@ -181,7 +238,10 @@ function selectStrategy(context) {
 }
 
 // ── Encuentra strikes por delta objetivo ─────────────────────
-function findStrikesByDelta(expirations, strategy, spxPrice, expType) {
+// targetDelta/spreadWidth: el llamador (server.js) ya los pasaba, pero esta funcion
+// los ignoraba y usaba 0.10-0.14/20pts fijos — bug real que hacia que la config de
+// produccion (delta, ancho) no se aplicara nunca a las señales en vivo.
+function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelta = 0.12, spreadWidth = 20) {
   // Seleccionar expiración
   const today = new Date().toISOString().slice(0, 10);
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -192,23 +252,23 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType) {
   if (!exp) return null;
 
   const strikes = exp.strikes || [];
-  const TARGET_DELTA_MIN = 0.10;
-  const TARGET_DELTA_MAX = 0.14;
+  const TARGET_DELTA_MIN = Math.max(0.02, targetDelta - 0.02);
+  const TARGET_DELTA_MAX = targetDelta + 0.02;
 
   // Para cada tipo de estrategia, buscar strikes apropiados
   if (strategy === 'BULL_PUT_SPREAD' || strategy === 'IRON_CONDOR') {
-    // Pata corta put: delta entre -0.10 y -0.14 (OTM bajista)
+    // Pata corta put: delta entre targetDelta-0.02 y targetDelta+0.02 (OTM bajista)
     const shortPut = strikes
       .filter(s => {
         const d = Math.abs(s.put?.delta || 0);
         return d >= TARGET_DELTA_MIN && d <= TARGET_DELTA_MAX;
       })
-      .sort((a, b) => Math.abs(Math.abs(a.put?.delta||0) - 0.12) - Math.abs(Math.abs(b.put?.delta||0) - 0.12))[0];
+      .sort((a, b) => Math.abs(Math.abs(a.put?.delta||0) - targetDelta) - Math.abs(Math.abs(b.put?.delta||0) - targetDelta))[0];
 
     if (!shortPut) return null;
 
     const shortStrike = shortPut.strike;
-    const longStrike  = shortStrike - 20; // ancho 20 puntos
+    const longStrike  = shortStrike - spreadWidth;
     const premium     = (shortPut.put?.mark || 0) - ((strikes.find(s => s.strike === longStrike)?.put?.mark) || 0);
 
     const result = {
@@ -226,11 +286,11 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType) {
           const d = Math.abs(s.call?.delta || 0);
           return d >= TARGET_DELTA_MIN && d <= TARGET_DELTA_MAX;
         })
-        .sort((a, b) => Math.abs(Math.abs(a.call?.delta||0) - 0.12) - Math.abs(Math.abs(b.call?.delta||0) - 0.12))[0];
+        .sort((a, b) => Math.abs(Math.abs(a.call?.delta||0) - targetDelta) - Math.abs(Math.abs(b.call?.delta||0) - targetDelta))[0];
 
       if (shortCall) {
         const shortCallStrike = shortCall.strike;
-        const longCallStrike  = shortCallStrike + 20;
+        const longCallStrike  = shortCallStrike + spreadWidth;
         const callPremium     = (shortCall.call?.mark || 0) - ((strikes.find(s => s.strike === longCallStrike)?.call?.mark) || 0);
         result.callShortStrike = shortCallStrike;
         result.callLongStrike  = longCallStrike;
@@ -249,12 +309,12 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType) {
         const d = Math.abs(s.call?.delta || 0);
         return d >= TARGET_DELTA_MIN && d <= TARGET_DELTA_MAX;
       })
-      .sort((a, b) => Math.abs(Math.abs(a.call?.delta||0) - 0.12) - Math.abs(Math.abs(b.call?.delta||0) - 0.12))[0];
+      .sort((a, b) => Math.abs(Math.abs(a.call?.delta||0) - targetDelta) - Math.abs(Math.abs(b.call?.delta||0) - targetDelta))[0];
 
     if (!shortCall) return null;
 
     const shortStrike = shortCall.strike;
-    const longStrike  = shortStrike + 20;
+    const longStrike  = shortStrike + spreadWidth;
     const premium     = (shortCall.call?.mark || 0) - ((strikes.find(s => s.strike === longStrike)?.call?.mark) || 0);
 
     return {
@@ -278,7 +338,7 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType) {
     if (!longCall) return null;
 
     const longStrike  = longCall.strike;
-    const shortStrike = longStrike + 20;
+    const shortStrike = longStrike + spreadWidth;
     const debit       = (longCall.call?.mark || 0) - ((strikes.find(s => s.strike === shortStrike)?.call?.mark) || 0);
 
     return {
@@ -301,7 +361,7 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType) {
     if (!longPut) return null;
 
     const longStrike  = longPut.strike;
-    const shortStrike = longStrike - 20;
+    const shortStrike = longStrike - spreadWidth;
     const debit       = (longPut.put?.mark || 0) - ((strikes.find(s => s.strike === shortStrike)?.put?.mark) || 0);
 
     return {
@@ -387,4 +447,4 @@ function buildSignalSummary(strategy, strikes, sel, context) {
   };
 }
 
-module.exports = { calcGEX, calcMaxPain, selectStrategy, findStrikesByDelta, buildSignalSummary, getETHour };
+module.exports = { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow };
