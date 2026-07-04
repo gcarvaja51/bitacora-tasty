@@ -4,6 +4,7 @@ const express = require('express');
 const path    = require('path');
 const fs      = require('fs');
 const { TastytradeClient }                              = require('./src/tastytrade');
+const { TradierClient }                                 = require('./src/tradier');
 const { buildMetrics, buildEquityCurve, buildCalendar } = require('./src/metrics');
 
 const app  = express();
@@ -113,6 +114,9 @@ const tt = new TastytradeClient({
   accountNumber: process.env.TT_ACCOUNT_NUMBER,
 });
 tt.startAutoRefresh();
+
+// ── Cliente Tradier (sandbox) — ejecución automática de spreads SPX ──
+const tradier = new TradierClient({});
 
 const _cache = new Map();
 function cached(k, s, fn) {
@@ -2084,6 +2088,7 @@ const SPX_CONFIG_DEFAULTS = {
     tpPct:       25,      // Take Profit % del crédito (25% → 94% prob. éxito, playbook Alejandro)
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
+    tradierAutoExecute: true, // kill-switch: false pausa la ejecucion automatica en Tradier
   }
 };
 function loadSPXConfig() {
@@ -2654,6 +2659,38 @@ app.post('/api/spx/webhook', async (req, res) => {
           : signal.strikes.shortStrike - credito
       ) : null,
     };
+
+    // ── Ejecución automática en Tradier (sandbox) — solo Bull Put / Bear Call ──
+    const tradierEligible = ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD'].includes(signal.strategy);
+    const tradierEnabled  = (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).tradierAutoExecute !== false;
+    if (tradierEligible && tradierEnabled) {
+      try {
+        // No apilar: si ya hay una posicion abierta o una orden en curso, esta
+        // señal se guarda como sugerencia pero NO se ejecuta automaticamente.
+        const yaHayTradeAbierto = await tradier.hasOpenPosition('SPXW');
+        if (yaHayTradeAbierto) {
+          signal.tradierOrder = { skipped: true, reason: 'Ya hay un trade abierto en Tradier — se espera a que cierre.' };
+          console.log('[Tradier] ⏳ Señal omitida — ya hay un trade SPXW abierto/en curso.');
+        } else {
+          const order = await tradier.placeSpreadOrder({
+            strategy:       signal.strategy,
+            underlyingRoot: 'SPXW',
+            expiry:         signal.strikes.expiry,
+            shortStrike:    signal.strikes.shortStrike,
+            longStrike:     signal.strikes.longStrike,
+            quantity:       signal.contracts,
+          });
+          signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
+          signal.status    = 'EXECUTED';
+          signal.notes     = 'Auto-ejecutado en Tradier sandbox';
+          signal.actionAt  = new Date().toISOString();
+          console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym}`);
+        }
+      } catch(e) {
+        signal.tradierOrder = { error: e.message };
+        console.error('[Tradier] ❌ Error enviando orden:', e.message);
+      }
+    }
 
     // Guardar
     const signals = loadSPXSignals();

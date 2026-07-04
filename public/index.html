@@ -5486,6 +5486,13 @@ function renderSignalCard(s, isPending) {
     ${s.rrNote ? `
     <div style="font-size:10px;color:var(--muted);padding-top:4px;">${s.rrNote}</div>
     ` : ''}
+    ${s.tradierOrder ? `
+    <div style="font-size:10px;padding-top:4px;color:${s.tradierOrder.error?'#ff3c3c':s.tradierOrder.skipped?'var(--gold)':'#00c864'};">
+      ${s.tradierOrder.error ? `Tradier: ❌ ${s.tradierOrder.error}`
+        : s.tradierOrder.skipped ? `Tradier: ⏳ ${s.tradierOrder.reason}`
+        : `Tradier: ✅ Orden #${s.tradierOrder.orderId} (${s.tradierOrder.status})`}
+    </div>
+    ` : ''}
     ${s.trading ? `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;padding:10px;background:var(--bg);border-radius:8px;">
       <div style="text-align:center;">
