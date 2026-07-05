@@ -18,7 +18,7 @@ Dashboard de trading personal conectado a TastyTrade. Node.js/Express + vanilla 
 | `src/tastytrade.js` | Cliente HTTP a la API de TastyTrade (auth, transacciones, posiciones, precios) |
 | `src/metrics.js` | Cálculo de P&L, equity curve, calendar |
 | `public/index.html` | SPA completa (~5000 líneas). Todo el frontend en un archivo |
-| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v4`) |
+| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v5`) |
 
 **Archivos sueltos sin usar (pendiente de revisar/limpiar):** `index.html` y
 `spx_backtester.html` en la raíz del repo, y un `public/server.js` duplicado — no están
@@ -232,7 +232,7 @@ El servidor mantiene caché en memoria con TTL de 120 segundos para llamadas a T
 
 ## Service Worker
 
-Cache actual: `bitacora-v4`. Para forzar actualización en todos los clientes, bumpar la versión en `public/sw.js`. El fetch handler solo intercepta esquemas `http`/`https` (esquemas como `chrome-extension://` rompían `cache.put()`). Si un cliente tiene cache viejo, ejecutar en consola del browser:
+Cache actual: `bitacora-v5`. Para forzar actualización en todos los clientes, bumpar la versión en `public/sw.js`. El fetch handler solo intercepta esquemas `http`/`https` (esquemas como `chrome-extension://` rompían `cache.put()`). Si un cliente tiene cache viejo, ejecutar en consola del browser:
 ```js
 navigator.serviceWorker.getRegistrations().then(r=>Promise.all(r.map(x=>x.unregister()))).then(()=>caches.keys()).then(k=>Promise.all(k.map(x=>caches.delete(x)))).then(()=>location.reload())
 ```
@@ -247,6 +247,16 @@ meta viewport (necesario para que `env(safe-area-inset-top)` resuelva a un valor
 `padding-top: env(safe-area-inset-top)` en `.mobile-navbar` (altura `calc(48px + env(...))`)
 y en el padding-top de `.content`/`.panel`/`.header` (compensando la altura extra del
 navbar). En dispositivos sin notch, `env(safe-area-inset-top)` es `0px` — no hay efecto.
+
+**Gotcha encontrado después:** el fix de arriba no se veía reflejado (incluso en Safari
+normal, sin standalone) porque había **3 reglas `.panel { padding-top: ... }` duplicadas**
+en distintos bloques `@media (max-width: 1024px)` — las últimas dos no tenían el ajuste
+de safe-area, y una de ellas usaba `padding: 12px 10px` (shorthand, resetea las 4
+esquinas) que pisaba el padding-top a 12px, muy por debajo de la altura real del
+`.mobile-navbar` (48px + safe-area). Esto tapaba cualquier contenido al tope de cada
+panel (ej. la fila de filtros Desde/Hasta/Filtrar en Historial) detrás del navbar fijo.
+Al tocar `.panel`/`.content`/`.sidebar` en mobile, evitar `padding`/`margin` shorthand —
+usar propiedades explícitas (`padding-top`, etc.) para no resetear el ajuste de safe-area.
 
 ## Desarrollo local
 

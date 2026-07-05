@@ -850,10 +850,10 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   .main { padding-top: 0 !important; }
   canvas { max-width: 100% !important; }
   .chart-container, [class*='chart'] { overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; }
-  .panel { padding-top: 80px !important; }
+  .panel { padding-top: calc(80px + env(safe-area-inset-top)) !important; }
   .mobile-navbar { display: flex; }
-  .sidebar { top: 48px !important; height: calc(100vh - 48px) !important; }
-  .content { padding-top: 48px !important; }
+  .sidebar { top: calc(48px + env(safe-area-inset-top)) !important; height: calc(100vh - 48px - env(safe-area-inset-top)) !important; }
+  .content { padding-top: calc(48px + env(safe-area-inset-top)) !important; }
   .app { flex-direction: column; }
 }
 
@@ -866,9 +866,9 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   .main { padding-top: 0 !important; }
   canvas { max-width: 100% !important; }
   .chart-container, [class*='chart'] { overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; }
-  .panel { padding-top: 80px !important; }
-  /* Forzar todo al ancho de pantalla */
-  .panel { padding: 12px 10px !important; overflow-x: hidden !important; }
+  .panel { padding-top: calc(80px + env(safe-area-inset-top)) !important; }
+  /* Forzar todo al ancho de pantalla — sin shorthand "padding" para no resetear el padding-top de arriba */
+  .panel { padding-left: 10px !important; padding-right: 10px !important; padding-bottom: 12px !important; overflow-x: hidden !important; }
   .content { overflow-x: hidden !important; }
   
   /* KPI rows — 2 columnas en mobile */
