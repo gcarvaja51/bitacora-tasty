@@ -18,7 +18,7 @@ Dashboard de trading personal conectado a TastyTrade. Node.js/Express + vanilla 
 | `src/tastytrade.js` | Cliente HTTP a la API de TastyTrade (auth, transacciones, posiciones, precios) |
 | `src/metrics.js` | Cálculo de P&L, equity curve, calendar |
 | `public/index.html` | SPA completa (~5000 líneas). Todo el frontend en un archivo |
-| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v3`) |
+| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v4`) |
 
 **Archivos sueltos sin usar (pendiente de revisar/limpiar):** `index.html` y
 `spx_backtester.html` en la raíz del repo, y un `public/server.js` duplicado — no están
@@ -232,10 +232,21 @@ El servidor mantiene caché en memoria con TTL de 120 segundos para llamadas a T
 
 ## Service Worker
 
-Cache actual: `bitacora-v3`. Para forzar actualización en todos los clientes, bumpar la versión en `public/sw.js`. El fetch handler solo intercepta esquemas `http`/`https` (esquemas como `chrome-extension://` rompían `cache.put()`). Si un cliente tiene cache viejo, ejecutar en consola del browser:
+Cache actual: `bitacora-v4`. Para forzar actualización en todos los clientes, bumpar la versión en `public/sw.js`. El fetch handler solo intercepta esquemas `http`/`https` (esquemas como `chrome-extension://` rompían `cache.put()`). Si un cliente tiene cache viejo, ejecutar en consola del browser:
 ```js
 navigator.serviceWorker.getRegistrations().then(r=>Promise.all(r.map(x=>x.unregister()))).then(()=>caches.keys()).then(k=>Promise.all(k.map(x=>caches.delete(x)))).then(()=>location.reload())
 ```
+
+## iOS PWA — notch/status bar (safe-area-inset)
+
+`apple-mobile-web-app-status-bar-style: black-translucent` (en el `<head>`) hace que el
+contenido de la app corra por debajo de la barra de estado de iOS (reloj/batería) en vez
+de dejarle espacio — en modo standalone (agregado a pantalla de inicio) esto tapaba la
+parte de arriba de `.mobile-navbar` en iPhones con notch. Fix: `viewport-fit=cover` en el
+meta viewport (necesario para que `env(safe-area-inset-top)` resuelva a un valor real) +
+`padding-top: env(safe-area-inset-top)` en `.mobile-navbar` (altura `calc(48px + env(...))`)
+y en el padding-top de `.content`/`.panel`/`.header` (compensando la altura extra del
+navbar). En dispositivos sin notch, `env(safe-area-inset-top)` es `0px` — no hay efecto.
 
 ## Desarrollo local
 

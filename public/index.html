@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#13d68f">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -777,16 +777,16 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   .main { padding-top: 0 !important; }
   canvas { max-width: 100% !important; }
   .chart-container, [class*='chart'] { overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; }
-  .panel { padding-top: 80px !important; }
-  .content { padding-top: 56px !important; }
-  .header { padding-left: 56px; padding-left: 56px; padding-top: 56px !important; }
-  .sidebar { width: 0; min-width: 0; overflow: hidden; transition: width .25s; position: fixed; z-index: 200; height: 100vh; }
+  .panel { padding-top: calc(80px + env(safe-area-inset-top)) !important; }
+  .content { padding-top: calc(56px + env(safe-area-inset-top)) !important; }
+  .header { padding-left: 56px; padding-left: 56px; padding-top: calc(56px + env(safe-area-inset-top)) !important; }
+  .sidebar { width: 0; min-width: 0; overflow: hidden; transition: width .25s; position: fixed; z-index: 200; height: 100vh; padding-top: env(safe-area-inset-top); }
   .sidebar.open { width: 200px; }
   .content { margin-left: 0 !important; width: 100% !important; }
   .kpi-row.cols-4 { grid-template-columns: 1fr 1fr !important; }
   .kpi-row.cols-3 { grid-template-columns: 1fr 1fr !important; }
   .app { flex-direction: column; }
-  .header { padding-left: 56px; padding-left: 56px; padding: 8px 12px; }
+  .header { padding-left: 56px; padding-left: 56px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; }
   .hamburger { display: flex !important; } .content { margin-left: 0 !important; }
 }
 .hamburger {
@@ -813,12 +813,12 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   top: 0;
   left: 0;
   right: 0;
-  height: 48px;
+  height: calc(48px + env(safe-area-inset-top));
   background: var(--sidebar);
   border-bottom: 1px solid var(--border);
   z-index: 500;
   align-items: center;
-  padding: 0 16px;
+  padding: env(safe-area-inset-top) 16px 0;
   gap: 12px;
 }
 .mobile-navbar .mob-title {
