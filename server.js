@@ -2705,6 +2705,13 @@ app.post('/api/spx/webhook', async (req, res) => {
 
     // Agregar parámetros de trading y TP/SL calculados
     const credito = signal.credit || signal.maxProfit || 0;
+    // Credito/Riesgo minimo 20% (playbook Alejandro) — riesgo = valor del ancho
+    // del spread menos el credito, ambos por contrato ($100 x puntos). Sin este
+    // filtro se podia entrar con primas muy chicas arriesgando mucho por poco.
+    const riesgoPorContrato   = spreadWidth > 0 ? (spreadWidth - credito) * 100 : 0;
+    const creditoPorContrato  = credito * 100;
+    const creditoRiesgoPct    = riesgoPorContrato > 0 ? +(creditoPorContrato / riesgoPorContrato * 100).toFixed(1) : 0;
+    const MIN_CREDITO_RIESGO_PCT = 20;
     signal.trading = {
       delta:      targetDelta,
       tpPct:      Math.round(tpPct * 100),
@@ -2717,12 +2724,18 @@ app.post('/api/spx/webhook', async (req, res) => {
           ? signal.strikes.shortStrike + credito
           : signal.strikes.shortStrike - credito
       ) : null,
+      creditoRiesgoPct,
+      minCreditoRiesgoPct: MIN_CREDITO_RIESGO_PCT,
     };
 
     // ── Ejecución automática en Tradier (sandbox) — solo Bull Put / Bear Call ──
     const tradierEligible = ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD'].includes(signal.strategy);
     const tradierEnabled  = (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).tradierAutoExecute !== false;
-    if (tradierEligible && tradierEnabled) {
+    const creditoRiesgoOK = creditoRiesgoPct >= MIN_CREDITO_RIESGO_PCT;
+    if (tradierEligible && tradierEnabled && !creditoRiesgoOK) {
+      signal.tradierOrder = { skipped: true, reason: `Crédito/Riesgo ${creditoRiesgoPct}% por debajo del mínimo ${MIN_CREDITO_RIESGO_PCT}% — prima muy chica para el riesgo del spread.` };
+      console.log(`[Tradier] ⏳ Señal omitida — crédito/riesgo ${creditoRiesgoPct}% < ${MIN_CREDITO_RIESGO_PCT}%.`);
+    } else if (tradierEligible && tradierEnabled) {
       try {
         // No apilar: si ya hay una posicion abierta o una orden en curso, esta
         // señal se guarda como sugerencia pero NO se ejecuta automaticamente.
