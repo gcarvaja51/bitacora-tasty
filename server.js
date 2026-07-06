@@ -2292,7 +2292,8 @@ async function buildSPXContext() {
       const r15 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=15m&range=5d',
         { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const j15 = await r15.json();
-      const closes15 = j15.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+      const q15 = j15.chart?.result?.[0]?.indicators?.quote?.[0] || {};
+      const closes15 = (q15.close || []).filter(v => v != null);
       if (closes15.length >= 30) {
         const price15 = closes15[closes15.length - 1];
         const ema10_15  = calcEMA(closes15, 10);
@@ -2303,6 +2304,26 @@ async function buildSPXContext() {
           ext20: priceExtension(price15, ema20_15),
           macd:  calcMACD(closes15),
           weinstein: calcWeinstein(closes15),
+        };
+      }
+
+      // Fractal (Williams, 5 barras) sobre 15m — el nivel que realmente invalida
+      // la tesis direccional segun el playbook (el de 2m es solo para timing de
+      // entrada, tiene mucho ruido para usarse como stop). Mismo array de la
+      // llamada 15m de arriba, solo que aca usamos high/low en vez de close.
+      {
+        const highs15 = q15.high || [], lows15 = q15.low || [];
+        let lastFractalLow15 = null, lastFractalHigh15 = null;
+        for (let i = 2; i < highs15.length - 2; i++) {
+          if (highs15[i] == null || lows15[i] == null) continue;
+          const isHigh = highs15[i] > highs15[i-1] && highs15[i] > highs15[i-2] && highs15[i] > highs15[i+1] && highs15[i] > highs15[i+2];
+          const isLow  = lows15[i]  < lows15[i-1]  && lows15[i]  < lows15[i-2]  && lows15[i]  < lows15[i+1]  && lows15[i]  < lows15[i+2];
+          if (isHigh) lastFractalHigh15 = highs15[i];
+          if (isLow)  lastFractalLow15  = lows15[i];
+        }
+        indicators.fractal15m = {
+          low:  lastFractalLow15  != null ? +lastFractalLow15.toFixed(2)  : null,
+          high: lastFractalHigh15 != null ? +lastFractalHigh15.toFixed(2) : null,
         };
       }
 
@@ -2641,22 +2662,24 @@ app.post('/api/spx/webhook', async (req, res) => {
       return;
     }
 
-    // Stop técnico sugerido — el más conservador entre el último Fractal (2m)
-    // y el Muro Gamma en contra de la dirección. Solo informativo en la señal,
-    // sin monitoreo/alertas en vivo.
-    const fractal = ctx.indicators?.fractal || {};
+    // Stop técnico sugerido — el más conservador entre el último Fractal de
+    // 15m (el nivel que realmente invalida la tesis direccional segun el
+    // playbook; el de 2m es solo para timing de entrada, tiene mucho ruido
+    // para usarse como stop) y el Muro Gamma en contra de la dirección.
+    // Solo informativo en la señal, sin monitoreo/alertas en vivo.
+    const fractal15m = ctx.indicators?.fractal15m || {};
     let technicalStop = null, technicalStopSource = null;
     if (direction === 'BULLISH') {
-      const candidates = [fractal.low, ctx.gex?.putWall].filter(v => v != null && v > 0);
+      const candidates = [fractal15m.low, ctx.gex?.putWall].filter(v => v != null && v > 0);
       if (candidates.length) {
         technicalStop = Math.max(...candidates);
-        technicalStopSource = technicalStop === fractal.low ? 'Fractal' : 'Muro Gamma (Put Wall)';
+        technicalStopSource = technicalStop === fractal15m.low ? 'Fractal 15m' : 'Muro Gamma (Put Wall)';
       }
     } else if (direction === 'BEARISH') {
-      const candidates = [fractal.high, ctx.gex?.callWall].filter(v => v != null && v > 0);
+      const candidates = [fractal15m.high, ctx.gex?.callWall].filter(v => v != null && v > 0);
       if (candidates.length) {
         technicalStop = Math.min(...candidates);
-        technicalStopSource = technicalStop === fractal.high ? 'Fractal' : 'Muro Gamma (Call Wall)';
+        technicalStopSource = technicalStop === fractal15m.high ? 'Fractal 15m' : 'Muro Gamma (Call Wall)';
       }
     }
 
