@@ -1434,7 +1434,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
       </div>
       <div class="card" style="margin-top:16px;">
         <div class="card-header">Historial de Ejecuciones</div>
-        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Solo Bull Put/Bear Call ejecutados automáticamente en el sandbox — no incluye Iron Condor ni débito (todavía manuales).</div>
+        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Incluye Bull Put/Bear Call e Iron Condor ejecutados automáticamente en el sandbox (débito manual, aún no conectado a Tradier). En Iron Condor, "Strikes" solo muestra la pata del put — ver detalle completo en Señales SPX.</div>
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -1539,6 +1539,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     <div style="display:flex;align-items:center;gap:5px;"><label style="font-size:11px;color:var(--muted);">Delta</label><input type="number" id="bt-delta" value="0.30" min="0.05" max="0.50" step="0.01" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;font-size:11px;width:55px;"></div>
     <div style="height:20px;width:1px;background:var(--border);"></div>
     <button onclick="runBT()" style="background:#3b82f6;color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">▶ Ejecutar</button>
+    <button onclick="loadRealBacktest54()" title="Temporal — 54 trades reales de 0DTESPX.com (delta 0.40, spread 5, SL correcto)" style="background:#f5c842;color:#1a1a1a;border:none;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">📊 Datos reales (54)</button>
     <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;color:var(--muted);">Señales: <span id="bt-total" style="color:var(--text);font-weight:600;">—</span></span>
     <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;">🐻 <span id="bt-bear" style="color:#f87171;font-weight:600;">—</span></span>
     <span style="background:var(--bg);border-radius:5px;padding:4px 10px;font-size:11px;">🐂 <span id="bt-bull" style="color:#34d399;font-weight:600;">—</span></span>
@@ -5932,12 +5933,14 @@ async function loadToday() {
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
-    // Usar caché si ya está cargado, si no fetchear 60 días
-    if (!S.txns) {
-      const start = new Date(); start.setDate(start.getDate()-60);
-      S.txns = await api(`/api/transactions?startDate=${start.toISOString().slice(0,10)}&endDate=${today}`);
-    }
-    const legs = S.txns.metrics?.strategies || [];
+    // Siempre trae datos frescos (no reutiliza S.txns) — "Hoy" cambia durante
+    // el dia (trades que cierran en vivo) y S.txns es un cache COMPARTIDO con
+    // otras pestanas (Dashboard/Historial/Reportes) que piden rangos de fecha
+    // distintos; reutilizarlo aca mostraba datos de otro rango o desactualizados
+    // hasta que el usuario le daba "Actualizar" a mano.
+    const start = new Date(); start.setDate(start.getDate()-60);
+    const todayTxns = await api(`/api/transactions?startDate=${start.toISOString().slice(0,10)}&endDate=${today}`);
+    const legs = todayTxns.metrics?.strategies || [];
 
     // Solo trades cerrados HOY — consolidados (un spread = una fila)
     const todayLegs  = legs.filter(s => s.closeDate === today);
@@ -8067,6 +8070,65 @@ function calcSpreadWidth(capital,exp,riesgoPct){
   let spM=5; for(const[lim,sp]of tiers){if(capital<=lim){spM=sp;break;}}
   const spR=Math.max(5,Math.floor(capital*(riesgoPct/100)/100)*5);
   return Math.min(spM,spR,20);
+}
+
+// TEMPORAL — carga los 54 trades direccionales validados con datos reales de
+// 0DTESPX.com (delta 0.40, spread 5, SL corregido: costo de cerrar vs credito)
+// dentro del mismo panel del Backtester, reusando su tabla/metricas. Borrar
+// este boton + funcion (y bt_real_data_54.json) cuando termine el analisis.
+async function loadRealBacktest54() {
+  const r = await fetch('/bt_real_data_54.json');
+  btSignals = await r.json();
+  document.getElementById('bt-total').textContent = btSignals.length;
+  document.getElementById('bt-bear').textContent  = btSignals.filter(s=>s.direction==='BEARISH').length;
+  document.getElementById('bt-bull').textContent  = btSignals.filter(s=>s.direction==='BULLISH').length;
+  if(document.getElementById('bt-spread-display')) document.getElementById('bt-spread-display').textContent = 5;
+  const totalPnl = btSignals.reduce((a,s)=>a+s.pnl,0);
+  const pnlEl = document.getElementById('bt-pnl-total');
+  if(pnlEl){ pnlEl.textContent=`$${totalPnl>=0?'+':''}${totalPnl.toFixed(2)}`; pnlEl.style.color=totalPnl>=0?'#34d399':'#f87171'; }
+  renderBTReport();
+
+  const list = document.getElementById('bt-signal-list');
+  list.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:10px;">
+      <thead>
+        <tr style="background:var(--card);position:sticky;top:0;z-index:1;">
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">#</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Fecha</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Hora COL</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Dir</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Estrategia</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Créd</th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">Resultado</th>
+          <th style="padding:5px 8px;text-align:right;color:var(--muted);border-bottom:1px solid var(--border);">P&L</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${btSignals.map((s,i)=>{
+          const isBear=s.direction==='BEARISH';
+          const isWin=s.pnl>=0;
+          const resColor=s.resultado?.includes('✅')?'#34d399':s.resultado?.includes('⚠️')?'#fbbf24':'#f87171';
+          return `<tr id="bt-card-${i}" onclick="showBTDetail(${i})" style="cursor:pointer;border-bottom:1px solid #1a1f2e;"
+            onmouseover="this.style.background='rgba(255,255,255,0.04)'"
+            onmouseout="this.style.background=''">
+            <td style="padding:4px 8px;color:var(--muted);">${i+1}</td>
+            <td style="padding:4px 8px;font-weight:600;">${s.fecha.slice(5)}</td>
+            <td style="padding:4px 8px;color:var(--muted);">${s.hora_col}</td>
+            <td style="padding:4px 8px;">
+              <span style="padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;
+                background:${isBear?'#7f1d1d44':'#14532d44'};color:${isBear?'#f87171':'#34d399'}">
+                ${isBear?'🐻 B':'🐂 B'}
+              </span>
+            </td>
+            <td style="padding:4px 8px;color:#60a5fa;font-size:9px;">${s.estrategia}</td>
+            <td style="padding:4px 8px;font-family:monospace;font-size:10px;">$${s.credito}</td>
+            <td style="padding:4px 8px;font-size:9px;"><span style="color:${resColor}">${s.resultado||'—'}</span></td>
+            <td style="padding:4px 8px;text-align:right;font-weight:700;font-size:11px;
+              color:${isWin?'#34d399':'#f87171'};">${isWin?'+':''}$${s.pnl?.toFixed(0)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 async function runBT() {
