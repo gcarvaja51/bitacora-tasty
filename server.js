@@ -2970,6 +2970,13 @@ async function checkIronCondorTPSL() {
 }
 setInterval(checkIronCondorTPSL, 90 * 1000); // cada 90s — el TP/SL necesita reaccionar rapido
 
+// POST /api/tradier/executions/clear — limpieza manual del historial (uso puntual,
+// para arrancar en limpio antes de una sesion de mercado real).
+app.post('/api/tradier/executions/clear', (req, res) => {
+  saveTradierExecutions([]);
+  res.json({ ok: true, cleared: true });
+});
+
 // GET /api/tradier/executions — historial + balance real de la cuenta demo
 const TRADIER_STARTING_BALANCE = 100000; // capital inicial de la cuenta sandbox
 app.get('/api/tradier/executions', async (req, res) => {
