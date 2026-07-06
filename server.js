@@ -2481,6 +2481,15 @@ app.post('/api/spx/webhook', async (req, res) => {
     if (!['BULLISH','BEARISH','NEUTRAL'].includes(direction))
       return res.status(400).json({ error: `direction inválido: ${direction}. Usar BULLISH|BEARISH|NEUTRAL` });
 
+    // ── RESPONDER INMEDIATAMENTE para evitar timeout en TradingView ──
+    // (antes esto estaba DESPUES del chequeo de confluencia Weinstein, que
+    // hace un fetch a /api/spx/context — varias llamadas a Yahoo Finance en
+    // cadena — y eso por si solo ya tardaba mas que el timeout de TradingView,
+    // causando "webhook delivery failed" en las 4 alertas del 2026-07-06 pese
+    // a que el servidor si las habia recibido). Todo lo demas, incluido el
+    // gate, corre en background sin depender de la respuesta HTTP.
+    res.json({ signal: 'processing', message: 'Señal recibida, procesando en background...' });
+
     // ── GATE OBLIGATORIO — confluencia Weinstein 2m + 15m ──
     // El servidor calcula ambas fases de forma independiente (no depende
     // de que TradingView le avise el contexto 15m por separado).
@@ -2493,13 +2502,16 @@ app.post('/api/spx/webhook', async (req, res) => {
     } catch(e) {}
 
     if (fase2m === null || fase15m === null) {
-      return res.json({ signal: false, reason: `No se pudo determinar fase Weinstein (2m:${fase2m} 15m:${fase15m}). Sin entrada.` });
+      console.log(`[SPX] Sin señal — no se pudo determinar fase Weinstein (2m:${fase2m} 15m:${fase15m}).`);
+      return;
     }
     if (fase2m !== fase15m) {
-      return res.json({ signal: false, reason: `❌ Sin confluencia Weinstein: 2m=Fase${fase2m} vs 15m=Fase${fase15m}. Gate no cumplido.` });
+      console.log(`[SPX] Sin señal — sin confluencia Weinstein: 2m=Fase${fase2m} vs 15m=Fase${fase15m}. Gate no cumplido.`);
+      return;
     }
     if (fase2m !== 2 && fase2m !== 4) {
-      return res.json({ signal: false, reason: `⏳ Confluencia en Fase${fase2m} — solo operable en Fase 2 (alcista) o Fase 4 (bajista).` });
+      console.log(`[SPX] Sin señal — confluencia en Fase${fase2m}, solo operable en Fase 2 (alcista) o Fase 4 (bajista).`);
+      return;
     }
 
     // Forzar dirección según fase (la fase manda sobre el webhook)
@@ -2510,9 +2522,6 @@ app.post('/api/spx/webhook', async (req, res) => {
     }
 
     console.log(`[SPX] ✅ Gate Weinstein OK — Fase${fase2m} en 2m y 15m → ${direction}`);
-
-    // ── RESPONDER INMEDIATAMENTE para evitar timeout en TradingView ──
-    res.json({ signal: 'processing', message: 'Señal recibida, procesando en background...' });
 
     // ── GENERAR SUGERENCIA (en background) ───────────────────────────
     // Obtener contexto de mercado
@@ -2752,7 +2761,7 @@ app.post('/api/spx/webhook', async (req, res) => {
 
   } catch(e) {
     console.error('[SPX] webhook error:', e.message);
-    res.status(500).json({ error: e.message });
+    if (!res.headersSent) res.status(500).json({ error: e.message });
   }
 });
 
