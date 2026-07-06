@@ -1499,8 +1499,14 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Hora</th><th>Símbolo</th><th>Estrategia</th><th>Acción</th>
-              <th>P&amp;L</th><th>% Cap.</th><th>Prima</th><th>Costo cierre</th>
+              <th onclick="sortToday('closeTime')"  style="cursor:pointer;user-select:none;">Hora Cierre <span id="th-closeTime">▼</span></th>
+              <th onclick="sortToday('underlying')" style="cursor:pointer;user-select:none;">Símbolo <span id="th-underlying"></span></th>
+              <th onclick="sortToday('stratType')"  style="cursor:pointer;user-select:none;">Estrategia <span id="th-stratType"></span></th>
+              <th onclick="sortToday('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="th-durationDays"></span></th>
+              <th onclick="sortToday('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="th-pnl"></span></th>
+              <th onclick="sortToday('capPct')"      style="cursor:pointer;user-select:none;">% Cap. <span id="th-capPct"></span></th>
+              <th onclick="sortToday('openValue')"   style="cursor:pointer;user-select:none;">Prima <span id="th-openValue"></span></th>
+              <th onclick="sortToday('closeValue')"  style="cursor:pointer;user-select:none;">Costo cierre <span id="th-closeValue"></span></th>
             </tr></thead>
             <tbody id="today-tbody">
               <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
@@ -1897,7 +1903,7 @@ function consolidateStrategies(legs) {
     const key = leg.key || `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}_${leg.openValue}`;
     if (!map.has(key)) {
       map.set(key, { underlying:leg.underlying, openDate:leg.openDate,
-        closeDate:leg.closeDate, stratType:leg.stratType,
+        closeDate:leg.closeDate, closeExecAt:leg.closeExecAt, stratType:leg.stratType,
         durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0,
         amPm:leg.amPm, win:leg.win, key:leg.key });
     }
@@ -5945,6 +5951,10 @@ async function loadToday() {
     // Solo trades cerrados HOY — consolidados (un spread = una fila)
     const todayLegs  = legs.filter(s => s.closeDate === today);
     const strategies = consolidateStrategies(todayLegs);
+    strategies.forEach(s => {
+      s.capPct = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
+      s.closeTime = s.closeExecAt ? new Date(s.closeExecAt).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}) : '—';
+    });
     const wins       = strategies.filter(s=>s.pnl>0).length;
     const totalPnl   = strategies.reduce((a,b)=>a+b.pnl, 0);
 
@@ -5954,22 +5964,46 @@ async function loadToday() {
       kpiCard('Win Rate', strategies.length ? Math.round(wins/strategies.length*100)+'%' : '—', 'hoy', wins>0&&wins===strategies.length?'pos':'dim'),
     ].join('');
 
-    $('today-tbody').innerHTML = !strategies.length
-      ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados hoy</td></tr>'
-      : strategies.map(s => {
-          const cap = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
-          const dur = s.durationDays===0?'Intradía':s.durationDays===1?'1 día':`${s.durationDays}d`;
-          return `<tr>
-            <td class="td-mono dim">${s.closeDate}</td>
-            <td class="td-bright">${s.underlying}</td>
-            <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
-            <td class="td-mono dim">${dur}</td>
-            <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
-            <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
-            <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
-            <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
-          </tr>`;
-        }).join('');
+    window._todayData = strategies;
+    window._todaySortCol = 'closeTime';
+    window._todaySortAsc = false;
+
+    window.sortToday = function(col) {
+      if (window._todaySortCol === col) window._todaySortAsc = !window._todaySortAsc;
+      else { window._todaySortCol = col; window._todaySortAsc = false; }
+      ['closeTime','underlying','stratType','durationDays','pnl','capPct','openValue','closeValue'].forEach(c => {
+        const el = document.getElementById('th-'+c);
+        if (el) el.textContent = c === col ? (window._todaySortAsc ? '▲' : '▼') : '';
+      });
+      window.renderTodayRows(window._todayData, window._todaySortCol, window._todaySortAsc);
+    };
+
+    window.renderTodayRows = function(list, col, asc) {
+      const numCols = new Set(['durationDays','pnl','capPct','openValue','closeValue']);
+      const sorted = [...list].sort((a,b) => {
+        const va = numCols.has(col) ? (a[col]||0) : (a[col]||'');
+        const vb = numCols.has(col) ? (b[col]||0) : (b[col]||'');
+        if (typeof va === 'number') return asc ? va-vb : vb-va;
+        return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+      });
+      $('today-tbody').innerHTML = !sorted.length
+        ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados hoy</td></tr>'
+        : sorted.map(s => {
+            const dur = s.durationDays===0?'Intradía':s.durationDays===1?'1 día':`${s.durationDays}d`;
+            return `<tr>
+              <td class="td-mono dim">${s.closeTime}</td>
+              <td class="td-bright">${s.underlying}</td>
+              <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
+              <td class="td-mono dim">${dur}</td>
+              <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+              <td>${s.capPct!==null?`<span class="${s.capPct>=0?'pos':'neg'}">${s.capPct>0?'+':''}${s.capPct}%</span>`:'—'}</td>
+              <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+              <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
+            </tr>`;
+          }).join('');
+    };
+
+    window.renderTodayRows(window._todayData, window._todaySortCol, window._todaySortAsc);
   } catch(e) {
     $('today-tbody').innerHTML=`<tr><td colspan="8"><div class="error-box">${e.message}</div></td></tr>`;
   }
