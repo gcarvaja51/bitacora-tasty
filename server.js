@@ -2932,12 +2932,16 @@ async function checkIronCondorTPSL() {
       // Costo de cerrar ahora = recomprar las cortas + vender las largas
       const costoDeCerrar = (q[ex.legs.putShortSym] - q[ex.legs.putLongSym]) + (q[ex.legs.callShortSym] - q[ex.legs.callLongSym]);
       const pnlActual = ex.creditReceived - costoDeCerrar;
-      const tpUmbral   = ex.creditReceived * ((ex.tpPct || 25) / 100);
-      const slUmbral   = ex.creditReceived * (ex.slMult || 1.5);
+      const tpUmbral    = ex.creditReceived * ((ex.tpPct || 25) / 100);
+      // El multiplicador de SL aplica al COSTO DE CERRAR (bruto), no al P&L neto —
+      // a 1.5x credito=$200 el costo de cerrar llega a $300, perdida neta real=200-300=-$100
+      // (-0.5x), NO -$300 (-1.5x) como se calculaba antes (bug: comparaba el neto contra
+      // -slMult directo, esperando que el neto cayera 1.5x en vez de que el costo SUBIERA 1.5x).
+      const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
 
       let cerrarPor = null;
       if (pnlActual >= tpUmbral) cerrarPor = 'TP';
-      else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
+      else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
       if (!cerrarPor) continue;
 
       try {
