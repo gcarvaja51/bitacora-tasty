@@ -2968,6 +2968,42 @@ async function checkIronCondor() {
 }
 setInterval(checkIronCondor, 5 * 60 * 1000);
 
+// Verifica que TODAS las patas de una orden multileg se llenaron completas — no
+// solo que el agregado tenga exec_quantity>0. Antes, un fill parcial/desbalanceado
+// (ej. la pata corta se llena pero la larga de proteccion no) se trataba igual que
+// un fill sano, dejando una posicion "desnuda" mucho mas riesgosa sin que el
+// sistema lo notara.
+function verificarFillPorPata(order, expectedQty) {
+  const legs = Array.isArray(order.leg) ? order.leg : (order.leg ? [order.leg] : []);
+  if (!legs.length) {
+    const execQty = order.exec_quantity || 0;
+    return { completo: execQty >= expectedQty, parcial: execQty > 0 && execQty < expectedQty, detalle: [] };
+  }
+  const detalle = legs.map(l => ({ symbol: l.option_symbol, side: l.side, execQty: l.exec_quantity || 0 }));
+  const todasCompletas = detalle.every(d => d.execQty >= expectedQty);
+  const algunaLlenada  = detalle.some(d => d.execQty > 0);
+  return { completo: todasCompletas, parcial: algunaLlenada && !todasCompletas, detalle };
+}
+
+// Cierre de emergencia: aplana individualmente cada pata que SI se llenó (lado
+// opuesto al original), para no sostener un riesgo desbalanceado esperando a que
+// alguien lo note manualmente.
+async function aplanarPatasParciales(detalle, underlyingRoot) {
+  const cerradas = [];
+  for (const leg of detalle) {
+    if (leg.execQty <= 0) continue;
+    const sideCierre = leg.side === 'sell_to_open' ? 'buy_to_close' : 'sell_to_close';
+    try {
+      await tradier.closeSingleLeg({ underlyingRoot, optionSymbol: leg.symbol, side: sideCierre, quantity: leg.execQty });
+      cerradas.push(leg.symbol);
+      console.error(`[EMERGENCIA-FILL-PARCIAL] Pata ${leg.symbol} (${leg.side}, qty ${leg.execQty}) cerrada de emergencia (${sideCierre}).`);
+    } catch(e) {
+      console.error(`[EMERGENCIA-FILL-PARCIAL] Error cerrando pata ${leg.symbol}:`, e.message);
+    }
+  }
+  return cerradas;
+}
+
 // ── Monitor activo de TP/SL para Iron Condor (primer cierre activo del sistema —
 // todo lo demas hoy solo registra P&L despues del hecho, ver checkTradierExecutions) ──
 async function checkIronCondorTPSL() {
@@ -2983,13 +3019,29 @@ async function checkIronCondorTPSL() {
       // evaluar TP/SL una vez que sepamos el credito real recibido.
       if (ex.status === 'submitted') {
         const order = await tradier.getOrder(ex.orderId);
-        if (order && (order.exec_quantity || 0) > 0) {
-          ex.status = 'filled';
-          ex.entryFillPrice = order.avg_fill_price || null;
-          ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
-          ex.filledAt = new Date().toISOString();
-          cambios = true;
-          console.log(`[Tradier-IC-TPSL] Orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
+        if (order) {
+          const fillCheck = verificarFillPorPata(order, ex.contracts);
+          if (fillCheck.completo) {
+            ex.status = 'filled';
+            ex.entryFillPrice = order.avg_fill_price || null;
+            ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
+            ex.filledAt = new Date().toISOString();
+            cambios = true;
+            console.log(`[Tradier-IC-TPSL] Orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
+          } else if (fillCheck.parcial) {
+            console.error(`[Tradier-IC-TPSL] 🚨 Fill parcial/desbalanceado en orden ${ex.orderId}.`);
+            if (IS_PRODUCTION) {
+              const cerradas = await aplanarPatasParciales(fillCheck.detalle, 'SPXW');
+              ex.status      = 'closed_emergency_partial';
+              ex.closedAt    = new Date().toISOString();
+              ex.closeReason = 'PARTIAL_FILL_EMERGENCY';
+              ex.pnlSource   = 'emergencia_fill_parcial';
+              ex.notes       = `Fill parcial — patas cerradas de emergencia: ${cerradas.join(', ') || 'ninguna (fallo el cierre)'}`;
+              cambios = true;
+            } else {
+              console.log(`[Tradier-IC-TPSL] (local, no ejecuta) detectaría fill parcial en orden ${ex.orderId}.`);
+            }
+          }
         }
         continue;
       }
@@ -3073,13 +3125,29 @@ async function checkDirectionalTPSL() {
       // 1. Confirmar fill si aun no se confirmo
       if (ex.status === 'submitted') {
         const order = await tradier.getOrder(ex.orderId);
-        if (order && (order.exec_quantity || 0) > 0) {
-          ex.status = 'filled';
-          ex.entryFillPrice = order.avg_fill_price || null;
-          ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
-          ex.filledAt = new Date().toISOString();
-          cambios = true;
-          console.log(`[Tradier-DIR-TPSL] Orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
+        if (order) {
+          const fillCheck = verificarFillPorPata(order, ex.contracts);
+          if (fillCheck.completo) {
+            ex.status = 'filled';
+            ex.entryFillPrice = order.avg_fill_price || null;
+            ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
+            ex.filledAt = new Date().toISOString();
+            cambios = true;
+            console.log(`[Tradier-DIR-TPSL] Orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
+          } else if (fillCheck.parcial) {
+            console.error(`[Tradier-DIR-TPSL] 🚨 Fill parcial/desbalanceado en orden ${ex.orderId}.`);
+            if (IS_PRODUCTION) {
+              const cerradas = await aplanarPatasParciales(fillCheck.detalle, 'SPXW');
+              ex.status      = 'closed_emergency_partial';
+              ex.closedAt    = new Date().toISOString();
+              ex.closeReason = 'PARTIAL_FILL_EMERGENCY';
+              ex.pnlSource   = 'emergencia_fill_parcial';
+              ex.notes       = `Fill parcial — patas cerradas de emergencia: ${cerradas.join(', ') || 'ninguna (fallo el cierre)'}`;
+              cambios = true;
+            } else {
+              console.log(`[Tradier-DIR-TPSL] (local, no ejecuta) detectaría fill parcial en orden ${ex.orderId}.`);
+            }
+          }
         }
         continue;
       }
@@ -3411,7 +3479,15 @@ function scheduleExtrinsicChecks() {
 // (nunca fillean en el sandbox) y bloqueaban hasOpenPosition() para senales reales
 // nuevas; habia que cancelarlas a mano. Cancela cualquier orden 'pending' con mas
 // de 10 min de antiguedad, automaticamente, solo en produccion.
+// IMPORTANTE: solo actua sobre ordenes de SPXW (nuestro universo) — antes cancelaba
+// CUALQUIER orden pending de la cuenta sin distinguir si era nuestra, arriesgando
+// cancelar algo que el usuario hubiera colocado manualmente en el sandbox.
 const PENDING_ORDER_MAX_AGE_MS = 10 * 60 * 1000; // 10 min
+function ordenEsDeNuestroUniverso(o, root = 'SPXW') {
+  if ((o.symbol || '').startsWith(root)) return true;
+  const legs = Array.isArray(o.leg) ? o.leg : (o.leg ? [o.leg] : []);
+  return legs.some(l => (l.option_symbol || '').startsWith(root));
+}
 async function cleanupStalePendingOrders() {
   if (!IS_PRODUCTION) return;
   try {
@@ -3419,6 +3495,7 @@ async function cleanupStalePendingOrders() {
     const ahora = Date.now();
     for (const o of orders) {
       if (o.status !== 'pending') continue;
+      if (!ordenEsDeNuestroUniverso(o)) continue;
       const edadMs = ahora - new Date(o.create_date).getTime();
       if (edadMs < PENDING_ORDER_MAX_AGE_MS) continue;
       try {

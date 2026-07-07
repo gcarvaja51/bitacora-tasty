@@ -81,6 +81,7 @@ class TradierClient {
       const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
       return list;
     } catch(e) {
+      console.error('[Tradier] getClosedPnl error:', e.message);
       return null;
     }
   }
@@ -172,6 +173,33 @@ class TradierClient {
     };
   }
 
+  // Cierra UNA sola pata (orden simple, no multileg) — para el caso de emergencia
+  // donde un multileg quedo parcialmente lleno (ej. solo la corta llenó, la larga
+  // de proteccion no) y hay que aplanar cada pata llenada individualmente en vez
+  // de la reversa combinada (que asume que TODAS las patas originales siguen abiertas).
+  async closeSingleLeg({ underlyingRoot, optionSymbol, side, quantity }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const body = new URLSearchParams({
+      class:          'option',
+      symbol:         underlyingRoot,
+      option_symbol:  optionSymbol,
+      side,           // 'buy_to_close' o 'sell_to_close'
+      quantity:       String(quantity),
+      type:           'market',
+      duration:       'day',
+    });
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString(),
+    });
+    return {
+      orderId: data.order?.id ?? null,
+      status:  data.order?.status ?? 'unknown',
+      raw:     data,
+    };
+  }
+
   // Cotizaciones actuales (mark/bid/ask) para una lista de simbolos OCC — necesario
   // para calcular cuanto costaria cerrar una posicion abierta ahora mismo (no habia
   // ningun metodo de cotizacion en este cliente).
@@ -252,6 +280,7 @@ class TradierClient {
     return {
       orderId: data.order?.id ?? null,
       status:  data.order?.status ?? 'unknown',
+      legs:    { putShortSym, putLongSym, callShortSym, callLongSym },
       raw:     data,
     };
   }
