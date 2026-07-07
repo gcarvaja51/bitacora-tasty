@@ -2044,9 +2044,12 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
                 ask:    cData.ask    || 0,
                 volume: cData.volume || 0,
                 oi:     cData.oi     || 0,
-                delta:  cData.delta  || cGreeksBS.delta || 0,
-                theta:  cData.theta  || cGreeksBS.theta || 0,
-                gamma:  cData.gamma  || cGreeksBS.gamma || 0,
+                // ?? en vez de || — un delta/theta/gamma real de TastyTrade que sea
+                // exactamente 0 (comun en strikes muy OTM, justo la zona que se busca
+                // para creditos) no debe descartarse a favor de la estimacion Black-Scholes.
+                delta:  cData.delta  ?? cGreeksBS.delta ?? 0,
+                theta:  cData.theta  ?? cGreeksBS.theta ?? 0,
+                gamma:  cData.gamma  ?? cGreeksBS.gamma ?? 0,
                 vega:   cData.vega   || 0,
               },
               put: {
@@ -2057,9 +2060,9 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
                 ask:    pData.ask    || 0,
                 volume: pData.volume || 0,
                 oi:     pData.oi     || 0,
-                delta:  pData.delta  || pGreeksBS.delta || 0,
-                theta:  pData.theta  || pGreeksBS.theta || 0,
-                gamma:  pData.gamma  || pGreeksBS.gamma || 0,
+                delta:  pData.delta  ?? pGreeksBS.delta ?? 0,
+                theta:  pData.theta  ?? pGreeksBS.theta ?? 0,
+                gamma:  pData.gamma  ?? pGreeksBS.gamma ?? 0,
                 vega:   pData.vega   || 0,
               },
             };
