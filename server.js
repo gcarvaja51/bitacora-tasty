@@ -2577,11 +2577,14 @@ app.post('/api/spx/webhook', async (req, res) => {
     const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
     const ctx    = await ctxRes.json();
 
-    // Capital de la cuenta
+    // Capital de la cuenta — DEBE ser el de Tradier (donde de verdad se ejecuta la
+    // orden), no el de TastyTrade (una cuenta real completamente distinta y sin
+    // relacion). Usaba tt._req a TastyTrade por error, sizeando el riesgo del 2%
+    // contra ~$8,300 de la cuenta personal en vez de los ~$100,000 reales de Tradier.
     let capital = 10000;
     try {
-      const acc = await tt._req(`/accounts/${process.env.TASTY_ACCOUNT}/balances`);
-      capital = parseFloat(acc.data?.['net-liquidating-value'] || capital);
+      const balances = await tradier.getBalances();
+      capital = parseFloat(balances?.total_equity || capital);
     } catch(e) {}
 
     // Calcular score del playbook
@@ -2890,7 +2893,14 @@ async function checkIronCondor() {
       return;
     }
 
-    const capital = tradingCfg.capital || 10000;
+    // Capital real de Tradier (donde se ejecuta) — antes usaba tradingCfg.capital,
+    // un valor de config que nunca se configuro y caia en un default fijo de
+    // $10,000, sin relacion con el balance real (~$100,000).
+    let capital = 10000;
+    try {
+      const balances = await tradier.getBalances();
+      capital = parseFloat(balances?.total_equity || capital);
+    } catch(e) {}
     const maxRisk = capital * 0.02;
     const contracts = Math.max(1, Math.floor(maxRisk / (gate.spreadWidth * 100)));
     const sel = {
