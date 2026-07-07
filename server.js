@@ -2519,6 +2519,7 @@ app.get('/api/spx/context', async (req, res) => {
 
 // POST /api/spx/webhook — recibe señal de entrada de TradingView (compra/venta)
 app.post('/api/spx/webhook', async (req, res) => {
+  const tWebhookStart = Date.now(); // para medir cuanto tarda desde que llega la alerta hasta que se envia la orden
   try {
     let { direction, timeframe = '2m', source = 'TradingView', playbook_score = null, price, time } = req.body;
 
@@ -2569,7 +2570,7 @@ app.post('/api/spx/webhook', async (req, res) => {
       direction = weinsteinDirection;
     }
 
-    console.log(`[SPX] ✅ Gate Weinstein OK — Fase${fase2m} en 2m y 15m → ${direction}`);
+    console.log(`[SPX] ✅ Gate Weinstein OK — Fase${fase2m} en 2m y 15m → ${direction} (+${Date.now()-tWebhookStart}ms desde que llegó la alerta)`);
 
     // ── GENERAR SUGERENCIA (en background) ───────────────────────────
     // Obtener contexto de mercado
@@ -2783,7 +2784,8 @@ app.post('/api/spx/webhook', async (req, res) => {
           signal.status    = 'EXECUTED';
           signal.notes     = 'Auto-ejecutado en Tradier sandbox';
           signal.actionAt  = new Date().toISOString();
-          console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym}`);
+          signal.timingMs  = Date.now() - tWebhookStart; // desde que llego la alerta hasta que se envio la orden
+          console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym} (+${signal.timingMs}ms desde que llegó la alerta — analisis + envio de orden)`);
 
           // Registro dedicado para el dashboard de seguimiento (no comparte
           // el cap de 50 de spx_signals.json)
