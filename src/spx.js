@@ -4,6 +4,25 @@
 // Analiza contexto de mercado y genera sugerencias de entrada
 // para estrategias de opciones en SPX
 
+// Siguiente dia de TRADING (no solo +1 dia calendario) — usado para 1DTE, que
+// entra un viernes por la tarde y debe apuntar al lunes, no al sabado. No
+// maneja feriados (igual que el resto del sistema, ver nota de calendario
+// economico manual en CLAUDE.md) pero al menos salta fin de semana, que antes
+// causaba que findStrikesByDelta buscara una expiracion de sabado inexistente
+// y cayera al fallback (la primera expiracion disponible, sin relacion con
+// "el dia siguiente real").
+function nextTradingDateET() {
+  let d = new Date(Date.now() + 86400000);
+  let dateStr = d.toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+  let dow = new Date(dateStr + 'T12:00:00Z').getDay(); // 0=domingo, 6=sabado
+  while (dow === 0 || dow === 6) {
+    d = new Date(d.getTime() + 86400000);
+    dateStr = d.toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+    dow = new Date(dateStr + 'T12:00:00Z').getDay();
+  }
+  return dateStr;
+}
+
 function getETHour() {
   // Usa la zona horaria real de Nueva York (America/New_York) en vez de un
   // offset fijo, para que ajuste solo con el horario de verano (EDT/EST).
@@ -255,10 +274,10 @@ function selectStrategy(context) {
 // los ignoraba y usaba 0.10-0.14/20pts fijos — bug real que hacia que la config de
 // produccion (delta, ancho) no se aplicara nunca a las señales en vivo.
 function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelta = 0.12, spreadWidth = 20) {
-  // Seleccionar expiración
+  // Seleccionar expiración — para 1DTE, el "dia siguiente" debe saltar fin de
+  // semana (viernes -> lunes, no sabado, que no existe como expiracion).
   const today = new Date().toISOString().slice(0, 10);
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const targetDate = expType === '0DTE' ? today : tomorrow;
+  const targetDate = expType === '0DTE' ? today : nextTradingDateET();
 
   let exp = expirations.find(e => e['expiration-date'] === targetDate);
   if (!exp) exp = expirations[0]; // fallback
