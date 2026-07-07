@@ -20,6 +20,21 @@ if (DATA_DIR !== __dirname) {
   console.log('[DATA] Usando volumen persistente:', DATA_DIR);
 }
 
+// ── Local vs produccion — evitar doble ejecucion real ───────
+// El servidor local (npm run dev) y el de Railway corren el mismo codigo de
+// forma independiente contra la MISMA cuenta de Tradier. Si ambos estan
+// activos a la vez durante horario de mercado, los dos vigilan y pueden
+// intentar operar por su cuenta sin saberlo el uno del otro (2026-07-07:
+// el local ejecuto un Iron Condor real que quedo huerfano de seguimiento
+// al caerse el proceso antes de confirmar el fill). Desde ahora, solo
+// Railway (donde SI existe RAILWAY_VOLUME_MOUNT_PATH) ejecuta ordenes
+// reales en Tradier — el local sigue generando/mostrando señales y
+// corriendo el resto del sistema normalmente, solo sin tocar la cuenta.
+const IS_PRODUCTION = !!process.env.RAILWAY_VOLUME_MOUNT_PATH;
+if (!IS_PRODUCTION) {
+  console.log('[SPX] Entorno LOCAL detectado — auto-ejecucion en Tradier deshabilitada (solo produccion/Railway opera la cuenta real).');
+}
+
 const NLV_FILE = path.join(DATA_DIR, 'nlv_history.json');
 const NLV_SEED = {
   '2026-02-13': 10644.00,   // depósito inicial
@@ -2742,7 +2757,7 @@ app.post('/api/spx/webhook', async (req, res) => {
 
     // ── Ejecución automática en Tradier (sandbox) — solo Bull Put / Bear Call ──
     const tradierEligible = ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD'].includes(signal.strategy);
-    const tradierEnabled  = (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).tradierAutoExecute !== false;
+    const tradierEnabled  = IS_PRODUCTION && (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).tradierAutoExecute !== false;
     const creditoRiesgoOK = creditoRiesgoPct >= MIN_CREDITO_RIESGO_PCT;
     if (tradierEligible && tradierEnabled && !creditoRiesgoOK) {
       signal.tradierOrder = { skipped: true, reason: `Crédito/Riesgo ${creditoRiesgoPct}% por debajo del mínimo ${MIN_CREDITO_RIESGO_PCT}% — prima muy chica para el riesgo del spread.` };
@@ -2891,7 +2906,7 @@ async function checkIronCondor() {
     if (gate.note) signal.notes = gate.note;
 
     // ── Ejecución automática en Tradier (sandbox) — kill-switch propio del IC ──
-    if (icCfg.tradierAutoExecute !== false) {
+    if (IS_PRODUCTION && icCfg.tradierAutoExecute !== false) {
       try {
         const order = await tradier.placeIronCondorOrder({
           underlyingRoot:   'SPXW',
@@ -3000,6 +3015,11 @@ async function checkIronCondorTPSL() {
       if (pnlActual >= tpUmbral) cerrarPor = 'TP';
       else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
       if (!cerrarPor) continue;
+
+      if (!IS_PRODUCTION) {
+        console.log(`[Tradier-IC-TPSL] (local, no ejecuta) tocaría cerrar por ${cerrarPor} — orden ${ex.orderId}.`);
+        continue;
+      }
 
       try {
         await tradier.closeIronCondorOrder({
