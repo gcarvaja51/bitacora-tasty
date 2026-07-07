@@ -2801,8 +2801,12 @@ app.post('/api/spx/webhook', async (req, res) => {
             legs:          order.legs,
             status:        'submitted',
             entryFillPrice: null,
+            creditReceived: null,
+            tpPct:         signal.trading?.tpPct ?? tpPct * 100,
+            slMult:        signal.trading?.slMult ?? slMult,
             filledAt:      null,
             closedAt:      null,
+            closeReason:   null,
             pnl:           null,
             pnlSource:     null,
           });
@@ -3046,6 +3050,94 @@ async function checkIronCondorTPSL() {
   }
 }
 setInterval(checkIronCondorTPSL, 90 * 1000); // cada 90s — el TP/SL necesita reaccionar rapido
+
+// ── Monitor activo de TP/SL para direccionales (Bull Put/Bear Call) — mismo
+// patron que Iron Condor. Antes de esto, los direccionales solo mostraban el
+// objetivo de TP/SL de forma informativa (signal.trading.tpTarget/slTarget)
+// pero nadie colocaba la orden de cierre — el usuario tenia que cerrar a mano
+// en Tradier siempre. Cierra 2 patas (corta+larga) en vez de las 4 del IC.
+async function checkDirectionalTPSL() {
+  try {
+    if (!isMarketHours()) return;
+    const executions = loadTradierExecutions();
+    const abiertas = executions.filter(e =>
+      (e.strategy === 'BULL_PUT_SPREAD' || e.strategy === 'BEAR_CALL_SPREAD') &&
+      (e.status === 'submitted' || e.status === 'filled')
+    );
+    if (!abiertas.length) return;
+
+    let cambios = false;
+    for (const ex of abiertas) {
+      // 1. Confirmar fill si aun no se confirmo
+      if (ex.status === 'submitted') {
+        const order = await tradier.getOrder(ex.orderId);
+        if (order && (order.exec_quantity || 0) > 0) {
+          ex.status = 'filled';
+          ex.entryFillPrice = order.avg_fill_price || null;
+          ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
+          ex.filledAt = new Date().toISOString();
+          cambios = true;
+          console.log(`[Tradier-DIR-TPSL] Orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
+        }
+        continue;
+      }
+
+      if (ex.creditReceived == null) continue;
+
+      const shortSym = ex.legs?.shortSym, longSym = ex.legs?.longSym;
+      if (!shortSym || !longSym) continue;
+
+      const quotes = await tradier.getQuotes([shortSym, longSym]);
+      const q = {};
+      quotes.forEach(x => { q[x.symbol] = x.mark; });
+      if (q[shortSym] == null || q[longSym] == null) {
+        console.warn(`[Tradier-DIR-TPSL] Cotizaciones incompletas para ${ex.orderId}, se salta este ciclo.`);
+        continue;
+      }
+
+      // Costo de cerrar ahora = recomprar la corta - vender la larga
+      const costoDeCerrar = q[shortSym] - q[longSym];
+      const pnlActual = ex.creditReceived - costoDeCerrar;
+      const tpUmbral      = ex.creditReceived * ((ex.tpPct || 30) / 100);
+      const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
+
+      let cerrarPor = null;
+      if (pnlActual >= tpUmbral) cerrarPor = 'TP';
+      else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
+      if (!cerrarPor) continue;
+
+      if (!IS_PRODUCTION) {
+        console.log(`[Tradier-DIR-TPSL] (local, no ejecuta) tocaría cerrar por ${cerrarPor} — orden ${ex.orderId}.`);
+        continue;
+      }
+
+      try {
+        await tradier.closeSpreadOrder({
+          strategy:       ex.strategy,
+          underlyingRoot: 'SPXW',
+          expiry:         ex.expiry,
+          shortStrike:    ex.strikes.shortStrike,
+          longStrike:     ex.strikes.longStrike,
+          quantity:       ex.contracts,
+        });
+        ex.status      = 'closed';
+        ex.closedAt    = new Date().toISOString();
+        ex.pnl         = +(pnlActual * 100 * ex.contracts).toFixed(2);
+        ex.pnlSource   = 'tp_sl_auto';
+        ex.closeReason = cerrarPor;
+        cambios = true;
+        console.log(`[Tradier-DIR-TPSL] ✅ Cerrado por ${cerrarPor} — P&L: $${ex.pnl}`);
+      } catch(e) {
+        console.error(`[Tradier-DIR-TPSL] ❌ Error cerrando ${ex.orderId}:`, e.message);
+      }
+    }
+
+    if (cambios) saveTradierExecutions(executions);
+  } catch(e) {
+    console.error('[Tradier-DIR-TPSL] Error:', e.message);
+  }
+}
+setInterval(checkDirectionalTPSL, 90 * 1000); // cada 90s, mismo ritmo que el del Iron Condor
 
 // POST /api/tradier/executions/clear — limpieza manual del historial (uso puntual,
 // para arrancar en limpio antes de una sesion de mercado real).
@@ -3311,6 +3403,34 @@ function scheduleExtrinsicChecks() {
   setTimeout(tick, 60 * 1000);
   console.log(`[EXTR] Monitor iniciado — chequeo cada 15 min en horario de mercado`);
 }
+
+// ── Limpieza automatica de ordenes "pending" huerfanas en Tradier — hoy (2026-07-05
+// y 2026-07-07) tuvimos ordenes de prueba que se quedaron en pending indefinidamente
+// (nunca fillean en el sandbox) y bloqueaban hasOpenPosition() para senales reales
+// nuevas; habia que cancelarlas a mano. Cancela cualquier orden 'pending' con mas
+// de 10 min de antiguedad, automaticamente, solo en produccion.
+const PENDING_ORDER_MAX_AGE_MS = 10 * 60 * 1000; // 10 min
+async function cleanupStalePendingOrders() {
+  if (!IS_PRODUCTION) return;
+  try {
+    const orders = await tradier.getOrders();
+    const ahora = Date.now();
+    for (const o of orders) {
+      if (o.status !== 'pending') continue;
+      const edadMs = ahora - new Date(o.create_date).getTime();
+      if (edadMs < PENDING_ORDER_MAX_AGE_MS) continue;
+      try {
+        await tradier.cancelOrder(o.id);
+        console.log(`[TRADIER-CLEANUP] 🗑️ Orden pending huérfana cancelada: ${o.id} (${Math.round(edadMs/60000)} min de antigüedad).`);
+      } catch(e) {
+        console.error(`[TRADIER-CLEANUP] Error cancelando orden ${o.id}:`, e.message);
+      }
+    }
+  } catch(e) {
+    console.error('[TRADIER-CLEANUP] Error:', e.message);
+  }
+}
+setInterval(cleanupStalePendingOrders, 10 * 60 * 1000); // cada 10 min
 
 // ── Seguimiento de ejecuciones en Tradier (dashboard independiente) ──
 const TRADIER_TRACK_MS = 5 * 60 * 1000; // 5 min

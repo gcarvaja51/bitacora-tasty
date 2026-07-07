@@ -136,6 +136,42 @@ class TradierClient {
     };
   }
 
+  // Cierra el spread direccional (2 patas) — orden inversa a placeSpreadOrder:
+  // buy_to_close la corta, sell_to_close la larga. No existia — el auto-cierre
+  // de direccionales dependia de que el usuario cerrara a mano en Tradier.
+  async closeSpreadOrder({ strategy, underlyingRoot, expiry, shortStrike, longStrike, quantity }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const optType  = strategy === 'BULL_PUT_SPREAD' ? 'P' : 'C';
+    const shortSym = this.buildOccSymbol(underlyingRoot, expiry, optType, shortStrike);
+    const longSym  = this.buildOccSymbol(underlyingRoot, expiry, optType, longStrike);
+
+    const body = new URLSearchParams({
+      class:    'multileg',
+      symbol:   underlyingRoot,
+      type:     'market',
+      duration: 'day',
+      'option_symbol[0]': shortSym,
+      'side[0]':          'buy_to_close',
+      'quantity[0]':      String(quantity),
+      'option_symbol[1]': longSym,
+      'side[1]':          'sell_to_close',
+      'quantity[1]':      String(quantity),
+    });
+
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString(),
+    });
+
+    return {
+      orderId: data.order?.id ?? null,
+      status:  data.order?.status ?? 'unknown',
+      legs:    { shortSym, longSym },
+      raw:     data,
+    };
+  }
+
   // Cotizaciones actuales (mark/bid/ask) para una lista de simbolos OCC — necesario
   // para calcular cuanto costaria cerrar una posicion abierta ahora mismo (no habia
   // ningun metodo de cotizacion en este cliente).
