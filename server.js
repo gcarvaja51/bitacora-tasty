@@ -3034,6 +3034,17 @@ app.post('/api/tradier/executions/clear', (req, res) => {
   res.json({ ok: true, cleared: true });
 });
 
+// POST /api/tradier/executions/add — insercion manual puntual (uso de emergencia,
+// para reconciliar una posicion real en Tradier que por algun motivo no quedo
+// registrada por checkIronCondor/webhook, y que el monitor de TP/SL necesita
+// conocer para poder gestionarla).
+app.post('/api/tradier/executions/add', (req, res) => {
+  const executions = loadTradierExecutions();
+  executions.unshift(req.body);
+  saveTradierExecutions(executions);
+  res.json({ ok: true, added: true, total: executions.length });
+});
+
 // GET /api/tradier/executions — historial + balance real de la cuenta demo
 const TRADIER_STARTING_BALANCE = 100000; // capital inicial de la cuenta sandbox
 app.get('/api/tradier/executions', async (req, res) => {
