@@ -2168,6 +2168,20 @@ function saveTradierExecutions(execs) {
   fs.writeFileSync(TRADIER_EXECUTIONS_FILE, JSON.stringify(execs, null, 2), 'utf8');
 }
 
+// Mutex simple para serializar el ciclo leer→modificar→guardar de tradier_executions.json.
+// checkIronCondorTPSL y checkDirectionalTPSL corren cada 90s CADA UNO, de forma
+// independiente, y ambos hacen varios `await` (llamadas reales a Tradier) entre su
+// propia lectura y su propia escritura del archivo — si se solapan, el que termina
+// segundo sobreescribe el archivo con SU copia en memoria (cargada antes de que el
+// otro guardara), revirtiendo silenciosamente el cambio que el otro acababa de hacer.
+// Este mutex asegura que solo una funcion este a mitad de ese ciclo a la vez.
+let executionsLock = Promise.resolve();
+function withExecutionsLock(fn) {
+  const run = executionsLock.then(fn, fn);
+  executionsLock = run.catch(() => {});
+  return run;
+}
+
 // GET /api/spx/context — contexto completo del mercado
 // Construye el contexto de mercado completo para SPX (precio, VIX, IV Rank, GEX,
 // indicadores 2m/15m/diario, rango de apertura, confluencia Weinstein). Usado tanto
@@ -2796,31 +2810,36 @@ app.post('/api/spx/webhook', async (req, res) => {
           console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym} (+${signal.timingMs}ms desde que llegó la alerta — analisis + envio de orden)`);
 
           // Registro dedicado para el dashboard de seguimiento (no comparte
-          // el cap de 50 de spx_signals.json)
-          const executions = loadTradierExecutions();
-          executions.unshift({
-            id:            `tex-${Date.now()}`,
-            signalId:      signal.id,
-            timestamp:     signal.timestamp,
-            strategy:      signal.strategy,
-            direction:     signal.direction,
-            strikes:       signal.strikes,
-            expiry:        signal.strikes?.expiry,
-            contracts:     signal.contracts,
-            orderId:       order.orderId,
-            legs:          order.legs,
-            status:        'submitted',
-            entryFillPrice: null,
-            creditReceived: null,
-            tpPct:         signal.trading?.tpPct ?? tpPct * 100,
-            slMult:        signal.trading?.slMult ?? slMult,
-            filledAt:      null,
-            closedAt:      null,
-            closeReason:   null,
-            pnl:           null,
-            pnlSource:     null,
+          // el cap de 50 de spx_signals.json). Sin await entre load/save aqui, pero
+          // igual pasa por el mutex — si no, un monitor de TP/SL a mitad de su propio
+          // ciclo (con una copia vieja en memoria) podria guardar despues y borrar
+          // este registro nuevo sin querer.
+          await withExecutionsLock(() => {
+            const executions = loadTradierExecutions();
+            executions.unshift({
+              id:            `tex-${Date.now()}`,
+              signalId:      signal.id,
+              timestamp:     signal.timestamp,
+              strategy:      signal.strategy,
+              direction:     signal.direction,
+              strikes:       signal.strikes,
+              expiry:        signal.strikes?.expiry,
+              contracts:     signal.contracts,
+              orderId:       order.orderId,
+              legs:          order.legs,
+              status:        'submitted',
+              entryFillPrice: null,
+              creditReceived: null,
+              tpPct:         signal.trading?.tpPct ?? tpPct * 100,
+              slMult:        signal.trading?.slMult ?? slMult,
+              filledAt:      null,
+              closedAt:      null,
+              closeReason:   null,
+              pnl:           null,
+              pnlSource:     null,
+            });
+            saveTradierExecutions(executions);
           });
-          saveTradierExecutions(executions);
         }
       } catch(e) {
         signal.tradierOrder = { error: e.message };
@@ -2944,30 +2963,32 @@ async function checkIronCondor() {
         signal.actionAt = new Date().toISOString();
         console.log(`[Tradier-IC] ✅ Orden enviada: ${order.orderId} (${order.status})`);
 
-        const executions = loadTradierExecutions();
-        executions.unshift({
-          id:            `tex-${Date.now()}`,
-          signalId:      signal.id,
-          timestamp:     signal.timestamp,
-          strategy:      'IRON_CONDOR',
-          expType:       dte,
-          strikes:       signal.strikes,
-          expiry:        strikes.expiry,
-          contracts,
-          orderId:       order.orderId,
-          legs:          order.legs,
-          status:        'submitted',
-          entryFillPrice: null,
-          creditReceived: null,
-          tpPct:         icCfg.tpPct,
-          slMult:        icCfg.slMult,
-          filledAt:      null,
-          closedAt:      null,
-          closeReason:   null,
-          pnl:           null,
-          pnlSource:     null,
+        await withExecutionsLock(() => {
+          const executions = loadTradierExecutions();
+          executions.unshift({
+            id:            `tex-${Date.now()}`,
+            signalId:      signal.id,
+            timestamp:     signal.timestamp,
+            strategy:      'IRON_CONDOR',
+            expType:       dte,
+            strikes:       signal.strikes,
+            expiry:        strikes.expiry,
+            contracts,
+            orderId:       order.orderId,
+            legs:          order.legs,
+            status:        'submitted',
+            entryFillPrice: null,
+            creditReceived: null,
+            tpPct:         icCfg.tpPct,
+            slMult:        icCfg.slMult,
+            filledAt:      null,
+            closedAt:      null,
+            closeReason:   null,
+            pnl:           null,
+            pnlSource:     null,
+          });
+          saveTradierExecutions(executions);
         });
-        saveTradierExecutions(executions);
       } catch(e) {
         signal.tradierOrder = { error: e.message };
         console.error('[Tradier-IC] ❌ Error enviando orden:', e.message);
@@ -3022,8 +3043,11 @@ async function aplanarPatasParciales(detalle, underlyingRoot) {
 // ── Monitor activo de TP/SL para Iron Condor (primer cierre activo del sistema —
 // todo lo demas hoy solo registra P&L despues del hecho, ver checkTradierExecutions) ──
 async function checkIronCondorTPSL() {
+  if (!isMarketHours()) return;
+  return withExecutionsLock(checkIronCondorTPSLImpl);
+}
+async function checkIronCondorTPSLImpl() {
   try {
-    if (!isMarketHours()) return;
     const executions = loadTradierExecutions();
     const abiertas = executions.filter(e => e.strategy === 'IRON_CONDOR' && (e.status === 'submitted' || e.status === 'filled'));
     if (!abiertas.length) return;
@@ -3126,8 +3150,11 @@ setInterval(checkIronCondorTPSL, 90 * 1000); // cada 90s — el TP/SL necesita r
 // pero nadie colocaba la orden de cierre — el usuario tenia que cerrar a mano
 // en Tradier siempre. Cierra 2 patas (corta+larga) en vez de las 4 del IC.
 async function checkDirectionalTPSL() {
+  if (!isMarketHours()) return;
+  return withExecutionsLock(checkDirectionalTPSLImpl);
+}
+async function checkDirectionalTPSLImpl() {
   try {
-    if (!isMarketHours()) return;
     const executions = loadTradierExecutions();
     const abiertas = executions.filter(e =>
       (e.strategy === 'BULL_PUT_SPREAD' || e.strategy === 'BEAR_CALL_SPREAD') &&
@@ -3226,8 +3253,8 @@ setInterval(checkDirectionalTPSL, 90 * 1000); // cada 90s, mismo ritmo que el de
 
 // POST /api/tradier/executions/clear — limpieza manual del historial (uso puntual,
 // para arrancar en limpio antes de una sesion de mercado real).
-app.post('/api/tradier/executions/clear', (req, res) => {
-  saveTradierExecutions([]);
+app.post('/api/tradier/executions/clear', async (req, res) => {
+  await withExecutionsLock(() => saveTradierExecutions([]));
   res.json({ ok: true, cleared: true });
 });
 
@@ -3235,11 +3262,14 @@ app.post('/api/tradier/executions/clear', (req, res) => {
 // para reconciliar una posicion real en Tradier que por algun motivo no quedo
 // registrada por checkIronCondor/webhook, y que el monitor de TP/SL necesita
 // conocer para poder gestionarla).
-app.post('/api/tradier/executions/add', (req, res) => {
-  const executions = loadTradierExecutions();
-  executions.unshift(req.body);
-  saveTradierExecutions(executions);
-  res.json({ ok: true, added: true, total: executions.length });
+app.post('/api/tradier/executions/add', async (req, res) => {
+  const total = await withExecutionsLock(() => {
+    const executions = loadTradierExecutions();
+    executions.unshift(req.body);
+    saveTradierExecutions(executions);
+    return executions.length;
+  });
+  res.json({ ok: true, added: true, total });
 });
 
 // GET /api/tradier/executions — historial + balance real de la cuenta demo
@@ -3513,6 +3543,9 @@ function ordenEsDeNuestroUniverso(o, root = 'SPXW') {
 }
 async function cleanupStalePendingOrders() {
   if (!IS_PRODUCTION) return;
+  return withExecutionsLock(cleanupStalePendingOrdersImpl);
+}
+async function cleanupStalePendingOrdersImpl() {
   try {
     const orders = await tradier.getOrders();
     const ahora = Date.now();
@@ -3552,6 +3585,9 @@ setInterval(cleanupStalePendingOrders, 10 * 60 * 1000); // cada 10 min
 const TRADIER_TRACK_MS = 5 * 60 * 1000; // 5 min
 
 async function checkTradierExecutions() {
+  return withExecutionsLock(checkTradierExecutionsImpl);
+}
+async function checkTradierExecutionsImpl() {
   const executions = loadTradierExecutions();
   const pendientes = executions.filter(e => e.status === 'submitted' || e.status === 'filled');
   if (!pendientes.length) return;
