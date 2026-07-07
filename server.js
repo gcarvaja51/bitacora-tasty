@@ -2096,7 +2096,9 @@ const SPX_CONFIG_DEFAULTS = {
   },
   // Parámetros de trading (compartidos con backtester)
   trading: {
-    capital:     10000,   // Capital de la cuenta
+    capital:     10000,   // Solo default para un slider de simulacion en el frontend
+                          // (SPX Señales) — el sizing REAL de posiciones ya no lee este
+                          // valor, usa el balance real de Tradier (tradier.getBalances()).
     experiencia: 'intermedio', // principiante / intermedio / avanzado
     riesgoPct:   2,       // % máximo de riesgo por operación
     targetDelta: 0.40,    // Delta objetivo para el strike short
@@ -3311,13 +3313,21 @@ const NYSE_HOLIDAYS = new Set([
 ]);
 
 function isMarketHours() {
-  const now  = new Date();
-  const et   = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day  = et.getDay();
-  if (day === 0 || day === 6) return false;
-  const dateStr = et.toISOString().slice(0, 10);
+  // OJO: antes hacia new Date(now.toLocaleString(...)) y leia .getDay()/.getHours()
+  // sobre ese resultado — eso solo da la hora ET correcta si el timezone LOCAL del
+  // proceso que corre el codigo es UTC (cierto en Railway, pero NO en el servidor
+  // local en Windows, que corre en la zona horaria del usuario). Mismo patron
+  // robusto (independiente del TZ del sistema) que ya usa getETHour(): extraer los
+  // componentes como texto en vez de reconstruir un Date y confiar en el TZ local.
+  const now = new Date();
+  const dateStr = now.toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+  const dayName = now.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+  if (dayName === 'Sat' || dayName === 'Sun') return false;
   if (NYSE_HOLIDAYS.has(dateStr)) return false;
-  const mins = et.getHours() * 60 + et.getMinutes();
+  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
+  let [hour, min] = etStr.split(':').map(Number);
+  if (hour === 24) hour = 0;
+  const mins = hour * 60 + min;
   return mins >= 9 * 60 + 30 && mins < 16 * 60;
 }
 
