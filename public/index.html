@@ -5425,7 +5425,7 @@ function renderTradierDemo(execs, account) {
     const pnlCls = typeof e.pnl === 'number' ? cc(e.pnl) : 'dim';
     return `<tr>
       <td class="td-mono" style="font-size:11px;">${fecha}</td>
-      <td class="${e.direction==='BULLISH'?'pos':'neg'}">${e.direction}</td>
+      <td class="${e.direction==='BULLISH'?'pos':e.direction==='BEARISH'?'neg':'dim'}">${e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'—')}</td>
       <td>${e.strategy}</td>
       <td class="td-mono">${strikesLabel}</td>
       <td>${estadoLabel}</td>
