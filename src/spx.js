@@ -14,6 +14,19 @@ function getETHour() {
   return { hour, min, time: `${hour}:${String(min).padStart(2,'0')}` };
 }
 
+// ── Ancho de spread dinamico segun capital y riesgo objetivo ──
+// Antes selectStrategy() usaba un ancho fijo de 20 puntos sin importar el
+// capital real de la cuenta — coincidia con el 2% de riesgo solo porque el
+// balance de Tradier ronda los $100k ahora mismo, por casualidad, no por
+// diseno. Misma logica de niveles que ya usaba el Backtester (frontend).
+function spreadWidthFor(capital, riesgoPct = 2) {
+  const tiers = [[5000,5],[10000,5],[15000,10],[20000,15],[Infinity,15]];
+  let spM = 5;
+  for (const [lim, sp] of tiers) { if (capital <= lim) { spM = sp; break; } }
+  const spR = Math.max(5, Math.floor(capital * (riesgoPct / 100) / 100) * 5);
+  return Math.min(spM, spR, 20);
+}
+
 // ── Calcula GEX por strike ────────────────────────────────────
 function calcGEX(expirations, spxPrice) {
   const gexByStrike = {};
@@ -220,7 +233,7 @@ function selectStrategy(context) {
 
   // 4. Calcular contratos según 2% del capital
   const maxRisk    = capital * 0.02;
-  const spreadWidth = 20; // puntos
+  const spreadWidth = spreadWidthFor(capital, 2); // puntos, dinamico segun capital real
   const maxContracts = Math.max(1, Math.floor(maxRisk / (spreadWidth * 100)));
 
   return {
