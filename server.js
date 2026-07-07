@@ -2327,9 +2327,14 @@ async function buildSPXContext() {
         };
       }
 
-      // 2m SPX (últimas 2 horas) — marco de ejecución fina
+      // 2m SPX (últimos 5 dias, no solo hoy) — marco de ejecución fina.
+      // range=1d se quedaba corto: calcWeinstein necesita 30 barras y con
+      // solo el dia de hoy no hay suficientes hasta ~60 min despues de abrir
+      // (9:30-10:30am ET), justo dentro de la ventana operativa (9:45am+) —
+      // el gate quedaba en null/false las primeras horas de cada sesion sin
+      // que hubiera realmente falta de confluencia, solo falta de historia.
       try {
-        const r2 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=2m&range=1d',
+        const r2 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=2m&range=5d',
           { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const j2 = await r2.json();
         const result2 = j2.chart?.result?.[0];
@@ -2347,14 +2352,21 @@ async function buildSPXContext() {
           };
         }
 
-        // Rango de apertura 9:30-10:00 ET — para la ventana Iron Condor de las 10am
+        // Rango de apertura 9:30-10:00 ET — para la ventana Iron Condor de las 10am.
+        // IMPORTANTE: ahora que el fetch trae 5 dias (no solo hoy), hay que filtrar
+        // tambien por fecha ET de HOY — si no, se mezclaria el rango de apertura
+        // de hoy con el de dias anteriores.
         const ts2    = result2?.timestamp || [];
         const highs2 = result2?.indicators?.quote?.[0]?.high || [];
         const lows2  = result2?.indicators?.quote?.[0]?.low  || [];
+        const todayET = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
         let orHigh = -Infinity, orLow = Infinity;
         for (let i = 0; i < ts2.length; i++) {
           if (highs2[i] == null || lows2[i] == null) continue;
-          const etStr = new Date(ts2[i] * 1000).toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
+          const d = new Date(ts2[i] * 1000);
+          const dateET = d.toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+          if (dateET !== todayET) continue;
+          const etStr = d.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
           const [hh, mm] = etStr.split(':').map(Number);
           const mins = hh * 60 + mm;
           if (mins >= 9 * 60 + 30 && mins < 10 * 60) {
