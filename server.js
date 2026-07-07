@@ -3501,6 +3501,20 @@ async function cleanupStalePendingOrders() {
       try {
         await tradier.cancelOrder(o.id);
         console.log(`[TRADIER-CLEANUP] 🗑️ Orden pending huérfana cancelada: ${o.id} (${Math.round(edadMs/60000)} min de antigüedad).`);
+        // Si esta orden esta en nuestro propio tracking como 'submitted', marcarla
+        // cancelada tambien — si no, los monitores activos (checkIronCondorTPSL/
+        // checkDirectionalTPSL) seguirian consultando getOrder() cada 90s para
+        // siempre sobre una orden que ya no existe, con un registro "fantasma"
+        // atascado en 'submitted' de forma permanente.
+        const executions = loadTradierExecutions();
+        const ex = executions.find(e => String(e.orderId) === String(o.id) && e.status === 'submitted');
+        if (ex) {
+          ex.status = 'canceled';
+          ex.closedAt = new Date().toISOString();
+          ex.notes = (ex.notes ? ex.notes + ' | ' : '') + 'Orden cancelada automaticamente por quedar pending mas de 10 min sin llenarse.';
+          saveTradierExecutions(executions);
+          console.log(`[TRADIER-CLEANUP] Registro de seguimiento ${ex.id} marcado como cancelado.`);
+        }
       } catch(e) {
         console.error(`[TRADIER-CLEANUP] Error cancelando orden ${o.id}:`, e.message);
       }
@@ -3524,40 +3538,48 @@ async function checkTradierExecutions() {
 
   for (const ex of pendientes) {
     try {
-      const order = await tradier.getOrder(ex.orderId);
-      if (!order) continue;
-
-      // ¿Ya tiene fill?
-      if (ex.status === 'submitted' && (order.exec_quantity || 0) > 0) {
-        ex.status = 'filled';
-        ex.entryFillPrice = order.avg_fill_price || null;
-        ex.filledAt = new Date().toISOString();
-        cambios = true;
-        console.log(`[TRADIER-TRACK] Orden ${ex.orderId} llenada a $${ex.entryFillPrice}`);
-      }
+      // La confirmacion de fill (con verificacion pata-por-pata) ya la hacen
+      // checkIronCondorTPSL/checkDirectionalTPSL cada 90s para las 3 estrategias
+      // que hoy se auto-ejecutan — este monitor pasivo ya no la duplica (la version
+      // vieja aqui solo miraba el agregado, el mismo bug que se corrigio en los
+      // monitores activos). Este chequeo se salta las que siguen 'submitted' y
+      // solo se encarga de detectar cuando una 'filled' ya no existe (se cerro
+      // manual, por vencimiento, o por el cierre de emergencia de fill parcial).
+      if (ex.status === 'submitted') continue;
 
       // ¿La posición ya no existe? (se cerró, manual o por vencimiento)
-      if (ex.status === 'filled') {
-        const positions = await tradier.getPositions();
-        const symbolsAbiertos = new Set(positions.map(p => p.symbol));
-        const legSymbols = [ex.legs?.shortSym, ex.legs?.longSym].filter(Boolean);
-        const sigueAbierta = legSymbols.some(s => symbolsAbiertos.has(s));
+      // IMPORTANTE: antes solo miraba shortSym/longSym (nomenclatura direccional) —
+      // para Iron Condor (putShortSym/putLongSym/callShortSym/callLongSym) esa lista
+      // quedaba vacia SIEMPRE, haciendo que "sigueAbierta" fuera false de inmediato y
+      // este monitor pasivo marcara CUALQUIER Iron Condor como cerrado apenas se
+      // confirmaba el fill, aunque siguiera genuinamente abierto — pisando el estado
+      // que el monitor activo (checkIronCondorTPSL) si esta gestionando bien.
+      const positions = await tradier.getPositions();
+      const symbolsAbiertos = new Set(positions.map(p => p.symbol));
+      const legSymbols = [
+        ex.legs?.shortSym, ex.legs?.longSym,
+        ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym,
+      ].filter(Boolean);
+      const sigueAbierta = legSymbols.some(s => symbolsAbiertos.has(s));
 
-        if (!sigueAbierta) {
-          ex.status = 'closed';
-          ex.closedAt = new Date().toISOString();
-          const pnlList = await tradier.getClosedPnl(ex.timestamp.slice(0, 10));
-          const match = pnlList?.find(p => legSymbols.includes(p.symbol));
-          if (match && typeof match.gain_loss === 'number') {
-            ex.pnl = match.gain_loss;
-            ex.pnlSource = 'gainloss';
-          } else {
-            ex.pnl = null;
-            ex.pnlSource = 'pendiente_verificar';
-          }
-          cambios = true;
-          console.log(`[TRADIER-TRACK] Ejecución ${ex.orderId} cerrada — P&L: ${ex.pnl ?? 'pendiente de verificar'}`);
+      if (!sigueAbierta) {
+        ex.status = 'closed';
+        ex.closedAt = new Date().toISOString();
+        // SUMAR el gain_loss de TODAS las patas que coincidan, no solo la primera —
+        // Tradier reporta el P&L cerrado por pata individual, no por spread completo;
+        // quedarse con una sola (ej. solo la corta de un Iron Condor de 4 patas)
+        // entendia mal el P&L real de la posicion combinada.
+        const pnlList = await tradier.getClosedPnl(ex.timestamp.slice(0, 10));
+        const matches = (pnlList || []).filter(p => legSymbols.includes(p.symbol) && typeof p.gain_loss === 'number');
+        if (matches.length) {
+          ex.pnl = +matches.reduce((sum, p) => sum + p.gain_loss, 0).toFixed(2);
+          ex.pnlSource = 'gainloss';
+        } else {
+          ex.pnl = null;
+          ex.pnlSource = 'pendiente_verificar';
         }
+        cambios = true;
+        console.log(`[TRADIER-TRACK] Ejecución ${ex.orderId} cerrada — P&L: ${ex.pnl ?? 'pendiente de verificar'}`);
       }
     } catch(e) {
       console.error(`[TRADIER-TRACK] Error revisando orden ${ex.orderId}:`, e.message);
