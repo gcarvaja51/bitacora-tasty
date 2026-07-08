@@ -63,6 +63,45 @@ function priceExtension(price, ema) {
   return +((price - ema) / ema * 100).toFixed(2);
 }
 
+// ── SMA (media simple, sin suavizado exponencial) — setup Alejamiento de SMA ──
+function calcSMA(prices, period) {
+  if (!prices || prices.length < period) return null;
+  const slice = prices.slice(prices.length - period);
+  return +(slice.reduce((a, b) => a + b, 0) / period).toFixed(4);
+}
+
+function calcSMAArray(prices, period) {
+  const result = new Array(prices.length).fill(null);
+  if (!prices || prices.length < period) return result;
+  let sum = prices.slice(0, period).reduce((a, b) => a + b, 0);
+  result[period - 1] = +(sum / period).toFixed(4);
+  for (let i = period; i < prices.length; i++) {
+    sum += prices[i] - prices[i - period];
+    result[i] = +(sum / period).toFixed(4);
+  }
+  return result;
+}
+
+// ── RSI (Wilder, 14 periodos por defecto) — antes vivia duplicado 3 veces
+// como funcion local en server.js (screener de acciones), movido aca para
+// reusarlo tambien en el score de Alejamiento de SMA sin reescribirlo.
+function calcRSI(closes, period = 14) {
+  if (!closes || closes.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i-1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  let ag = gains / period, al = losses / period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i-1];
+    ag = (ag * (period-1) + Math.max(d, 0)) / period;
+    al = (al * (period-1) + Math.max(-d, 0)) / period;
+  }
+  if (al === 0) return 100;
+  return Math.round((100 - 100 / (1 + ag/al)) * 10) / 10;
+}
+
 // ── Volumen SPY relativo ──────────────────────────────────────
 function calcRelativeVolume(volumes, currentVol, lookback = 20) {
   if (!volumes || volumes.length < lookback) return null;
@@ -265,4 +304,100 @@ function calcPlaybookScore(indicators, config) {
   };
 }
 
-module.exports = { calcEMA, calcEMAArray, calcMACD, priceExtension, calcRelativeVolume, calcPlaybookScore, calcSwingStructure };
+// ── Score de Alejamiento de SMA (reversión a la media, playbook Luis Silva) ──
+// Contrato de salida igual a calcPlaybookScore ({score, passed, minScore, checks})
+// pero con los 5 checks propios de este setup. El patrón de confirmación
+// (García/Tiburón/9) se recibe YA CALCULADO en `indicators.patronReversion`
+// (no se llama a evaluateReversionPattern acá adentro) para evitar un
+// require circular: src/sma_reversion.js ya importa calcSMAArray de este
+// mismo archivo.
+function calcReversionScore(indicators, config) {
+  const weights = config.weights || {};
+  const checks  = [];
+  let totalWeight = 0;
+  let score = 0;
+
+  const dir = indicators.direction; // BULLISH | BEARISH
+
+  // 1. Alejamiento de SMA8 — extensión del precio respecto a la media (el "imán")
+  const w1 = weights.alejamiento_sma8 ?? 35;
+  totalWeight += w1;
+  const MIN_EXT = 0.15; // % minimo de estiramiento — estimacion inicial, ajustar tras el curso
+  const ext8 = indicators.ext8;
+  const alejamiento_ok = ext8 != null && (dir === 'BULLISH' ? ext8 <= -MIN_EXT : ext8 >= MIN_EXT);
+  checks.push({
+    id:      'alejamiento_sma8',
+    label:   'Alejamiento de SMA8',
+    weight:  w1,
+    ok:      alejamiento_ok,
+    value:   ext8 != null ? `${ext8 > 0 ? '+' : ''}${ext8}%` : '—',
+    reason:  alejamiento_ok ? `Precio estirado ${ext8}% de la SMA8 ✅` : `Estiramiento insuficiente (${ext8 ?? '—'}%, mínimo ${MIN_EXT}%) ❌`,
+  });
+  if (alejamiento_ok) score += w1;
+
+  // 2. Patrón de Confirmación (Vela García / Tiburón / Vela 9) — ya calculado
+  const w2 = weights.patron_confirmacion ?? 25;
+  totalWeight += w2;
+  const patron = indicators.patronReversion || {};
+  checks.push({
+    id:      'patron_confirmacion',
+    label:   'Patrón de Confirmación (García/Tiburón/9)',
+    weight:  w2,
+    ok:      !!patron.ok,
+    value:   patron.pattern || '—',
+    reason:  patron.reason || 'Sin datos de patrón',
+  });
+  if (patron.ok) score += w2;
+
+  // 3. RSI sobrecompra/sobreventa — agotamiento
+  const w3 = weights.rsi ?? 15;
+  totalWeight += w3;
+  const rsi = indicators.rsi;
+  const rsi_ok = rsi != null && (dir === 'BULLISH' ? rsi < 30 : rsi > 70);
+  checks.push({
+    id:      'rsi',
+    label:   'RSI sobrecompra/sobreventa',
+    weight:  w3,
+    ok:      rsi_ok,
+    value:   rsi != null ? `${rsi}` : '—',
+    reason:  rsi_ok ? `RSI en ${dir === 'BULLISH' ? 'sobreventa' : 'sobrecompra'} (${rsi}) ✅` : `RSI sin agotamiento (${rsi ?? '—'}) ❌`,
+  });
+  if (rsi_ok) score += w3;
+
+  // 4. Fase Weinstein 15m a favor de la reversión (2 para compras, 4 para ventas)
+  const w4 = weights.fase_weinstein ?? 15;
+  totalWeight += w4;
+  const fase15m = indicators.m15?.weinstein?.fase;
+  const faseObjetivo = dir === 'BULLISH' ? 2 : 4;
+  const fase_ok = fase15m === faseObjetivo;
+  checks.push({
+    id:      'fase_weinstein',
+    label:   'Fase Weinstein 15m a favor',
+    weight:  w4,
+    ok:      fase_ok,
+    value:   `Fase${fase15m ?? '—'}`,
+    reason:  fase_ok ? `Fase ${faseObjetivo} confirma la tendencia de fondo ✅` : `Fase 15m (${fase15m ?? '—'}) no favorece esta reversión ❌`,
+  });
+  if (fase_ok) score += w4;
+
+  // 5. Régimen Institucional — GEX Positivo (dealers estabilizan, favorece reversión)
+  const w5 = weights.regimen_gex ?? 10;
+  totalWeight += w5;
+  const regimen_ok = indicators.gammaRegime === 'POSITIVO';
+  checks.push({
+    id:      'regimen_gex',
+    label:   'Régimen Institucional (GEX Positivo)',
+    weight:  w5,
+    ok:      regimen_ok,
+    value:   indicators.gammaRegime || '—',
+    reason:  regimen_ok ? 'GEX positivo — mercado estabilizador, favorece reversión ✅' : `GEX ${indicators.gammaRegime || 'desconocido'} — no favorece reversión ❌`,
+  });
+  if (regimen_ok) score += w5;
+
+  const pct = totalWeight > 0 ? +(score / totalWeight * 100).toFixed(1) : 0;
+  const minScore = config.minScore ?? 70;
+
+  return { score: pct, passed: pct >= minScore, minScore, checks };
+}
+
+module.exports = { calcEMA, calcEMAArray, calcMACD, priceExtension, calcRelativeVolume, calcPlaybookScore, calcSwingStructure, calcSMA, calcSMAArray, calcRSI, calcReversionScore };

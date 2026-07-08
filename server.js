@@ -2100,9 +2100,13 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
-const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow } = require('./src/spx');
-const { calcPlaybookScore, calcRelativeVolume, priceExtension } = require('./src/spx_indicators');
+const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow } = require('./src/spx');
+const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray } = require('./src/spx_indicators');
+// Nota: calcRSI ya existe como funcion local en este archivo (linea ~1243, usada por el
+// screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
+// importar la copia de src/spx_indicators.js, para no chocar el nombre.
 const { calcCaminoA } = require('./src/camino_a');
+const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
 const SPX_CONFIG_FILE = path.join(DATA_DIR, 'spx_config.json');
@@ -2144,6 +2148,24 @@ const SPX_CONFIG_DEFAULTS = {
       gammaFlipBufferPts: 20,   // no operar si el precio esta a menos de esto del Gamma Flip
       tradierAutoExecute: true, // kill-switch propio del IC, separado del de las direccionales
     },
+    // Alejamiento de SMA — reversion a la media (playbook Luis Silva, Sigma Trade).
+    // Pipeline independiente, parametros propios (puede ajustarse tras el curso del
+    // usuario con Luis Silva, por eso todo vive en config y no hardcodeado).
+    smaReversion: {
+      weights: {
+        alejamiento_sma8:    35, // % de estiramiento del precio respecto a la SMA8
+        patron_confirmacion: 25, // Vela Garcia / Vela Tiburon / Vela 9 Secuencial
+        rsi:                 15, // sobrecompra/sobreventa
+        fase_weinstein:      15, // Fase 15m a favor de la reversion (2 compras, 4 ventas)
+        regimen_gex:         10, // GEX Positivo
+      },
+      minScore:    70,   // piso de "Trade Valido" del propio material de Luis Silva
+      targetDelta: 0.30,
+      spreadWidth: 5,    // credit spread mas angosto, acorde al hold corto (2-10 min)
+      maxCandlesTimeStop: 5,  // tope duro: 5 velas de 2m (10 min) sin excepcion
+      maxStopsPerDay:     2,  // circuito: 2 stops (SL o agotamiento) y no se opera mas hoy
+      tradierAutoExecute: true, // kill-switch propio, independiente de IC y direccionales
+    },
   }
 };
 function loadSPXConfig() {
@@ -2161,6 +2183,13 @@ function loadSPXConfig() {
       console.log('[SPX] Pesos viejos detectados, migrando a pesos Peso de la Evidencia (minScore -> 80)');
       saved.weights = SPX_CONFIG_DEFAULTS.weights;
       saved.minScore = SPX_CONFIG_DEFAULTS.minScore; // regla de Alejandro: 3 Mundos alineados -> >80/100
+      saveSPXConfig(saved);
+    }
+    // Suma el bloque de Alejamiento de SMA si no existe todavia — acotado a esa
+    // sola clave, no toca ironCondor/direccionales ya ajustados en produccion.
+    if (saved?.trading && saved.trading.smaReversion === undefined) {
+      console.log('[SPX] Sumando config de Alejamiento de SMA (no existia)');
+      saved.trading.smaReversion = SPX_CONFIG_DEFAULTS.trading.smaReversion;
       saveSPXConfig(saved);
     }
     return saved;
@@ -2460,7 +2489,12 @@ async function buildSPXContext() {
           if (rawCloses2[i] == null || highs2[i] == null || lows2[i] == null) continue;
           bars2m.push({ high: highs2[i], low: lows2[i], close: rawCloses2[i] });
         }
-        if (indicators.m2) indicators.m2.caminoA = calcCaminoA(bars2m);
+        if (indicators.m2) {
+          indicators.m2.caminoA = calcCaminoA(bars2m);
+          // Velas 2m crudas {high,low,close} — reusadas por Alejamiento de SMA
+          // (SMA8/20, RSI, patrones García/Tiburón/9) para no repetir el fetch a Yahoo.
+          indicators.m2.bars = bars2m;
+        }
       } catch(e2) { console.error('[SPX] 2m error:', e2.message); }
 
       // Volumen SPY — intraday vs promedio 20d
@@ -2743,11 +2777,12 @@ app.post('/api/spx/webhook', async (req, res) => {
       etTime:      ctx.etTime,
     });
 
-    signal.playbook    = playbookResult;
-    signal.fuerzaTotal = fuerzaTotal;
-    signal.source      = source;
-    signal.timeframe   = timeframe;
-    signal.tf15m       = weinsteinDirection;
+    signal.playbook       = playbookResult;
+    signal.fuerzaTotal    = fuerzaTotal;
+    signal.source         = source;
+    signal.timeframe      = timeframe;
+    signal.tf15m          = weinsteinDirection;
+    signal.strategyFamily = 'TENDENCIA';
 
     // Agregar parámetros de trading y TP/SL calculados
     const credito = signal.credit || signal.maxProfit || 0;
@@ -2817,6 +2852,7 @@ app.post('/api/spx/webhook', async (req, res) => {
               signalId:      signal.id,
               timestamp:     signal.timestamp,
               strategy:      signal.strategy,
+              strategyFamily: signal.strategyFamily || 'TENDENCIA',
               direction:     signal.direction,
               strikes:       signal.strikes,
               expiry:        signal.strikes?.expiry,
@@ -2939,6 +2975,7 @@ async function checkIronCondor() {
       technicalStop: null, technicalStopSource: null, etTime: ctx.etTime,
     });
     signal.trading = { tpPct: icCfg.tpPct, slMult: icCfg.slMult, spreadWidth: gate.spreadWidth };
+    signal.strategyFamily = 'NEUTRAL';
     if (gate.note) signal.notes = gate.note;
 
     // ── Ejecución automática en Tradier (sandbox) — kill-switch propio del IC ──
@@ -2966,6 +3003,7 @@ async function checkIronCondor() {
             signalId:      signal.id,
             timestamp:     signal.timestamp,
             strategy:      'IRON_CONDOR',
+            strategyFamily: 'NEUTRAL',
             expType:       dte,
             strikes:       signal.strikes,
             expiry:        strikes.expiry,
@@ -3154,6 +3192,7 @@ async function checkDirectionalTPSLImpl() {
     const executions = loadTradierExecutions();
     const abiertas = executions.filter(e =>
       (e.strategy === 'BULL_PUT_SPREAD' || e.strategy === 'BEAR_CALL_SPREAD') &&
+      e.strategyFamily !== 'REVERSION' && // Alejamiento de SMA tiene su propio monitor (checkAlejamientoSMATPSL) — cierra por precio, no por % de credito
       (e.status === 'submitted' || e.status === 'filled')
     );
     if (!abiertas.length) return;
@@ -3246,6 +3285,269 @@ async function checkDirectionalTPSLImpl() {
   }
 }
 setInterval(checkDirectionalTPSL, 90 * 1000); // cada 90s, mismo ritmo que el del Iron Condor
+
+// ══════════════════════════════════════════════════════════════
+// ── Alejamiento de SMA — reversión a la media (playbook Luis Silva) ──
+// ══════════════════════════════════════════════════════════════
+// Pipeline independiente y paralelo al direccional/Iron Condor — no depende de
+// una alerta de Pine, se evalúa periódicamente igual que el Iron Condor, pero
+// con su propio gate horario, su propio score, y su propio slot de exclusividad
+// (NO usa hasOpenPosition('SPXW') a propósito: el hold es de 2-10 min y no debe
+// bloquearse por un Iron Condor/direccional ya abierto — decisión del usuario.
+// Limitación conocida: al revés sí puede pasar, el hasOpenPosition('SPXW') de
+// esos otros dos SÍ va a ver esta posición mientras dure y se van a pausar
+// solos — inevitable sin tracking de posición por estrategia a nivel Tradier).
+async function checkAlejamientoSMA() {
+  try {
+    const et = getETHour();
+    const gate = evaluateReversionGate(et.hour, et.min);
+    if (!gate.valid) return;
+
+    const spxConfig = loadSPXConfig();
+    const cfg = (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).smaReversion || SPX_CONFIG_DEFAULTS.trading.smaReversion;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const executions = loadTradierExecutions();
+
+    // Circuito diario: 2 stops (SL o agotamiento) y no se genera mas nada hoy
+    const stopsHoy = executions.filter(e =>
+      e.strategyFamily === 'REVERSION' &&
+      ['SL', 'TIME_STOP'].includes(e.closeReason) &&
+      (e.closedAt || '').slice(0, 10) === today
+    ).length;
+    if (stopsHoy >= (cfg.maxStopsPerDay || 2)) return;
+
+    // Exclusividad propia — no comparte hasOpenPosition('SPXW') con las otras dos
+    const yaHayReversionAbierta = executions.some(e =>
+      e.strategyFamily === 'REVERSION' && (e.status === 'submitted' || e.status === 'filled')
+    );
+    if (yaHayReversionAbierta) return;
+
+    const ctx = await buildSPXContext();
+    const bars = ctx.indicators?.m2?.bars || [];
+    if (bars.length < 25) return;
+
+    const closes = bars.map(b => b.close);
+    const price  = closes[closes.length - 1];
+    const sma8Arr = calcSMAArray(closes, 8);
+    const sma8 = sma8Arr[sma8Arr.length - 1];
+    if (sma8 == null) return;
+
+    const ext8 = priceExtension(price, sma8);
+    const rsi  = calcRSI(closes);
+    // Direccion candidata: precio debajo de SMA8 -> reversion alcista; arriba -> bajista
+    const direction = price < sma8 ? 'BULLISH' : 'BEARISH';
+    const patronReversion = evaluateReversionPattern(bars, direction);
+
+    const scoreResult = calcReversionScore({
+      direction, ext8, patronReversion, rsi,
+      m15: ctx.indicators?.m15 || {},
+      gammaRegime: ctx.gex?.regime,
+    }, cfg);
+
+    if (!scoreResult.passed) {
+      console.log(`[SPX-REV] ❌ Score insuficiente: ${scoreResult.score}% (mínimo ${scoreResult.minScore}%)`);
+      return;
+    }
+
+    const strategy = direction === 'BULLISH' ? 'BULL_PUT_SPREAD' : 'BEAR_CALL_SPREAD';
+    const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
+    const chainData = await chainRes.json();
+    const strikes = findStrikesByDelta(chainData.expirations || [], strategy, ctx.spxPrice, '0DTE', cfg.targetDelta, cfg.spreadWidth);
+    if (!strikes || !strikes.shortStrike) {
+      console.log(`[SPX-REV] ❌ No se encontraron strikes con delta ${cfg.targetDelta}`);
+      return;
+    }
+
+    // Sizing conservador: 1% de riesgo (vs 2% de las otras dos) por ser un
+    // scalp de alta frecuencia potencial — varias entradas por sesión posibles.
+    let capital = 10000;
+    try {
+      const balances = await tradier.getBalances();
+      capital = parseFloat(balances?.total_equity || capital);
+    } catch(e) {}
+    const maxRisk   = capital * 0.01;
+    const contracts = Math.max(1, Math.floor(maxRisk / (cfg.spreadWidth * 100)));
+
+    const entryBar = bars[bars.length - 1];
+
+    const signal = buildSignalSummary(strategy, strikes, {
+      valid: true, strategy, isCredit: true, expType: '0DTE', spreadWidth: cfg.spreadWidth, contracts,
+    }, {
+      direction, spxPrice: ctx.spxPrice, vix: ctx.vix, ivRank: ctx.ivRank,
+      gammaRegime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall,
+      gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain,
+      technicalStop: null, technicalStopSource: null, etTime: ctx.etTime,
+    });
+    signal.strategyFamily = 'REVERSION';
+    signal.playbook = scoreResult;
+    signal.notes = `Alejamiento de SMA — patrón ${patronReversion.pattern || 'ninguno'}, SMA8 ${sma8}`;
+
+    if (IS_PRODUCTION && cfg.tradierAutoExecute !== false) {
+      try {
+        const order = await tradier.placeSpreadOrder({
+          strategy, underlyingRoot: 'SPXW', expiry: strikes.expiry,
+          shortStrike: strikes.shortStrike, longStrike: strikes.longStrike, quantity: contracts,
+        });
+        signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
+        signal.status   = 'EXECUTED';
+        signal.actionAt = new Date().toISOString();
+        console.log(`[Tradier-REV] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${strategy} ${strikes.shortStrike}/${strikes.longStrike}`);
+
+        await withExecutionsLock(() => {
+          const execs = loadTradierExecutions();
+          execs.unshift({
+            id:             `tex-${Date.now()}`,
+            signalId:       signal.id,
+            timestamp:      signal.timestamp,
+            strategy,
+            strategyFamily: 'REVERSION',
+            direction,
+            strikes:        signal.strikes,
+            expiry:         strikes.expiry,
+            contracts,
+            orderId:        order.orderId,
+            legs:           order.legs,
+            status:         'submitted',
+            entryFillPrice: null,
+            creditReceived: null,
+            // Ancla del SL (ruptura de la vela de entrada) y objetivo de TP
+            // (SMA8 al momento de entrar — se congela por simplicidad, no se
+            // recalcula en vivo cada 15-20s; con un hold de minutos la SMA8
+            // no se mueve mucho, revisar si esto necesita ser mas preciso
+            // despues del curso con Luis Silva).
+            entryCandleLow:  entryBar.low,
+            entryCandleHigh: entryBar.high,
+            smaTarget:       sma8,
+            pattern:         patronReversion.pattern,
+            filledAt:   null,
+            closedAt:   null,
+            closeReason: null,
+            pnl:        null,
+            pnlSource:  null,
+          });
+          saveTradierExecutions(execs);
+        });
+      } catch(e) {
+        signal.tradierOrder = { error: e.message };
+        console.error('[Tradier-REV] ❌ Error enviando orden:', e.message);
+      }
+    }
+
+    const signals = loadSPXSignals();
+    signals.unshift(signal);
+    saveSPXSignals(signals.slice(0, 50));
+    console.log(`[SPX-REV] ✅ Señal generada: ${strategy} ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} (${patronReversion.pattern}, score ${scoreResult.score}%)`);
+  } catch(e) {
+    console.error('[SPX-REV] Error:', e.message);
+  }
+}
+setInterval(checkAlejamientoSMA, 60 * 1000); // cada 60s — solo puede confirmar con una vela de 2m ya cerrada
+
+// ── Monitor de cierre de Alejamiento de SMA — rapido (15-20s, el hold es de
+// minutos) y por PRECIO del SPX, no por % de credito como las otras dos
+// estrategias (decision explicita del usuario, fiel al setup de Luis Silva):
+// TP = toque de SMA8, SL = ruptura de la vela de entrada, + stop de tiempo.
+async function checkAlejamientoSMATPSL() {
+  if (!isMarketHours()) return;
+  return withExecutionsLock(checkAlejamientoSMATPSLImpl);
+}
+async function checkAlejamientoSMATPSLImpl() {
+  try {
+    const executions = loadTradierExecutions();
+    const abiertas = executions.filter(e =>
+      e.strategyFamily === 'REVERSION' && (e.status === 'submitted' || e.status === 'filled')
+    );
+    if (!abiertas.length) return;
+
+    let cambios = false;
+    for (const ex of abiertas) {
+      if (ex.status === 'submitted') {
+        const order = await tradier.getOrder(ex.orderId);
+        if (order) {
+          const fillCheck = verificarFillPorPata(order, ex.contracts);
+          if (fillCheck.completo) {
+            ex.status = 'filled';
+            ex.entryFillPrice = order.avg_fill_price || null;
+            ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
+            ex.filledAt = new Date().toISOString();
+            cambios = true;
+            console.log(`[Tradier-REV-TPSL] Orden ${ex.orderId} llenada`);
+          } else if (fillCheck.parcial) {
+            console.error(`[Tradier-REV-TPSL] 🚨 Fill parcial/desbalanceado en orden ${ex.orderId}.`);
+            if (IS_PRODUCTION) {
+              const cerradas = await aplanarPatasParciales(fillCheck.detalle, 'SPXW');
+              ex.status      = 'closed_emergency_partial';
+              ex.closedAt    = new Date().toISOString();
+              ex.closeReason = 'PARTIAL_FILL_EMERGENCY';
+              ex.pnlSource   = 'emergencia_fill_parcial';
+              cambios = true;
+            } else {
+              console.log(`[Tradier-REV-TPSL] (local, no ejecuta) detectaría fill parcial en orden ${ex.orderId}.`);
+            }
+          }
+        }
+        continue;
+      }
+
+      // Precio actual del SPX — liviano (mismo endpoint que usa buildSPXContext
+      // para el precio, sin reconstruir todo el contexto cada 15-20s).
+      let price;
+      try {
+        const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const j = await r.json();
+        price = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice);
+      } catch(e) { continue; }
+      if (!price) continue;
+
+      const isBullish = ex.direction === 'BULLISH';
+      const cfg = (loadSPXConfig().trading || {}).smaReversion || SPX_CONFIG_DEFAULTS.trading.smaReversion;
+      const candlesElapsed = ex.filledAt ? Math.floor((Date.now() - new Date(ex.filledAt).getTime()) / (2 * 60 * 1000)) : 0;
+
+      let cerrarPor = null;
+      if      (isBullish  && price >= ex.smaTarget)      cerrarPor = 'TP';
+      else if (!isBullish && price <= ex.smaTarget)       cerrarPor = 'TP';
+      else if (isBullish  && price < ex.entryCandleLow)  cerrarPor = 'SL';
+      else if (!isBullish && price > ex.entryCandleHigh) cerrarPor = 'SL';
+      else if (candlesElapsed >= (cfg.maxCandlesTimeStop || 5)) cerrarPor = 'TIME_STOP';
+
+      if (!cerrarPor) continue;
+
+      if (!IS_PRODUCTION) {
+        console.log(`[Tradier-REV-TPSL] (local, no ejecuta) tocaría cerrar por ${cerrarPor} — orden ${ex.orderId}.`);
+        continue;
+      }
+
+      try {
+        await tradier.closeSpreadOrder({
+          strategy:       ex.strategy,
+          underlyingRoot: 'SPXW',
+          expiry:         ex.expiry,
+          shortStrike:    ex.strikes.shortStrike,
+          longStrike:     ex.strikes.longStrike,
+          quantity:       ex.contracts,
+        });
+        ex.status      = 'closed';
+        ex.closedAt    = new Date().toISOString();
+        ex.closeReason = cerrarPor;
+        // P&L real se completa despues via checkTradierExecutions (reconciliacion
+        // pasiva con tradier.getClosedPnl), igual que ya pasa hoy para posiciones
+        // que "desaparecen" sin que un monitor activo haya calculado el numero.
+        ex.pnlSource   = 'precio_spx_auto';
+        cambios = true;
+        console.log(`[Tradier-REV-TPSL] ✅ Cerrado por ${cerrarPor} — orden ${ex.orderId}`);
+      } catch(e) {
+        console.error(`[Tradier-REV-TPSL] ❌ Error cerrando ${ex.orderId}:`, e.message);
+      }
+    }
+
+    if (cambios) saveTradierExecutions(executions);
+  } catch(e) {
+    console.error('[Tradier-REV-TPSL] Error:', e.message);
+  }
+}
+setInterval(checkAlejamientoSMATPSL, 15 * 1000); // cada 15s — hold de minutos, necesita reaccionar rapido
 
 // POST /api/tradier/executions/clear — limpieza manual del historial (uso puntual,
 // para arrancar en limpio antes de una sesion de mercado real).

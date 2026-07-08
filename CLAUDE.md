@@ -172,6 +172,17 @@ tienen que dar más de 80/100 para disparar el trade. Pesos actuales en
 `macd_cruce_pendiente` subió de 5% a 10% — decisión del usuario, sin cambiar el resto de la
 tabla. Suma sigue dando 100.
 
+**Fix 2026-07-08 — `selectStrategy` no consideraba el régimen de gamma para crédito/débito:**
+`selectStrategy` (`src/spx.js`) decidía crédito vs. débito solo por IV Rank/VIX
+(`ivRank > 30 || vix > 20`). Si el IV Rank/VIX daba crédito pero el gamma resultaba NEGATIVO,
+el sistema igual vendía un crédito direccional (Bull Put/Bear Call) — exactamente la
+combinación que el playbook de Alejandro marca como más peligrosa (vender prima en un régimen
+"motor" de movimiento explosivo, donde el precio puede volar el SL antes de que el paso del
+tiempo compense algo). Ahora **Gamma NEGATIVO fuerza débito** (Bull Call/Bear Put) para
+direccionales, sin importar IV Rank/VIX — `gammaForcesDebit` en `selectStrategy`. Gamma
+POSITIVO sigue decidiéndose por IV Rank/VIX como antes (ahí sí conviene cobrar prima, el
+mercado tiene frenos). No afecta al Iron Condor (que ya exige GEX positivo por su propio gate).
+
 `precio_ema200`/`emas_alineadas_diario` (los checks EMA200 diaria que el bug de arriba tocaba)
 se retiraron — la fase Weinstein real los reemplaza con una medida mucho más directa. Migración
 de `spx_config.json` es automática (`loadSPXConfig()` detecta `weights.fase_weinstein ===
@@ -240,6 +251,78 @@ Variables del servicio en Railway (Settings → Variables), o el auto-deploy no 
 **Zona horaria:** `getETHour()` (`src/spx.js`) usa `America/New_York` real (vía
 `toLocaleString`), no un offset fijo — se ajusta solo con el horario de verano (EDT/EST).
 Antes tenía un bug de offset fijo UTC-5 que atrasaba 1 hora las ventanas en época de EDT.
+
+## Alejamiento de SMA — reversión a la media (2026-07-08)
+
+Tercer pipeline automático, **independiente y en paralelo** al direccional y al Iron Condor —
+playbook de Luis Silva (Sigma Trade): el precio se aleja de la SMA8 ("el imán técnico") pero
+no puede quedarse lejos, se opera el regreso. A diferencia del resto del sistema (todo EMA),
+este setup usa **SMA simples** (`calcSMA`/`calcSMAArray`, `src/spx_indicators.js`) — indicador
+explícitamente distinto, no reutiliza `calcEMA`.
+
+**Flujo:**
+1. `checkAlejamientoSMA()` (`server.js`, cada 60s) — gate horario propio
+   (`evaluateReversionGate`, `src/spx.js`: 9:45am-2pm ET, todo o nada, **standalone y sin
+   tocar `classifyWindow`** porque ese rango cruza varios buckets que ya usan el Iron
+   Condor/direccional). Circuito diario: si hoy ya hubo 2 cierres por SL o agotamiento
+   (`maxStopsPerDay`), no genera más señales el resto de la sesión.
+2. Usa `indicators.m2.bars` — velas 2m crudas `{high,low,close}` que `buildSPXContext()`
+   ya arma para `calcCaminoA` (variable local `bars2m`, ahora también expuesta en el
+   contexto devuelto). Calcula SMA8/SMA20, RSI (`calcRSI`, ya existía como función local
+   en `server.js` para el screener de acciones — reusada, no reescrita), y el patrón de
+   confirmación (`evaluateReversionPattern`, `src/sma_reversion.js`).
+3. **Score** (`calcReversionScore`, `src/spx_indicators.js`, umbral `minScore: 70` — el piso
+   de "Trade Válido" del propio material de Luis, no el 80 del direccional):
+   `alejamiento_sma8` 35%, `patron_confirmacion` 25%, `rsi` 15%, `fase_weinstein` 15%
+   (Fase 15m a favor de la reversión — 2 para compras, 4 para ventas), `regimen_gex` 10%
+   (GEX Positivo).
+4. Patrón de confirmación — basta con que UNO de los tres confirme (`src/sma_reversion.js`):
+   **Vela García** (SMA8 aplanándose y "enganchando" hacia un cruce con SMA20), **Vela
+   Tiburón** (rango > 1.8x ATR reciente, con rechazo a favor de la reversión), **Vela 9
+   Secuencial** (versión simplificada del conteo TD Sequential — 9 cierres consecutivos de
+   agotamiento contra el cierre 4 barras atrás).
+5. Ejecuta como credit spread — **mismo `strategy` literal que el direccional**
+   (`'BULL_PUT_SPREAD'`/`'BEAR_CALL_SPREAD'`, no un valor nuevo) para heredar gratis
+   `findStrikesByDelta`, `placeSpreadOrder`, la lista blanca de auto-ejecución, y
+   `checkTradierExecutions` (reconciliación pasiva) sin tocarlos. El origen se distingue
+   con un campo nuevo, `strategyFamily` (`'TENDENCIA'` / `'NEUTRAL'` / `'REVERSION'`),
+   agregado a las **tres** estrategias en `spx_signals.json`/`tradier_executions.json`.
+
+**Salida — por precio del SPX, no por % de crédito (decisión explícita del usuario, distinto
+del resto del sistema):**
+- `checkAlejamientoSMATPSL()` (cada 15-20s, más rápido que los 90s de las otras dos porque el
+  hold es de 2-10 min) cierra por **TP** cuando el precio toca/cruza la SMA8, por **SL** cuando
+  rompe la base/techo de la vela de entrada (`entryCandleLow`/`entryCandleHigh`, guardados al
+  entrar), o por **stop de tiempo** (`maxCandlesTimeStop`, tope 5 velas de 2m) si no avanzó.
+- **Simplificación conocida:** el objetivo de SMA8 (`ex.smaTarget`) se congela al momento de
+  entrar, no se recalcula en vivo cada 15-20s (evita reconstruir todo `buildSPXContext` en un
+  loop rápido) — con un hold de minutos la SMA8 no debería moverse mucho, pero si el curso con
+  Luis Silva aclara que hace falta más precisión, esto es lo primero a revisar.
+- Como esta estrategia cierra distinto a las otras dos, `checkDirectionalTPSL` la **excluye
+  explícitamente** (`e.strategyFamily !== 'REVERSION'`) para que no compitan dos monitores por
+  la misma posición.
+
+**Exclusividad de posición — a propósito distinta del resto:** NO usa
+`tradier.hasOpenPosition('SPXW')` (el chequeo compartido que sí usan Iron Condor y
+direccional) — tiene su propio slot, chequeando directamente si ya hay una ejecución con
+`strategyFamily === 'REVERSION'` abierta. Así puede dispararse aunque ya haya un Iron
+Condor o direccional abierto. **Limitación aceptada:** en la dirección contraria sí hay
+efecto — si esta estrategia tiene una posición abierta, el `hasOpenPosition('SPXW')` de las
+otras dos SÍ la va a ver (Tradier no distingue posiciones por estrategia) y se van a pausar
+solas mientras dure (2-10 min). Inevitable sin tracking de posición por estrategia a nivel
+del broker; el impacto es chico dado lo corto del hold.
+
+**Fuera de alcance a propósito:** el cierre de gap en apertura y la "regla de los segundos"
+(entrar en los últimos 15-30s de formación de la vela) del playbook original de Luis Silva
+**no son implementables** con la fuente de datos actual (polling de Yahoo Finance, no un feed
+en vivo) — se opera sobre la vela de 2m ya cerrada, igual que el resto del sistema. Tampoco se
+implementó un sistema de tiers "5 estrellas" (85-100/70-84/<70) — un solo umbral pass/fail,
+igual que las otras dos estrategias.
+
+**Nota de estabilidad:** el usuario va a tomar un curso con Luis Silva sobre este setup
+específico (semana del 2026-07-08, miércoles a viernes) — es esperable que los pesos, umbrales,
+o incluso la lógica de los patrones cambien poco después de este rework. Todo vive en
+`spxConfig.trading.smaReversion` (config, no hardcodeado) para poder iterar rápido.
 
 ## Notificaciones
 

@@ -170,6 +170,20 @@ function classifyWindow(etMins) {
   return 'FUERA_VENTANA';
 }
 
+// ── Gate de Alejamiento de SMA (reversión a la media, playbook Luis Silva) ──
+// Ventana propia (9:45am-2pm ET), deliberadamente standalone y NO integrada a
+// classifyWindow: ese rango cruza varios buckets existentes (APERTURA,
+// IC_FAVORABLE, IMPULSO, parte de GENERAL) que ya usan el Iron Condor y el
+// direccional — tocar classifyWindow para agregar este bucket rompería esa
+// lógica compartida en vez de sumar una ventana nueva.
+function evaluateReversionGate(etHour, etMin) {
+  const etMins = etHour * 60 + etMin;
+  if (etMins < 9 * 60 + 45 || etMins >= 14 * 60) {
+    return { valid: false, reason: `Alejamiento de SMA solo opera 9:45am-2pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+  }
+  return { valid: true };
+}
+
 // ── Gate del Iron Condor (0DTE y 1DTE) — playbook profesor Alejandro ──
 // Gate PROPIO, en paralelo a selectStrategy() (no lo reemplaza): el Iron Condor no
 // depende de una alerta direccional de Pine — se evalúa de forma periódica
@@ -244,9 +258,20 @@ function selectStrategy(context) {
   const window  = classifyWindow(etMins);
 
   // 2. Decidir crédito o débito
-  const isCredit = ivRank > 30 || vix > 20;
+  // Gamma NEGATIVO fuerza débito para direccionales, sin importar IV Rank/VIX —
+  // vender crédito en un régimen "motor" (movimiento explosivo) es la combinación
+  // más peligrosa según el playbook de Alejandro: el precio puede volar el SL de
+  // un crédito antes de que el paso del tiempo compense nada. Confirmado con el
+  // usuario (2026-07-08): antes, con IV Rank/VIX altos, el sistema vendía crédito
+  // direccional igual aunque el gamma fuera negativo — justo la combinación que
+  // el playbook marca como no sostenible. Gamma POSITIVO sigue decidiéndose por
+  // IV Rank/VIX como antes (ahí sí conviene cobrar prima, el mercado tiene frenos).
+  const gammaForcesDebit = gammaRegime === 'NEGATIVO' && (direction === 'BULLISH' || direction === 'BEARISH');
+  const isCredit = !gammaForcesDebit && (ivRank > 30 || vix > 20);
   const creditReason = ivRank > 30 ? `IV Rank ${ivRank}% > 30%` : `VIX ${vix} > 20`;
-  const debitReason  = `IV Rank ${ivRank}% ≤ 30% y VIX ${vix} ≤ 20 — primas baratas`;
+  const debitReason  = gammaForcesDebit
+    ? `Gamma NEGATIVO — movimiento explosivo, evitar vender crédito (playbook Alejandro)`
+    : `IV Rank ${ivRank}% ≤ 30% y VIX ${vix} ≤ 20 — primas baratas`;
 
   // 3. Seleccionar estrategia
   let strategy, legs;
@@ -273,14 +298,10 @@ function selectStrategy(context) {
         strategy = 'BEAR_CALL_SPREAD';
       }
     } else {
-      // Gamma negativo: movimiento violento esperado — spread direccional
-      if (direction === 'BULLISH') {
-        strategy = 'BULL_PUT_SPREAD';
-      } else if (direction === 'BEARISH') {
-        strategy = 'BEAR_CALL_SPREAD';
-      } else {
-        return { valid: false, reason: 'Gamma negativo + señal neutral: no operar crédito sin dirección clara.' };
-      }
+      // Con gammaForcesDebit de arriba, BULLISH/BEARISH + gamma no-positivo ya no
+      // llegan acá (se van por débito) — el único caso que sigue siendo posible es
+      // NEUTRAL con IV/VIX alto y gamma no-positivo (sin dirección para un IC).
+      return { valid: false, reason: 'Gamma no-positivo + señal neutral: no operar crédito sin dirección clara.' };
     }
   } else {
     // Débito: comprar movimiento rápido
@@ -522,4 +543,4 @@ function buildSignalSummary(strategy, strikes, sel, context) {
   };
 }
 
-module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow };
+module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow };
