@@ -343,7 +343,7 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelt
   const today = new Date().toISOString().slice(0, 10);
   const targetDate = expType === '0DTE' ? today : nextTradingDateET();
 
-  let exp = expirations.find(e => e['expiration-date'] === targetDate);
+  let exp = expirations.find(e => e.expiry === targetDate);
   if (!exp) exp = expirations[0]; // fallback
   if (!exp) return null;
 
@@ -368,7 +368,7 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelt
     const premium     = (shortPut.put?.mark || 0) - ((strikes.find(s => s.strike === longStrike)?.put?.mark) || 0);
 
     const result = {
-      expiry: exp['expiration-date'] || targetDate,
+      expiry: exp.expiry || targetDate,
       shortStrike,
       longStrike,
       shortDelta: +(Math.abs(shortPut.put?.delta || 0)).toFixed(3),
@@ -414,7 +414,7 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelt
     const premium     = (shortCall.call?.mark || 0) - ((strikes.find(s => s.strike === longStrike)?.call?.mark) || 0);
 
     return {
-      expiry: exp['expiration-date'] || targetDate,
+      expiry: exp.expiry || targetDate,
       shortStrike,
       longStrike,
       shortDelta: +(Math.abs(shortCall.call?.delta || 0)).toFixed(3),
@@ -438,7 +438,7 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelt
     const debit       = (longCall.call?.mark || 0) - ((strikes.find(s => s.strike === shortStrike)?.call?.mark) || 0);
 
     return {
-      expiry: exp['expiration-date'] || targetDate,
+      expiry: exp.expiry || targetDate,
       longStrike,
       shortStrike,
       longDelta: +(Math.abs(longCall.call?.delta || 0)).toFixed(3),
@@ -461,7 +461,7 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelt
     const debit       = (longPut.put?.mark || 0) - ((strikes.find(s => s.strike === shortStrike)?.put?.mark) || 0);
 
     return {
-      expiry: exp['expiration-date'] || targetDate,
+      expiry: exp.expiry || targetDate,
       longStrike,
       shortStrike,
       longDelta: +(Math.abs(longPut.put?.delta || 0)).toFixed(3),

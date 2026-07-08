@@ -221,6 +221,21 @@ un día de gamma negativo casi permanente. Ahora las 4 verticales direccionales 
 - Migración no-destructiva de `spx_config.json` igual que las anteriores (`trading.debit` se
   agrega solo si no existe, sin tocar el resto).
 
+**Bug encontrado en un doble-check posterior (2026-07-08) — 1DTE elegía strikes de la cadena
+equivocada:** `findStrikesByDelta` (`src/spx.js`) resolvía la expiración buscando
+`e['expiration-date']`, un campo que **no existe** en la cadena tal como la devuelve
+`/api/option-chain/:symbol`/`enrichedExps` (ahí el campo se llama `expiry` — `expiration-date`
+es el nombre nativo de la API cruda de TastyTrade, no el de la cadena ya remapeada que
+realmente recibe esta función). Como la búsqueda siempre fallaba, caía al fallback
+(`expirations[0]`, la expiración más próxima). Para 0DTE esto "funcionaba por accidente"
+(hoy es justamente `expirations[0]`), pero para **1DTE** (Iron Condor 1DTE y direccional
+1DTE, ventana 3:45-3:50pm ET) elegía deltas/strikes mirando la cadena de **hoy** en vez de la
+de **mañana** — perfiles de riesgo completamente distintos, aunque el campo `expiry` del
+resultado final sí mostraba la fecha correcta (por el mismo `|| targetDate` de respaldo),
+ocultando el problema. Corregido a `e.expiry`/`exp.expiry` en las 5 ocurrencias de la función.
+Verificado: con esto, 1DTE ahora resuelve la cadena de mañana correctamente; 0DTE sin cambios
+de comportamiento (ya usaba la cadena correcta, por casualidad).
+
 `precio_ema200`/`emas_alineadas_diario` (los checks EMA200 diaria que el bug de arriba tocaba)
 se retiraron — la fase Weinstein real los reemplaza con una medida mucho más directa. Migración
 de `spx_config.json` es automática (`loadSPXConfig()` detecta `weights.fase_weinstein ===
