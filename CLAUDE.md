@@ -190,6 +190,37 @@ direccionales, sin importar IV Rank/VIX — `gammaForcesDebit` en `selectStrateg
 POSITIVO sigue decidiéndose por IV Rank/VIX como antes (ahí sí conviene cobrar prima, el
 mercado tiene frenos). No afecta al Iron Condor (que ya exige GEX positivo por su propio gate).
 
+**Feature 2026-07-08 — auto-ejecución de débitos direccionales (Bull Call/Bear Put):**
+el fix de arriba (`gammaForcesDebit`) hace que el sistema elija débito en gamma negativo, pero
+hasta este mismo día **el sistema solo auto-ejecutaba crédito** — los débitos quedaban siempre
+como sugerencia manual en el Signal Center, nunca llegaban a Tradier. Se confirmó con un caso
+real: una señal `BULL_CALL_SPREAD` válida (score 80%) quedó en `PENDING` toda la sesión, justo
+un día de gamma negativo casi permanente. Ahora las 4 verticales direccionales auto-ejecutan:
+- **Bug encontrado de paso en `src/tradier.js`:** `placeSpreadOrder`/`closeSpreadOrder`
+  resolvían el tipo de opción con `strategy === 'BULL_PUT_SPREAD' ? 'P' : 'C'` — un ternario
+  que solo distinguía esa estrategia; `BEAR_PUT_SPREAD` (que necesita **puts**) caía al
+  default `'C'` e intentaba operar calls por error. Corregido a
+  `(strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_PUT_SPREAD') ? 'P' : 'C'`.
+  El resto de la lógica (qué pata se compra/vende) ya era correcta para las 4 — `shortStrike`
+  siempre es la pata vendida, `longStrike` la comprada, consistente en las 4 estrategias según
+  `findStrikesByDelta` (`src/spx.js`).
+- `tradierEligible` (webhook, `server.js`) ahora incluye las 4 estrategias, no solo las 2 de
+  crédito.
+- El gate de Crédito/Riesgo mínimo 20% (`MIN_CREDITO_RIESGO_PCT`) se exime para débito — es
+  conceptualmente un chequeo de crédito, y además tenía un bug latente para débito
+  (`credito = signal.credit || signal.maxProfit || 0` caía a `maxProfit`, sin relación real,
+  dando un ratio sin sentido).
+- `checkDirectionalTPSLImpl` ahora bifurca la fórmula de P&L según `ex.isCredit` (nuevo campo,
+  persistido en `tradier_executions.json`; `undefined` en ejecuciones viejas se trata como
+  crédito, que es lo único que existía antes de este cambio). Crédito sigue igual (cierra por
+  % del crédito recibido). Débito es nuevo: valor actual = `q[longSym] - q[shortSym]` (mismo
+  par de cotizaciones que crédito, restado al revés), P&L = valor actual menos lo pagado, TP/SL
+  expresados como **% de la prima pagada** (`spxConfig.trading.debit.tpPct/slPct`, default
+  50%/50%) — no como un multiplicador como en crédito, porque el riesgo máximo de un débito ya
+  es 100% de lo pagado, un multiplicador no tiene el mismo sentido ahí.
+- Migración no-destructiva de `spx_config.json` igual que las anteriores (`trading.debit` se
+  agrega solo si no existe, sin tocar el resto).
+
 `precio_ema200`/`emas_alineadas_diario` (los checks EMA200 diaria que el bug de arriba tocaba)
 se retiraron — la fase Weinstein real los reemplaza con una medida mucho más directa. Migración
 de `spx_config.json` es automática (`loadSPXConfig()` detecta `weights.fase_weinstein ===

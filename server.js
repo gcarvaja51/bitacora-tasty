@@ -2146,6 +2146,15 @@ const SPX_CONFIG_DEFAULTS = {
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
     tradierAutoExecute: true, // kill-switch: false pausa la ejecucion automatica en Tradier
+    // Debitos direccionales (Bull Call/Bear Put) — parametros propios, separados de los
+    // de credito de arriba. El TP/SL de credito (tpPct% del credito, slMult x credito) no
+    // aplica conceptualmente a un debito: el riesgo maximo de un debito ya es el 100% de
+    // lo pagado, no tiene sentido un multiplicador — se expresa como % de la prima pagada
+    // que se esta dispuesto a ganar/perder.
+    debit: {
+      tpPct: 50, // cerrar al ganar 50% de lo pagado
+      slPct: 50, // cerrar al perder 50% de lo pagado
+    },
     // Iron Condor — playbook profesor Alejandro. Parametros propios, separados de los
     // de las direccionales de arriba (no comparten targetDelta/spreadWidth/tpPct/slMult).
     ironCondor: {
@@ -2198,6 +2207,12 @@ function loadSPXConfig() {
     if (saved?.trading && saved.trading.smaReversion === undefined) {
       console.log('[SPX] Sumando config de Alejamiento de SMA (no existia)');
       saved.trading.smaReversion = SPX_CONFIG_DEFAULTS.trading.smaReversion;
+      saveSPXConfig(saved);
+    }
+    // Suma los parametros de debito (Bull Call/Bear Put) si no existen todavia.
+    if (saved?.trading && saved.trading.debit === undefined) {
+      console.log('[SPX] Sumando config de débito direccional (no existía)');
+      saved.trading.debit = SPX_CONFIG_DEFAULTS.trading.debit;
       saveSPXConfig(saved);
     }
     return saved;
@@ -2817,10 +2832,19 @@ app.post('/api/spx/webhook', async (req, res) => {
       minCreditoRiesgoPct: MIN_CREDITO_RIESGO_PCT,
     };
 
-    // ── Ejecución automática en Tradier (sandbox) — solo Bull Put / Bear Call ──
-    const tradierEligible = ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD'].includes(signal.strategy);
+    // ── Ejecución automática en Tradier (sandbox) — las 4 verticales direccionales ──
+    // Ampliado 2026-07-08: antes solo credito (Bull Put/Bear Call). Los debitos
+    // (Bull Call/Bear Put) — que el sistema empieza a elegir con gamma negativo,
+    // ver gammaForcesDebit en selectStrategy — quedaban siempre como sugerencia
+    // manual, nunca llegaban a Tradier. Confirmado con un caso real: senal valida
+    // (score 80%) en PENDING toda la sesion por este hueco.
+    const tradierEligible = ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD', 'BULL_CALL_SPREAD', 'BEAR_PUT_SPREAD'].includes(signal.strategy);
     const tradierEnabled  = IS_PRODUCTION && (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).tradierAutoExecute !== false;
-    const creditoRiesgoOK = creditoRiesgoPct >= MIN_CREDITO_RIESGO_PCT;
+    // El gate de Credito/Riesgo minimo es conceptualmente solo para credito (compara
+    // prima cobrada contra el riesgo del ancho); para debito ademas tenia un bug
+    // latente (credito = signal.credit||signal.maxProfit||0 caia a maxProfit, sin
+    // relacion real, dando un ratio sin sentido) — se exime a debito de este gate.
+    const creditoRiesgoOK = !signal.isCredit || creditoRiesgoPct >= MIN_CREDITO_RIESGO_PCT;
     if (tradierEligible && tradierEnabled && !creditoRiesgoOK) {
       signal.tradierOrder = { skipped: true, reason: `Crédito/Riesgo ${creditoRiesgoPct}% por debajo del mínimo ${MIN_CREDITO_RIESGO_PCT}% — prima muy chica para el riesgo del spread.` };
       console.log(`[Tradier] ⏳ Señal omitida — crédito/riesgo ${creditoRiesgoPct}% < ${MIN_CREDITO_RIESGO_PCT}%.`);
@@ -2861,6 +2885,7 @@ app.post('/api/spx/webhook', async (req, res) => {
               timestamp:     signal.timestamp,
               strategy:      signal.strategy,
               strategyFamily: signal.strategyFamily || 'TENDENCIA',
+              isCredit:      !!signal.isCredit, // false = debito, para que checkDirectionalTPSL sepa que formula de P&L usar
               direction:     signal.direction,
               strikes:       signal.strikes,
               expiry:        signal.strikes?.expiry,
@@ -2872,6 +2897,9 @@ app.post('/api/spx/webhook', async (req, res) => {
               creditReceived: null,
               tpPct:         signal.trading?.tpPct ?? tpPct * 100,
               slMult:        signal.trading?.slMult ?? slMult,
+              // Solo se usan si isCredit=false — % de la prima pagada, no un multiplicador
+              debitTpPct:    (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct,
+              debitSlPct:    (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).slPct,
               filledAt:      null,
               closedAt:      null,
               closeReason:   null,
@@ -3198,8 +3226,10 @@ async function checkDirectionalTPSL() {
 async function checkDirectionalTPSLImpl() {
   try {
     const executions = loadTradierExecutions();
+    // Las 4 verticales direccionales (credito + debito, agregado 2026-07-08) — ver
+    // isCredit mas abajo para la bifurcacion de la formula de P&L.
     const abiertas = executions.filter(e =>
-      (e.strategy === 'BULL_PUT_SPREAD' || e.strategy === 'BEAR_CALL_SPREAD') &&
+      ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD', 'BULL_CALL_SPREAD', 'BEAR_PUT_SPREAD'].includes(e.strategy) &&
       e.strategyFamily !== 'REVERSION' && // Alejamiento de SMA tiene su propio monitor (checkAlejamientoSMATPSL) — cierra por precio, no por % de credito
       (e.status === 'submitted' || e.status === 'filled')
     );
@@ -3250,15 +3280,32 @@ async function checkDirectionalTPSLImpl() {
         continue;
       }
 
-      // Costo de cerrar ahora = recomprar la corta - vender la larga
-      const costoDeCerrar = q[shortSym] - q[longSym];
-      const pnlActual = ex.creditReceived - costoDeCerrar;
-      const tpUmbral      = ex.creditReceived * ((ex.tpPct || 30) / 100);
-      const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
+      // isCredit indefinido (ejecuciones viejas, previas a este campo) = credito,
+      // que es lo unico que existia antes del soporte a debito (2026-07-08).
+      const esCredito = ex.isCredit !== false;
+      let pnlActual, cerrarPor = null;
 
-      let cerrarPor = null;
-      if (pnlActual >= tpUmbral) cerrarPor = 'TP';
-      else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
+      if (esCredito) {
+        // Costo de cerrar ahora = recomprar la corta - vender la larga
+        const costoDeCerrar = q[shortSym] - q[longSym];
+        pnlActual = ex.creditReceived - costoDeCerrar;
+        const tpUmbral      = ex.creditReceived * ((ex.tpPct || 30) / 100);
+        const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
+        if (pnlActual >= tpUmbral) cerrarPor = 'TP';
+        else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
+      } else {
+        // Debito: valor actual de la posicion = vender la larga - recomprar la corta
+        // (mismo par de cotizaciones, restado al reves porque acá se es largo la
+        // pata "long" y corto la "short", no al reves como en credito). P&L = valor
+        // actual menos lo pagado. El riesgo maximo ya es 100% de lo pagado, por eso
+        // el SL se expresa como % perdido, no como un multiplicador.
+        const valorActual = q[longSym] - q[shortSym];
+        pnlActual = valorActual - ex.creditReceived; // ex.creditReceived duplica aca como "debito pagado" (ambos son Math.abs(fill))
+        const tpUmbral = ex.creditReceived * ((ex.debitTpPct ?? 50) / 100);
+        const slUmbral = ex.creditReceived * ((ex.debitSlPct ?? 50) / 100);
+        if (pnlActual >= tpUmbral) cerrarPor = 'TP';
+        else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
+      }
       if (!cerrarPor) continue;
 
       if (!IS_PRODUCTION) {

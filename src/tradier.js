@@ -103,10 +103,16 @@ class TradierClient {
     return hasPosition || hasOpenOrder;
   }
 
-  // Coloca la orden multi-leg (2 patas) para Bull Put Spread / Bear Call Spread
+  // Coloca la orden multi-leg (2 patas) para las 4 verticales direccionales —
+  // credito (Bull Put/Bear Call) y debito (Bull Call/Bear Put). shortStrike
+  // siempre es la pata que se vende, longStrike la que se compra, consistente
+  // en las 4 estrategias (ver findStrikesByDelta en src/spx.js) — lo unico que
+  // cambia es el tipo de opcion. Bug corregido 2026-07-08: el ternario viejo
+  // solo distinguia BULL_PUT_SPREAD, así que BEAR_PUT_SPREAD (que necesita
+  // puts) caia al default 'C' e intentaba operar calls por error.
   async placeSpreadOrder({ strategy, underlyingRoot, expiry, shortStrike, longStrike, quantity }) {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
-    const optType  = strategy === 'BULL_PUT_SPREAD' ? 'P' : 'C';
+    const optType  = (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_PUT_SPREAD') ? 'P' : 'C';
     const shortSym = this.buildOccSymbol(underlyingRoot, expiry, optType, shortStrike);
     const longSym  = this.buildOccSymbol(underlyingRoot, expiry, optType, longStrike);
 
@@ -142,7 +148,7 @@ class TradierClient {
   // de direccionales dependia de que el usuario cerrara a mano en Tradier.
   async closeSpreadOrder({ strategy, underlyingRoot, expiry, shortStrike, longStrike, quantity }) {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
-    const optType  = strategy === 'BULL_PUT_SPREAD' ? 'P' : 'C';
+    const optType  = (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_PUT_SPREAD') ? 'P' : 'C';
     const shortSym = this.buildOccSymbol(underlyingRoot, expiry, optType, shortStrike);
     const longSym  = this.buildOccSymbol(underlyingRoot, expiry, optType, longStrike);
 
