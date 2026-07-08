@@ -153,8 +153,15 @@ tienen que dar más de 80/100 para disparar el trade. Pesos actuales en
 - `ema_10_20_alineadas` (10%) — fusión de los viejos `emas_alineadas_15m` + `precio_cerca_ema`.
 - `volumen_rompimiento` (10%) — igual que el viejo `volumen_spy`, renombrado.
 - `macd_cruce_pendiente` (10%, ajustado el 2026-07-08 desde 5% — ver nota abajo) — como el
-  viejo `macd_alineado_15m` pero ahora también exige
-  `macd.slope` a favor. **Bug encontrado de paso:** el `calcMACD` local de `server.js` (el que
+  viejo `macd_alineado_15m` pero ahora también exige pendiente a favor. **Fix 2026-07-08:**
+  la pendiente originalmente comparaba el histograma contra 1 sola vela atrás (`macd.slope`),
+  demasiado ruidoso — puede dar negativo en una vela suelta aunque la línea del MACD siga
+  claramente en ascenso (confirmado contra un caso real: usuario reportó "el MACD sí es
+  alcista" con captura de pantalla, el check daba `false` porque el histograma bajó 0.03 en
+  la última vela). Ahora compara la **línea** del MACD (más suave que el histograma) contra
+  **3 velas atrás** (`macd.linePrev3`, nuevo campo en `calcMACD` de `server.js`) en vez del
+  histograma vela-a-vela. `macd.slope` se mantiene en el objeto por compatibilidad pero ya no
+  lo usa este check. **Bug encontrado de paso (el otro, previo a este fix):** el `calcMACD` local de `server.js` (el que
   realmente arma `indicators.daily/m15/m2.macd` en `buildSPXContext()`) devolvía solo
   `{line, signal, hist}` — sin `bullish`/`bearish`/`slope`. El viejo check `macd_alineado_15m`
   leía `macd.bullish`, que siempre fue `undefined`: ese check **nunca pasó una sola vez en

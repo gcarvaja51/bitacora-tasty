@@ -1232,8 +1232,16 @@ function calcMACD(closes) {
     histPrev = +(linePrev - signalPrev).toFixed(4);
   }
 
+  // Linea MACD de 3 velas atras — usada en vez de "slope" (delta del histograma
+  // en 1 sola vela, muy ruidoso: puede bajar un poco en una vela suelta aunque
+  // la linea siga claramente en ascenso, confirmado 2026-07-08 contra un caso
+  // real donde el MACD se veia alcista en el grafico pero slope daba negativo).
+  // La linea (EMA12-EMA26) es mas suave que el histograma, y mirarla en una
+  // ventana de 3 velas filtra el ruido de una sola vela.
+  const linePrev3 = macdSeries.length >= 4 ? +macdSeries[macdSeries.length - 4].toFixed(4) : null;
+
   return {
-    line, signal, hist, histPrev,
+    line, signal, hist, histPrev, linePrev3,
     bullish: signal !== null ? line > signal : false,
     bearish: signal !== null ? line < signal : false,
     slope:   hist !== null && histPrev !== null ? +(hist - histPrev).toFixed(4) : 0,

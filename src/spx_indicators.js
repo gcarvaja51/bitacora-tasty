@@ -255,22 +255,29 @@ function calcPlaybookScore(indicators, config) {
   if (volumen_ok) score += w5;
 
   // 6. MACD — cruce/estado + pendiente a favor de la dirección
+  // Pendiente medida sobre la LINEA del MACD (EMA12-EMA26, mas suave) contra
+  // 3 velas atras (linePrev3) — no el histograma vela-a-vela (macd.slope),
+  // que es muy ruidoso: puede dar negativo en una sola vela suelta aunque la
+  // linea siga claramente en ascenso (confirmado 2026-07-08 contra un caso
+  // real donde el MACD se veia alcista en el grafico pero el histograma
+  // vela-a-vela decía lo contrario).
   const w6 = weights.macd_cruce_pendiente ?? 5;
   totalWeight += w6;
   const macd = indicators.m15?.macd || {};
-  const macd_ok = dir === 'BULLISH'
-    ? macd.bullish && macd.slope > 0
-    : macd.bearish && macd.slope < 0;
+  const macdLine = macd.line ?? macd.macd;
+  const macd_ok = macd.linePrev3 != null && macdLine != null && (dir === 'BULLISH'
+    ? macd.bullish && macdLine > macd.linePrev3
+    : macd.bearish && macdLine < macd.linePrev3);
   checks.push({
     id:      'macd_cruce_pendiente',
     label:   'MACD cruce + pendiente (15m)',
     mundo:   3,
     weight:  w6,
     ok:      macd_ok,
-    value:   `MACD:${macd.line ?? macd.macd} Signal:${macd.signal} Slope:${macd.slope}`,
+    value:   `MACD:${macdLine} Signal:${macd.signal} (3 velas atrás: ${macd.linePrev3 ?? '—'})`,
     reason:  macd_ok
-      ? `MACD ${dir === 'BULLISH' ? 'sobre' : 'bajo'} signal con pendiente a favor ✅`
-      : 'MACD no alineado o sin pendiente a favor ❌',
+      ? `MACD ${dir === 'BULLISH' ? 'sobre' : 'bajo'} signal, línea en ${dir === 'BULLISH' ? 'ascenso' : 'descenso'} vs 3 velas atrás ✅`
+      : 'MACD no alineado o sin pendiente sostenida a favor ❌',
   });
   if (macd_ok) score += w6;
 
