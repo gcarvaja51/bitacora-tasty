@@ -1205,7 +1205,7 @@ function calcEMA(closes, period) {
 }
 
 function calcMACD(closes) {
-  if (closes.length < 35) return { line: null, signal: null, hist: null };
+  if (closes.length < 35) return { line: null, signal: null, hist: null, histPrev: null, bullish: false, bearish: false, slope: 0 };
   const ema12 = calcEMA(closes, 12);
   const ema26 = calcEMA(closes, 26);
   const line  = +(ema12 - ema26).toFixed(4);
@@ -1218,7 +1218,26 @@ function calcMACD(closes) {
   }
   const signal = macdSeries.length >= 9 ? +calcEMA(macdSeries, 9).toFixed(4) : null;
   const hist   = signal !== null ? +(line - signal).toFixed(4) : null;
-  return { line, signal, hist };
+
+  // Pendiente del histograma (vs. la barra anterior) — hacía falta para el
+  // check "cruce y pendiente" del score (bullish/bearish/slope no existían
+  // acá, aunque el calcMACD de src/spx_indicators.js sí los calculaba — como
+  // este es el que realmente arma indicators.daily/m15/m2.macd en producción,
+  // el check de MACD del playbook nunca tuvo bullish/bearish reales para leer).
+  let histPrev = null;
+  if (macdSeries.length >= 10) {
+    const prevSeries  = macdSeries.slice(0, -1);
+    const linePrev    = +prevSeries[prevSeries.length - 1].toFixed(4);
+    const signalPrev  = +calcEMA(prevSeries, 9).toFixed(4);
+    histPrev = +(linePrev - signalPrev).toFixed(4);
+  }
+
+  return {
+    line, signal, hist, histPrev,
+    bullish: signal !== null ? line > signal : false,
+    bearish: signal !== null ? line < signal : false,
+    slope:   hist !== null && histPrev !== null ? +(hist - histPrev).toFixed(4) : 0,
+  };
 }
 
 function calcRSI(closes, period = 14) {
@@ -2083,19 +2102,25 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow } = require('./src/spx');
 const { calcPlaybookScore, calcRelativeVolume, priceExtension } = require('./src/spx_indicators');
+const { calcCaminoA } = require('./src/camino_a');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
 const SPX_CONFIG_FILE = path.join(DATA_DIR, 'spx_config.json');
 const SPX_CONFIG_DEFAULTS = {
-  minScore: 75,
+  minScore: 80, // regla de Alejandro: los 3 Mundos alineados -> score > 80/100
   weights: {
-    precio_ema200:         5,
-    emas_alineadas_diario: 5,
-    emas_alineadas_15m:   32,
-    macd_alineado_15m:     8,
-    precio_cerca_ema:     30,
-    volumen_spy:          12,
-    gex_compatible:        8,
+    // Modelo "Peso de la Evidencia" (playbook Alejandro, Framework 3 Mundos).
+    // fase_weinstein a todo-o-nada: si 2m y 15m coinciden (2-2 o 4-4) son los 40
+    // puntos completos, si no cero — no hace falta gradiente, la Dirección sola
+    // no alcanza para pasar minScore, son los otros 60 (Trigger+Fuerza) los que
+    // deciden si la señal cruza el umbral.
+    fase_weinstein:           40,
+    regimen_institucional:    10, // GEX compatible con la dirección (DEX pendiente, sin datos validados aún)
+    patrones_estructurales:   20, // Higher-Low / Lower-High via fractales 15m
+    ema_10_20_alineadas:      10, // EMAs alineadas 15m y precio no extendido
+    volumen_rompimiento:      10, // Volumen SPY > 2x promedio
+    macd_cruce_pendiente:      5, // MACD alineado + pendiente a favor
+    confirmacion_algoritmica:  5, // Camino A (Trend Magic + SlingShot + MACD) — apoyo, no gatillo
   },
   // Parámetros de trading (compartidos con backtester)
   trading: {
@@ -2129,6 +2154,14 @@ function loadSPXConfig() {
       console.log('[SPX] Config antigua detectada, usando defaults Propuesta C');
       saveSPXConfig(SPX_CONFIG_DEFAULTS);
       return SPX_CONFIG_DEFAULTS;
+    }
+    // Migración a pesos "Peso de la Evidencia" — acotada solo a weights, para no
+    // pisar trading (targetDelta/tpPct/slMult ya ajustados a mano en producción).
+    if (saved?.weights && saved.weights.fase_weinstein === undefined) {
+      console.log('[SPX] Pesos viejos detectados, migrando a pesos Peso de la Evidencia (minScore -> 80)');
+      saved.weights = SPX_CONFIG_DEFAULTS.weights;
+      saved.minScore = SPX_CONFIG_DEFAULTS.minScore; // regla de Alejandro: 3 Mundos alineados -> >80/100
+      saveSPXConfig(saved);
     }
     return saved;
   } catch(e) {
@@ -2348,16 +2381,21 @@ async function buildSPXContext() {
       {
         const highs15 = q15.high || [], lows15 = q15.low || [];
         let lastFractalLow15 = null, lastFractalHigh15 = null;
+        // Historial de fractales confirmados (no solo el ultimo) — necesario para
+        // detectar patrones Higher-Low/Lower-High (patrones_estructurales del score)
+        const fractalLowsHistory15 = [], fractalHighsHistory15 = [];
         for (let i = 2; i < highs15.length - 2; i++) {
           if (highs15[i] == null || lows15[i] == null) continue;
           const isHigh = highs15[i] > highs15[i-1] && highs15[i] > highs15[i-2] && highs15[i] > highs15[i+1] && highs15[i] > highs15[i+2];
           const isLow  = lows15[i]  < lows15[i-1]  && lows15[i]  < lows15[i-2]  && lows15[i]  < lows15[i+1]  && lows15[i]  < lows15[i+2];
-          if (isHigh) lastFractalHigh15 = highs15[i];
-          if (isLow)  lastFractalLow15  = lows15[i];
+          if (isHigh) { lastFractalHigh15 = highs15[i]; fractalHighsHistory15.push(+highs15[i].toFixed(2)); }
+          if (isLow)  { lastFractalLow15  = lows15[i];  fractalLowsHistory15.push(+lows15[i].toFixed(2)); }
         }
         indicators.fractal15m = {
           low:  lastFractalLow15  != null ? +lastFractalLow15.toFixed(2)  : null,
           high: lastFractalHigh15 != null ? +lastFractalHigh15.toFixed(2) : null,
+          lowsHistory:  fractalLowsHistory15.slice(-3),
+          highsHistory: fractalHighsHistory15.slice(-3),
         };
       }
 
@@ -2426,6 +2464,18 @@ async function buildSPXContext() {
           low:  lastFractalLow  != null ? +lastFractalLow.toFixed(2)  : null,
           high: lastFractalHigh != null ? +lastFractalHigh.toFixed(2) : null,
         };
+
+        // Confirmación Algorítmica (Camino A) — necesita high/low/close alineados
+        // por índice (closes2 de arriba viene filtrado de nulls, highs2/lows2 no,
+        // así que se arma un array propio filtrando las 3 series juntas para no
+        // desalinear las barras).
+        const rawCloses2 = result2?.indicators?.quote?.[0]?.close || [];
+        const bars2m = [];
+        for (let i = 0; i < rawCloses2.length; i++) {
+          if (rawCloses2[i] == null || highs2[i] == null || lows2[i] == null) continue;
+          bars2m.push({ high: highs2[i], low: lows2[i], close: rawCloses2[i] });
+        }
+        if (indicators.m2) indicators.m2.caminoA = calcCaminoA(bars2m);
       } catch(e2) { console.error('[SPX] 2m error:', e2.message); }
 
       // Volumen SPY — intraday vs promedio 20d
@@ -2611,21 +2661,10 @@ app.post('/api/spx/webhook', async (req, res) => {
     // Asegurar defaults para evitar undefined en calcPlaybookScore
     const safeDaily = ctx.indicators?.daily || {};
     const safeM15   = ctx.indicators?.m15   || {};
+    const safeM2     = ctx.indicators?.m2    || {};
     const safeSpy   = ctx.indicators?.spy   || {};
     if (!safeDaily.macd) safeDaily.macd = { line: null, signal: null, hist: null };
     if (!safeM15.macd)   safeM15.macd   = { line: null, signal: null, hist: null };
-
-    // Calcular criterios de EMAs diarias con datos reales
-    const spxPrice   = ctx.spxPrice || 0;
-    const ema10d     = safeDaily.ema10  || 0;
-    const ema20d     = safeDaily.ema20  || 0;
-    const ema200d    = safeDaily.ema200 || 0;
-    const isBearish  = direction === 'BEARISH';
-
-    // Inyectar criterios calculados directamente en el objeto daily
-    // para que calcPlaybookScore los use si los soporta
-    safeDaily.precio_ema200_cumple        = ema200d > 0 ? (isBearish ? spxPrice < ema200d : spxPrice > ema200d) : false;
-    safeDaily.emas_alineadas_diario_cumple = (ema10d > 0 && ema20d > 0) ? (isBearish ? ema10d < ema20d : ema10d > ema20d) : false;
 
     const playbookResult = calcPlaybookScore({
       direction,
@@ -2634,38 +2673,10 @@ app.post('/api/spx/webhook', async (req, res) => {
       gammaFlip:   ctx.gex?.gammaFlip,
       daily:       safeDaily,
       m15:         safeM15,
+      m2:          safeM2,
       spy:         safeSpy,
+      fractal15m:  ctx.indicators?.fractal15m || {},
     }, spxConfig);
-
-    // Parche: si calcPlaybookScore no usa los campos calculados,
-    // recalculamos el score manualmente sumando los criterios reales
-    const W = spxConfig.weights || SPX_CONFIG_DEFAULTS.weights;
-    let scoreManual = playbookResult.score || 0;
-
-    // Verificar si precio_ema200 y emas_alineadas_diario ya fueron evaluados correctamente
-    // Si el score original los tiene como false cuando deberían ser true, corregir
-    const criteriosReales = {
-      precio_ema200:         safeDaily.precio_ema200_cumple,
-      emas_alineadas_diario: safeDaily.emas_alineadas_diario_cumple,
-    };
-    // Reconstruir score con criterios reales
-    const scoreCorregido = Object.keys(W).reduce((acc, k) => {
-      if (k === 'precio_ema200' || k === 'emas_alineadas_diario') {
-        return acc + (criteriosReales[k] ? (W[k] || 0) : 0);
-      }
-      // Para el resto usar el resultado original del playbook
-      const criterioOriginal = playbookResult.criteria?.[k] ?? playbookResult.criterios?.[k];
-      if (criterioOriginal !== undefined) return acc + (criterioOriginal ? (W[k] || 0) : 0);
-      return acc;
-    }, 0);
-
-    // Solo corregir si la diferencia existe (el módulo no evaluó EMAs reales)
-    if (scoreCorregido > 0 && scoreCorregido !== playbookResult.score) {
-      playbookResult.score = scoreCorregido;
-      playbookResult.passed = scoreCorregido >= (spxConfig.minScore || 75);
-      playbookResult.minScore = spxConfig.minScore || 75;
-      console.log(`[SPX] Score corregido con EMAs reales: ${scoreCorregido}% (original: ${playbookResult.score || 0}%)`);
-    }
 
     if (!playbookResult.passed) {
       console.log(`[SPX] ❌ Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`);

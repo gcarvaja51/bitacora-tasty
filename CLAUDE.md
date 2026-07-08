@@ -120,6 +120,59 @@ significaba que los cambios de delta/ancho en `spx_config.json` **nunca se aplic
 verdad** a las señales en vivo. Ya está arreglado (parámetros con default = comportamiento
 viejo si no se pasan).
 
+**Bug corregido (2026-07-08):** el call site de `calcPlaybookScore` en `server.js`
+(`POST /api/spx/webhook`) tenía un bloque "Parche" que intentaba recalcular el score leyendo
+`playbookResult.criteria`/`.criterios` — campos que `calcPlaybookScore` nunca devolvió (devuelve
+`checks`, un array). Como resultado, cada vez que los checks legacy `precio_ema200`/
+`emas_alineadas_diario` daban `true`, el bloque sobreescribía el score real (bueno) con un
+score recalculado de máximo 10 puntos — muy por debajo del `minScore` de 75 — y la señal se
+descartaba en silencio (`return;`, sin registrar nada). Estuvo matando señales direccionales
+válidas quién sabe cuánto tiempo. Se eliminó por completo al reponderar el score (ver abajo).
+
+**Score del Playbook — modelo "Peso de la Evidencia" (2026-07-08):** `calcPlaybookScore`
+(`src/spx_indicators.js`) se reescribió para reflejar el Framework de los 3 Mundos del
+playbook de Alejandro, en vez de los 7 checks EMA-céntricos anteriores. `minScore` subió de
+75 a **80** (`SPX_CONFIG_DEFAULTS.minScore`) — regla de Alejandro: los 3 Mundos alineados
+tienen que dar más de 80/100 para disparar el trade. Pesos actuales en
+`SPX_CONFIG_DEFAULTS.weights`:
+- `fase_weinstein` (40%) — booleano todo-o-nada: fase 2m y 15m coinciden con la dirección
+  (2 alcista / 4 bajista). Nota: el gate obligatorio de confluencia ya exige esta misma
+  condición antes de llegar al score, así que en la práctica esta variable siempre vale 40
+  dentro del score de una señal que llega a evaluarse — es intencional, coherente con el
+  modelo (Dirección es necesaria pero no alcanza sola, los otros 60 puntos son los que
+  definen si se cruza el umbral).
+- `regimen_institucional` (10%) — misma lógica que el viejo `gex_compatible`, renombrado. El
+  framework de Alejandro pide GEX *y* DEX, pero DEX no se implementó todavía (los datos de
+  delta ya están disponibles en la cadena de opciones sin fetch adicional, pero falta validar
+  en qué dirección favorece cada régimen antes de sumarlo al score de un sistema que ejecuta
+  órdenes reales — queda como mejora futura).
+- `patrones_estructurales` (20%) — nuevo: Higher-Low (alcista) / Lower-High (bajista),
+  `calcSwingStructure()` en `src/spx_indicators.js`, usa el historial de los últimos 3
+  fractales de Williams 15m (`indicators.fractal15m.lowsHistory`/`.highsHistory`, antes solo
+  se guardaba el último fractal, ahora se acumula historial en `buildSPXContext()`).
+- `ema_10_20_alineadas` (10%) — fusión de los viejos `emas_alineadas_15m` + `precio_cerca_ema`.
+- `volumen_rompimiento` (10%) — igual que el viejo `volumen_spy`, renombrado.
+- `macd_cruce_pendiente` (5%) — como el viejo `macd_alineado_15m` pero ahora también exige
+  `macd.slope` a favor. **Bug encontrado de paso:** el `calcMACD` local de `server.js` (el que
+  realmente arma `indicators.daily/m15/m2.macd` en `buildSPXContext()`) devolvía solo
+  `{line, signal, hist}` — sin `bullish`/`bearish`/`slope`. El viejo check `macd_alineado_15m`
+  leía `macd.bullish`, que siempre fue `undefined`: ese check **nunca pasó una sola vez en
+  producción**. Se agregaron `bullish`/`bearish`/`histPrev`/`slope` al `calcMACD` de `server.js`
+  para que el check nuevo (y cualquier otro futuro) tenga datos reales.
+- `confirmacion_algoritmica` (5%) — nuevo: puerto de "Camino A" (Trend Magic CCI+ATR +
+  SlingShot EMA10/20 + pendiente MACD) a `src/camino_a.js` (`calcCaminoA`), calculado en
+  `buildSPXContext()` sobre velas 2m y expuesto en `indicators.m2.caminoA`. Ojo: el propio
+  backtest de 58 días mostró que Camino A solo, como gatillo, es perdedor neto (48.8% WR,
+  -$130 en 41 señales) — por eso está desactivado como disparador en Pine. Acá se usa solo
+  como 5% de apoyo al score, no como gate, pero no sorprendería que en la práctica pese poco.
+
+`precio_ema200`/`emas_alineadas_diario` (los checks EMA200 diaria que el bug de arriba tocaba)
+se retiraron — la fase Weinstein real los reemplaza con una medida mucho más directa. Migración
+de `spx_config.json` es automática (`loadSPXConfig()` detecta `weights.fase_weinstein ===
+undefined` y reemplaza solo `weights`, preservando `trading` tal cual esté guardado en
+producción) pero conviene verificar con `GET /api/spx/config` después de cada deploy, por el
+gotcha de arriba (push no actualiza el volumen por sí solo).
+
 ## Iron Condor (0DTE + 1DTE) — pipeline independiente
 
 A diferencia de las direccionales, el Iron Condor **no depende de una alerta de Pine** —
@@ -163,8 +216,12 @@ huérfanas de pruebas anteriores.
 misma lógica de entrada de CIARG_V1 (Trend Magic + SlingShot + MACD + gate Weinstein 2m+15m
 + Camino B únicamente) contra 58 días reales de Yahoo Finance (límite de velas de 2m), con
 P&L simulado vía Black-Scholes (IV fija 17.5%, sin datos históricos de cadena de opciones
-reales — no existen en ningún proveedor). Pesos del playbook (`BT_WEIGHTS`) deben mantenerse
-sincronizados a mano con `SPX_CONFIG_DEFAULTS.weights` de `server.js` si se vuelven a tocar.
+reales — no existen en ningún proveedor). `BT_WEIGHTS`/`evalDir` (pesos del playbook dentro del
+backtester) es un **proxy legacy simplificado** — desde el rework a "Peso de la Evidencia"
+(2026-07-08) ya no se mantiene sincronizado clave por clave con `SPX_CONFIG_DEFAULTS.weights`
+de `server.js` (hardcodea `volumen_spy: true`/`gex_compatible: true` porque no tiene esos datos
+históricos client-side, y no calcula patrones HL/LH ni Camino A real como score). Solo importan
+el `minScore` y que la suma de pesos dé 100, no la paridad check-por-check con producción.
 
 **Símbolos de opciones:** el root correcto para las semanales/0DTE de SPX en Tradier es
 `SPXW` (no `SPX`, que es solo mensual) — confirmado contra su sandbox real.

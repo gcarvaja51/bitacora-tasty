@@ -5739,13 +5739,13 @@ function renderSPXConfig(cfg) {
   spxConfig = cfg;
 
   const labels = {
-    precio_ema200:         'Precio vs EMA 200 diario',
-    emas_alineadas_diario: 'EMAs alineadas diario',
-    emas_alineadas_15m:    'EMAs alineadas 15m',
-    macd_alineado_15m:     'MACD alineado 15m',
-    precio_cerca_ema:      'Precio cerca EMA (no extendido)',
-    volumen_spy:           'Volumen SPY > 2x',
-    gex_compatible:        'GEX compatible con dirección',
+    fase_weinstein:           'Fase Weinstein (2m + 15m)',
+    regimen_institucional:    'Régimen Institucional (GEX)',
+    patrones_estructurales:   'Patrón Estructural (HL/LH)',
+    ema_10_20_alineadas:      'EMAs 10/20 alineadas y no extendidas',
+    volumen_rompimiento:      'Volumen de Rompimiento > 2x',
+    macd_cruce_pendiente:     'MACD cruce + pendiente',
+    confirmacion_algoritmica: 'Confirmación Algorítmica (Camino A)',
   };
 
   const total = Object.values(cfg.weights).reduce((a,b) => a+b, 0);
