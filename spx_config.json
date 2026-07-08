@@ -6,7 +6,7 @@
     "patrones_estructurales": 20,
     "ema_10_20_alineadas": 10,
     "volumen_rompimiento": 10,
-    "macd_cruce_pendiente": 5,
-    "confirmacion_algoritmica": 5
+    "macd_cruce_pendiente": 10,
+    "confirmacion_algoritmica": 0
   }
 }

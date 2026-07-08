@@ -152,19 +152,25 @@ tienen que dar más de 80/100 para disparar el trade. Pesos actuales en
   se guardaba el último fractal, ahora se acumula historial en `buildSPXContext()`).
 - `ema_10_20_alineadas` (10%) — fusión de los viejos `emas_alineadas_15m` + `precio_cerca_ema`.
 - `volumen_rompimiento` (10%) — igual que el viejo `volumen_spy`, renombrado.
-- `macd_cruce_pendiente` (5%) — como el viejo `macd_alineado_15m` pero ahora también exige
+- `macd_cruce_pendiente` (10%, ajustado el 2026-07-08 desde 5% — ver nota abajo) — como el
+  viejo `macd_alineado_15m` pero ahora también exige
   `macd.slope` a favor. **Bug encontrado de paso:** el `calcMACD` local de `server.js` (el que
   realmente arma `indicators.daily/m15/m2.macd` en `buildSPXContext()`) devolvía solo
   `{line, signal, hist}` — sin `bullish`/`bearish`/`slope`. El viejo check `macd_alineado_15m`
   leía `macd.bullish`, que siempre fue `undefined`: ese check **nunca pasó una sola vez en
   producción**. Se agregaron `bullish`/`bearish`/`histPrev`/`slope` al `calcMACD` de `server.js`
   para que el check nuevo (y cualquier otro futuro) tenga datos reales.
-- `confirmacion_algoritmica` (5%) — nuevo: puerto de "Camino A" (Trend Magic CCI+ATR +
-  SlingShot EMA10/20 + pendiente MACD) a `src/camino_a.js` (`calcCaminoA`), calculado en
-  `buildSPXContext()` sobre velas 2m y expuesto en `indicators.m2.caminoA`. Ojo: el propio
-  backtest de 58 días mostró que Camino A solo, como gatillo, es perdedor neto (48.8% WR,
-  -$130 en 41 señales) — por eso está desactivado como disparador en Pine. Acá se usa solo
-  como 5% de apoyo al score, no como gate, pero no sorprendería que en la práctica pese poco.
+- `confirmacion_algoritmica` (0%, ajustado el 2026-07-08 desde 5% — ver nota abajo) — puerto
+  de "Camino A" (Trend Magic CCI+ATR + SlingShot EMA10/20 + pendiente MACD) a
+  `src/camino_a.js` (`calcCaminoA`), calculado en `buildSPXContext()` sobre velas 2m y
+  expuesto en `indicators.m2.caminoA`. El propio backtest de 58 días mostró que Camino A
+  solo, como gatillo, es perdedor neto (48.8% WR, -$130 en 41 señales) — por eso está
+  desactivado como disparador en Pine y ahora también en 0% en el score (el check se sigue
+  calculando y mostrando en la señal, solo no suma puntos).
+
+**Ajuste 2026-07-08 (mismo día del rework):** `confirmacion_algoritmica` bajó de 5% a 0% y
+`macd_cruce_pendiente` subió de 5% a 10% — decisión del usuario, sin cambiar el resto de la
+tabla. Suma sigue dando 100.
 
 `precio_ema200`/`emas_alineadas_diario` (los checks EMA200 diaria que el bug de arriba tocaba)
 se retiraron — la fase Weinstein real los reemplaza con una medida mucho más directa. Migración

@@ -2119,8 +2119,8 @@ const SPX_CONFIG_DEFAULTS = {
     patrones_estructurales:   20, // Higher-Low / Lower-High via fractales 15m
     ema_10_20_alineadas:      10, // EMAs alineadas 15m y precio no extendido
     volumen_rompimiento:      10, // Volumen SPY > 2x promedio
-    macd_cruce_pendiente:      5, // MACD alineado + pendiente a favor
-    confirmacion_algoritmica:  5, // Camino A (Trend Magic + SlingShot + MACD) — apoyo, no gatillo
+    macd_cruce_pendiente:     10, // MACD alineado + pendiente a favor
+    confirmacion_algoritmica:  0, // Camino A (Trend Magic + SlingShot + MACD) — apoyo, no gatillo
   },
   // Parámetros de trading (compartidos con backtester)
   trading: {
@@ -2275,12 +2275,14 @@ async function buildSPXContext() {
             gamma: s.call?.gamma || 0,
             oi:    s.call?.oi    || 0,
             mark:  s.call?.mark  || 0,
+            iv:    s.call?.iv    || 0, // necesario para el sweep de Gamma Flip (calcGammaFlipSweep)
           },
           put: {
             delta: s.put?.delta || 0,
             gamma: s.put?.gamma || 0,
             oi:    s.put?.oi    || 0,
             mark:  s.put?.mark  || 0,
+            iv:    s.put?.iv    || 0,
           },
         }))
       }));
@@ -2292,23 +2294,6 @@ async function buildSPXContext() {
     const gex = calcGEX(enrichedExps, spxPrice);
     // Max Pain — se calcula por vencimiento (no agregado como el GEX), usamos el más cercano (0DTE)
     gex.maxPain = calcMaxPain(enrichedExps[0]?.strikes || []);
-
-    // Calcular Gamma Flip si no viene de calcGEX (interpolación entre levels)
-    if (!gex.gammaFlip && gex.levels && gex.levels.length > 1) {
-      const sorted = [...gex.levels].sort((a, b) => a.strike - b.strike);
-      for (let i = 1; i < sorted.length; i++) {
-        const prev = sorted[i-1], curr = sorted[i];
-        if (prev.gex < 0 && curr.gex > 0) {
-          const ratio = Math.abs(prev.gex) / (Math.abs(prev.gex) + Math.abs(curr.gex));
-          gex.gammaFlip = Math.round(prev.strike + ratio * (curr.strike - prev.strike));
-          break;
-        } else if (prev.gex > 0 && curr.gex < 0) {
-          const ratio = Math.abs(prev.gex) / (Math.abs(prev.gex) + Math.abs(curr.gex));
-          gex.gammaFlip = Math.round(prev.strike + ratio * (curr.strike - prev.strike));
-          break;
-        }
-      }
-    }
 
     // 7. Indicadores técnicos — diario y 15m
     let indicators = { daily: {}, m15: {}, spy: {} };

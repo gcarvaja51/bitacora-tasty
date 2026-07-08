@@ -46,6 +46,58 @@ function spreadWidthFor(capital, riesgoPct = 2) {
   return Math.min(spM, spR, 20);
 }
 
+// ── Black-Scholes gamma puntual — usada por el sweep de Gamma Flip de abajo ──
+function bsGammaAt(S, K, T, sigma) {
+  if (!S || !K || T <= 0 || !sigma) return 0;
+  const d1 = (Math.log(S / K) + (0.0525 + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
+  const nd1 = Math.exp(-0.5 * d1 * d1) / Math.sqrt(2 * Math.PI);
+  return nd1 / (S * sigma * Math.sqrt(T));
+}
+
+// ── Gamma Flip real: barre precios hipotéticos del subyacente y recalcula la
+// gamma de cada strike via Black-Scholes en cada uno (no la gamma ya fijada al
+// spot actual) — el precio donde el GEX neto total cruza de negativo a
+// positivo, igual que lo calculan las terminales de flujo de opciones (Sigma,
+// SpotGamma, etc). El método viejo (acumular el GEX ya evaluado al spot real,
+// recorriendo strikes de menor a mayor) puede no cruzar NUNCA si el open
+// interest esta muy sesgado hacia un lado cerca del dinero — confirmado con
+// datos reales del 2026-07-08: los puts dominan tanto el OI cerca del spot
+// que el acumulado se hunde y nunca vuelve a cruzar cero, aunque haya calls
+// con GEX positivo mas arriba. El sweep evita esto porque la gamma de CADA
+// strike cambia con el precio hipotetico (no es un valor fijo por strike).
+function calcGammaFlipSweep(expirations, spxPrice) {
+  const legs = [];
+  for (const exp of expirations) {
+    const T = Math.max((new Date(exp.expiry) - Date.now()) / (365.25 * 86400000), 0.001);
+    for (const s of (exp.strikes || [])) {
+      const c = s.call || {}, p = s.put || {};
+      if (c.oi) legs.push({ strike: s.strike, T, iv: (c.iv || 0) / 100 || 0.175, oi: c.oi, isCall: true });
+      if (p.oi) legs.push({ strike: s.strike, T, iv: (p.iv || 0) / 100 || 0.175, oi: p.oi, isCall: false });
+    }
+  }
+  if (!legs.length) return null;
+
+  const step  = 5; // resolucion = espaciado tipico de strikes SPX cerca del dinero
+  const range = Math.round(spxPrice * 0.07 / step) * step; // +/-7% alrededor del spot
+  let prevNet = null, prevPrice = null, flip = null;
+  for (let price = spxPrice - range; price <= spxPrice + range; price += step) {
+    let net = 0;
+    for (const leg of legs) {
+      const gamma = bsGammaAt(price, leg.strike, leg.T, leg.iv);
+      const gex   = gamma * leg.oi * 100 * price * price * 0.01;
+      net += leg.isCall ? gex : -gex;
+    }
+    if (prevNet != null && prevNet !== 0 && prevNet * net < 0) {
+      // Interpolacion lineal entre los dos precios evaluados para afinar el cruce
+      const frac = Math.abs(prevNet) / (Math.abs(prevNet) + Math.abs(net));
+      flip = Math.round((prevPrice + frac * (price - prevPrice)) / 5) * 5;
+      break;
+    }
+    prevNet = net; prevPrice = price;
+  }
+  return flip;
+}
+
 // ── Calcula GEX por strike ────────────────────────────────────
 function calcGEX(expirations, spxPrice) {
   const gexByStrike = {};
@@ -68,21 +120,12 @@ function calcGEX(expirations, spxPrice) {
   const callWall = sorted.reduce((best, x) => x.gex > best.gex ? x : best, { strike: 0, gex: -Infinity }).strike;
   const putWall  = sorted.reduce((best, x) => x.gex < best.gex ? x : best, { strike: 0, gex: Infinity }).strike;
 
-  // Gamma flip: strike donde GEX acumulado cambia de signo
-  let cumulative = 0;
-  let gammaFlip  = null;
-  for (const { strike, gex } of sorted) {
-    const prev = cumulative;
-    cumulative += gex;
-    if (prev !== 0 && prev * cumulative < 0) { gammaFlip = strike; break; }
-  }
-
   return {
     netGex,
     regime:    netGex > 0 ? 'POSITIVO' : 'NEGATIVO',
     callWall,
     putWall,
-    gammaFlip,
+    gammaFlip: calcGammaFlipSweep(expirations, spxPrice),
     levels:    sorted.filter(x => Math.abs(x.gex) > Math.abs(netGex) * 0.05), // niveles significativos
   };
 }
@@ -479,4 +522,4 @@ function buildSignalSummary(strategy, strikes, sel, context) {
   };
 }
 
-module.exports = { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow };
+module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow };
