@@ -225,7 +225,13 @@ class TradierClient {
 
   // Coloca la orden multi-leg (4 patas) para Iron Condor: short put + long put +
   // short call + long call, todas en la misma orden combinada.
-  async placeIronCondorOrder({ underlyingRoot, expiry, putShortStrike, putLongStrike, callShortStrike, callLongStrike, quantity }) {
+  // minCreditPrice (2026-07-09, a pedido del usuario): si se pasa, la orden se manda
+  // como limit de credito neto ('type: credit', 'price') en vez de 'market' — si el
+  // mercado no da ese credito minimo, la orden simplemente no llena (no se abre) en vez
+  // de ejecutar a mercado y despues tener que cerrarla por no cumplir el gate del 25%,
+  // pagando comisiones de apertura Y cierre por una posicion que nunca deberia haber
+  // entrado. Sin este parametro, se comporta igual que antes (market).
+  async placeIronCondorOrder({ underlyingRoot, expiry, putShortStrike, putLongStrike, callShortStrike, callLongStrike, quantity, minCreditPrice }) {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
     const putShortSym  = this.buildOccSymbol(underlyingRoot, expiry, 'P', putShortStrike);
     const putLongSym   = this.buildOccSymbol(underlyingRoot, expiry, 'P', putLongStrike);
@@ -235,8 +241,9 @@ class TradierClient {
     const body = new URLSearchParams({
       class:    'multileg',
       symbol:   underlyingRoot,
-      type:     'market',
+      type:     minCreditPrice != null ? 'credit' : 'market',
       duration: 'day',
+      ...(minCreditPrice != null ? { price: String(minCreditPrice) } : {}),
       'option_symbol[0]': putShortSym,  'side[0]': 'sell_to_open', 'quantity[0]': String(quantity),
       'option_symbol[1]': putLongSym,   'side[1]': 'buy_to_open',  'quantity[1]': String(quantity),
       'option_symbol[2]': callShortSym, 'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),
@@ -294,7 +301,9 @@ class TradierClient {
   // Long Put Condor (4 patas, todas puts, DEBITO) — alternativa al Iron Condor cuando
   // el IV Rank esta bajo (ver evaluateIronCondorGate/checkIronCondor). Compra las dos
   // alas externas, vende las dos internas (el "cuerpo").
-  async placeDebitCondorOrder({ underlyingRoot, expiry, outerHighStrike, innerHighStrike, innerLowStrike, outerLowStrike, quantity }) {
+  // maxDebitPrice (mismo criterio que minCreditPrice en placeIronCondorOrder): si se
+  // pasa, manda la orden como limit de debito neto maximo en vez de a mercado.
+  async placeDebitCondorOrder({ underlyingRoot, expiry, outerHighStrike, innerHighStrike, innerLowStrike, outerLowStrike, quantity, maxDebitPrice }) {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
     const outerHighSym = this.buildOccSymbol(underlyingRoot, expiry, 'P', outerHighStrike);
     const innerHighSym = this.buildOccSymbol(underlyingRoot, expiry, 'P', innerHighStrike);
@@ -304,8 +313,9 @@ class TradierClient {
     const body = new URLSearchParams({
       class:    'multileg',
       symbol:   underlyingRoot,
-      type:     'market',
+      type:     maxDebitPrice != null ? 'debit' : 'market',
       duration: 'day',
+      ...(maxDebitPrice != null ? { price: String(maxDebitPrice) } : {}),
       'option_symbol[0]': outerHighSym, 'side[0]': 'buy_to_open',  'quantity[0]': String(quantity),
       'option_symbol[1]': innerHighSym, 'side[1]': 'sell_to_open', 'quantity[1]': String(quantity),
       'option_symbol[2]': innerLowSym,  'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),

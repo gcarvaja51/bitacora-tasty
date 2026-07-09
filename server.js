@@ -3163,12 +3163,17 @@ async function checkIronCondor() {
     // ── Ejecución automática en Tradier (sandbox) — kill-switch propio del IC ──
     if (IS_PRODUCTION && icCfg.tradierAutoExecute !== false) {
       try {
+        // Ordenes limit, no a mercado (2026-07-09, a pedido del usuario): si el fill
+        // real no cumple el minimo de calidad, la orden simplemente no llena — evita
+        // pagar comision de apertura Y cierre por una posicion que nunca debio entrar
+        // (paso justo con el IC de hoy: estimado 28.5% credito/ancho, fill real 16%).
         const order = useDebit
           ? await tradier.placeDebitCondorOrder({
               underlyingRoot: 'SPXW', expiry: strikes.expiry,
               outerHighStrike: strikes.outerHighStrike, innerHighStrike: strikes.innerHighStrike,
               innerLowStrike: strikes.innerLowStrike, outerLowStrike: strikes.outerLowStrike,
               quantity: contracts,
+              maxDebitPrice: strikes.debit,
             })
           : await tradier.placeIronCondorOrder({
               underlyingRoot:   'SPXW',
@@ -3178,6 +3183,7 @@ async function checkIronCondor() {
               callShortStrike:  strikes.callShortStrike,
               callLongStrike:   strikes.callLongStrike,
               quantity:         contracts,
+              minCreditPrice:   +((icCfg.minCreditoAnchoPct ?? 25) / 100 * gate.spreadWidth).toFixed(2),
             });
         signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
         signal.status   = 'EXECUTED';
@@ -3239,6 +3245,40 @@ setInterval(checkIronCondor, 5 * 60 * 1000);
 // (ej. la pata corta se llena pero la larga de proteccion no) se trataba igual que
 // un fill sano, dejando una posicion "desnuda" mucho mas riesgosa sin que el
 // sistema lo notara.
+// P&L no realizado de una ejecucion abierta, dado un mapa {symbol: mark} — mismas
+// formulas que ya usan checkDirectionalTPSLImpl/checkIronCondorTPSLImpl, factorizadas
+// aca para reusarlas tambien en la vista de solo-lectura del historial (ex.livePnl).
+// Devuelve null si faltan cotizaciones o la estrategia no se reconoce — nunca inventa
+// un numero.
+function calcLivePnl(ex, q) {
+  try {
+    const legs = ex.legs || {};
+    if (ex.strategy === 'IRON_CONDOR') {
+      const { putShortSym, putLongSym, callShortSym, callLongSym } = legs;
+      if ([putShortSym, putLongSym, callShortSym, callLongSym].some(s => !s || q[s] == null)) return null;
+      const costoDeCerrar = (q[putShortSym] - q[putLongSym]) + (q[callShortSym] - q[callLongSym]);
+      return +((ex.creditReceived - costoDeCerrar) * 100 * ex.contracts).toFixed(2);
+    }
+    if (ex.strategy === 'DEBIT_PUT_CONDOR') {
+      const { outerHighSym, innerHighSym, innerLowSym, outerLowSym } = legs;
+      if ([outerHighSym, innerHighSym, innerLowSym, outerLowSym].some(s => !s || q[s] == null)) return null;
+      const valorActual = (q[outerHighSym] + q[outerLowSym]) - (q[innerHighSym] + q[innerLowSym]);
+      return +((valorActual - ex.creditReceived) * 100 * ex.contracts).toFixed(2);
+    }
+    if (['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD', 'BULL_CALL_SPREAD', 'BEAR_PUT_SPREAD'].includes(ex.strategy)) {
+      const { shortSym, longSym } = legs;
+      if (!shortSym || !longSym || q[shortSym] == null || q[longSym] == null) return null;
+      if (ex.isCredit !== false) {
+        const costoDeCerrar = q[shortSym] - q[longSym];
+        return +((ex.creditReceived - costoDeCerrar) * 100 * ex.contracts).toFixed(2);
+      }
+      const valorActual = q[longSym] - q[shortSym];
+      return +((valorActual - ex.creditReceived) * 100 * ex.contracts).toFixed(2);
+    }
+  } catch(e) {}
+  return null;
+}
+
 function verificarFillPorPata(order, expectedQty) {
   const legs = Array.isArray(order.leg) ? order.leg : (order.leg ? [order.leg] : []);
   if (!legs.length) {
@@ -3957,6 +3997,26 @@ app.get('/api/tradier/executions', async (req, res) => {
   } catch(e) {
     console.error('[TRADIER] Error obteniendo balance:', e.message);
   }
+
+  // P&L en vivo para posiciones abiertas (2026-07-09, a pedido del usuario) — mismas
+  // formulas que ya usan los monitores de TP/SL, solo de lectura, no cierra nada.
+  // Se agrega como ex.livePnl, separado de ex.pnl (que sigue siendo null hasta que
+  // realmente cierre) para no confundir el P&L realizado con el no realizado.
+  try {
+    const abiertas = executions.filter(e => e.status === 'filled' && e.creditReceived != null);
+    if (abiertas.length) {
+      const todosLosSimbolos = [...new Set(abiertas.flatMap(e => Object.values(e.legs || {}).filter(Boolean)))];
+      const quotes = await tradier.getQuotes(todosLosSimbolos);
+      const q = {};
+      quotes.forEach(x => { q[x.symbol] = x.mark; });
+      for (const ex of abiertas) {
+        ex.livePnl = calcLivePnl(ex, q);
+      }
+    }
+  } catch(e) {
+    console.error('[TRADIER] Error calculando P&L en vivo:', e.message);
+  }
+
   res.json({ executions, account });
 });
 

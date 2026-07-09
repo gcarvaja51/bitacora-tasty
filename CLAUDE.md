@@ -628,6 +628,28 @@ débito tiene Vega positiva, se beneficia si la volatilidad se expande en vez de
 - Ambas variantes comparten `strategyFamily: 'NEUTRAL'` y el mismo dedup/exclusividad de
   posición — no pueden dispararse las dos el mismo día para el mismo `dte`.
 
+**Fix 2026-07-09 (mismo día) — el gate de 25% se calculaba contra el crédito *estimado*, no
+contra el fill real:** un IC 1DTE real del mismo día lo probó: estimado 28.5% crédito/ancho
+(pasaba el gate), pero el fill real llegó a solo 16% (no hubiera pasado si se midiera contra
+eso). A pedido del usuario, la orden ya no se manda `type: market` — ahora usa **`type: credit`
+con `price` = el crédito mínimo exacto** (`placeIronCondorOrder`, `src/tradier.js`, parámetro
+`minCreditPrice`); si el mercado no da ese crédito, la orden simplemente **no llena**, en vez
+de ejecutar a mercado y después tener que cerrarla por no cumplir el gate — evita pagar
+comisión de apertura y cierre por una posición que nunca debió entrar. Mismo criterio para el
+Long Put Condor de débito (`placeDebitCondorOrder`, parámetro `maxDebitPrice` = el débito
+estimado al armar la señal, como techo). Las órdenes límite que no lleguen a llenarse ya se
+manejan solas — `cleanupStalePendingOrdersImpl` (existente, sin cambios) cancela cualquier
+orden pending de más de 10 min y marca el registro como `canceled`, sin necesitar lógica nueva.
+
+**Feature 2026-07-09 — P&L no realizado en vivo en el historial de ejecuciones:** antes,
+una posición abierta (no cerrada) mostraba "—" en la columna P&L hasta que cerraba. Nueva
+función compartida `calcLivePnl(ex, quotesMap)` (server.js, reusa las mismas fórmulas que ya
+usan `checkDirectionalTPSLImpl`/`checkIronCondorTPSLImpl`, de solo lectura) — `GET
+/api/tradier/executions` ahora trae cotizaciones reales para las posiciones abiertas y agrega
+`ex.livePnl` (separado de `ex.pnl`, que sigue en `null` hasta el cierre real, para no mezclar
+realizado con no realizado). El frontend lo muestra con un `~` adelante (`~$115`) para dejar
+claro que es no realizado, se actualiza cada vez que se recarga el dashboard.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`

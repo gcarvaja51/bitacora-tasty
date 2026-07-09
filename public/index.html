@@ -5462,8 +5462,13 @@ function renderTradierDemo(execs, account) {
     const fecha = new Date(e.timestamp).toLocaleString('es-CO',{timeZone:'America/Bogota', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
     const strikesLabel = e.strikes ? `${e.strikes.shortStrike}/${e.strikes.longStrike}` : '—';
     const estadoLabel = e.status === 'closed' ? '✅ Cerrado' : e.status === 'filled' ? '🟢 Llenado' : '⏳ Pendiente';
-    const pnlLabel = typeof e.pnl === 'number' ? f$(e.pnl) : (e.status==='closed' ? '⚠️ Verificar manual' : '—');
-    const pnlCls = typeof e.pnl === 'number' ? cc(e.pnl) : 'dim';
+    // Si todavia no cerro, mostrar P&L NO REALIZADO en vivo (ex.livePnl, calculado en
+    // el servidor con cotizaciones reales cada vez que se carga esta vista) en vez de
+    // "—" — con un "~" adelante para que quede claro que es no realizado, no el final.
+    const pnlLabel = typeof e.pnl === 'number' ? f$(e.pnl)
+      : typeof e.livePnl === 'number' ? `~${f$(e.livePnl)}`
+      : (e.status==='closed' ? '⚠️ Verificar manual' : '—');
+    const pnlCls = typeof e.pnl === 'number' ? cc(e.pnl) : typeof e.livePnl === 'number' ? cc(e.livePnl) : 'dim';
     const CIERRE_LABELS = {
       TP: '🤖 Auto (TP)', SL: '🤖 Auto (SL)',
       TECHNICAL_STOP: '🤖 Auto (Técnico)', TIME_STOP: '🤖 Auto (Tiempo)',
