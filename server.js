@@ -3800,7 +3800,13 @@ app.get('/api/tradier/executions', async (req, res) => {
       account = {
         netLiq:        balances.total_equity,
         totalCash:     balances.total_cash,
-        buyingPower:   balances.margin?.option_buying_power ?? balances.margin?.stock_buying_power ?? null,
+        // Tradier anida el buying power bajo una clave distinta segun account_type:
+        // "margin" -> balances.margin, "pdt" -> balances.pdt (confirmado 2026-07-09,
+        // esta cuenta sandbox es tipo "pdt" — el codigo viejo solo miraba .margin,
+        // que ni existe en la respuesta para pdt, mostrando siempre $0).
+        buyingPower:   balances.margin?.option_buying_power ?? balances.margin?.stock_buying_power
+                    ?? balances.pdt?.option_buying_power    ?? balances.pdt?.stock_buying_power
+                    ?? balances.cash?.cash_available ?? null,
         startingBalance: TRADIER_STARTING_BALANCE,
         pnlTotal:      balances.total_equity - TRADIER_STARTING_BALANCE,
       };
