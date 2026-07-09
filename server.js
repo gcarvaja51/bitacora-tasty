@@ -2232,6 +2232,15 @@ function loadSPXConfig() {
       saved.trading.smaReversion.wallProximityPts = SPX_CONFIG_DEFAULTS.trading.smaReversion.wallProximityPts;
       saveSPXConfig(saved);
     }
+    // Suma minCreditoAnchoPct/ivRankThreshold/debitCondor a un ironCondor ya guardado
+    // que no los tenga (Long Put Condor de debito con IV Rank bajo, 2026-07-09).
+    if (saved?.trading?.ironCondor && saved.trading.ironCondor.ivRankThreshold === undefined) {
+      console.log('[SPX] Sumando ivRankThreshold/minCreditoAnchoPct/debitCondor a ironCondor (no existían)');
+      saved.trading.ironCondor.ivRankThreshold   = SPX_CONFIG_DEFAULTS.trading.ironCondor.ivRankThreshold;
+      saved.trading.ironCondor.minCreditoAnchoPct = SPX_CONFIG_DEFAULTS.trading.ironCondor.minCreditoAnchoPct;
+      saved.trading.ironCondor.debitCondor       = SPX_CONFIG_DEFAULTS.trading.ironCondor.debitCondor;
+      saveSPXConfig(saved);
+    }
     // Suma los parametros de debito (Bull Call/Bear Put) si no existen todavia.
     if (saved?.trading && saved.trading.debit === undefined) {
       console.log('[SPX] Sumando config de débito direccional (no existía)');
