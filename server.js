@@ -2452,15 +2452,16 @@ async function buildSPXContext() {
       // desalineados con ts15/highs15/vols15), usa q15.close crudo alineado.
       {
         const ts15 = j15.chart?.result?.[0]?.timestamp || [];
+        const rawHighs15 = q15.high || [], rawLows15 = q15.low || [];
         const vols15 = q15.volume || [];
         const rawCloses15 = q15.close || [];
         const todayET15 = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
         const bars15hoy = [];
         for (let i = 0; i < ts15.length; i++) {
-          if (highs15[i] == null || lows15[i] == null || rawCloses15[i] == null) continue;
+          if (rawHighs15[i] == null || rawLows15[i] == null || rawCloses15[i] == null) continue;
           const barET = new Date(ts15[i] * 1000).toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
           if (barET !== todayET15) continue;
-          bars15hoy.push({ high: highs15[i], low: lows15[i], close: rawCloses15[i], volume: vols15[i] });
+          bars15hoy.push({ high: rawHighs15[i], low: rawLows15[i], close: rawCloses15[i], volume: vols15[i] });
         }
         indicators.poc15m = calcPOC(bars15hoy);
       }
