@@ -327,19 +327,25 @@ function calcReversionScore(indicators, config) {
   const dir = indicators.direction; // BULLISH | BEARISH
 
   // 1. Alejamiento de SMA8 — extensión del precio respecto a la media (el "imán").
-  // Bandas graduadas segun el material de Luis Silva (no un solo corte pass/fail):
-  // <0.10% ruido, 0.10-0.20% zona de interes, 0.20-0.35% tension alta, >0.35% extremo.
-  const w1 = weights.alejamiento_sma8 ?? 35;
-  totalWeight += w1;
+  // Funcion ESCALONADA (no lineal) — decision explicita del usuario (2026-07-09):
+  // meseta de maximo puntaje entre 0.15%-0.20%, no un pico de un solo punto. Por
+  // debajo de 0.10% es ruido sin ventaja; por encima de 0.35% es peligroso por la
+  // razon opuesta (podria ser un dia de tendencia feroz, no una reversion) — ambos
+  // lados caen a 0.
   const ext8 = indicators.ext8;
   const extAbs = ext8 != null ? Math.abs(ext8) : null;
   const direccionCorrecta = ext8 != null && (dir === 'BULLISH' ? ext8 < 0 : ext8 > 0);
+  const w1 = weights.alejamiento_sma8 ?? 35;
+  totalWeight += w1;
   let banda = 'ninguna', fracAlejamiento = 0;
   if (direccionCorrecta) {
-    if      (extAbs >= 0.35) { banda = 'extremo';     fracAlejamiento = 1.0;  }
-    else if (extAbs >= 0.20) { banda = 'tensión alta'; fracAlejamiento = 0.85; }
-    else if (extAbs >= 0.10) { banda = 'interés';      fracAlejamiento = 0.6;  }
-    else                     { banda = 'ruido';        fracAlejamiento = 0;    }
+    if      (extAbs < 0.10) { banda = 'ruido (insuficiente)';         fracAlejamiento = 0;   }
+    else if (extAbs < 0.12) { banda = 'creciendo hacia el óptimo';    fracAlejamiento = 0.4; }
+    else if (extAbs < 0.15) { banda = 'creciendo hacia el óptimo';    fracAlejamiento = 0.8; }
+    else if (extAbs < 0.20) { banda = 'óptimo';                       fracAlejamiento = 1.0; }
+    else if (extAbs < 0.25) { banda = 'alejándose del óptimo';        fracAlejamiento = 0.8; }
+    else if (extAbs < 0.35) { banda = 'alejándose del óptimo';        fracAlejamiento = 0.4; }
+    else                     { banda = 'extremo (riesgo de tendencia)'; fracAlejamiento = 0;   }
   }
   const alejamiento_ok = fracAlejamiento > 0;
   checks.push({
@@ -348,7 +354,7 @@ function calcReversionScore(indicators, config) {
     weight:  w1,
     ok:      alejamiento_ok,
     value:   ext8 != null ? `${ext8 > 0 ? '+' : ''}${ext8}% (${banda})` : '—',
-    reason:  alejamiento_ok ? `Precio estirado ${ext8}% de la SMA8 — banda "${banda}" ✅` : `Estiramiento insuficiente o en dirección contraria (${ext8 ?? '—'}%) ❌`,
+    reason:  alejamiento_ok ? `Precio estirado ${ext8}% de la SMA8 — ${banda} (${(fracAlejamiento*100).toFixed(0)}% del peso) ✅` : `Estiramiento fuera del rango útil 0.10%-0.35% (${ext8 ?? '—'}%) ❌`,
   });
   score += w1 * fracAlejamiento;
 

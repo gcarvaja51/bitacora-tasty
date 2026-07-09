@@ -413,6 +413,37 @@ nunca alcanza el mínimo — y que con alejamiento en banda "ruido" (<0.10%) nun
 la "regla de oro" de Luis exige que 15m+5m+2m cuenten la misma historia, hoy solo se valida
 15m+2m (2m indirectamente, vía la dirección ya determinada por precio vs SMA8).
 
+**Ajuste 2026-07-09 — función de `alejamiento_sma8` pasó de banda creciente a escalón con
+meseta óptima, y `minScore` bajó de 80 a 75:** validando contra un caso real (8 de julio,
+rebote fuerte en V en SPX ~10:26am hora Colombia) se encontró que el estiramiento óptimo no es
+"cuanto más, mejor" — un estiramiento demasiado grande puede ser un día de tendencia feroz, no
+una reversión. Nueva función (`calcReversionScore`, `alejamiento_sma8`): <0.10% ruido (0%),
+0.10-0.12% (40%), 0.12-0.15% (80%), **0.15-0.20% meseta óptima (100%)**, 0.20-0.25% (80%),
+0.25-0.35% (40%), >0.35% extremo (0%) — simétrica hacia ambos lados de la meseta, a diferencia
+de la banda anterior que solo crecía con el estiramiento.
+
+**Caso de estudio real (8 de julio, ~10:26am hora Colombia / 11:26am ET):** rebote en V fuerte
+en SPX que un usuario identificó visualmente como "la entrada buena" — se reconstruyó con datos
+reales de Yahoo Finance (2m/5m/10m/15m) y se corrió `calcReversionScore` tal cual queda hoy.
+Resultado: alejamiento -0.13% (banda 0.12-0.15%, 40 de 50 pts), patrón Vela 9 confirmado (20/20),
+RSI 29.8 sobreventa (10/10), régimen GEX positivo sin muro cerca (5/10, supuesto — no se puede
+reconstruir el GEX histórico real, depende de la cadena de opciones en vivo de ese momento),
+**Fase Weinstein 15m en Fase 4 — no coincidía con la reversión alcista (0/10)**. Score final
+75%, justo el nuevo mínimo — con el mínimo anterior de 80% NO hubiera disparado.
+
+**Se investigó si el bloqueo por Fase Weinstein era arreglable por temporalidad — no lo es:**
+se escaneó cuándo cada temporalidad (2m, 5m, 10m resampleado, 15m) mostraba por primera vez
+Fase 2 ese mismo día: 2m a las 11:04, 5m a las 11:25, 10m a las 12:20, 15m a las 13:30 (todo
+hora Colombia) — ninguna alcanza a confirmar a tiempo para la ventana de la entrada real
+(~10:26). Incluso relajando la condición de Fase 2/4 (quitando la exigencia de que el EMA20
+esté con pendiente a favor, dejando solo posición de precio) el resultado en 15m no cambió
+(sigue sin confirmar hasta las 13:30) — el cuello de botella no es la fórmula de la fase, es que
+cualquier promedio de 15 minutos reacciona demasiado lento para un rebote en V. Se decidió NO
+tocar `calcWeinstein` ni bajar más el peso de `fase_weinstein` — es el costo esperado y aceptado
+de la "regla de oro" de Luis (si los marcos se contradicen, no hay trade); en cambio se ajustó
+`alejamiento_sma8` (arriba) y `minScore` para que casos como este, con el resto de los checks
+fuertes, puedan compensar la falta de esa única confluencia.
+
 **Nota de verificación 2026-07-08:** se revisó y confirmó que la dirección del check
 `fase_weinstein` (exigir que la fase 15m *coincida* con la dirección de la reversión — Fase 2
 para reversión alcista, Fase 4 para bajista — no que se *oponga*) es correcta según el material
@@ -426,6 +457,30 @@ objetivo, con 80% sube a 4x, con 90% a 9x) no se implementó — requiere un win
 sobre trades reales en vivo, y todavía no hay historial de demo suficiente para calibrarlo sin
 adivinar. El stop actual sigue siendo por precio (ruptura de la vela de entrada). Revisar esto
 una vez haya suficientes trades de Alejamiento de SMA en demo para medir el win rate real.
+
+**Ajuste 2026-07-09 — `alejamiento_sma8` pasó de función escalonada nueva (`calcReversionScore`,
+`src/spx_indicators.js`): meseta de máximo puntaje (100% del peso) entre 0.15%-0.20%, no un
+solo pico ni una banda creciente sin techo — 0.10-0.12%→40%, 0.12-0.15%→80%, 0.15-0.20%→100%,
+0.20-0.25%→80%, 0.25-0.35%→40%, fuera de 0.10%-0.35%→0%. `minScore` de la reversión bajó de 80
+a **75** (validado contra el caso real del 8 de julio, ver abajo).
+
+**Debito unificado con credito en Take Profit (2026-07-09):** `trading.debit.tpPct` bajó de 50
+a **30**, a pedido del usuario — mismo % que credito (`trading.tpPct`), sin importar si la
+posición es débito o crédito. Nota: este cambio no afecta retroactivamente posiciones ya
+abiertas — `debitTpPct` se congela en el registro de la ejecución al momento de crearla.
+
+**Fix 2026-07-09 — reconciliación pasiva (`checkTradierExecutionsImpl`) nunca marcaba
+`closeReason`:** cuando detecta que una posición "filled" ya no existe en Tradier (cerrada a
+mano o por vencimiento), marcaba `status: 'closed'` y el P&L, pero dejaba `closeReason` en
+`null` para siempre — un registro viejo (Iron Condor, 7 de julio) tenía `closeReason: 'MANUAL'`
+pero ese valor no lo pone ningún código actual, quedó de una edición manual. Corregido:
+ahora sí marca `closeReason: 'MANUAL'` (la etiqueta más honesta — el monitor pasivo no puede
+distinguir cierre manual de vencimiento natural, solo sabe que se cerró fuera de sus propios
+monitores activos). **Nuevo endpoint de mantenimiento:** `POST /api/tradier/executions/:id/patch`
+— mezcla superficialmente los campos dados en un registro existente por `id`, para corregir
+casos donde el `gain_loss` de Tradier no estaba asentado todavía en el momento exacto de la
+reconciliación (P&L queda en `pnlSource: 'pendiente_verificar'` hasta corregirlo a mano con
+este endpoint una vez la data esté disponible).
 
 ## Notificaciones
 

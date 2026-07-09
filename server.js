@@ -2152,7 +2152,7 @@ const SPX_CONFIG_DEFAULTS = {
     // lo pagado, no tiene sentido un multiplicador — se expresa como % de la prima pagada
     // que se esta dispuesto a ganar/perder.
     debit: {
-      tpPct: 50, // cerrar al ganar 50% de lo pagado
+      tpPct: 30, // 50->30 (2026-07-09, a pedido del usuario): mismo TP% que credito, sin importar isCredit
       slPct: 50, // cerrar al perder 50% de lo pagado
     },
     // Iron Condor — playbook profesor Alejandro. Parametros propios, separados de los
@@ -2176,7 +2176,7 @@ const SPX_CONFIG_DEFAULTS = {
         fase_weinstein:      10, // Fase 15m a favor de la reversion (2 compras, 4 ventas)
         regimen_gex:         10, // GEX Positivo + Muro de Gamma
       },
-      minScore:    80,   // subido de 70 a 80 (2026-07-08) a pedido del usuario, alineado al minScore del direccional
+      minScore:    75,   // 70->80 (2026-07-08), luego 80->75 (2026-07-09) tras revisar caso real 8-jul: con tabla escalonada llegaba a 75, se bajo el piso para no perder ese tipo de entrada
       targetDelta: 0.30,
       spreadWidth: 5,    // credit spread mas angosto, acorde al hold corto (2-10 min)
       maxCandlesTimeStop: 5,  // tope duro: 5 velas de 2m (10 min) sin excepcion
@@ -3667,6 +3667,24 @@ app.post('/api/tradier/executions/add', async (req, res) => {
   res.json({ ok: true, added: true, total });
 });
 
+// POST /api/tradier/executions/:id/patch — correccion manual puntual de un registro
+// ya existente (ej. pnl/pnlSource/closeReason que la reconciliacion pasiva dejo en
+// 'pendiente_verificar' porque el gain_loss de Tradier todavia no estaba asentado
+// en el momento del chequeo). Mezcla superficialmente los campos dados, no reemplaza
+// el registro completo.
+app.post('/api/tradier/executions/:id/patch', async (req, res) => {
+  const result = await withExecutionsLock(() => {
+    const executions = loadTradierExecutions();
+    const idx = executions.findIndex(e => e.id === req.params.id);
+    if (idx === -1) return { ok: false, error: 'not_found' };
+    executions[idx] = { ...executions[idx], ...req.body };
+    saveTradierExecutions(executions);
+    return { ok: true, execution: executions[idx] };
+  });
+  if (!result.ok) return res.status(404).json(result);
+  res.json(result);
+});
+
 // GET /api/tradier/executions — historial + balance real de la cuenta demo
 const TRADIER_STARTING_BALANCE = 100000; // capital inicial de la cuenta sandbox
 app.get('/api/tradier/executions', async (req, res) => {
@@ -4019,6 +4037,11 @@ async function checkTradierExecutionsImpl() {
       if (!sigueAbierta) {
         ex.status = 'closed';
         ex.closedAt = new Date().toISOString();
+        // Este monitor es pasivo — no coloco la orden de cierre, solo detecto que la
+        // posicion ya no esta. Pudo ser el usuario cerrandola a mano, o el vencimiento
+        // natural del 0DTE; no hay forma de distinguirlo desde aqui, MANUAL es la
+        // etiqueta mas honesta para "se cerro fuera de mis monitores activos".
+        ex.closeReason = ex.closeReason || 'MANUAL';
         // SUMAR el gain_loss de TODAS las patas que coincidan, no solo la primera —
         // Tradier reporta el P&L cerrado por pata individual, no por spread completo;
         // quedarse con una sola (ej. solo la corta de un Iron Condor de 4 patas)
