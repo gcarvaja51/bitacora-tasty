@@ -3266,6 +3266,7 @@ async function checkDirectionalTPSL() {
   return withExecutionsLock(checkDirectionalTPSLImpl);
 }
 async function checkDirectionalTPSLImpl() {
+  lastDirectionalTPSLRun = Date.now(); // heartbeat para el watchdog — ver checkDirectionalMonitorHealth
   try {
     const executions = loadTradierExecutions();
     // Las 4 verticales direccionales (credito + debito, agregado 2026-07-08) — ver
@@ -3417,6 +3418,42 @@ async function checkDirectionalTPSLImpl() {
   }
 }
 setInterval(checkDirectionalTPSL, 30 * 1000); // 90s->30s (2026-07-09): estas son operaciones de scalping 0DTE, reaccionar mas rapido reduce (no elimina) la carrera contra un cierre manual
+
+// ── Watchdog del monitor direccional (2026-07-09) — Tradier no soporta OTOCO/bracket
+// nativo sobre spreads multi-pata (el segundo/tercer leg de un OTOCO debe compartir
+// el mismo option_symbol, no sirve para una vertical de 2 patas distintas) — asi que
+// la unica proteccion real depende de que este proceso siga vivo y corriendo cada 30s.
+// Este watchdog no reemplaza esa proteccion, solo avisa si se cayo, para no descubrirlo
+// tarde: si hay una posicion direccional abierta y el monitor lleva mas de 3 minutos
+// sin correr (deberia correr cada 30s), manda una alerta ntfy — una sola vez por caida,
+// se resetea sola cuando el monitor vuelve a correr.
+let lastDirectionalTPSLRun = Date.now();
+let directionalMonitorAlertSent = false;
+const DIRECTIONAL_MONITOR_STALL_MS = 3 * 60 * 1000;
+async function checkDirectionalMonitorHealth() {
+  if (!isMarketHours()) return;
+  const stalled = Date.now() - lastDirectionalTPSLRun > DIRECTIONAL_MONITOR_STALL_MS;
+  if (!stalled) { directionalMonitorAlertSent = false; return; }
+  if (directionalMonitorAlertSent) return;
+  const executions = loadTradierExecutions();
+  const hayAbiertaDirectional = executions.some(e =>
+    ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD', 'BULL_CALL_SPREAD', 'BEAR_PUT_SPREAD'].includes(e.strategy) &&
+    e.strategyFamily !== 'REVERSION' &&
+    (e.status === 'submitted' || e.status === 'filled')
+  );
+  if (!hayAbiertaDirectional) return; // sin posicion en riesgo, un monitor caido no es urgente
+  directionalMonitorAlertSent = true;
+  const minsSinCorrer = Math.round((Date.now() - lastDirectionalTPSLRun) / 60000);
+  console.error(`[MONITOR-WATCHDOG] 🚨 checkDirectionalTPSL lleva ${minsSinCorrer} min sin correr, con posicion abierta.`);
+  try {
+    await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+      method: 'POST',
+      headers: { 'Title': '🚨 Monitor direccional caído', 'Priority': 'urgent', 'Tags': 'warning,rotating_light', 'Content-Type': 'text/plain' },
+      body: `El monitor de TP/SL direccional lleva ${minsSinCorrer} min sin correr, con una posición abierta sin protección activa. Revisar el servidor / Railway.`,
+    });
+  } catch(e) { console.error('[MONITOR-WATCHDOG] Error enviando ntfy:', e.message); }
+}
+setInterval(checkDirectionalMonitorHealth, 60 * 1000);
 
 // ══════════════════════════════════════════════════════════════
 // ── Alejamiento de SMA — reversión a la media (playbook Luis Silva) ──

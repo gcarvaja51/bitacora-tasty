@@ -509,6 +509,37 @@ rompía. Ahora:
   `null`) — simplemente no tienen gatillo técnico disponible, siguen protegidas solo por el
   stop económico existente, sin romper nada.
 
+**Bug encontrado y arreglado el mismo día (2026-07-09) al construir el POC:** el bloque nuevo
+usaba `highs15`/`lows15`, declaradas con `const` dentro del `{ }` propio del cálculo de Fractal
+15m — fuera de alcance en el bloque del POC, que es un `{ }` hermano, no anidado. La excepción
+resultante la absorbía el `catch` que envuelve toda la sección de indicadores de
+`buildSPXContext()`, salteando en silencio TODO lo que viene después en ese mismo bloque:
+`indicators.m2` (fase 2m), el rango de apertura (gate del Iron Condor), y el volumen de SPY —
+no solo el POC. Modo de falla seguro (el sistema se negó a operar con datos incompletos, no
+generó nada con datos corruptos), pero estuvo ~5-8 min degradado hasta el fix. Corregido leyendo
+`q15.high`/`q15.low` directo en vez de reusar las locales del otro bloque.
+
+**Monitor direccional bajado de 90s a 30s (2026-07-09):** a pedido del usuario, por ser
+operaciones de scalping 0DTE — un caso real mostró la posición cruzando el 30% de TP bastante
+antes de que el monitor llegara a cerrarla, y el usuario terminó cerrándola a mano primero.
+30s reduce (no elimina) esa carrera. Mismo ritmo que ya usa el monitor de Alejamiento de SMA
+(15s, todavía más rápido por ser holds de minutos).
+
+**Investigado y descartado — bracket/OTOCO nativo en Tradier para el spread completo:** Tradier
+sí soporta órdenes OTOCO (bracket: entrada → OCO de TP/SL), pero su restricción documentada
+exige que la segunda y tercera pata del OCO comparten el mismo `option_symbol` — está pensado
+para una sola opción, no para una vertical de 2 patas con símbolos distintos. Armar dos OTOCO
+independientes (uno por pata) introduce riesgo real de piernas descubiertas si se disparan en
+momentos distintos — peor que depender del monitor. Se descartó esa vía.
+
+**Watchdog del monitor direccional (2026-07-09), como mitigación en su lugar:** dado que la
+protección real sigue dependiendo de que el proceso esté vivo, `checkDirectionalMonitorHealth()`
+(cada 60s) revisa si `checkDirectionalTPSLImpl` lleva más de 3 minutos sin correr (debería
+correr cada 30s) **y** hay una posición direccional abierta en ese momento — si ambas cosas son
+ciertas, manda una alerta ntfy urgente una sola vez por caída (se resetea sola cuando el monitor
+vuelve a correr). No reemplaza la protección, solo evita descubrir tarde que el servidor se cayó
+con una posición desprotegida.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`
