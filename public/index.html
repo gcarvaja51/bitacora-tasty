@@ -4767,8 +4767,8 @@ async function loadWheel() {
 
     const phaseLabel = { CSP_ACTIVA:'🔵 CSP Activa', CC_ACTIVA:'🟢 Covered Call', ACCIONES:'🟡 Acciones', IDLE:'⚪ Sin actividad' };
     const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
-    const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯' };
-    const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado' };
+    const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
+    const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
 
     // ── VISTA TABLA ──────────────────────────────────────────────
     const tablaHtml = (() => {
@@ -4811,8 +4811,8 @@ async function loadWheel() {
         const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
 
         // Timeline detail
-        const evIcon  = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯' };
-        const evLabel = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado' };
+        const evIcon  = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
+        const evLabel = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
         const timelineHtml = `<table class="wheel-timeline" style="width:100%;">
           <thead><tr>
             <th class="wheel-event-th" style="text-align:left;">FECHA</th>

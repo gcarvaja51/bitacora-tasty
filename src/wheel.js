@@ -17,9 +17,14 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
   const wheelConfigs = wheelUnderlyings.map(u =>
     typeof u === 'string' ? { symbol: u, startDate: null } : u
   );
+  // 'Money Movement' incluye dividendos (y otras cosas como intereses/ajustes) — se
+  // suma aca para que la Rueda los muestre; se filtra a solo dividendos mas abajo por
+  // sub-type/descripcion (no hay ejemplo real todavia para confirmar el nombre exacto
+  // del sub-type de Tastytrade, asi que se matchea de forma tolerante — ver mas abajo).
   const trades = items.filter(t =>
     t['transaction-type'] === 'Trade' ||
-    t['transaction-type'] === 'Receive Deliver'
+    t['transaction-type'] === 'Receive Deliver' ||
+    t['transaction-type'] === 'Money Movement'
   );
 
   const wheels = [];
@@ -29,7 +34,10 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
     const startDate = cfg.startDate || null;
     const txs = trades
       .filter(t => {
-        if (t['underlying-symbol'] !== und) return false;
+        // Money Movement (dividendos) puede no traer underlying-symbol — cae a symbol
+        // directo (el ticker de la accion) en ese caso.
+        const underlying = t['underlying-symbol'] || (t['transaction-type'] === 'Money Movement' ? t.symbol : null);
+        if (underlying !== und) return false;
         if (startDate) return (t['transaction-date'] || t['executed-at'] || '').slice(0,10) >= startDate;
         return true;
       })
@@ -98,6 +106,16 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
           costBasis = avgCost - totalPremium / shares;
           events.push({ date, type:'ASSIGNED', qty, price:assignPrice, costBasis, amount:0 });
         }
+
+      } else if (txType === 'Money Movement' && /dividend/i.test(tx['transaction-sub-type'] || tx.description || '')) {
+        // Deteccion tolerante — no hay un dividendo real todavia con el que confirmar
+        // el nombre exacto del transaction-sub-type de Tastytrade, asi que matchea
+        // por sub-type O descripcion conteniendo "dividend" (case-insensitive) en vez
+        // de un valor exacto. No se resta de totalPremium/costBasis a proposito — es
+        // ingreso real pero de una naturaleza distinta a la prima de opciones, se
+        // muestra aparte en el timeline en vez de mezclarse en el cálculo de costo
+        // base de la Rueda (decision a revisar si el usuario prefiere lo contrario).
+        events.push({ date, type:'DIVIDENDO', amount: Math.abs(nv) });
       }
     }
 

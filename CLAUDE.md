@@ -54,8 +54,24 @@ Estrategia de opciones: CSP → Asignación → Covered Call, ciclando.
 - `STO_CALL` / `BTC_CALL` — Sell/Buy to Close Call
 - `ROLL` — BTC + STO mismo día (consolidado automáticamente, puts y calls)
 - `STOCK_BUY` / `STOCK_SELL` / `ASSIGNED`
+- `DIVIDENDO` (agregado 2026-07-09) — dividendos en efectivo, ver nota abajo
 
 **Underlyings activos**: JBLU, NU, GAP, SOFI (en `wheel_config.json`)
+
+**Feature 2026-07-09 — dividendos ahora aparecen en la Rueda:** antes `buildWheelData`
+solo procesaba `transaction-type` `'Trade'`/`'Receive Deliver'` — un dividendo de Tastytrade
+(`'Money Movement'`) quedaba completamente afuera del pipeline, invisible en el timeline.
+Se agregó `'Money Movement'` al filtro inicial y un branch nuevo que detecta dividendos por
+`transaction-sub-type` o `description` conteniendo "dividend" (case-insensitive). **Sin
+confirmar contra un caso real todavía** — no hay ningún dividendo acreditado en la cuenta
+para validar el nombre exacto del campo que usa Tastytrade; el matcheo tolerante (por
+descripción, no un valor exacto) es la mitigación mientras no haya un ejemplo real. Revisar
+en cuanto se acredite el primero.
+**Decisión de diseño, a confirmar con el usuario si hace falta cambiarla:** el evento
+`DIVIDENDO` se muestra en el timeline con su propio monto, pero **no** se resta de
+`totalPremium`/`costBasis` como sí hace la prima de opciones — es ingreso real pero de
+naturaleza distinta (no reduce el costo base de las acciones en el cálculo actual). Tampoco
+se suma a la tabla de "Primas/Semana" (que solo cuenta `STO/BTC/ROLL`, no dividendos).
 
 ## Tabla Primas/Semana (`semanalHtml` en index.html)
 
