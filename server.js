@@ -3416,7 +3416,7 @@ async function checkDirectionalTPSLImpl() {
     console.error('[Tradier-DIR-TPSL] Error:', e.message);
   }
 }
-setInterval(checkDirectionalTPSL, 90 * 1000); // cada 90s, mismo ritmo que el del Iron Condor
+setInterval(checkDirectionalTPSL, 30 * 1000); // 90s->30s (2026-07-09): estas son operaciones de scalping 0DTE, reaccionar mas rapido reduce (no elimina) la carrera contra un cierre manual
 
 // ══════════════════════════════════════════════════════════════
 // ── Alejamiento de SMA — reversión a la media (playbook Luis Silva) ──
