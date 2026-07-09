@@ -650,6 +650,23 @@ usan `checkDirectionalTPSLImpl`/`checkIronCondorTPSLImpl`, de solo lectura) — 
 realizado con no realizado). El frontend lo muestra con un `~` adelante (`~$115`) para dejar
 claro que es no realizado, se actualiza cada vez que se recarga el dashboard.
 
+**Ajuste 2026-07-09 — tamaño de posición por score, no por % de capital, "mientras
+afinamos todo" (decisión temporal explícita del usuario):** el sizing por 2%/1% del
+capital real (que dio el caso real de 2 contratos analizado ese mismo día) se reemplaza por
+`sizeContractsByScore(score)` (server.js): **1 contrato en general, 2 si el score de la señal
+fue ≥90%** (muy alineada). Aplica a las dos estrategias que sí tienen un score 0-100 real:
+- **Direccional**: se sobreescribe `sel.contracts` justo después de `selectStrategy()`, usando
+  `playbookResult.score` (ya calculado antes en el webhook).
+- **Alejamiento de SMA**: usa `scoreResult.score` de `calcReversionScore()`.
+
+**Iron Condor y Long Put Condor de débito quedan fijos en 1 contrato** — no tienen un score
+0-100 real (son una serie de gates booleanos: GEX, Fase 1/3, MACD aplanado, VIX, calendario
+económico, etc.), así que la regla de "2 si ≥90%" no tiene un número al que aplicarse todavía.
+Si se quiere una regla equivalente para el IC/débito, haría falta construir antes algún tipo de
+score agregado a partir de sus checks — no implementado, señalado explícitamente al usuario.
+Esto es temporal y reversible — para volver al sizing por % de capital, revertir estos 4
+puntos a la fórmula `Math.max(1, Math.floor(capital*pct/(width*100)))` que usaban antes.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`

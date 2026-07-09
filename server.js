@@ -2800,6 +2800,11 @@ app.post('/api/spx/webhook', async (req, res) => {
       return;
     }
 
+    // Tamaño por score, no por % de capital (2026-07-09, "mientras afinamos todo") —
+    // 1 contrato en general, 2 si el score del playbook fue >=90%.
+    sel.contracts = sizeContractsByScore(playbookResult.score);
+    sel.maxRisk   = sel.contracts * sel.spreadWidth * 100;
+
     // Parámetros de trading desde config
     const tradingCfg = spxConfig.trading || SPX_CONFIG_DEFAULTS.trading;
     const targetDelta = tradingCfg.targetDelta || 0.40;
@@ -3110,8 +3115,10 @@ async function checkIronCondor() {
       }
       strategyName = 'DEBIT_PUT_CONDOR';
       const maxRiskPerContract = strikes.debit * 100; // el riesgo maximo de un debito ya es el 100% de lo pagado
-      const maxRisk = capital * 0.02;
-      const contracts = Math.max(1, Math.floor(maxRisk / maxRiskPerContract));
+      // Fijo en 1 contrato (2026-07-09, "mientras afinamos todo") — el Iron Condor y
+      // el Condor de debito no tienen un score 0-100 real (son gates booleanos), asi
+      // que no aplica la regla de "2 si >=90%" que si usan direccional/reversion.
+      const contracts = 1;
       sel = {
         valid: true, strategy: strategyName, isCredit: false, expType: dte,
         window: dte === '0DTE' ? 'IC_FAVORABLE' : 'CIERRE_1DTE',
@@ -3135,8 +3142,9 @@ async function checkIronCondor() {
         return;
       }
       strategyName = 'IRON_CONDOR';
-      const maxRisk = capital * 0.02;
-      const contracts = Math.max(1, Math.floor(maxRisk / (gate.spreadWidth * 100)));
+      // Fijo en 1 contrato (2026-07-09, "mientras afinamos todo") — ver nota igual
+      // arriba en la rama de debito, no hay score numerico para aplicar la regla de 2.
+      const contracts = 1;
       sel = {
         valid: true, strategy: strategyName, isCredit: true, expType: dte,
         window: dte === '0DTE' ? 'IC_FAVORABLE' : 'CIERRE_1DTE',
@@ -3250,6 +3258,16 @@ setInterval(checkIronCondor, 5 * 60 * 1000);
 // aca para reusarlas tambien en la vista de solo-lectura del historial (ex.livePnl).
 // Devuelve null si faltan cotizaciones o la estrategia no se reconoce — nunca inventa
 // un numero.
+// Tamaño de posicion por score (2026-07-09, a pedido del usuario, "mientras afinamos
+// todo"): 1 contrato en general, 2 si la señal viene con score >=90% (muy alineada).
+// Reemplaza el sizing por % de capital en las estrategias que SI tienen un score 0-100
+// real (direccional, reversion) — Iron Condor y Condor de debito no tienen un score
+// numerico equivalente (son gates booleanos, pasa/no pasa), asi que se quedan fijas
+// en 1 contrato por ahora, sin la logica de 90%.
+function sizeContractsByScore(score) {
+  return (score != null && score >= 90) ? 2 : 1;
+}
+
 function calcLivePnl(ex, q) {
   try {
     const legs = ex.legs || {};
@@ -3747,11 +3765,9 @@ async function checkAlejamientoSMA() {
       return;
     }
 
-    // Sizing conservador: 1% de riesgo (vs 2% de las otras dos) por ser un
-    // scalp de alta frecuencia potencial — varias entradas por sesión posibles.
-    // `capital` ya se obtuvo arriba para el circuito de riesgo diario, se reusa aqui.
-    const maxRisk   = capital * 0.01;
-    const contracts = Math.max(1, Math.floor(maxRisk / (cfg.spreadWidth * 100)));
+    // Tamaño por score, no por % de capital (2026-07-09, "mientras afinamos todo") —
+    // 1 contrato en general, 2 si el score de la reversion fue >=90%.
+    const contracts = sizeContractsByScore(scoreResult.score);
 
     const entryBar = bars[bars.length - 1];
 
