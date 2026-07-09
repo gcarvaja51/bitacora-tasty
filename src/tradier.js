@@ -290,6 +290,75 @@ class TradierClient {
       raw:     data,
     };
   }
+
+  // Long Put Condor (4 patas, todas puts, DEBITO) — alternativa al Iron Condor cuando
+  // el IV Rank esta bajo (ver evaluateIronCondorGate/checkIronCondor). Compra las dos
+  // alas externas, vende las dos internas (el "cuerpo").
+  async placeDebitCondorOrder({ underlyingRoot, expiry, outerHighStrike, innerHighStrike, innerLowStrike, outerLowStrike, quantity }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const outerHighSym = this.buildOccSymbol(underlyingRoot, expiry, 'P', outerHighStrike);
+    const innerHighSym = this.buildOccSymbol(underlyingRoot, expiry, 'P', innerHighStrike);
+    const innerLowSym  = this.buildOccSymbol(underlyingRoot, expiry, 'P', innerLowStrike);
+    const outerLowSym  = this.buildOccSymbol(underlyingRoot, expiry, 'P', outerLowStrike);
+
+    const body = new URLSearchParams({
+      class:    'multileg',
+      symbol:   underlyingRoot,
+      type:     'market',
+      duration: 'day',
+      'option_symbol[0]': outerHighSym, 'side[0]': 'buy_to_open',  'quantity[0]': String(quantity),
+      'option_symbol[1]': innerHighSym, 'side[1]': 'sell_to_open', 'quantity[1]': String(quantity),
+      'option_symbol[2]': innerLowSym,  'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),
+      'option_symbol[3]': outerLowSym,  'side[3]': 'buy_to_open',  'quantity[3]': String(quantity),
+    });
+
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString(),
+    });
+
+    return {
+      orderId: data.order?.id ?? null,
+      status:  data.order?.status ?? 'unknown',
+      legs:    { outerHighSym, innerHighSym, innerLowSym, outerLowSym },
+      raw:     data,
+    };
+  }
+
+  // Cierra las 4 patas del Long Put Condor — inverso: vender las alas compradas,
+  // recomprar el cuerpo vendido.
+  async closeDebitCondorOrder({ underlyingRoot, expiry, outerHighStrike, innerHighStrike, innerLowStrike, outerLowStrike, quantity }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const outerHighSym = this.buildOccSymbol(underlyingRoot, expiry, 'P', outerHighStrike);
+    const innerHighSym = this.buildOccSymbol(underlyingRoot, expiry, 'P', innerHighStrike);
+    const innerLowSym  = this.buildOccSymbol(underlyingRoot, expiry, 'P', innerLowStrike);
+    const outerLowSym  = this.buildOccSymbol(underlyingRoot, expiry, 'P', outerLowStrike);
+
+    const body = new URLSearchParams({
+      class:    'multileg',
+      symbol:   underlyingRoot,
+      type:     'market',
+      duration: 'day',
+      'option_symbol[0]': outerHighSym, 'side[0]': 'sell_to_close', 'quantity[0]': String(quantity),
+      'option_symbol[1]': innerHighSym, 'side[1]': 'buy_to_close',  'quantity[1]': String(quantity),
+      'option_symbol[2]': innerLowSym,  'side[2]': 'buy_to_close',  'quantity[2]': String(quantity),
+      'option_symbol[3]': outerLowSym,  'side[3]': 'sell_to_close', 'quantity[3]': String(quantity),
+    });
+
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString(),
+    });
+
+    return {
+      orderId: data.order?.id ?? null,
+      status:  data.order?.status ?? 'unknown',
+      legs:    { outerHighSym, innerHighSym, innerLowSym, outerLowSym },
+      raw:     data,
+    };
+  }
 }
 
 module.exports = { TradierClient };

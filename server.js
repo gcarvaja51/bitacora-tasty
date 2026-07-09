@@ -2164,6 +2164,19 @@ const SPX_CONFIG_DEFAULTS = {
       slMult:      1.5,         // 1.5x o 2x el credito recibido
       gammaFlipBufferPts: 20,   // no operar si el precio esta a menos de esto del Gamma Flip
       tradierAutoExecute: true, // kill-switch propio del IC, separado del de las direccionales
+      minCreditoAnchoPct: 25,   // 2026-07-09, a pedido del usuario: credito/ancho minimo (no credito/riesgo,
+                                // distinto del gate de las direccionales) — "regla del tercio" del playbook
+                                // pide ~33%, el usuario eligio 25% como su propio piso
+      ivRankThreshold: 25,      // 2026-07-09: IV Rank por debajo de esto -> Condor de DEBITO (Long Put Condor,
+                                // Vega positiva) en vez de Iron Condor de credito — vender prima barata "es
+                                // operar sin ventaja" segun el playbook. IV Rank >= esto sigue siendo credito.
+      debitCondor: {
+        targetDelta: 0.12,      // delta de las patas internas (vendidas) — mismo criterio que el IC de credito
+        spreadWidth: 10,        // ancho ala externa (comprada) a interna (vendida), cada lado
+        bodyWidth:   10,        // separacion entre las dos patas internas vendidas (el "techo plano" de ganancia)
+        tpPct:       50,        // % del debito pagado — igual criterio que los debitos direccionales
+        slPct:       50,
+      },
     },
     // Alejamiento de SMA — reversion a la media (playbook Luis Silva, Sigma Trade).
     // Pipeline independiente, parametros propios (puede ajustarse tras el curso del
@@ -3028,7 +3041,7 @@ async function checkIronCondor() {
     // hoy, o ya hay un trade SPXW abierto/en curso en Tradier, no generar otra.
     const signals = loadSPXSignals();
     const yaExiste = signals.some(s =>
-      s.strategy === 'IRON_CONDOR' && s.expType === dte && (s.timestamp || '').slice(0, 10) === today
+      ['IRON_CONDOR', 'DEBIT_PUT_CONDOR'].includes(s.strategy) && s.expType === dte && (s.timestamp || '').slice(0, 10) === today
     );
     if (yaExiste) return;
 
@@ -3057,11 +3070,6 @@ async function checkIronCondor() {
 
     const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
     const chainData = await chainRes.json();
-    const strikes = findStrikesByDelta(chainData.expirations || [], 'IRON_CONDOR', ctx.spxPrice, dte, icCfg.targetDelta, gate.spreadWidth);
-    if (!strikes || !strikes.callShortStrike) {
-      console.log(`[SPX-IC ${dte}] ❌ No se encontraron strikes completos (put+call) con delta ${icCfg.targetDelta}`);
-      return;
-    }
 
     // Capital real de Tradier (donde se ejecuta) — antes usaba tradingCfg.capital,
     // un valor de config que nunca se configuro y caia en un default fijo de
@@ -3071,44 +3079,102 @@ async function checkIronCondor() {
       const balances = await tradier.getBalances();
       capital = parseFloat(balances?.total_equity || capital);
     } catch(e) {}
-    const maxRisk = capital * 0.02;
-    const contracts = Math.max(1, Math.floor(maxRisk / (gate.spreadWidth * 100)));
-    const sel = {
-      valid: true, strategy: 'IRON_CONDOR', isCredit: true, expType: dte,
-      window: dte === '0DTE' ? 'IC_FAVORABLE' : 'CIERRE_1DTE',
-      spreadWidth: gate.spreadWidth, contracts,
-      maxRisk: contracts * gate.spreadWidth * 100,
-      creditReason: `GEX positivo, ${dte === '0DTE' ? 'Fase 1/3 15m + MACD aplanado' : 'ventana overnight 3:50pm'}`,
-    };
 
-    const signal = buildSignalSummary('IRON_CONDOR', strikes, sel, {
+    // Credito vs debito segun IV Rank (2026-07-09, a pedido del usuario): con IV Rank
+    // bajo, vender prima "es operar sin ventaja" (playbook) — se cambia a Long Put
+    // Condor (debito, Vega positiva) en vez de forzar el Iron Condor de credito.
+    const ivRankThreshold = icCfg.ivRankThreshold ?? 25;
+    const useDebit = ctx.ivRank != null && ctx.ivRank < ivRankThreshold;
+
+    let strategyName, strikes, sel;
+
+    if (useDebit) {
+      const dCfg = icCfg.debitCondor || SPX_CONFIG_DEFAULTS.trading.ironCondor.debitCondor;
+      strikes = findStrikesByDelta(chainData.expirations || [], 'DEBIT_PUT_CONDOR', ctx.spxPrice, dte, dCfg.targetDelta, dCfg.spreadWidth, dCfg.bodyWidth);
+      if (!strikes || !strikes.outerLowStrike) {
+        console.log(`[SPX-IC ${dte}] ❌ No se encontraron strikes completos para el Long Put Condor (débito) con delta ${dCfg.targetDelta}`);
+        return;
+      }
+      if (!(strikes.debit > 0)) {
+        console.log(`[SPX-IC ${dte}] ❌ Long Put Condor sin débito neto positivo (${strikes.debit}) — construcción no válida en este momento, se descarta.`);
+        return;
+      }
+      strategyName = 'DEBIT_PUT_CONDOR';
+      const maxRiskPerContract = strikes.debit * 100; // el riesgo maximo de un debito ya es el 100% de lo pagado
+      const maxRisk = capital * 0.02;
+      const contracts = Math.max(1, Math.floor(maxRisk / maxRiskPerContract));
+      sel = {
+        valid: true, strategy: strategyName, isCredit: false, expType: dte,
+        window: dte === '0DTE' ? 'IC_FAVORABLE' : 'CIERRE_1DTE',
+        spreadWidth: dCfg.spreadWidth, contracts,
+        maxRisk: contracts * maxRiskPerContract,
+        creditReason: `IV Rank ${ctx.ivRank} < ${ivRankThreshold} — débito (Vega positiva) en vez de crédito`,
+      };
+    } else {
+      strikes = findStrikesByDelta(chainData.expirations || [], 'IRON_CONDOR', ctx.spxPrice, dte, icCfg.targetDelta, gate.spreadWidth);
+      if (!strikes || !strikes.callShortStrike) {
+        console.log(`[SPX-IC ${dte}] ❌ No se encontraron strikes completos (put+call) con delta ${icCfg.targetDelta}`);
+        return;
+      }
+      // Gate credito/ancho (2026-07-09, a pedido del usuario): distinto del gate
+      // credito/riesgo de las direccionales — este es directamente credito/ANCHO,
+      // "regla del tercio" del playbook (~33%), el usuario eligio 25% como su piso.
+      const minCreditoAnchoPct = icCfg.minCreditoAnchoPct ?? 25;
+      const creditoAnchoPct = gate.spreadWidth > 0 ? +(strikes.premium / gate.spreadWidth * 100).toFixed(1) : 0;
+      if (creditoAnchoPct < minCreditoAnchoPct) {
+        console.log(`[SPX-IC ${dte}] ❌ Crédito/Ancho ${creditoAnchoPct}% por debajo del mínimo ${minCreditoAnchoPct}% — prima insuficiente para el ancho de las alas.`);
+        return;
+      }
+      strategyName = 'IRON_CONDOR';
+      const maxRisk = capital * 0.02;
+      const contracts = Math.max(1, Math.floor(maxRisk / (gate.spreadWidth * 100)));
+      sel = {
+        valid: true, strategy: strategyName, isCredit: true, expType: dte,
+        window: dte === '0DTE' ? 'IC_FAVORABLE' : 'CIERRE_1DTE',
+        spreadWidth: gate.spreadWidth, contracts,
+        maxRisk: contracts * gate.spreadWidth * 100,
+        creditReason: `GEX positivo, ${dte === '0DTE' ? 'Fase 1/3 15m + MACD aplanado' : 'ventana overnight 3:50pm'}, crédito/ancho ${creditoAnchoPct}%`,
+      };
+    }
+
+    const contracts = sel.contracts;
+    const signal = buildSignalSummary(strategyName, strikes, sel, {
       direction: 'NEUTRAL',
       spxPrice: ctx.spxPrice, vix: ctx.vix, ivRank: ctx.ivRank,
       gammaRegime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall,
       gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain,
       technicalStop: null, technicalStopSource: null, etTime: ctx.etTime,
     });
-    signal.trading = { tpPct: icCfg.tpPct, slMult: icCfg.slMult, spreadWidth: gate.spreadWidth };
+    signal.trading = useDebit
+      ? { debitTpPct: (icCfg.debitCondor||{}).tpPct ?? 50, debitSlPct: (icCfg.debitCondor||{}).slPct ?? 50, spreadWidth: strikes && (strikes.outerHighStrike - strikes.innerHighStrike) }
+      : { tpPct: icCfg.tpPct, slMult: icCfg.slMult, spreadWidth: gate.spreadWidth };
     signal.strategyFamily = 'NEUTRAL';
     if (gate.note) signal.notes = gate.note;
 
     // ── Ejecución automática en Tradier (sandbox) — kill-switch propio del IC ──
     if (IS_PRODUCTION && icCfg.tradierAutoExecute !== false) {
       try {
-        const order = await tradier.placeIronCondorOrder({
-          underlyingRoot:   'SPXW',
-          expiry:           strikes.expiry,
-          putShortStrike:   strikes.shortStrike,
-          putLongStrike:    strikes.longStrike,
-          callShortStrike:  strikes.callShortStrike,
-          callLongStrike:   strikes.callLongStrike,
-          quantity:         contracts,
-        });
+        const order = useDebit
+          ? await tradier.placeDebitCondorOrder({
+              underlyingRoot: 'SPXW', expiry: strikes.expiry,
+              outerHighStrike: strikes.outerHighStrike, innerHighStrike: strikes.innerHighStrike,
+              innerLowStrike: strikes.innerLowStrike, outerLowStrike: strikes.outerLowStrike,
+              quantity: contracts,
+            })
+          : await tradier.placeIronCondorOrder({
+              underlyingRoot:   'SPXW',
+              expiry:           strikes.expiry,
+              putShortStrike:   strikes.shortStrike,
+              putLongStrike:    strikes.longStrike,
+              callShortStrike:  strikes.callShortStrike,
+              callLongStrike:   strikes.callLongStrike,
+              quantity:         contracts,
+            });
         signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
         signal.status   = 'EXECUTED';
         signal.notes    = (signal.notes ? signal.notes + ' | ' : '') + 'Auto-ejecutado en Tradier sandbox';
         signal.actionAt = new Date().toISOString();
-        console.log(`[Tradier-IC] ✅ Orden enviada: ${order.orderId} (${order.status})`);
+        console.log(`[Tradier-IC] ✅ Orden enviada (${strategyName}): ${order.orderId} (${order.status})`);
 
         await withExecutionsLock(() => {
           const executions = loadTradierExecutions();
@@ -3116,8 +3182,9 @@ async function checkIronCondor() {
             id:            `tex-${Date.now()}`,
             signalId:      signal.id,
             timestamp:     signal.timestamp,
-            strategy:      'IRON_CONDOR',
+            strategy:      strategyName,
             strategyFamily: 'NEUTRAL',
+            isCredit:      !useDebit,
             expType:       dte,
             strikes:       signal.strikes,
             expiry:        strikes.expiry,
@@ -3129,6 +3196,8 @@ async function checkIronCondor() {
             creditReceived: null,
             tpPct:         icCfg.tpPct,
             slMult:        icCfg.slMult,
+            debitTpPct:    (icCfg.debitCondor||{}).tpPct ?? 50,
+            debitSlPct:    (icCfg.debitCondor||{}).slPct ?? 50,
             filledAt:      null,
             closedAt:      null,
             closeReason:   null,
@@ -3145,7 +3214,11 @@ async function checkIronCondor() {
 
     signals.unshift(signal);
     saveSPXSignals(signals.slice(0, 50));
-    console.log(`[SPX-IC ${dte}] ✅ Señal generada: put ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} — call ${signal.strikes?.callShortStrike}/${signal.strikes?.callLongStrike}`);
+    if (useDebit) {
+      console.log(`[SPX-IC ${dte}] ✅ Señal generada (Long Put Condor, débito): ${signal.strikes?.outerLowStrike}/${signal.strikes?.innerLowStrike}/${signal.strikes?.innerHighStrike}/${signal.strikes?.outerHighStrike}`);
+    } else {
+      console.log(`[SPX-IC ${dte}] ✅ Señal generada: put ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} — call ${signal.strikes?.callShortStrike}/${signal.strikes?.callLongStrike}`);
+    }
   } catch(e) {
     console.error('[SPX-IC] Error:', e.message);
   }
@@ -3197,13 +3270,15 @@ async function checkIronCondorTPSL() {
 async function checkIronCondorTPSLImpl() {
   try {
     const executions = loadTradierExecutions();
-    const abiertas = executions.filter(e => e.strategy === 'IRON_CONDOR' && (e.status === 'submitted' || e.status === 'filled'));
+    const abiertas = executions.filter(e => ['IRON_CONDOR', 'DEBIT_PUT_CONDOR'].includes(e.strategy) && (e.status === 'submitted' || e.status === 'filled'));
     if (!abiertas.length) return;
 
     let cambios = false;
     for (const ex of abiertas) {
+      const esDebito = ex.strategy === 'DEBIT_PUT_CONDOR';
+
       // 1. Confirmar fill si aun no se confirmo — esperar al siguiente ciclo para
-      // evaluar TP/SL una vez que sepamos el credito real recibido.
+      // evaluar TP/SL una vez que sepamos el credito/debito real.
       if (ex.status === 'submitted') {
         const order = await tradier.getOrder(ex.orderId);
         if (order) {
@@ -3214,7 +3289,7 @@ async function checkIronCondorTPSLImpl() {
             ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
             ex.filledAt = new Date().toISOString();
             cambios = true;
-            console.log(`[Tradier-IC-TPSL] Orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
+            console.log(`[Tradier-IC-TPSL] Orden ${ex.orderId} llenada — ${esDebito ? 'débito pagado' : 'crédito recibido'}: $${ex.creditReceived}`);
           } else if (fillCheck.parcial) {
             console.error(`[Tradier-IC-TPSL] 🚨 Fill parcial/desbalanceado en orden ${ex.orderId}.`);
             if (IS_PRODUCTION) {
@@ -3235,30 +3310,44 @@ async function checkIronCondorTPSLImpl() {
 
       if (ex.creditReceived == null) continue;
 
-      const legSymbols = [ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym].filter(Boolean);
+      const legSymbols = esDebito
+        ? [ex.legs?.outerHighSym, ex.legs?.innerHighSym, ex.legs?.innerLowSym, ex.legs?.outerLowSym].filter(Boolean)
+        : [ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym].filter(Boolean);
       if (legSymbols.length < 4) continue;
 
       const quotes = await tradier.getQuotes(legSymbols);
       const q = {};
       quotes.forEach(x => { q[x.symbol] = x.mark; });
-      if (q[ex.legs.putShortSym] == null || q[ex.legs.putLongSym] == null || q[ex.legs.callShortSym] == null || q[ex.legs.callLongSym] == null) {
+      if (legSymbols.some(s => q[s] == null)) {
         console.warn(`[Tradier-IC-TPSL] Cotizaciones incompletas para ${ex.orderId}, se salta este ciclo.`);
         continue;
       }
 
-      // Costo de cerrar ahora = recomprar las cortas + vender las largas
-      const costoDeCerrar = (q[ex.legs.putShortSym] - q[ex.legs.putLongSym]) + (q[ex.legs.callShortSym] - q[ex.legs.callLongSym]);
-      const pnlActual = ex.creditReceived - costoDeCerrar;
-      const tpUmbral    = ex.creditReceived * ((ex.tpPct || 25) / 100);
-      // El multiplicador de SL aplica al COSTO DE CERRAR (bruto), no al P&L neto —
-      // a 1.5x credito=$200 el costo de cerrar llega a $300, perdida neta real=200-300=-$100
-      // (-0.5x), NO -$300 (-1.5x) como se calculaba antes (bug: comparaba el neto contra
-      // -slMult directo, esperando que el neto cayera 1.5x en vez de que el costo SUBIERA 1.5x).
-      const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
+      let pnlActual, cerrarPor = null;
 
-      let cerrarPor = null;
-      if (pnlActual >= tpUmbral) cerrarPor = 'TP';
-      else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
+      if (esDebito) {
+        // Valor actual = alas compradas (outerHigh+outerLow) - cuerpo vendido (innerHigh+innerLow) —
+        // mismo par que la construccion de entrada, restado igual. Riesgo maximo ya es
+        // 100% del debito pagado, por eso TP/SL en % de la prima, no un multiplicador.
+        const valorActual = (q[ex.legs.outerHighSym] + q[ex.legs.outerLowSym]) - (q[ex.legs.innerHighSym] + q[ex.legs.innerLowSym]);
+        pnlActual = valorActual - ex.creditReceived;
+        const tpUmbral = ex.creditReceived * ((ex.debitTpPct ?? 50) / 100);
+        const slUmbral = ex.creditReceived * ((ex.debitSlPct ?? 50) / 100);
+        if (pnlActual >= tpUmbral) cerrarPor = 'TP';
+        else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
+      } else {
+        // Costo de cerrar ahora = recomprar las cortas + vender las largas
+        const costoDeCerrar = (q[ex.legs.putShortSym] - q[ex.legs.putLongSym]) + (q[ex.legs.callShortSym] - q[ex.legs.callLongSym]);
+        pnlActual = ex.creditReceived - costoDeCerrar;
+        const tpUmbral    = ex.creditReceived * ((ex.tpPct || 25) / 100);
+        // El multiplicador de SL aplica al COSTO DE CERRAR (bruto), no al P&L neto —
+        // a 1.5x credito=$200 el costo de cerrar llega a $300, perdida neta real=200-300=-$100
+        // (-0.5x), NO -$300 (-1.5x) como se calculaba antes (bug: comparaba el neto contra
+        // -slMult directo, esperando que el neto cayera 1.5x en vez de que el costo SUBIERA 1.5x).
+        const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
+        if (pnlActual >= tpUmbral) cerrarPor = 'TP';
+        else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
+      }
       if (!cerrarPor) continue;
 
       if (!IS_PRODUCTION) {
@@ -3267,12 +3356,21 @@ async function checkIronCondorTPSLImpl() {
       }
 
       try {
-        await tradier.closeIronCondorOrder({
-          underlyingRoot:  'SPXW', expiry: ex.expiry,
-          putShortStrike:  ex.strikes.shortStrike,     putLongStrike:  ex.strikes.longStrike,
-          callShortStrike: ex.strikes.callShortStrike, callLongStrike: ex.strikes.callLongStrike,
-          quantity:        ex.contracts,
-        });
+        if (esDebito) {
+          await tradier.closeDebitCondorOrder({
+            underlyingRoot: 'SPXW', expiry: ex.expiry,
+            outerHighStrike: ex.strikes.outerHighStrike, innerHighStrike: ex.strikes.innerHighStrike,
+            innerLowStrike:  ex.strikes.innerLowStrike,  outerLowStrike:  ex.strikes.outerLowStrike,
+            quantity: ex.contracts,
+          });
+        } else {
+          await tradier.closeIronCondorOrder({
+            underlyingRoot:  'SPXW', expiry: ex.expiry,
+            putShortStrike:  ex.strikes.shortStrike,     putLongStrike:  ex.strikes.longStrike,
+            callShortStrike: ex.strikes.callShortStrike, callLongStrike: ex.strikes.callLongStrike,
+            quantity:        ex.contracts,
+          });
+        }
         ex.status      = 'closed';
         ex.closedAt    = new Date().toISOString();
         ex.pnl         = +(pnlActual * 100 * ex.contracts).toFixed(2);
@@ -4177,6 +4275,7 @@ async function checkTradierExecutionsImpl() {
       const legSymbols = [
         ex.legs?.shortSym, ex.legs?.longSym,
         ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym,
+        ex.legs?.outerHighSym, ex.legs?.innerHighSym, ex.legs?.innerLowSym, ex.legs?.outerLowSym,
       ].filter(Boolean);
       const sigueAbierta = legSymbols.some(s => symbolsAbiertos.has(s));
 

@@ -355,7 +355,7 @@ function selectStrategy(context) {
 // targetDelta/spreadWidth: el llamador (server.js) ya los pasaba, pero esta funcion
 // los ignoraba y usaba 0.10-0.14/20pts fijos — bug real que hacia que la config de
 // produccion (delta, ancho) no se aplicara nunca a las señales en vivo.
-function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelta = 0.12, spreadWidth = 20) {
+function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelta = 0.12, spreadWidth = 20, bodyWidth = null) {
   // Seleccionar expiración — para 1DTE, el "dia siguiente" debe saltar fin de
   // semana (viernes -> lunes, no sabado, que no existe como expiracion).
   const today = new Date().toISOString().slice(0, 10);
@@ -415,6 +415,45 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelt
     }
 
     return result;
+  }
+
+  if (strategy === 'DEBIT_PUT_CONDOR') {
+    // Long Put Condor (4 patas, todas puts, DEBITO) — alternativa al Iron Condor de
+    // credito cuando el IV Rank esta bajo (2026-07-09, playbook: vender prima barata
+    // "es operar sin ventaja", esta estructura tiene Vega positiva en vez de negativa).
+    // Construccion: innerHigh (vendida, cerca del precio) e innerLow (vendida, mas OTM)
+    // definen el "techo plano" de ganancia; outerHigh/outerLow (compradas) son las alas
+    // de proteccion. De mayor a menor strike: outerHigh > innerHigh > innerLow > outerLow.
+    const bodyW = bodyWidth ?? spreadWidth; // si no se pasa por separado, reusa el ancho del ala
+    const innerHigh = strikes
+      .filter(s => {
+        const d = Math.abs(s.put?.delta || 0);
+        return d >= TARGET_DELTA_MIN && d <= TARGET_DELTA_MAX;
+      })
+      .sort((a, b) => Math.abs(Math.abs(a.put?.delta||0) - targetDelta) - Math.abs(Math.abs(b.put?.delta||0) - targetDelta))[0];
+
+    if (!innerHigh) return null;
+
+    const innerHighStrike = innerHigh.strike;
+    const outerHighStrike = innerHighStrike + spreadWidth;
+    const innerLowStrike  = innerHighStrike - bodyW;
+    const outerLowStrike  = innerLowStrike - spreadWidth;
+
+    const markAt = k => strikes.find(s => s.strike === k)?.put?.mark || 0;
+    const outerHighMark = markAt(outerHighStrike);
+    const innerLowMark  = markAt(innerLowStrike);
+    const outerLowMark  = markAt(outerLowStrike);
+    const innerHighMark = innerHigh.put?.mark || 0;
+
+    // Debito neto = lo que se paga por las alas menos lo que se recibe por el cuerpo
+    const debit = (outerHighMark + outerLowMark) - (innerHighMark + innerLowMark);
+
+    return {
+      expiry: exp.expiry || targetDate,
+      outerHighStrike, innerHighStrike, innerLowStrike, outerLowStrike,
+      innerHighDelta: +(Math.abs(innerHigh.put?.delta || 0)).toFixed(3),
+      debit: +debit.toFixed(2),
+    };
   }
 
   if (strategy === 'BEAR_CALL_SPREAD') {

@@ -599,6 +599,35 @@ la que le corresponde a esta. Si no hay suficientes entradas distintas disponibl
 `pnlSource: 'pendiente_verificar'` en vez de inventar un número. El registro real del 2026-07-09
 ya corregido a mano vía `POST /api/tradier/executions/:id/patch` (de $340 a $100).
 
+**Feature 2026-07-09 — Long Put Condor (débito) como alternativa al Iron Condor con IV Rank
+bajo:** a pedido del usuario, basado en el playbook (vender prima con IV Rank bajo "es operar
+sin ventaja" — primas comprimidas obligan a pegar las alas al precio; la alternativa de
+débito tiene Vega positiva, se beneficia si la volatilidad se expande en vez de perder valor).
+- **Decisión (`checkIronCondor`, server.js)**: `useDebit = ctx.ivRank < icCfg.ivRankThreshold`
+  (default **25**, elegido por el usuario — coincide con el piso "25-30" que cita el playbook).
+  IV Rank ≥ 25 sigue siendo Iron Condor de crédito de siempre.
+- **Por qué Puts y no Calls** (decisión del usuario): el skew hace que los puts paguen mejor
+  prima — para un débito eso significa pagar menos neto por las alas.
+- **Construcción** (`findStrikesByDelta('DEBIT_PUT_CONDOR', ...)`, `src/spx.js`): 4 patas,
+  todas puts, de mayor a menor strike: `outerHighStrike` (comprada, cerca del precio) >
+  `innerHighStrike` (vendida, por delta) > `innerLowStrike` (vendida, `innerHigh - bodyWidth`)
+  > `outerLowStrike` (comprada, `innerLow - spreadWidth`). Débito neto = alas compradas menos
+  cuerpo vendido — **validado con datos reales** (SPX 1DTE, débito +$0.30, orden de strikes
+  correcto) antes de conectarlo. Nota: 0DTE muy cerca del cierre tiene la curva de delta casi
+  vertical y puede no encontrar ningún strike en el rango objetivo — es esperado, no es bug.
+- **Órdenes nuevas en `tradier.js`**: `placeDebitCondorOrder`/`closeDebitCondorOrder` — compra
+  las 2 alas externas, vende las 2 internas (y al revés para cerrar).
+- **TP/SL** (`checkIronCondorTPSLImpl`, ahora bifurca por `ex.strategy === 'DEBIT_PUT_CONDOR'`):
+  igual patrón que los débitos direccionales — % de la prima pagada (`debitCondor.tpPct/slPct`,
+  default 50/50), no un multiplicador (el riesgo máximo ya es el 100% del débito).
+- **Gate de crédito/ancho para el Iron Condor de crédito** (`minCreditoAnchoPct`, default
+  **25**, elegido por el usuario): distinto del gate de crédito/**riesgo** de las direccionales
+  — este es crédito/**ANCHO** directo, la "regla del tercio" del playbook pide ~33%, el usuario
+  eligió 25% como su propio piso. Si el crédito real no alcanza ese %, la señal se descarta
+  antes de armar la orden (no llega a Tradier).
+- Ambas variantes comparten `strategyFamily: 'NEUTRAL'` y el mismo dedup/exclusividad de
+  posición — no pueden dispararse las dos el mismo día para el mismo `dte`.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`
