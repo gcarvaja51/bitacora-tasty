@@ -740,8 +740,8 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   border-bottom: 1px solid rgba(31,36,51,.5);
 }
 .stat-row:last-child { border-bottom: none; padding-bottom: 0; }
-.stat-lbl { font-size: 12px; color: var(--text); }
-.stat-val { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.stat-lbl { font-size: 12px; color: var(--text); min-width: 0; overflow-wrap: break-word; }
+.stat-val { font-family: var(--mono); font-size: 12px; font-weight: 600; flex-shrink: 0; margin-left: 8px; }
 
 /* ══ WIN RATE GAUGE (simple) ════════════ */
 .gauge-wrap { display: flex; align-items: center; justify-content: center; padding: 16px 0; }
@@ -5412,7 +5412,8 @@ function renderTradierDemo(execs, account) {
         <div class="stat-row"><span class="stat-lbl">Trades</span><span class="stat-val">${execsFam.length}</span></div>
         <div class="stat-row"><span class="stat-lbl">Cerrados</span><span class="stat-val">${closedFam.length}</span></div>
         <div class="stat-row"><span class="stat-lbl">Win Rate</span><span class="stat-val ${wrFam!=null && wrFam>=55?'pos':'dim'}">${wrFam!=null?wrFam+'%':'—'}</span></div>
-        <div class="stat-row"><span class="stat-lbl">Ganadoras/Perdedoras</span><span class="stat-val">${winsFam.length}/${lossesFam.length}</span></div>
+        <div class="stat-row"><span class="stat-lbl">Ganadoras</span><span class="stat-val pos">${winsFam.length}</span></div>
+        <div class="stat-row"><span class="stat-lbl">Perdedoras</span><span class="stat-val neg">${lossesFam.length}</span></div>
         <div class="stat-row"><span class="stat-lbl">P&amp;L Total</span><span class="stat-val ${cc(pnlTotalFam)}">${f$(pnlTotalFam)}</span></div>
       </div>
     </div>`;
