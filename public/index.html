@@ -5344,10 +5344,15 @@ async function loadTradierDemo() {
 
 function renderTradierDemo(execs, account) {
   const total   = execs.length;
-  const closed  = execs.filter(e => e.status === 'closed' && typeof e.pnl === 'number');
-  const wins    = closed.filter(e => e.pnl > 0);
-  const losers  = closed.filter(e => e.pnl <= 0);
-  const winRate = closed.length ? +((wins.length / closed.length) * 100).toFixed(1) : 0;
+  // "Cerrado" es por status, no por si ya se conoce el pnl — un trade recien cerrado
+  // puede tener pnl:null unos minutos mientras Tradier asienta el gain_loss
+  // (pnlSource:'pendiente_verificar'); antes esto lo contaba como "en curso" aunque
+  // ya estuviera cerrado, inflando ese contador y desinflando "cerradas".
+  const closed        = execs.filter(e => e.status === 'closed');
+  const closedConPnl  = closed.filter(e => typeof e.pnl === 'number');
+  const wins    = closedConPnl.filter(e => e.pnl > 0);
+  const losers  = closedConPnl.filter(e => e.pnl <= 0);
+  const winRate = closedConPnl.length ? +((wins.length / closedConPnl.length) * 100).toFixed(1) : 0;
   const avgWin  = wins.length ? wins.reduce((s,e)=>s+e.pnl,0)/wins.length : 0;
   const avgLoss = losers.length ? losers.reduce((s,e)=>s+e.pnl,0)/losers.length : 0;
 
