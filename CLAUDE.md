@@ -400,6 +400,26 @@ Silva) — 5 cambios concretos:**
    default 3.5%, regla de Luis: 3-4% o 2 consecutivas, lo que llegue primero). Migración
    no-destructiva de `spx_config.json` igual que las anteriores.
 
+**Ajuste 2026-07-08/09 — repesaje y minScore subido a 80:** a pedido explícito del usuario
+("el alejamiento debe ser un 50% de la estrategia, es lo más importante"), los pesos de
+`calcReversionScore` se repesaron: `alejamiento_sma8` 35→**50**, `patron_confirmacion` 25→**20**,
+`rsi` 15→**10**, `fase_weinstein` 15→**10**, `regimen_gex` 10→10 (sin cambio). Suma sigue en 100.
+`minScore` también subió de 70 a **80**, alineado al mínimo del direccional. Análisis
+combinatorio (64 combinaciones de checks) confirmó que con 80% el patrón de confirmación
+(García/Tiburón/Vela 9) se vuelve obligatorio en la práctica — sin él el máximo posible es 75,
+nunca alcanza el mínimo — y que con alejamiento en banda "ruido" (<0.10%) nunca se dispara.
+**Pendiente de decidir, no implementado todavía:** agregar confirmación de 5m (marco medio,
+"estructura" en el lenguaje de Luis) al check `fase_weinstein`, que hoy solo valida 15m —
+la "regla de oro" de Luis exige que 15m+5m+2m cuenten la misma historia, hoy solo se valida
+15m+2m (2m indirectamente, vía la dirección ya determinada por precio vs SMA8).
+
+**Nota de verificación 2026-07-08:** se revisó y confirmó que la dirección del check
+`fase_weinstein` (exigir que la fase 15m *coincida* con la dirección de la reversión — Fase 2
+para reversión alcista, Fase 4 para bajista — no que se *oponga*) es correcta según el material
+de Luis Silva ("comprar el descanso... dentro del compás alcista", "sin tensión direccional [a
+favor] el estiramiento pierde ventaja estadística") — no cambiar esto a un esquema de oposición
+sin releer ese contexto primero.
+
 **Pendiente, a propósito diferido:** el stop dinámico según tasa de acierto real que enseña
 Luis (`stop_máximo = objetivo / (1/WR - 1)` — con 70% WR el múltiplo de equilibrio es ~2.3x el
 objetivo, con 80% sube a 4x, con 90% a 9x) no se implementó — requiere un win rate *medido*

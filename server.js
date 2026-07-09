@@ -2170,13 +2170,13 @@ const SPX_CONFIG_DEFAULTS = {
     // usuario con Luis Silva, por eso todo vive en config y no hardcodeado).
     smaReversion: {
       weights: {
-        alejamiento_sma8:    35, // % de estiramiento del precio respecto a la SMA8
-        patron_confirmacion: 25, // Vela Garcia / Vela Tiburon / Vela 9 Secuencial
-        rsi:                 15, // sobrecompra/sobreventa
-        fase_weinstein:      15, // Fase 15m a favor de la reversion (2 compras, 4 ventas)
-        regimen_gex:         10, // GEX Positivo
+        alejamiento_sma8:    50, // subido de 35 a 50 (2026-07-08) — "es lo mas importante", a pedido del usuario
+        patron_confirmacion: 20, // Vela Garcia / Vela Tiburon / Vela 9 Secuencial
+        rsi:                 10, // sobrecompra/sobreventa
+        fase_weinstein:      10, // Fase 15m a favor de la reversion (2 compras, 4 ventas)
+        regimen_gex:         10, // GEX Positivo + Muro de Gamma
       },
-      minScore:    70,   // piso de "Trade Valido" del propio material de Luis Silva
+      minScore:    80,   // subido de 70 a 80 (2026-07-08) a pedido del usuario, alineado al minScore del direccional
       targetDelta: 0.30,
       spreadWidth: 5,    // credit spread mas angosto, acorde al hold corto (2-10 min)
       maxCandlesTimeStop: 5,  // tope duro: 5 velas de 2m (10 min) sin excepcion
