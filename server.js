@@ -2180,7 +2180,9 @@ const SPX_CONFIG_DEFAULTS = {
       targetDelta: 0.30,
       spreadWidth: 5,    // credit spread mas angosto, acorde al hold corto (2-10 min)
       maxCandlesTimeStop: 5,  // tope duro: 5 velas de 2m (10 min) sin excepcion
-      maxStopsPerDay:     2,  // circuito: 2 stops (SL o agotamiento) y no se opera mas hoy
+      maxStopsPerDay:     2,  // circuito: 2 PERDIDAS CONSECUTIVAS (no total) y no se opera mas hoy
+      maxDailyDrawdownPct: 3.5, // o -3.5% del capital en el dia, lo que llegue primero (regla Luis: 3-4%)
+      wallProximityPts:   15,  // "cerca" de un muro de gamma para la confluencia del score
       tradierAutoExecute: true, // kill-switch propio, independiente de IC y direccionales
     },
   }
@@ -2207,6 +2209,14 @@ function loadSPXConfig() {
     if (saved?.trading && saved.trading.smaReversion === undefined) {
       console.log('[SPX] Sumando config de Alejamiento de SMA (no existia)');
       saved.trading.smaReversion = SPX_CONFIG_DEFAULTS.trading.smaReversion;
+      saveSPXConfig(saved);
+    }
+    // Suma parametros de riesgo diario (consecutivas + drawdown %) y proximidad de
+    // muro a un smaReversion ya guardado que no los tenga (ajuste post-curso Luis Silva).
+    if (saved?.trading?.smaReversion && saved.trading.smaReversion.maxDailyDrawdownPct === undefined) {
+      console.log('[SPX] Sumando maxDailyDrawdownPct/wallProximityPts a smaReversion (no existían)');
+      saved.trading.smaReversion.maxDailyDrawdownPct = SPX_CONFIG_DEFAULTS.trading.smaReversion.maxDailyDrawdownPct;
+      saved.trading.smaReversion.wallProximityPts = SPX_CONFIG_DEFAULTS.trading.smaReversion.wallProximityPts;
       saveSPXConfig(saved);
     }
     // Suma los parametros de debito (Bull Call/Bear Put) si no existen todavia.
@@ -3364,13 +3374,36 @@ async function checkAlejamientoSMA() {
     const today = new Date().toISOString().slice(0, 10);
     const executions = loadTradierExecutions();
 
-    // Circuito diario: 2 stops (SL o agotamiento) y no se genera mas nada hoy
-    const stopsHoy = executions.filter(e =>
-      e.strategyFamily === 'REVERSION' &&
-      ['SL', 'TIME_STOP'].includes(e.closeReason) &&
-      (e.closedAt || '').slice(0, 10) === today
-    ).length;
-    if (stopsHoy >= (cfg.maxStopsPerDay || 2)) return;
+    // Circuito diario (regla de Luis Silva): 2 PERDIDAS CONSECUTIVAS o un drawdown
+    // diario de 3-4% de la cuenta, lo que llegue primero — no un simple conteo total
+    // de stops (una ganadora en el medio resetea el contador de consecutivas).
+    const reversionesHoy = executions
+      .filter(e => e.strategyFamily === 'REVERSION' && (e.closedAt || '').slice(0, 10) === today)
+      .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
+
+    let perdidasConsecutivas = 0;
+    for (let i = reversionesHoy.length - 1; i >= 0; i--) {
+      if (reversionesHoy[i].closeReason === 'TP') break;
+      perdidasConsecutivas++;
+    }
+    if (perdidasConsecutivas >= (cfg.maxStopsPerDay || 2)) {
+      console.log(`[SPX-REV] ❌ Circuito diario: ${perdidasConsecutivas} pérdidas consecutivas hoy`);
+      return;
+    }
+
+    let capital = 10000;
+    try {
+      const balances = await tradier.getBalances();
+      capital = parseFloat(balances?.total_equity || capital);
+    } catch(e) {}
+
+    const pnlHoy = reversionesHoy.reduce((sum, e) => sum + (e.pnl || 0), 0);
+    const drawdownPct = capital > 0 ? (pnlHoy / capital) * 100 : 0;
+    const maxDrawdown = cfg.maxDailyDrawdownPct ?? 3.5;
+    if (drawdownPct <= -maxDrawdown) {
+      console.log(`[SPX-REV] ❌ Circuito diario: drawdown ${drawdownPct.toFixed(2)}% (límite -${maxDrawdown}%)`);
+      return;
+    }
 
     // Exclusividad propia — no comparte hasOpenPosition('SPXW') con las otras dos
     const yaHayReversionAbierta = executions.some(e =>
@@ -3379,6 +3412,15 @@ async function checkAlejamientoSMA() {
     if (yaHayReversionAbierta) return;
 
     const ctx = await buildSPXContext();
+
+    // Gate duro (no ponderado): fuera de GEX positivo la reversión "pierde su hábitat"
+    // (dealers amplifican en vez de estabilizar) — no debe poder compensarse con el
+    // resto del score como pasaba cuando regimen_gex era solo el 10% del puntaje.
+    if (ctx.gex?.regime !== 'POSITIVO') {
+      console.log(`[SPX-REV] ❌ GEX ${ctx.gex?.regime || 'desconocido'} — reversión requiere gamma positivo (gate duro)`);
+      return;
+    }
+
     const bars = ctx.indicators?.m2?.bars || [];
     if (bars.length < 25) return;
 
@@ -3398,6 +3440,10 @@ async function checkAlejamientoSMA() {
       direction, ext8, patronReversion, rsi,
       m15: ctx.indicators?.m15 || {},
       gammaRegime: ctx.gex?.regime,
+      spxPrice: ctx.spxPrice,
+      callWall: ctx.gex?.callWall,
+      putWall: ctx.gex?.putWall,
+      wallProximityPts: cfg.wallProximityPts,
     }, cfg);
 
     if (!scoreResult.passed) {
@@ -3416,11 +3462,7 @@ async function checkAlejamientoSMA() {
 
     // Sizing conservador: 1% de riesgo (vs 2% de las otras dos) por ser un
     // scalp de alta frecuencia potencial — varias entradas por sesión posibles.
-    let capital = 10000;
-    try {
-      const balances = await tradier.getBalances();
-      capital = parseFloat(balances?.total_equity || capital);
-    } catch(e) {}
+    // `capital` ya se obtuvo arriba para el circuito de riesgo diario, se reusa aqui.
     const maxRisk   = capital * 0.01;
     const contracts = Math.max(1, Math.floor(maxRisk / (cfg.spreadWidth * 100)));
 

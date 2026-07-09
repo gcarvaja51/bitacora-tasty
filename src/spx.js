@@ -176,10 +176,14 @@ function classifyWindow(etMins) {
 // IC_FAVORABLE, IMPULSO, parte de GENERAL) que ya usan el Iron Condor y el
 // direccional — tocar classifyWindow para agregar este bucket rompería esa
 // lógica compartida en vez de sumar una ventana nueva.
+// Ventana 9:45am-12pm ET — la "Ventana Prime" del playbook de Luis Silva es
+// 10-11:30am (compas mas limpio, mayor fiabilidad de reversion); 12pm-3pm es
+// "la siesta institucional" (sin compas claro, evitar) por lo que se excluye
+// del gate aunque el resto del sistema (IC, direccionales) siga operando ahi.
 function evaluateReversionGate(etHour, etMin) {
   const etMins = etHour * 60 + etMin;
-  if (etMins < 9 * 60 + 45 || etMins >= 14 * 60) {
-    return { valid: false, reason: `Alejamiento de SMA solo opera 9:45am-2pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+  if (etMins < 9 * 60 + 45 || etMins >= 12 * 60) {
+    return { valid: false, reason: `Alejamiento de SMA solo opera 9:45am-12pm ET, fuera de la siesta institucional (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
   }
   return { valid: true };
 }

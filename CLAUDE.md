@@ -377,6 +377,36 @@ específico (semana del 2026-07-08, miércoles a viernes) — es esperable que l
 o incluso la lógica de los patrones cambien poco después de este rework. Todo vive en
 `spxConfig.trading.smaReversion` (config, no hardcodeado) para poder iterar rápido.
 
+**Ajuste 2026-07-08 (mismo día, tras transcribir y revisar 2h de clase conceptual de Luis
+Silva) — 5 cambios concretos:**
+1. **Ventana horaria recortada** (`evaluateReversionGate`, `src/spx.js`): de 9:45am-2pm a
+   9:45am-**12pm** ET. El tramo 12pm-3pm es "la siesta institucional" (sin compás claro) según
+   el propio Luis — antes el gate lo incluía por completo.
+2. **Bandas graduadas de alejamiento** (`calcReversionScore`, check `alejamiento_sma8`): el
+   corte único (`MIN_EXT≈0.15%`) se reemplazó por 4 bandas con puntaje parcial — <0.10% ruido
+   (0%), 0.10-0.20% interés (60%), 0.20-0.35% tensión alta (85%), >0.35% extremo (100%).
+3. **Confluencia con Muro de Gamma** (check `regimen_gex`, ahora también lee `callWall`/
+   `putWall`/`spxPrice` desde `ctx.gex`): el "setup dorado" de Luis es estiramiento extremo +
+   GEX positivo + precio cerca del muro que frena el movimiento contrario (put wall para
+   reversión alcista, call wall para bajista) — antes el check solo miraba el signo del GEX.
+   Umbral de "cerca" configurable en `wallProximityPts` (default 15pts).
+4. **GEX positivo ahora es gate duro**, no solo el 10% del score (`checkAlejamientoSMA`,
+   server.js) — antes una señal podía llegar a 70/100 con GEX negativo compensando con el
+   resto de los checks; Luis es explícito en que fuera de gamma positivo la reversión "pierde
+   su hábitat" (los dealers amplifican en vez de estabilizar), no es un factor más a ponderar.
+5. **Circuito diario reescrito**: antes contaba stops totales del día
+   (`maxStopsPerDay`); ahora cuenta **pérdidas consecutivas** (una ganadora en el medio
+   resetea el contador) y agrega un tope de **drawdown diario** (`maxDailyDrawdownPct`,
+   default 3.5%, regla de Luis: 3-4% o 2 consecutivas, lo que llegue primero). Migración
+   no-destructiva de `spx_config.json` igual que las anteriores.
+
+**Pendiente, a propósito diferido:** el stop dinámico según tasa de acierto real que enseña
+Luis (`stop_máximo = objetivo / (1/WR - 1)` — con 70% WR el múltiplo de equilibrio es ~2.3x el
+objetivo, con 80% sube a 4x, con 90% a 9x) no se implementó — requiere un win rate *medido*
+sobre trades reales en vivo, y todavía no hay historial de demo suficiente para calibrarlo sin
+adivinar. El stop actual sigue siendo por precio (ruptura de la vela de entrada). Revisar esto
+una vez haya suficientes trades de Alejamiento de SMA en demo para medir el win rate real.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`

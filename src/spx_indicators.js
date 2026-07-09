@@ -326,21 +326,31 @@ function calcReversionScore(indicators, config) {
 
   const dir = indicators.direction; // BULLISH | BEARISH
 
-  // 1. Alejamiento de SMA8 — extensión del precio respecto a la media (el "imán")
+  // 1. Alejamiento de SMA8 — extensión del precio respecto a la media (el "imán").
+  // Bandas graduadas segun el material de Luis Silva (no un solo corte pass/fail):
+  // <0.10% ruido, 0.10-0.20% zona de interes, 0.20-0.35% tension alta, >0.35% extremo.
   const w1 = weights.alejamiento_sma8 ?? 35;
   totalWeight += w1;
-  const MIN_EXT = 0.15; // % minimo de estiramiento — estimacion inicial, ajustar tras el curso
   const ext8 = indicators.ext8;
-  const alejamiento_ok = ext8 != null && (dir === 'BULLISH' ? ext8 <= -MIN_EXT : ext8 >= MIN_EXT);
+  const extAbs = ext8 != null ? Math.abs(ext8) : null;
+  const direccionCorrecta = ext8 != null && (dir === 'BULLISH' ? ext8 < 0 : ext8 > 0);
+  let banda = 'ninguna', fracAlejamiento = 0;
+  if (direccionCorrecta) {
+    if      (extAbs >= 0.35) { banda = 'extremo';     fracAlejamiento = 1.0;  }
+    else if (extAbs >= 0.20) { banda = 'tensión alta'; fracAlejamiento = 0.85; }
+    else if (extAbs >= 0.10) { banda = 'interés';      fracAlejamiento = 0.6;  }
+    else                     { banda = 'ruido';        fracAlejamiento = 0;    }
+  }
+  const alejamiento_ok = fracAlejamiento > 0;
   checks.push({
     id:      'alejamiento_sma8',
     label:   'Alejamiento de SMA8',
     weight:  w1,
     ok:      alejamiento_ok,
-    value:   ext8 != null ? `${ext8 > 0 ? '+' : ''}${ext8}%` : '—',
-    reason:  alejamiento_ok ? `Precio estirado ${ext8}% de la SMA8 ✅` : `Estiramiento insuficiente (${ext8 ?? '—'}%, mínimo ${MIN_EXT}%) ❌`,
+    value:   ext8 != null ? `${ext8 > 0 ? '+' : ''}${ext8}% (${banda})` : '—',
+    reason:  alejamiento_ok ? `Precio estirado ${ext8}% de la SMA8 — banda "${banda}" ✅` : `Estiramiento insuficiente o en dirección contraria (${ext8 ?? '—'}%) ❌`,
   });
-  if (alejamiento_ok) score += w1;
+  score += w1 * fracAlejamiento;
 
   // 2. Patrón de Confirmación (Vela García / Tiburón / Vela 9) — ya calculado
   const w2 = weights.patron_confirmacion ?? 25;
@@ -387,19 +397,34 @@ function calcReversionScore(indicators, config) {
   });
   if (fase_ok) score += w4;
 
-  // 5. Régimen Institucional — GEX Positivo (dealers estabilizan, favorece reversión)
+  // 5. Régimen Institucional — GEX Positivo + confluencia con Muro de Gamma.
+  // El "setup dorado" de Luis Silva es estiramiento extremo + gamma positivo + precio
+  // cerca del muro (Call/Put Wall) que frena el movimiento en la direccion contraria —
+  // no solo el signo del GEX. NOTA: GEX positivo es un gate obligatorio aparte (fuera de
+  // este score, en checkAlejamientoSMA) — aqui solo se gradua la CALIDAD de la confluencia.
   const w5 = weights.regimen_gex ?? 10;
   totalWeight += w5;
-  const regimen_ok = indicators.gammaRegime === 'POSITIVO';
+  const gexPositivo = indicators.gammaRegime === 'POSITIVO';
+  const muroRelevante = dir === 'BULLISH' ? indicators.putWall : indicators.callWall;
+  const distanciaMuro = (muroRelevante != null && indicators.spxPrice != null)
+    ? Math.abs(indicators.spxPrice - muroRelevante) : null;
+  const wallProximityPts = indicators.wallProximityPts ?? 15;
+  const cercaDelMuro = distanciaMuro != null && distanciaMuro <= wallProximityPts;
+  const fracRegimen = !gexPositivo ? 0 : (cercaDelMuro ? 1.0 : 0.5);
+  const regimen_ok = fracRegimen > 0;
   checks.push({
     id:      'regimen_gex',
-    label:   'Régimen Institucional (GEX Positivo)',
+    label:   'Régimen Institucional (GEX + Muro de Gamma)',
     weight:  w5,
     ok:      regimen_ok,
-    value:   indicators.gammaRegime || '—',
-    reason:  regimen_ok ? 'GEX positivo — mercado estabilizador, favorece reversión ✅' : `GEX ${indicators.gammaRegime || 'desconocido'} — no favorece reversión ❌`,
+    value:   `${indicators.gammaRegime || '—'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''}`,
+    reason:  !gexPositivo
+      ? `GEX ${indicators.gammaRegime || 'desconocido'} — no favorece reversión ❌`
+      : cercaDelMuro
+        ? `GEX positivo + precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte ✅`
+        : `GEX positivo pero sin muro de gamma cerca (${distanciaMuro != null ? distanciaMuro.toFixed(1) + 'pts' : 'sin datos'}) — confluencia parcial ⚠️`,
   });
-  if (regimen_ok) score += w5;
+  score += w5 * fracRegimen;
 
   const pct = totalWeight > 0 ? +(score / totalWeight * 100).toFixed(1) : 0;
   const minScore = config.minScore ?? 70;
