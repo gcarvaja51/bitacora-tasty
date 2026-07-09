@@ -1433,6 +1433,11 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         </div>
       </div>
       <div class="card" style="margin-top:16px;">
+        <div class="card-header">Análisis por Familia de Estrategia — Tendencia / Neutral / Reversión</div>
+        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Cada familia se ajusta y calibra por separado — separarlas acá ayuda a ver cuál está funcionando y cuál necesita revisión.</div>
+        <div class="card-body" id="tdemo-by-family" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;"></div>
+      </div>
+      <div class="card" style="margin-top:16px;">
         <div class="card-header">Historial de Ejecuciones</div>
         <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Incluye Bull Put/Bear Call e Iron Condor ejecutados automáticamente en el sandbox (débito manual, aún no conectado a Tradier). En Iron Condor, "Strikes" solo muestra la pata del put — ver detalle completo en Señales SPX.</div>
         <div class="table-wrap">
@@ -5382,6 +5387,36 @@ function renderTradierDemo(execs, account) {
     <div class="stat-row"><span class="stat-lbl">Ganancia Prom.</span><span class="stat-val pos">${fa$(avgWin)}</span></div>
     <div class="stat-row"><span class="stat-lbl">Pérdida Prom.</span><span class="stat-val neg">-${fa$(Math.abs(avgLoss))}</span></div>
   `;
+
+  // Analisis por familia de estrategia (Tendencia/Neutral/Reversion) — separado del
+  // desglose por "strategy" literal de mas abajo, para poder ajustar cada familia
+  // (pesos, minScore, TP/SL) mirando sus propios resultados sin que las otras dos
+  // le laven la cara o le carguen la mano al promedio general.
+  const FAMILIA_LABEL = { TENDENCIA: '📈 Tendencia (Direccional)', NEUTRAL: '🦅 Neutral (Iron Condor)', REVERSION: '🔄 Reversión (Alejamiento SMA)' };
+  const inferirFamilia = e => e.strategyFamily || (e.strategy === 'IRON_CONDOR' ? 'NEUTRAL' : 'TENDENCIA');
+  const familias = ['TENDENCIA', 'NEUTRAL', 'REVERSION'];
+  $('tdemo-by-family').innerHTML = familias.map(fam => {
+    const execsFam = execs.filter(e => inferirFamilia(e) === fam);
+    const closedFam = execsFam.filter(e => e.status === 'closed');
+    const closedFamPnl = closedFam.filter(e => typeof e.pnl === 'number');
+    const winsFam = closedFamPnl.filter(e => e.pnl > 0);
+    const lossesFam = closedFamPnl.filter(e => e.pnl <= 0);
+    const wrFam = closedFamPnl.length ? +((winsFam.length/closedFamPnl.length)*100).toFixed(1) : null;
+    const pnlTotalFam = closedFam.reduce((s,e)=>s+(e.pnl||0),0);
+    if (!execsFam.length) {
+      return `<div class="card" style="margin:0;"><div class="card-header" style="font-size:12px;">${FAMILIA_LABEL[fam]}</div><div class="card-body dim" style="font-size:11px;padding:12px;">Sin trades todavía</div></div>`;
+    }
+    return `<div class="card" style="margin:0;">
+      <div class="card-header" style="font-size:12px;">${FAMILIA_LABEL[fam]}</div>
+      <div class="card-body" style="padding:10px 14px;">
+        <div class="stat-row"><span class="stat-lbl">Trades</span><span class="stat-val">${execsFam.length}</span></div>
+        <div class="stat-row"><span class="stat-lbl">Cerrados</span><span class="stat-val">${closedFam.length}</span></div>
+        <div class="stat-row"><span class="stat-lbl">Win Rate</span><span class="stat-val ${wrFam!=null && wrFam>=55?'pos':'dim'}">${wrFam!=null?wrFam+'%':'—'}</span></div>
+        <div class="stat-row"><span class="stat-lbl">Ganadoras/Perdedoras</span><span class="stat-val">${winsFam.length}/${lossesFam.length}</span></div>
+        <div class="stat-row"><span class="stat-lbl">P&amp;L Total</span><span class="stat-val ${cc(pnlTotalFam)}">${f$(pnlTotalFam)}</span></div>
+      </div>
+    </div>`;
+  }).join('');
 
   // P&L por estrategia
   const byStrat = {};
