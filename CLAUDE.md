@@ -272,9 +272,8 @@ CIARG_V1 nunca manda `direction: NEUTRAL`, y el gate obligatorio de confluencia 
    (compartido 0DTE/1DTE), más para 0DTE: Fase Weinstein 15m 1 o 3, MACD 15m aplanado,
    rango de apertura respetado, ventana 10am-1pm ET; para 1DTE: ventana 3:45-3:50pm ET,
    rechazo total si VIX>24 (el 0DTE solo ajusta el ancho de alas a 10pts si VIX>24, no
-   rechaza). El chequeo de calendario económico del 1DTE (eventos macro de la mañana
-   siguiente) **no se automatiza** — no hay fuente de datos, queda como nota manual en
-   la señal.
+   rechaza). El chequeo de calendario económico del 1DTE (eventos macro del próximo día
+   de mercado) **se automatizó el 2026-07-09** — ver sección dedicada abajo.
 2. Si pasa, arma la señal (4 patas: put corta/larga + call corta/larga, delta configurable
    vía `spxConfig.trading.ironCondor`) y, si `ironCondor.tradierAutoExecute !== false`
    (kill-switch **propio**, separado del de las direccionales), la ejecuta en Tradier vía
@@ -320,6 +319,30 @@ Variables del servicio en Railway (Settings → Variables), o el auto-deploy no 
 **Zona horaria:** `getETHour()` (`src/spx.js`) usa `America/New_York` real (vía
 `toLocaleString`), no un offset fijo — se ajusta solo con el horario de verano (EDT/EST).
 Antes tenía un bug de offset fijo UTC-5 que atrasaba 1 hora las ventanas en época de EDT.
+
+**Calendario económico automatizado para el 1DTE (2026-07-09):** a pedido del usuario —
+antes esto era una nota manual ("revisar antes de confirmar"), sin chequeo real. Ahora
+`checkHighImpactUSEventsTomorrow()` (server.js) consulta el **próximo día de mercado** (salta
+fin de semana — un IC 1DTE abierto un viernes expira el lunes, no el sábado) y bloquea la
+entrada 1DTE si hay algún evento de **alto impacto en EE.UU.** ("3 estrellas", a pedido
+explícito del usuario — no se filtran otros países ni impacto medio/bajo).
+- **Fuente**: no hay API oficial de Investing.com — se encontró inspeccionando las llamadas
+  de red de su propio calendario web: `endpoints.investing.com/pd-instruments/v1/calendars/
+  economic/events/occurrences?domain_id=1&start_date=...&end_date=...&country_ids=5`. Sin
+  auth, responde JSON limpio. `country_ids=5` = Estados Unidos (confirmado con datos reales).
+  Es un endpoint no documentado/no oficial — **puede cambiar sin aviso**, revisar si empieza
+  a fallar.
+- Respuesta trae dos arrays a unir por `event_id`: `events` (metadata: `importance`
+  `low`/`medium`/`high`, `event_translated`/`short_name`) y `occurrences` (`occurrence_time`
+  en UTC, valores actual/forecast/previous). Se filtra a `importance === 'high'`.
+- **Gate conservador ante fallos**: si la consulta falla (red, endpoint caído/cambiado), el
+  1DTE se **bloquea** (no se asume "sin eventos" solo porque no se pudo verificar) — mismo
+  criterio que el resto del sistema ante datos faltantes.
+- Solo se consulta cuando `dte === '1DTE'` dentro de `checkIronCondor()` — no en cada
+  chequeo de 0DTE, que no lo necesita.
+- **Validado con fechas de prueba reales** (no solo con la lógica): "CB Consumer Confidence"
+  salió correctamente marcado `high` para una fecha con evento real conocido, confirmando que
+  el filtro de importancia funciona — no solo que la llamada no tira error.
 
 ## Alejamiento de SMA — reversión a la media (2026-07-08)
 

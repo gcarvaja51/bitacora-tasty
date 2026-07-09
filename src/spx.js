@@ -193,7 +193,7 @@ function evaluateReversionGate(etHour, etMin) {
 // depende de una alerta direccional de Pine — se evalúa de forma periódica
 // server-side buscando condiciones de rango/no-tendencia, no de tendencia.
 function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
-  const { spxPrice, vix, gex, indicators, openingRangeRespected, etHour, etMin } = ctx;
+  const { spxPrice, vix, gex, indicators, openingRangeRespected, etHour, etMin, highImpactEventsTomorrow } = ctx;
   const etMins = etHour * 60 + etMin;
   const gammaFlipBufferPts = icConfig.gammaFlipBufferPts || 20;
   let spreadWidth = icConfig.spreadWidth || 10;
@@ -213,11 +213,25 @@ function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
     if (vix > 24) {
       return { valid: false, reason: `VIX ${vix} > 24 — el playbook 1DTE indica NO entrar (riesgo overnight demasiado alto).` };
     }
+    // Calendario economico de EE.UU. para el proximo dia de mercado (automatizado
+    // 2026-07-09, via el endpoint publico de Investing.com — antes esto era una nota
+    // manual, "revisar antes de confirmar", sin chequeo real). highImpactEventsTomorrow
+    // es null si el chequeo fallo (red/endpoint caido) — se trata como bloqueo, no
+    // como luz verde, mismo criterio conservador que el resto del sistema ante datos
+    // faltantes. [] (array vacio) significa que si se pudo verificar y no hay nada de
+    // alto impacto.
+    if (highImpactEventsTomorrow === null || highImpactEventsTomorrow === undefined) {
+      return { valid: false, reason: 'No se pudo verificar el calendario económico de mañana (Investing.com) — por seguridad, no se entra sin confirmar.' };
+    }
+    if (highImpactEventsTomorrow.length > 0) {
+      const nombres = highImpactEventsTomorrow.map(e => e.name).join(', ');
+      return { valid: false, reason: `Evento(s) de alto impacto en EE.UU. mañana: ${nombres} — riesgo overnight demasiado alto para 1DTE.` };
+    }
     return {
       valid: true,
       dte: '1DTE',
       spreadWidth,
-      note: 'Revisar calendario económico de mañana antes de confirmar — el sistema no tiene fuente de eventos macro, este chequeo es manual.',
+      note: 'Calendario económico de mañana verificado automáticamente (Investing.com, EE.UU., alto impacto) — sin eventos.',
     };
   }
 

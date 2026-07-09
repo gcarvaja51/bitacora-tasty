@@ -2982,6 +2982,37 @@ app.get('/api/spx/signals', (req, res) => {
 // ventanas favorables (10am-1pm ET para 0DTE, 3:45-3:50pm ET para 1DTE) y se genera
 // la señal si pasa el gate (`evaluateIronCondorGate`, playbook profesor Alejandro).
 // Solo sugerencia manual en el Signal Center — NO se ejecuta en Tradier todavía.
+// ── Calendario económico EE.UU. (Investing.com) — automatiza el chequeo que antes
+// era una nota manual para el Iron Condor 1DTE ("revisar antes de confirmar"). No es
+// una API oficial documentada — se descubrió inspeccionando las llamadas de red del
+// propio calendario de Investing.com (endpoints.investing.com/pd-instruments/...),
+// no tiene auth y responde JSON limpio, pero podría cambiar sin aviso. country_ids=5
+// = Estados Unidos (confirmado con datos reales), importance 'high' = 3 estrellas.
+// Consulta el PROXIMO DIA DE MERCADO (salta fin de semana) — un IC 1DTE abierto un
+// viernes expira el lunes, no el sabado.
+async function checkHighImpactUSEventsTomorrow() {
+  try {
+    const nextDay = new Date();
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    while (nextDay.getUTCDay() === 0 || nextDay.getUTCDay() === 6) {
+      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    }
+    const dateStr = nextDay.toISOString().slice(0, 10);
+    const url = `https://endpoints.investing.com/pd-instruments/v1/calendars/economic/events/occurrences?domain_id=1&limit=200&start_date=${dateStr}T00:00:00.000Z&end_date=${dateStr}T23:59:59.999Z&country_ids=5`;
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    const metaByEventId = {};
+    (j.events || []).forEach(e => { metaByEventId[e.event_id] = { importance: e.importance, name: e.event_translated || e.short_name }; });
+    return (j.occurrences || [])
+      .filter(o => metaByEventId[o.event_id]?.importance === 'high')
+      .map(o => ({ name: metaByEventId[o.event_id].name, time: o.occurrence_time }));
+  } catch(e) {
+    console.error('[SPX-IC] Error consultando calendario económico (Investing.com):', e.message);
+    return null; // null = no se pudo verificar (distinto de [] = verificado, sin eventos)
+  }
+}
+
 async function checkIronCondor() {
   try {
     const et = getETHour();
@@ -3009,9 +3040,14 @@ async function checkIronCondor() {
     const tradingCfg = spxConfig.trading || SPX_CONFIG_DEFAULTS.trading;
     const icCfg = tradingCfg.ironCondor || SPX_CONFIG_DEFAULTS.trading.ironCondor;
 
+    // Solo se consulta para 1DTE — es la unica variante con riesgo overnight real,
+    // no vale la pena la llamada de red extra en cada chequeo de 0DTE.
+    const highImpactEventsTomorrow = dte === '1DTE' ? await checkHighImpactUSEventsTomorrow() : undefined;
+
     const gate = evaluateIronCondorGate({
       spxPrice: ctx.spxPrice, vix: ctx.vix, gex: ctx.gex, indicators: ctx.indicators,
       openingRangeRespected: ctx.openingRangeRespected, etHour: et.hour, etMin: et.min,
+      highImpactEventsTomorrow,
     }, dte, icCfg);
 
     if (!gate.valid) {
