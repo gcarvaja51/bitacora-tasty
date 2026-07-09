@@ -111,11 +111,15 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
         // Deteccion tolerante — no hay un dividendo real todavia con el que confirmar
         // el nombre exacto del transaction-sub-type de Tastytrade, asi que matchea
         // por sub-type O descripcion conteniendo "dividend" (case-insensitive) en vez
-        // de un valor exacto. No se resta de totalPremium/costBasis a proposito — es
-        // ingreso real pero de una naturaleza distinta a la prima de opciones, se
-        // muestra aparte en el timeline en vez de mezclarse en el cálculo de costo
-        // base de la Rueda (decision a revisar si el usuario prefiere lo contrario).
-        events.push({ date, type:'DIVIDENDO', amount: Math.abs(nv) });
+        // de un valor exacto.
+        // A pedido del usuario (2026-07-09): el dividendo SI reduce el costo base,
+        // mismo patron que STO_CALL — se suma a totalPremium (para que un STOCK_BUY
+        // futuro que recalcule desde cero tambien lo incluya) y se resta directo de
+        // costBasis si ya hay acciones en mano.
+        const divAmount = Math.abs(nv);
+        totalPremium += divAmount;
+        if (costBasis !== null && shares > 0) costBasis -= divAmount / shares;
+        events.push({ date, type:'DIVIDENDO', amount: divAmount, costBasis });
       }
     }
 

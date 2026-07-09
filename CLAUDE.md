@@ -67,11 +67,11 @@ confirmar contra un caso real todavía** — no hay ningún dividendo acreditado
 para validar el nombre exacto del campo que usa Tastytrade; el matcheo tolerante (por
 descripción, no un valor exacto) es la mitigación mientras no haya un ejemplo real. Revisar
 en cuanto se acredite el primero.
-**Decisión de diseño, a confirmar con el usuario si hace falta cambiarla:** el evento
-`DIVIDENDO` se muestra en el timeline con su propio monto, pero **no** se resta de
-`totalPremium`/`costBasis` como sí hace la prima de opciones — es ingreso real pero de
-naturaleza distinta (no reduce el costo base de las acciones en el cálculo actual). Tampoco
-se suma a la tabla de "Primas/Semana" (que solo cuenta `STO/BTC/ROLL`, no dividendos).
+**Ajuste 2026-07-09 (mismo día, a pedido explícito del usuario):** el dividendo **sí reduce
+el costo base** — mismo patrón que `STO_CALL`: se suma a `totalPremium` (para que un
+`STOCK_BUY` futuro que recalcule desde cero también lo incluya) y se resta directo de
+`costBasis` si ya hay acciones en mano en ese momento. Sigue sin sumarse a la tabla de
+"Primas/Semana" (que solo cuenta `STO/BTC/ROLL`, no dividendos) — no se pidió ese cambio.
 
 ## Tabla Primas/Semana (`semanalHtml` en index.html)
 
