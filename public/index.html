@@ -1439,7 +1439,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
           <table>
             <thead><tr>
               <th>Fecha</th><th>Dirección</th><th>Estrategia</th><th>Strikes</th>
-              <th>Estado</th><th>Fill entrada</th><th>P&amp;L</th>
+              <th>Estado</th><th>Cierre</th><th>Fill entrada</th><th>P&amp;L</th>
             </tr></thead>
             <tbody id="tdemo-tbody"></tbody>
           </table>
@@ -5428,16 +5428,23 @@ function renderTradierDemo(execs, account) {
     const estadoLabel = e.status === 'closed' ? '✅ Cerrado' : e.status === 'filled' ? '🟢 Llenado' : '⏳ Pendiente';
     const pnlLabel = typeof e.pnl === 'number' ? f$(e.pnl) : (e.status==='closed' ? '⚠️ Verificar manual' : '—');
     const pnlCls = typeof e.pnl === 'number' ? cc(e.pnl) : 'dim';
+    const CIERRE_LABELS = {
+      TP: '🤖 Auto (TP)', SL: '🤖 Auto (SL)',
+      TECHNICAL_STOP: '🤖 Auto (Técnico)', TIME_STOP: '🤖 Auto (Tiempo)',
+      MANUAL: '👤 Manual', PARTIAL_FILL_EMERGENCY: '🚨 Emergencia',
+    };
+    const cierreLabel = e.status !== 'closed' ? '—' : (CIERRE_LABELS[e.closeReason] || e.closeReason || '❓ Sin dato');
     return `<tr>
       <td class="td-mono" style="font-size:11px;">${fecha}</td>
       <td class="${e.direction==='BULLISH'?'pos':e.direction==='BEARISH'?'neg':'dim'}">${e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'—')}</td>
       <td>${e.strategy}</td>
       <td class="td-mono">${strikesLabel}</td>
       <td>${estadoLabel}</td>
+      <td style="font-size:11px;">${cierreLabel}</td>
       <td class="td-mono">${e.entryFillPrice ? '$'+e.entryFillPrice : '—'}</td>
       <td class="td-mono ${pnlCls}">${pnlLabel}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
+  }).join('') : '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
 }
 
 async function testSPXSignal(direction) {
