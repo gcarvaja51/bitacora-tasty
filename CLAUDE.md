@@ -482,6 +482,33 @@ casos donde el `gain_loss` de Tradier no estaba asentado todavía en el momento 
 reconciliación (P&L queda en `pnlSource: 'pendiente_verificar'` hasta corregirlo a mano con
 este endpoint una vez la data esté disponible).
 
+**Feature 2026-07-09 — invalidación técnica activa (POC + Fractal 15m) para el direccional:**
+a pedido del usuario, con base en la metodología de Alejandro compartida ese día (stop
+económico 1.5x + invalidación técnica por POC/Fractal, "el resultado depende más de la salida
+que de la entrada"). Antes, `technicalStop`/`technicalStopSource` (Fractal 15m + Muro Gamma)
+solo se guardaban informativamente en la señal — nadie cerraba la posición si el precio los
+rompía. Ahora:
+- **POC (Point of Control) nuevo** (`calcPOC`, `src/spx_indicators.js`): perfil de volumen de
+  la sesión de HOY en velas de 15m, cubetas de $1 sobre el precio típico `(H+L+C)/3` de cada
+  vela, se queda con la cubeta de mayor volumen acumulado. Yahoo sí devuelve volumen para
+  `^GSPC` (agregado, no es volumen de futuros/opciones reales, pero es real y variable —
+  confirmado con fetch en vivo antes de construirlo). Sin datos de volumen devuelve `null`, no
+  un POC engañoso.
+- `signal.fractalLevel` (Fractal 15m del lado que invalida — `.low` si la reversión es alcista,
+  `.high` si es bajista) y `signal.pocLevel` (el POC de arriba) se calculan en el webhook y se
+  **congelan** en el registro de `tradier_executions.json` al momento de entrar — igual que
+  `entryCandleLow/High` en Alejamiento de SMA. No se recalculan en vivo cada ciclo.
+- `checkDirectionalTPSLImpl` (server.js) ahora trae el precio actual del SPX cada ciclo (mismo
+  fetch liviano que usa el monitor de reversión) y cierra con `closeReason: 'TECHNICAL_STOP'`
+  si el precio rompe el Fractal Low **o** el POC en contra de la dirección — **antes** de
+  evaluar el stop económico (%/multiplicador de crédito), no después. Cualquiera de los dos
+  niveles solo (no hace falta que rompan ambos) es suficiente para salir, siguiendo la lectura
+  literal del material ("si rompe el POC... debes salir, incluso si no tocaste el stop
+  económico"; confirmado también para Fractal solo en la conversación con el usuario).
+- Ejecuciones abiertas ANTES de este cambio no tienen `fractalLevel`/`pocLevel` (quedan en
+  `null`) — simplemente no tienen gatillo técnico disponible, siguen protegidas solo por el
+  stop económico existente, sin romper nada.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`

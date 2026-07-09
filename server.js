@@ -2109,7 +2109,7 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
 const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow } = require('./src/spx');
-const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray } = require('./src/spx_indicators');
+const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray, calcPOC } = require('./src/spx_indicators');
 // Nota: calcRSI ya existe como funcion local en este archivo (linea ~1243, usada por el
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
@@ -2444,6 +2444,25 @@ async function buildSPXContext() {
           lowsHistory:  fractalLowsHistory15.slice(-3),
           highsHistory: fractalHighsHistory15.slice(-3),
         };
+      }
+
+      // POC (Point of Control) de sesion en 15m — playbook Alejandro, ancla
+      // estructural de salida junto al Fractal 15m. Sesion completa de HOY
+      // (ET), reinicia cada dia — NO usa closes15 (filtrado, indices
+      // desalineados con ts15/highs15/vols15), usa q15.close crudo alineado.
+      {
+        const ts15 = j15.chart?.result?.[0]?.timestamp || [];
+        const vols15 = q15.volume || [];
+        const rawCloses15 = q15.close || [];
+        const todayET15 = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+        const bars15hoy = [];
+        for (let i = 0; i < ts15.length; i++) {
+          if (highs15[i] == null || lows15[i] == null || rawCloses15[i] == null) continue;
+          const barET = new Date(ts15[i] * 1000).toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+          if (barET !== todayET15) continue;
+          bars15hoy.push({ high: highs15[i], low: lows15[i], close: rawCloses15[i], volume: vols15[i] });
+        }
+        indicators.poc15m = calcPOC(bars15hoy);
       }
 
       // 2m SPX (últimos 5 dias, no solo hoy) — marco de ejecución fina.
@@ -2810,6 +2829,14 @@ app.post('/api/spx/webhook', async (req, res) => {
       etTime:      ctx.etTime,
     });
 
+    // Niveles de invalidacion tecnica para la salida (playbook Alejandro): Fractal
+    // 15m del lado que invalida la tesis (low si es alcista, high si es bajista) y
+    // POC de sesion en 15m. Separados de technicalStop (que ya combina fractal+muro
+    // en un solo numero "el mas conservador") porque el monitor de salida necesita
+    // los dos gatillos por separado, no un combinado.
+    signal.fractalLevel = direction === 'BULLISH' ? fractal15m.low : fractal15m.high;
+    signal.pocLevel     = ctx.indicators?.poc15m ?? null;
+
     signal.playbook       = playbookResult;
     signal.fuerzaTotal    = fuerzaTotal;
     signal.source         = source;
@@ -2910,6 +2937,10 @@ app.post('/api/spx/webhook', async (req, res) => {
               // Solo se usan si isCredit=false — % de la prima pagada, no un multiplicador
               debitTpPct:    (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct,
               debitSlPct:    (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).slPct,
+              // Niveles tecnicos de invalidacion (playbook Alejandro) — congelados al
+              // momento de entrar, igual que entryCandleLow/High en la reversion.
+              fractalLevel:  signal.fractalLevel ?? null,
+              pocLevel:      signal.pocLevel ?? null,
               filledAt:      null,
               closedAt:      null,
               closeReason:   null,
@@ -3245,6 +3276,18 @@ async function checkDirectionalTPSLImpl() {
     );
     if (!abiertas.length) return;
 
+    // Precio actual del SPX — para el gatillo tecnico (Fractal 15m / POC), igual
+    // de liviano que el que usa checkAlejamientoSMATPSLImpl, reusado para todas
+    // las ejecuciones abiertas de este ciclo (normalmente solo hay una).
+    let spxPriceActual = null;
+    try {
+      const rPx = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const jPx = await rPx.json();
+      spxPriceActual = parseFloat(jPx.chart?.result?.[0]?.meta?.regularMarketPrice);
+      if (!spxPriceActual) spxPriceActual = null;
+    } catch(e) {}
+
     let cambios = false;
     for (const ex of abiertas) {
       // 1. Confirmar fill si aun no se confirmo
@@ -3295,7 +3338,30 @@ async function checkDirectionalTPSLImpl() {
       const esCredito = ex.isCredit !== false;
       let pnlActual, cerrarPor = null;
 
-      if (esCredito) {
+      // Invalidacion tecnica (playbook Alejandro, agregado 2026-07-09): si el
+      // precio rompe el Fractal 15m o el POC de sesion EN CONTRA de la direccion,
+      // la razon tecnica por la que se entro deja de existir — se sale de inmediato,
+      // incluso si no se tocaron los umbrales economicos de TP/SL. Ambos niveles se
+      // congelaron al momento de entrar (ex.fractalLevel/ex.pocLevel); null en
+      // ejecuciones previas a este cambio, o si no habia suficiente historial de
+      // fractales/volumen en el momento de la senal — en ese caso simplemente no
+      // hay gatillo tecnico disponible para esa ejecucion.
+      if (spxPriceActual != null) {
+        const esAlcista = ex.direction === 'BULLISH';
+        const rompioFractal = ex.fractalLevel != null && (esAlcista ? spxPriceActual < ex.fractalLevel : spxPriceActual > ex.fractalLevel);
+        const rompioPOC     = ex.pocLevel     != null && (esAlcista ? spxPriceActual < ex.pocLevel     : spxPriceActual > ex.pocLevel);
+        if (rompioFractal || rompioPOC) {
+          cerrarPor = 'TECHNICAL_STOP';
+          console.log(`[Tradier-DIR-TPSL] ⚠️ Invalidación técnica en ${ex.orderId} — precio ${spxPriceActual} rompió ${rompioFractal ? `Fractal 15m (${ex.fractalLevel})` : ''}${rompioFractal && rompioPOC ? ' y ' : ''}${rompioPOC ? `POC (${ex.pocLevel})` : ''}`);
+        }
+      }
+
+      if (cerrarPor) {
+        // Ya hay motivo de cierre (tecnico) — igual se necesita pnlActual para el
+        // registro, calculado con la misma formula de siempre segun credito/debito.
+        const costoDeCerrar = q[shortSym] - q[longSym];
+        pnlActual = esCredito ? (ex.creditReceived - costoDeCerrar) : ((q[longSym] - q[shortSym]) - ex.creditReceived);
+      } else if (esCredito) {
         // Costo de cerrar ahora = recomprar la corta - vender la larga
         const costoDeCerrar = q[shortSym] - q[longSym];
         pnlActual = ex.creditReceived - costoDeCerrar;

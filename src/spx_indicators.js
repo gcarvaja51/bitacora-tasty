@@ -82,6 +82,31 @@ function calcSMAArray(prices, period) {
   return result;
 }
 
+// ── POC (Point of Control) de sesion — perfil de volumen en 15m, cubetas de $1.
+// Ancla estructural del playbook de Alejandro para la salida, junto al Fractal
+// 15m: el nivel de precio donde se concentro mas volumen negociado en la sesion.
+// bars: [{high, low, close, volume}] SOLO de la sesion de hoy (ya filtradas por
+// el caller), cronologico. Si no hay volumen (null/0 en todas), devuelve null en
+// vez de un POC engañoso sobre datos vacios.
+function calcPOC(bars) {
+  if (!bars || !bars.length) return null;
+  const volByBucket = {};
+  let totalVol = 0;
+  for (const b of bars) {
+    if (b.high == null || b.low == null || b.close == null || !b.volume) continue;
+    const typical = (b.high + b.low + b.close) / 3;
+    const bucket = Math.round(typical);
+    volByBucket[bucket] = (volByBucket[bucket] || 0) + b.volume;
+    totalVol += b.volume;
+  }
+  if (totalVol <= 0) return null;
+  let poc = null, maxVol = -1;
+  for (const [price, vol] of Object.entries(volByBucket)) {
+    if (vol > maxVol) { maxVol = vol; poc = +price; }
+  }
+  return poc;
+}
+
 // ── RSI (Wilder, 14 periodos por defecto) — antes vivia duplicado 3 veces
 // como funcion local en server.js (screener de acciones), movido aca para
 // reusarlo tambien en el score de Alejamiento de SMA sin reescribirlo.
@@ -438,4 +463,4 @@ function calcReversionScore(indicators, config) {
   return { score: pct, passed: pct >= minScore, minScore, checks };
 }
 
-module.exports = { calcEMA, calcEMAArray, calcMACD, priceExtension, calcRelativeVolume, calcPlaybookScore, calcSwingStructure, calcSMA, calcSMAArray, calcRSI, calcReversionScore };
+module.exports = { calcEMA, calcEMAArray, calcMACD, priceExtension, calcRelativeVolume, calcPlaybookScore, calcSwingStructure, calcSMA, calcSMAArray, calcRSI, calcReversionScore, calcPOC };
