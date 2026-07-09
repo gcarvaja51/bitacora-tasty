@@ -4146,14 +4146,43 @@ async function checkTradierExecutionsImpl() {
         // natural del 0DTE; no hay forma de distinguirlo desde aqui, MANUAL es la
         // etiqueta mas honesta para "se cerro fuera de mis monitores activos".
         ex.closeReason = ex.closeReason || 'MANUAL';
-        // SUMAR el gain_loss de TODAS las patas que coincidan, no solo la primera —
-        // Tradier reporta el P&L cerrado por pata individual, no por spread completo;
-        // quedarse con una sola (ej. solo la corta de un Iron Condor de 4 patas)
-        // entendia mal el P&L real de la posicion combinada.
+
+        // Bug real encontrado 2026-07-09: si dos ejecuciones distintas usan los MISMOS
+        // strikes el mismo dia (comun en scalping 0DTE, los strikes se repiten cuando
+        // el precio vuelve a una zona), getClosedPnl trae varias entradas para el mismo
+        // symbol y el filtro viejo (legSymbols.includes(p.symbol), sin mas) las sumaba
+        // TODAS sin importar a cual ejecucion pertenecian de verdad — le pego el P&L
+        // completo de las dos ejecuciones a la que se reconciliaba de ultima. Tradier no
+        // expone un id que ate cada entrada de gain_loss a una orden especifica, asi que
+        // la mitigacion es por conteo: las entradas de un symbol vienen mas-reciente-
+        // primero (confirmado empiricamente); si ya hay OTRAS ejecuciones YA CERRADAS
+        // (sin importar por que camino calcularon su propio pnl — tp_sl_auto tambien
+        // cuenta, no solo gainloss, porque esas entradas de Tradier existen igual
+        // aunque esa ejecucion no las haya usado) con este mismo conjunto de
+        // legSymbols, se saltan esas tantas entradas (mas nuevas, ya "ocupadas" por
+        // esas otras ejecuciones) antes de tomar la que le toca a esta. Sigue siendo
+        // una heuristica, no un ID real — si el orden no es estrictamente por
+        // recencia se puede reconciliar mal, pero es mucho mejor que sumar todo sin
+        // distincion.
         const pnlList = await tradier.getClosedPnl(ex.timestamp.slice(0, 10));
-        const matches = (pnlList || []).filter(p => legSymbols.includes(p.symbol) && typeof p.gain_loss === 'number');
-        if (matches.length) {
-          ex.pnl = +matches.reduce((sum, p) => sum + p.gain_loss, 0).toFixed(2);
+        const legSymbolsSorted = legSymbols.slice().sort();
+        const claveSimbolos = JSON.stringify(legSymbolsSorted);
+        const otrasConMismosSimbolos = executions.filter(o => {
+          if (o.id === ex.id || o.status !== 'closed') return false;
+          const legsO = [o.legs?.shortSym, o.legs?.longSym, o.legs?.putShortSym, o.legs?.putLongSym, o.legs?.callShortSym, o.legs?.callLongSym].filter(Boolean).sort();
+          return JSON.stringify(legsO) === claveSimbolos;
+        }).length;
+
+        let pnlTotal = 0, faltaAlgunaPata = false;
+        for (const sym of legSymbols) {
+          const entradasDelSimbolo = (pnlList || []).filter(p => p.symbol === sym && typeof p.gain_loss === 'number');
+          const disponibles = entradasDelSimbolo.slice(otrasConMismosSimbolos);
+          if (!disponibles.length) { faltaAlgunaPata = true; continue; }
+          pnlTotal += disponibles[0].gain_loss;
+        }
+
+        if (!faltaAlgunaPata && legSymbols.length) {
+          ex.pnl = +pnlTotal.toFixed(2);
           ex.pnlSource = 'gainloss';
         } else {
           ex.pnl = null;

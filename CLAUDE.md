@@ -540,6 +540,26 @@ ciertas, manda una alerta ntfy urgente una sola vez por caída (se resetea sola 
 vuelve a correr). No reemplaza la protección, solo evita descubrir tarde que el servidor se cayó
 con una posición desprotegida.
 
+**Bug real encontrado y arreglado (2026-07-09) — reconciliación pasiva mezclaba el P&L de
+trades distintos que reusaron los mismos strikes el mismo día:** en scalping 0DTE es normal
+que dos entradas distintas usen el mismo par de strikes (el precio vuelve a una zona). El
+filtro viejo de `checkTradierExecutionsImpl` (`legSymbols.includes(p.symbol)`) suma TODAS las
+entradas de `getClosedPnl` que matchean el símbolo, sin distinguir a cuál ejecución pertenece
+cada una — si el símbolo se repitió por dos trades, el segundo en reconciliarse se llevaba
+también el P&L del primero. Caso real: dos `BULL_CALL_SPREAD` con strikes 7530/7540 el mismo
+día — el primero cerró vía `checkDirectionalTPSLImpl` (cotizaciones en vivo, `pnlSource:
+'tp_sl_auto'`, correcto: $115) y el segundo cerró manual, reconciliado por este monitor pasivo,
+que le sumó $340 en vez de los ~$100 reales (se comió también las 2 patas del primer trade).
+Tradier no expone un ID que ate cada fila de `gain_loss` a una orden específica, así que el fix
+es una heurística por conteo, no una corrección exacta: las entradas de un símbolo llegan
+más-reciente-primero (confirmado empíricamente); se cuenta cuántas OTRAS ejecuciones ya
+**cerradas** (cualquier `pnlSource`, no solo `gainloss` — las entradas de Tradier existen igual
+aunque esa ejecución haya calculado su P&L por otro camino) comparten el mismo conjunto exacto
+de `legSymbols`, y se saltan esas tantas entradas (las más nuevas, ya "ocupadas") antes de tomar
+la que le corresponde a esta. Si no hay suficientes entradas distintas disponibles, cae a
+`pnlSource: 'pendiente_verificar'` en vez de inventar un número. El registro real del 2026-07-09
+ya corregido a mano vía `POST /api/tradier/executions/:id/patch` (de $340 a $100).
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`
