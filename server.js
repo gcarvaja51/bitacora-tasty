@@ -1954,6 +1954,10 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
   try {
     const symbol = req.params.symbol.toUpperCase();
     const expiry = req.query.expiry || null;
+    // Tickers con muchos vencimientos semanales (ej. IBIT, AAPL) pueden no llegar a la
+    // ventana 30-45 DTE con el default de 6 — permite pedir más explícitamente (tope 15
+    // para no disparar demasiadas llamadas de /market-data en lotes de 50).
+    const limit = Math.min(parseInt(req.query.limit) || 6, 15);
 
     // 1. Cadena de strikes/vencimientos desde TastyTrade
     const chainData = await tt._req(`/option-chains/${symbol}/nested`);
@@ -1962,7 +1966,7 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 
     const expList = expiry
       ? expirations.filter(e => e['expiration-date'] === expiry)
-      : expirations.slice(0, 6);
+      : expirations.slice(0, limit);
 
     // 2. Precio actual del subyacente desde Yahoo Finance (v8 no requiere crumb)
     let underlyingPrice = 0;
@@ -2439,6 +2443,104 @@ app.post('/api/wheel-trading/signals/:id/approve', async (req, res) => {
     res.json({ ok: true, execution });
   } catch(e) {
     console.error('[WHEEL-APPROVE] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Entrada forzada (2026-07-10, a pedido explícito del usuario) — demo del ciclo
+// completo sobre los activos de la lista de Alejandro, sin exigir que pasen el gate
+// técnico/IV Rank/fair value ("algunos de estos activos puede que no pasen los filtros
+// que tenemos, pero son los que mi mentor usa, así que vamos a entrar"). Reutiliza la
+// MISMA cascada de selección de strike que el screener normal, agregando un último
+// nivel de respaldo (sin exigir liquidez/delta ideal) para cuando ni siquiera eso
+// encuentra algo — pero SIGUE respetando el gate `IS_PRODUCTION` (nunca coloca una
+// orden real desde local) y sigue siendo siempre por crédito (nunca se fuerza un
+// strike con prima negativa/nula).
+app.post('/api/wheel-trading/force-entry', async (req, res) => {
+  try {
+    const symbol = (req.body.symbol || '').toUpperCase().trim();
+    if (!symbol) return res.status(400).json({ error: 'symbol requerido' });
+
+    // limit=12 (en vez del default 6) — tickers con muchos vencimientos semanales
+    // (ej. IBIT) no llegan a la ventana 30-45 DTE con el default.
+    const chainRes = await fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/${symbol}?limit=12`);
+    const chainJson = await chainRes.json();
+    const expirations = chainJson.expirations || [];
+    const spotPrice = chainJson.underlyingPrice;
+    if (!expirations.length || !spotPrice) return res.status(500).json({ error: `Sin cadena de opciones para ${symbol}` });
+
+    const cfg = loadWheelTradingConfig();
+    const fv = await fetchFairValue(symbol, spotPrice);
+    let best = fv.valid ? wheelTrading.findAnchoredCSPStrike(expirations, spotPrice, fv.value, cfg.screener) : null;
+    let metodo = best ? 'fair_value' : null;
+    if (!best) { best = wheelTrading.findBestCSPStrike(expirations, cfg.screener); metodo = best ? 'delta' : null; }
+    if (!best) {
+      // Último respaldo — sin exigir bid/ask%/OI/ventana de delta, solo dentro de la
+      // misma ventana 30-45 DTE y con prima positiva (nunca se entra a débito).
+      for (const exp of expirations) {
+        if (exp.dte == null || exp.dte < cfg.screener.dteMin || exp.dte > cfg.screener.dteMax) continue;
+        const candidates = (exp.strikes || []).filter(s => s.put && s.strike < spotPrice && (s.put.mark || 0) > 0);
+        const s = candidates.sort((a, b) => Math.abs(Math.abs(a.put.delta||0) - 0.20) - Math.abs(Math.abs(b.put.delta||0) - 0.20))[0];
+        if (!s) continue;
+        const premium = s.put.mark || 0;
+        const cand = { expiry: exp.expiry, dte: exp.dte, strike: s.strike, delta: s.put.delta, premium, creditPerDay: +(premium/exp.dte).toFixed(4), forzado_sin_liquidez: true };
+        if (!best || cand.creditPerDay > best.creditPerDay) best = cand;
+      }
+      metodo = best ? 'ultimo_respaldo' : null;
+    }
+    if (!best) return res.status(500).json({ error: `${symbol}: ningún strike con prima positiva en la ventana 30-45 DTE.` });
+
+    const optionSymbol = tradier.buildOccSymbol(symbol, best.expiry, 'P', best.strike);
+
+    if (!IS_PRODUCTION) {
+      console.log(`[WHEEL-FORCE] (dry-run local) Colocaría sell_to_open ${optionSymbol} qty=1 en ${symbol} (método: ${metodo}).`);
+      return res.json({ ok: false, reason: 'local', message: 'En local no se ejecutan órdenes reales en Tradier — este flujo solo se ejecuta desde Railway.', preview: { symbol, best, metodo } });
+    }
+
+    const quotes = await tradier.getQuotes([optionSymbol]);
+    const quote = quotes[0];
+    if (!quote || !quote.bid) return res.status(500).json({ error: `${symbol}: no se pudo cotizar el Put en vivo` });
+
+    const order = await tradier.placeSingleLegOrder({
+      underlyingRoot: symbol, optionSymbol, side: 'sell_to_open', quantity: 1, limitPrice: quote.bid,
+    });
+
+    let entryPrice = spotPrice;
+    try {
+      const daily = await fetchYahooOHLC(symbol, '1d', '5d');
+      if (daily.closes.length) entryPrice = daily.closes[daily.closes.length - 1];
+    } catch(e) {}
+
+    const execution = {
+      id: `wtex-${Date.now()}`,
+      signalId: null,
+      symbol,
+      timestamp: new Date().toISOString(),
+      phase: 'CSP_ACTIVA',
+      entryPrice,
+      costBasisTarget: +(entryPrice * 0.80).toFixed(4),
+      fairValue: fv.valid ? fv.value : null,
+      leg: { optionSymbol, strike: best.strike, expiry: best.expiry, side: 'sell_to_open', contracts: 1 },
+      orderId: order.orderId,
+      status: 'submitted',
+      entryFillPrice: null,
+      creditReceived: null,
+      totalCreditAccumulated: null,
+      rollCount: 0,
+      readyForAssignment: false,
+      events: [],
+      filledAt: null,
+      forced: true,
+      notes: `Entrada forzada (demo del proceso, filtros de gate omitidos) — método: ${metodo}.`,
+    };
+    const executions = loadWheelTradingExecutions();
+    executions.unshift(execution);
+    saveWheelTradingExecutions(executions);
+
+    console.log(`[WHEEL-FORCE] ${symbol}: orden ${order.orderId} colocada (sell_to_open ${optionSymbol} @ limit ${quote.bid}, método ${metodo}).`);
+    res.json({ ok: true, execution });
+  } catch(e) {
+    console.error('[WHEEL-FORCE] Error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

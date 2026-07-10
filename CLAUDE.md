@@ -924,6 +924,37 @@ ambos aceptables) — mismo "nunca pagar por rolar" del resto del sistema, sin e
   margin (contratos fijos en 1), switch de UI Tasty/Tradier, afinar la regla de "rolls de 1
   semana" en su forma específica para la gestión semanal de la Call en Fase 4 bajista.
 
+## Entrada forzada — demo del ciclo completo sobre la lista de Alejandro (2026-07-10)
+
+A pedido explícito del usuario ("vamos a entrar en cada uno de ellos, a manera forzada... y
+vamos a gestionarlos, como una especie de demo del proceso... algunos de estos activos puede
+que no pasen los filtros que tenemos, pero son los que mi mentor usa, así que vamos a entrar"):
+se agregó `POST /api/wheel-trading/force-entry` — igual al flujo de aprobación de la Fase 2,
+pero **sin exigir que pase el gate técnico/IV Rank/fair value**. Reutiliza la misma cascada de
+selección de strike del screener normal (fair value → delta → **nuevo tercer nivel**, sin
+exigir bid/ask%/OI/ventana de delta ideal, solo dentro de la ventana 30-45 DTE y con prima
+positiva — nunca se fuerza un strike a débito). Marca la ejecución con `forced: true` y una
+nota explícita, para distinguirla de las que sí pasaron el screener normal. Sigue respetando
+`IS_PRODUCTION` (nunca coloca una orden real desde local).
+
+**Lista de activos** (`activos para la rueda segun alejandro.jpeg`, agregada a
+`cfg.screener.tickers` junto a SOFI/NU/JBLU ya existentes): KO, MARA, IBIT, BE, RKLB, HOOD,
+NBIS, PDD, RIO, ANET, BAC.
+
+**Bug real encontrado al validar los 14 en dry-run**: IBIT (y potencialmente otros ETFs/tickers
+con muchos vencimientos semanales) no encontraba ningún strike en la ventana 30-45 DTE — el
+límite fijo de 6 expiraciones de `GET /api/option-chain/:symbol` (`expirations.slice(0,6)`)
+nunca llegaba tan lejos para un ticker con vencimientos casi diarios. Se agregó un parámetro
+`?limit=N` (tope 15, para no disparar demasiadas llamadas de `/market-data` en lotes de 50) —
+`force-entry` lo usa con `limit=12`. Confirmado con datos reales: IBIT pasó de "sin strike
+válido" a encontrar uno perfectamente razonable (strike 34, delta -0.29, 42 DTE, spread
+$0.91/$0.94) tras el fix.
+
+**Validado en dry-run local los 14 tickers** — 13 encontraron un strike razonable (la mayoría
+cayendo al tercer nivel de respaldo, esperado para nombres especulativos/volátiles con spreads
+%grandes en opciones baratas — mismo patrón de liquidez ya visto con SOFI en la Fase 1); ninguno
+tuvo que forzarse a una prima negativa/nula.
+
 ## Bug real en los 3 monitores de TP/SL de SPX — P&L grabado con la cotización equivocada (2026-07-10)
 
 **Caso real que lo destapó**: un Iron Condor 1DTE cerró por SL con **-$1590** grabado en el
