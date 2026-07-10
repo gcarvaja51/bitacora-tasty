@@ -160,13 +160,16 @@ function calcMaxPain(strikes) {
 // 10:00-13:00 → favorable para Iron Condor (si Gamma+ y rango de apertura respetado)
 // 13:00-13:30 → ventana frecuente de impulsos/direccionales fuertes
 // 13:30-15:00 → general, sin sesgo horario particular
-// 15:45-15:50 → cierre intradía / evaluar 1DTE
+// 15:40-15:50 → cierre intradía / evaluar 1DTE (ampliada de 15:45 a 15:40 el 2026-07-10,
+// a pedido del usuario, tras ver que a las 15:50 en punto el gate ya se cerraba por 1-2
+// minutos aunque el resto de las condiciones — GEX+, VIX bajo, gamma flip lejos, sin
+// eventos macro de alto impacto mañana — pasaban limpio)
 function classifyWindow(etMins) {
   if (etMins >= 9 * 60 + 45 && etMins < 10 * 60)          return 'APERTURA';
   if (etMins >= 10 * 60     && etMins < 13 * 60)          return 'IC_FAVORABLE';
   if (etMins >= 13 * 60     && etMins < 13 * 60 + 30)     return 'IMPULSO';
   if (etMins >= 13 * 60 + 30 && etMins < 15 * 60)         return 'GENERAL';
-  if (etMins >= 15 * 60 + 45 && etMins < 15 * 60 + 50)    return 'CIERRE_1DTE';
+  if (etMins >= 15 * 60 + 40 && etMins < 15 * 60 + 50)    return 'CIERRE_1DTE';
   return 'FUERA_VENTANA';
 }
 
@@ -208,7 +211,7 @@ function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
 
   if (dte === '1DTE') {
     if (classifyWindow(etMins) !== 'CIERRE_1DTE') {
-      return { valid: false, reason: `Iron Condor 1DTE solo en ventana 3:45-3:50pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+      return { valid: false, reason: `Iron Condor 1DTE solo en ventana 3:40-3:50pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
     }
     if (vix > 24) {
       return { valid: false, reason: `VIX ${vix} > 24 — el playbook 1DTE indica NO entrar (riesgo overnight demasiado alto).` };

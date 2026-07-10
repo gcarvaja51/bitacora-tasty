@@ -3977,7 +3977,7 @@ app.get('/api/spx/signals', (req, res) => {
 // ── Chequeo periódico de Iron Condor (0DTE y 1DTE) ──────────────────────
 // A diferencia de las direccionales (disparadas por alerta de Pine), el Iron Condor
 // no tiene un "trigger" — se evalúa el régimen de mercado cada 5 min durante las
-// ventanas favorables (10am-1pm ET para 0DTE, 3:45-3:50pm ET para 1DTE) y se genera
+// ventanas favorables (10am-1pm ET para 0DTE, 3:40-3:50pm ET para 1DTE) y se genera
 // la señal si pasa el gate (`evaluateIronCondorGate`, playbook profesor Alejandro).
 // Solo sugerencia manual en el Signal Center — NO se ejecuta en Tradier todavía.
 // ── Calendario económico EE.UU. (Investing.com) — automatiza el chequeo que antes
