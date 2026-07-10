@@ -206,6 +206,37 @@ class TradierClient {
     };
   }
 
+  // Abre UNA sola pata (orden simple, no multileg) — contraparte de closeSingleLeg,
+  // que solo cierra. Usado por la Rueda automatizada para vender el CSP inicial
+  // (sell_to_open) y, mas adelante, la Covered Call. limitPrice opcional: si se
+  // pasa, manda una orden limit a ese precio en vez de a mercado (mismo criterio
+  // de cautela que minCreditPrice en placeIronCondorOrder — no aceptar un fill
+  // peor al que se vio al momento de colocar la orden).
+  async placeSingleLegOrder({ underlyingRoot, optionSymbol, side, quantity, limitPrice }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const params = {
+      class:          'option',
+      symbol:         underlyingRoot,
+      option_symbol:  optionSymbol,
+      side,           // 'sell_to_open' | 'buy_to_open' | 'sell_to_close' | 'buy_to_close'
+      quantity:       String(quantity),
+      duration:       'day',
+    };
+    if (limitPrice != null) { params.type = 'limit'; params.price = String(limitPrice); }
+    else                    { params.type = 'market'; }
+    const body = new URLSearchParams(params);
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString(),
+    });
+    return {
+      orderId: data.order?.id ?? null,
+      status:  data.order?.status ?? 'unknown',
+      raw:     data,
+    };
+  }
+
   // Cotizaciones actuales (mark/bid/ask) para una lista de simbolos OCC — necesario
   // para calcular cuanto costaria cerrar una posicion abierta ahora mismo (no habia
   // ningun metodo de cotizacion en este cliente).

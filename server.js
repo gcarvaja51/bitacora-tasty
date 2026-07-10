@@ -2106,6 +2106,312 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
 
 
 // ══════════════════════════════════════════════════════════════
+// ── Rueda Automatizada — Fase 1: Screener + Señales ───────────
+// ══════════════════════════════════════════════════════════════
+// Motor de sugerencias para la Rueda automatizada en Tradier (ver CLAUDE.md,
+// sección "Rueda automatizada"). Esta fase SOLO genera señales — no coloca
+// ninguna orden real. Universo de candidatos: `cfg.screener.tickers` si está
+// poblada (lista propia, arrancó 2026-07-10 con SOFI/NU/JBLU a pedido del
+// usuario), sino cae al watchlist general (loadWatchlist()). El screener
+// evalúa liquidez + IV Rank + el gate técnico "3 Mundos" (Fase Weinstein
+// diario+semanal, GEX, EMA10/20/fractal, MACD) y sugiere el mejor Put
+// (strike+fecha por crédito/día) para iniciar un ciclo. La aprobación manual
+// del trader coloca la orden real (ver Fase 2, checkWheelExecutionFills).
+const wheelTrading = require('./src/wheel_trading');
+
+const WHEEL_TRADING_CONFIG_FILE = path.join(DATA_DIR, 'wheel_trading_config.json');
+function loadWheelTradingConfig() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(WHEEL_TRADING_CONFIG_FILE, 'utf8'));
+    // Migración no-destructiva (mismo patrón que loadSPXConfig): un config ya
+    // guardado en producción no debe perder claves nuevas agregadas después.
+    if (saved?.screener && saved.screener.tickers === undefined) {
+      saved.screener.tickers = wheelTrading.WHEEL_TRADING_CONFIG_DEFAULTS.screener.tickers;
+      saveWheelTradingConfig(saved);
+    }
+    return saved;
+  } catch(e) {
+    return wheelTrading.WHEEL_TRADING_CONFIG_DEFAULTS;
+  }
+}
+function saveWheelTradingConfig(cfg) {
+  fs.writeFileSync(WHEEL_TRADING_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
+}
+
+app.get('/api/wheel-trading/config', (req, res) => res.json(loadWheelTradingConfig()));
+
+app.post('/api/wheel-trading/config', (req, res) => {
+  const cfg = loadWheelTradingConfig();
+  const { minScore, weights, screener } = req.body;
+  if (minScore !== undefined) cfg.minScore = minScore;
+  if (weights)  cfg.weights  = { ...cfg.weights,  ...weights  };
+  if (screener) cfg.screener = { ...cfg.screener, ...screener };
+  saveWheelTradingConfig(cfg);
+  res.json(cfg);
+});
+
+const WHEEL_TRADING_SIGNALS_FILE = path.join(DATA_DIR, 'wheel_trading_signals.json');
+function loadWheelTradingSignals() {
+  try { return JSON.parse(fs.readFileSync(WHEEL_TRADING_SIGNALS_FILE, 'utf8')); } catch(e) { return []; }
+}
+function saveWheelTradingSignals(signals) {
+  fs.writeFileSync(WHEEL_TRADING_SIGNALS_FILE, JSON.stringify(signals, null, 2), 'utf8');
+}
+
+app.get('/api/wheel-trading/signals', (req, res) => res.json(loadWheelTradingSignals()));
+
+// Yahoo Finance OHLCV genérico (mismo patrón ya usado en /api/watchlist/eval-all
+// y demás endpoints por-ticker) — daily = 1d/1y, weekly = 1wk/5y.
+async function fetchYahooOHLC(symbol, interval, range) {
+  const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`,
+    { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const j = await r.json();
+  const q = j.chart?.result?.[0]?.indicators?.quote?.[0] || {};
+  return {
+    closes: (q.close || []).filter(v => v != null),
+    highs:  (q.high  || []).filter(v => v != null),
+    lows:   (q.low   || []).filter(v => v != null),
+  };
+}
+
+async function checkWheelCandidates() {
+  try {
+    const cfg = loadWheelTradingConfig();
+    // Lista propia de candidatos si está poblada (cfg.screener.tickers) — separada
+    // del watchlist general, que no tiene por qué incluir tickers de Rueda como
+    // NU/JBLU. Si está vacía, cae al watchlist completo (comportamiento original).
+    const tickersCfg = cfg.screener?.tickers;
+    const tickers = (tickersCfg && tickersCfg.length) ? tickersCfg : (loadWatchlist().stocks || []).map(s => s.symbol);
+    if (!tickers.length) return;
+
+    const signals = loadWheelTradingSignals();
+    let nuevas = 0;
+
+    for (const symbol of tickers) {
+      try {
+        // 1. OHLCV diario y semanal
+        const [daily, weekly] = await Promise.all([
+          fetchYahooOHLC(symbol, '1d', '1y'),
+          fetchYahooOHLC(symbol, '1wk', '5y'),
+        ]);
+        if (daily.closes.length < 30 || weekly.closes.length < 30) continue;
+
+        // 2. IV Rank real (TastyTrade). NOTA: /market-data/volatility?symbols[]=X
+        // (el patrón que usa buildSPXContext para SPX) devuelve 404 — confirmado
+        // en vivo 2026-07-10, ver hallazgo en CLAUDE.md. El endpoint real es
+        // /market-metrics?symbols=X (coma, no array) con el campo
+        // implied-volatility-index-rank (decimal 0-1, no 0-100).
+        let ivRank = null;
+        try {
+          const mktData = await tt._req(`/market-metrics?symbols=${symbol}`);
+          const raw = mktData.data?.items?.[0]?.['implied-volatility-index-rank'];
+          if (raw != null) ivRank = Math.round(parseFloat(raw) * 100);
+        } catch(e) {}
+        if (ivRank == null || ivRank < cfg.screener.ivRankMin || ivRank > cfg.screener.ivRankMax) continue;
+
+        // 3. Cadena de opciones — mismo self-fetch al endpoint interno que ya
+        // usa buildSPXContext para SPX, reutilizado aquí para cualquier ticker.
+        const chainRes = await fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/${symbol}`);
+        const chainJson = await chainRes.json();
+        const expirations = chainJson.expirations || [];
+        const spotPrice = chainJson.underlyingPrice || daily.closes[daily.closes.length - 1];
+        if (!expirations.length || !spotPrice) continue;
+
+        // 4. GEX del subyacente
+        const gex = wheelTrading.calcGEX(expirations, spotPrice);
+
+        // 5. Gate técnico "3 Mundos" (diario + semanal)
+        const scoreResult = wheelTrading.calcWheelEntryScore({ daily, weekly, gex }, cfg);
+        if (!scoreResult.passed) continue;
+
+        // 6. Mejor strike/fecha por crédito por día, ya filtrando liquidez
+        const best = wheelTrading.findBestCSPStrike(expirations, cfg.screener);
+        if (!best) continue;
+
+        // Evitar duplicar la misma señal si ya hay una pendiente idéntica
+        const yaExiste = signals.some(s => s.symbol === symbol && s.strike === best.strike && s.expiry === best.expiry && s.status === 'PENDING');
+        if (yaExiste) continue;
+
+        const signal = {
+          id: `wheel-${Date.now()}-${symbol}`,
+          timestamp: new Date().toISOString(),
+          symbol,
+          strategy: 'CSP_WHEEL',
+          spotPrice,
+          strike: best.strike,
+          delta: best.delta,
+          expiry: best.expiry,
+          dte: best.dte,
+          premium: best.premium,
+          creditPerDay: best.creditPerDay,
+          ivRank,
+          gexRegime: gex.regime,
+          score: scoreResult.score,
+          minScore: scoreResult.minScore,
+          checks: scoreResult.checks,
+          status: 'PENDING',
+        };
+        signals.unshift(signal);
+        nuevas++;
+
+        console.log(`[WHEEL] Nueva señal: ${symbol} Put ${best.strike} ${best.expiry} (score ${scoreResult.score}%, crédito/día $${best.creditPerDay})`);
+
+        try {
+          await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+            method: 'POST',
+            headers: { 'Title': '🎯 Nueva señal Rueda Automatizada', 'Priority': 'default', 'Tags': 'moneybag', 'Content-Type': 'text/plain' },
+            body: `${symbol}: vender Put $${best.strike} venc. ${best.expiry} (${best.dte} DTE) — score ${scoreResult.score}%, crédito/día $${best.creditPerDay}`,
+          });
+        } catch(e) {}
+      } catch(e) {
+        console.error(`[WHEEL] Error evaluando ${symbol}:`, e.message);
+      }
+    }
+
+    if (nuevas > 0) {
+      saveWheelTradingSignals(signals.slice(0, 50));
+      console.log(`[WHEEL] Screener: ${nuevas} señal(es) nueva(s).`);
+    }
+  } catch(e) {
+    console.error('[WHEEL] Error en checkWheelCandidates:', e.message);
+  }
+}
+
+// Disparo manual — para probar sin esperar el ciclo diario (mismo espíritu
+// que POST /api/refresh).
+app.post('/api/wheel-trading/scan', async (req, res) => {
+  try {
+    await checkWheelCandidates();
+    res.json({ ok: true, signals: loadWheelTradingSignals() });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+setInterval(checkWheelCandidates, 24 * 60 * 60 * 1000); // una vez al dia — horizonte de semanas, no minutos
+
+// ── Rueda Automatizada — Fase 2: aprobar señal → colocar el CSP ──
+// El único checkpoint manual del ciclo (ver CLAUDE.md/memoria del proyecto): aprobar
+// una señal PENDING coloca la orden real de venta del Put en Tradier y la deja
+// trackeada como un ciclo abierto. Deliberadamente NO incluye todavia roll/asignación/
+// Covered Call/reinicio — eso es la Fase 3+, una vez este tramo se valide con
+// ejecuciones reales. No existe un precedente idéntico en SPX para copiar: el único
+// endpoint manual de SPX (POST /api/spx/signals/:id/action) solo cambia el status,
+// nunca coloca una orden — todo el auto-trading de SPX es 100% automático sin
+// aprobación manual.
+const WHEEL_TRADING_EXECUTIONS_FILE = path.join(DATA_DIR, 'wheel_trading_executions.json');
+function loadWheelTradingExecutions() {
+  try { return JSON.parse(fs.readFileSync(WHEEL_TRADING_EXECUTIONS_FILE, 'utf8')); } catch(e) { return []; }
+}
+function saveWheelTradingExecutions(execs) {
+  fs.writeFileSync(WHEEL_TRADING_EXECUTIONS_FILE, JSON.stringify(execs, null, 2), 'utf8');
+}
+
+app.get('/api/wheel-trading/executions', (req, res) => res.json(loadWheelTradingExecutions()));
+
+app.post('/api/wheel-trading/signals/:id/approve', async (req, res) => {
+  try {
+    const signals = loadWheelTradingSignals();
+    const idx = signals.findIndex(s => s.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Señal no encontrada' });
+    const signal = signals[idx];
+    if (signal.status !== 'PENDING') return res.status(400).json({ error: `La señal ya está en estado ${signal.status}` });
+
+    const optionSymbol = tradier.buildOccSymbol(signal.symbol, signal.expiry, 'P', signal.strike);
+
+    // Mismo criterio de seguridad que el resto del sistema (SPX): local nunca coloca
+    // órdenes reales en Tradier, comparte el mismo sandbox que producción/Railway.
+    if (!IS_PRODUCTION) {
+      console.log(`[WHEEL-APPROVE] (dry-run local) Colocaría sell_to_open ${optionSymbol} qty=1 en ${signal.symbol}.`);
+      return res.json({ ok: false, reason: 'local', message: 'En local no se ejecutan órdenes reales en Tradier (mismo sandbox que producción) — este flujo solo se ejecuta desde Railway.' });
+    }
+
+    // Cotización fresca del Put justo antes de colocar la orden — no se coloca a
+    // ciegas contra el precio (posiblemente viejo) de la señal.
+    const quotes = await tradier.getQuotes([optionSymbol]);
+    const quote = quotes[0];
+    if (!quote || !quote.bid) return res.status(500).json({ error: 'No se pudo cotizar el Put en vivo' });
+
+    const order = await tradier.placeSingleLegOrder({
+      underlyingRoot: signal.symbol, optionSymbol, side: 'sell_to_open', quantity: 1, limitPrice: quote.bid,
+    });
+
+    // Spot actual del subyacente — ancla fija del ciclo (costBasisTarget = entryPrice * 0.80,
+    // regla ya decidida con el usuario, ver memoria del proyecto).
+    let entryPrice = signal.spotPrice;
+    try {
+      const daily = await fetchYahooOHLC(signal.symbol, '1d', '5d');
+      if (daily.closes.length) entryPrice = daily.closes[daily.closes.length - 1];
+    } catch(e) {}
+
+    const execution = {
+      id: `wtex-${Date.now()}`,
+      signalId: signal.id,
+      symbol: signal.symbol,
+      timestamp: new Date().toISOString(),
+      phase: 'CSP_ACTIVA',
+      entryPrice,
+      costBasisTarget: +(entryPrice * 0.80).toFixed(4),
+      leg: { optionSymbol, strike: signal.strike, expiry: signal.expiry, side: 'sell_to_open', contracts: 1 },
+      orderId: order.orderId,
+      status: 'submitted',
+      entryFillPrice: null,
+      creditReceived: null,
+      filledAt: null,
+      notes: null,
+    };
+    const executions = loadWheelTradingExecutions();
+    executions.unshift(execution);
+    saveWheelTradingExecutions(executions);
+
+    signals[idx].status = 'APPROVED';
+    signals[idx].executionId = execution.id;
+    signals[idx].actionAt = new Date().toISOString();
+    saveWheelTradingSignals(signals);
+
+    console.log(`[WHEEL-APPROVE] ${signal.symbol}: orden ${order.orderId} colocada (sell_to_open ${optionSymbol} @ limit ${quote.bid}).`);
+    res.json({ ok: true, execution });
+  } catch(e) {
+    console.error('[WHEEL-APPROVE] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+async function checkWheelExecutionFills() {
+  if (!isMarketHours()) return;
+  try {
+    const executions = loadWheelTradingExecutions();
+    const pendientes = executions.filter(e => e.status === 'submitted');
+    if (!pendientes.length) return;
+    let cambios = false;
+
+    for (const ex of pendientes) {
+      try {
+        const order = await tradier.getOrder(ex.orderId);
+        const fillCheck = verificarFillPorPata(order, ex.leg.contracts);
+        if (fillCheck.completo) {
+          ex.status = 'filled';
+          ex.entryFillPrice = order.avg_fill_price || null;
+          ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
+          ex.filledAt = new Date().toISOString();
+          cambios = true;
+          console.log(`[WHEEL-FILL] ${ex.symbol}: orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
+        }
+        // Parcial no aplica a una pata suelta de 1 contrato (todo o nada) — sin
+        // rama de emergencia como en los multileg de SPX.
+      } catch(e) {
+        console.error(`[WHEEL-FILL] Error verificando orden ${ex.orderId}:`, e.message);
+      }
+    }
+    if (cambios) saveWheelTradingExecutions(executions);
+  } catch(e) {
+    console.error('[WHEEL-FILL] Error en checkWheelExecutionFills:', e.message);
+  }
+}
+setInterval(checkWheelExecutionFills, 30 * 1000);
+
+
+// ══════════════════════════════════════════════════════════════
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
 const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow } = require('./src/spx');

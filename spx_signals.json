@@ -1,1 +1,330 @@
-﻿[]
+[
+  {
+    "id": "spx-1783626531862",
+    "timestamp": "2026-07-09T19:48:51.862Z",
+    "symbol": "SPX",
+    "strategy": "IRON_CONDOR",
+    "strategyName": "Iron Condor (IC)",
+    "direction": "NEUTRAL",
+    "expType": "1DTE",
+    "expiry": "2026-07-10",
+    "contracts": 2,
+    "spreadWidth": 10,
+    "strikes": {
+      "expiry": "2026-07-10",
+      "shortStrike": 7475,
+      "longStrike": 7465,
+      "shortDelta": 0.124,
+      "premium": 1.75,
+      "callShortStrike": 7585,
+      "callLongStrike": 7595,
+      "callDelta": 0.126,
+      "callPremium": 1.05
+    },
+    "isCredit": true,
+    "credit": 350,
+    "debit": null,
+    "maxRisk": 1650,
+    "maxProfit": 350,
+    "probSuccess": 87.6,
+    "riskReward": 0.21,
+    "rrNote": null,
+    "context": {
+      "spxPrice": 7540.47,
+      "vix": 15.92,
+      "ivRank": 30,
+      "gammaRegime": "POSITIVO",
+      "callWall": 7550,
+      "putWall": 7475,
+      "gammaFlip": 7485,
+      "technicalStop": null,
+      "technicalStopSource": null,
+      "maxPain": 7480,
+      "etTime": "15:48"
+    },
+    "status": "PENDING",
+    "trading": {
+      "tpPct": 25,
+      "slMult": 1.5,
+      "spreadWidth": 10
+    },
+    "strategyFamily": "NEUTRAL",
+    "notes": "Revisar calendario económico de mañana antes de confirmar — el sistema no tiene fuente de eventos macro, este chequeo es manual."
+  },
+  {
+    "id": "spx-1783606592596",
+    "timestamp": "2026-07-09T14:16:32.596Z",
+    "symbol": "SPX",
+    "strategy": "BULL_PUT_SPREAD",
+    "strategyName": "Bull Put Spread (BPS)",
+    "direction": "BULLISH",
+    "expType": "0DTE",
+    "expiry": "2026-07-09",
+    "contracts": 2,
+    "spreadWidth": 5,
+    "strikes": {
+      "expiry": "2026-07-09",
+      "shortStrike": 7470,
+      "longStrike": 7465,
+      "shortDelta": 0.292,
+      "premium": 1.5
+    },
+    "isCredit": true,
+    "credit": 300,
+    "debit": null,
+    "maxRisk": 700,
+    "maxProfit": 300,
+    "probSuccess": 70.8,
+    "riskReward": 0.43,
+    "rrNote": "R:R 0.43 — fuera del rango OTM esperado (1:3-1:4), revisar antes de ejecutar",
+    "context": {
+      "spxPrice": 7488.73,
+      "vix": 16.46,
+      "ivRank": 30,
+      "gammaRegime": "POSITIVO",
+      "callWall": 7550,
+      "putWall": 7475,
+      "gammaFlip": 7485,
+      "technicalStop": null,
+      "technicalStopSource": null,
+      "maxPain": 7480,
+      "etTime": "10:16"
+    },
+    "status": "PENDING",
+    "strategyFamily": "REVERSION",
+    "playbook": {
+      "score": 82.5,
+      "passed": true,
+      "minScore": 80,
+      "checks": [
+        {
+          "id": "alejamiento_sma8",
+          "label": "Alejamiento de SMA8",
+          "weight": 50,
+          "ok": true,
+          "value": "-0.22% (tensión alta)",
+          "reason": "Precio estirado -0.22% de la SMA8 — banda \"tensión alta\" ✅"
+        },
+        {
+          "id": "patron_confirmacion",
+          "label": "Patrón de Confirmación (García/Tiburón/9)",
+          "weight": 20,
+          "ok": true,
+          "value": "VELA_9",
+          "reason": "Vela 9 Secuencial — agotamiento confirmado (9 cierres) ✅"
+        },
+        {
+          "id": "rsi",
+          "label": "RSI sobrecompra/sobreventa",
+          "weight": 10,
+          "ok": false,
+          "value": "34.8",
+          "reason": "RSI sin agotamiento (34.8) ❌"
+        },
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein 15m a favor",
+          "weight": 10,
+          "ok": true,
+          "value": "Fase2",
+          "reason": "Fase 2 confirma la tendencia de fondo ✅"
+        },
+        {
+          "id": "regimen_gex",
+          "label": "Régimen Institucional (GEX + Muro de Gamma)",
+          "weight": 10,
+          "ok": true,
+          "value": "POSITIVO + muro a 13.7pts",
+          "reason": "GEX positivo + precio a 13.7pts del muro relevante — confluencia fuerte ✅"
+        }
+      ]
+    },
+    "notes": "Alejamiento de SMA — patrón VELA_9, SMA8 7503.4037"
+  },
+  {
+    "id": "spx-1783441400834",
+    "timestamp": "2026-07-07T16:23:20.835Z",
+    "symbol": "SPX",
+    "strategy": "IRON_CONDOR",
+    "strategyName": "Iron Condor (IC)",
+    "direction": "NEUTRAL",
+    "expType": "0DTE",
+    "expiry": "2026-07-07",
+    "contracts": 1,
+    "spreadWidth": 10,
+    "strikes": {
+      "expiry": "2026-07-07",
+      "shortStrike": 7480,
+      "longStrike": 7470,
+      "shortDelta": 0.119,
+      "premium": 1.63,
+      "callShortStrike": 7535,
+      "callLongStrike": 7545,
+      "callDelta": 0.138,
+      "callPremium": 1.08
+    },
+    "isCredit": true,
+    "credit": 163,
+    "debit": null,
+    "maxRisk": 837,
+    "maxProfit": 163,
+    "probSuccess": 88.1,
+    "riskReward": 0.19,
+    "rrNote": null,
+    "context": {
+      "spxPrice": 7511.83,
+      "vix": 16.04,
+      "ivRank": 30,
+      "gammaRegime": "POSITIVO",
+      "callWall": 7550,
+      "putWall": 7475,
+      "gammaFlip": 7625,
+      "technicalStop": null,
+      "technicalStopSource": null,
+      "maxPain": 7525,
+      "etTime": "12:23"
+    },
+    "status": "EXECUTED",
+    "trading": {
+      "tpPct": 25,
+      "slMult": 1.5,
+      "spreadWidth": 10
+    },
+    "tradierOrder": {
+      "orderId": 34197205,
+      "status": "ok",
+      "legs": {
+        "putShortSym": "SPXW260707P07480000",
+        "putLongSym": "SPXW260707P07470000",
+        "callShortSym": "SPXW260707C07535000",
+        "callLongSym": "SPXW260707C07545000"
+      }
+    },
+    "notes": "Auto-ejecutado en Tradier sandbox",
+    "actionAt": "2026-07-07T16:23:21.313Z"
+  },
+  {
+    "id": "spx-1783280872841",
+    "timestamp": "2026-07-05T19:47:52.841Z",
+    "symbol": "SPX",
+    "strategy": "IRON_CONDOR",
+    "strategyName": "Iron Condor (IC)",
+    "direction": "NEUTRAL",
+    "expType": "1DTE",
+    "expiry": "2026-07-06",
+    "contracts": 1,
+    "spreadWidth": 10,
+    "strikes": {
+      "expiry": "2026-07-06",
+      "shortStrike": 7430,
+      "longStrike": 7420,
+      "shortDelta": 0.12,
+      "premium": 1.93,
+      "callShortStrike": 7550,
+      "callLongStrike": 7560,
+      "callDelta": 0.13,
+      "callPremium": 1.18
+    },
+    "isCredit": true,
+    "credit": 193,
+    "debit": null,
+    "maxRisk": 807,
+    "maxProfit": 193,
+    "probSuccess": 88,
+    "riskReward": 0.24,
+    "rrNote": null,
+    "context": {
+      "spxPrice": 7483.24,
+      "vix": 15.81,
+      "ivRank": 30,
+      "gammaRegime": "POSITIVO",
+      "callWall": 7550,
+      "putWall": 7475,
+      "gammaFlip": 7550,
+      "technicalStop": null,
+      "technicalStopSource": null,
+      "maxPain": 7475,
+      "etTime": "15:47"
+    },
+    "status": "EXECUTED",
+    "trading": {
+      "tpPct": 25,
+      "slMult": 1.5,
+      "spreadWidth": 10
+    },
+    "notes": "Revisar calendario económico de mañana antes de confirmar — el sistema no tiene fuente de eventos macro, este chequeo es manual. | Auto-ejecutado en Tradier sandbox",
+    "tradierOrder": {
+      "orderId": 33979113,
+      "status": "ok",
+      "legs": {
+        "putShortSym": "SPXW260706P07430000",
+        "putLongSym": "SPXW260706P07420000",
+        "callShortSym": "SPXW260706C07550000",
+        "callLongSym": "SPXW260706C07560000"
+      }
+    },
+    "actionAt": "2026-07-05T19:47:53.640Z"
+  },
+  {
+    "id": "spx-1783194387798",
+    "timestamp": "2026-07-04T19:46:27.798Z",
+    "symbol": "SPX",
+    "strategy": "IRON_CONDOR",
+    "strategyName": "Iron Condor (IC)",
+    "direction": "NEUTRAL",
+    "expType": "1DTE",
+    "expiry": "2026-07-05",
+    "contracts": 1,
+    "spreadWidth": 10,
+    "strikes": {
+      "expiry": "2026-07-05",
+      "shortStrike": 7430,
+      "longStrike": 7420,
+      "shortDelta": 0.12,
+      "premium": 1.93,
+      "callShortStrike": 7550,
+      "callLongStrike": 7560,
+      "callDelta": 0.13,
+      "callPremium": 1.18
+    },
+    "isCredit": true,
+    "credit": 193,
+    "debit": null,
+    "maxRisk": 807,
+    "maxProfit": 193,
+    "probSuccess": 88,
+    "riskReward": 0.24,
+    "rrNote": null,
+    "context": {
+      "spxPrice": 7483.24,
+      "vix": 15.81,
+      "ivRank": 30,
+      "gammaRegime": "POSITIVO",
+      "callWall": 7550,
+      "putWall": 7475,
+      "gammaFlip": 7550,
+      "technicalStop": null,
+      "technicalStopSource": null,
+      "maxPain": 7475,
+      "etTime": "15:46"
+    },
+    "status": "EXECUTED",
+    "trading": {
+      "tpPct": 25,
+      "slMult": 1.5,
+      "spreadWidth": 10
+    },
+    "notes": "Revisar calendario económico de mañana antes de confirmar — el sistema no tiene fuente de eventos macro, este chequeo es manual. | Auto-ejecutado en Tradier sandbox",
+    "tradierOrder": {
+      "orderId": null,
+      "status": "unknown",
+      "legs": {
+        "putShortSym": "SPXW260705P07430000",
+        "putLongSym": "SPXW260705P07420000",
+        "callShortSym": "SPXW260705C07550000",
+        "callLongSym": "SPXW260705C07560000"
+      }
+    },
+    "actionAt": "2026-07-04T19:46:28.631Z"
+  }
+]

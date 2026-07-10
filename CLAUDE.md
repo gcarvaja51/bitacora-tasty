@@ -667,6 +667,137 @@ score agregado a partir de sus checks — no implementado, señalado explícitam
 Esto es temporal y reversible — para volver al sizing por % de capital, revertir estos 4
 puntos a la fórmula `Math.max(1, Math.floor(capital*pct/(width*100)))` que usaban antes.
 
+## Rueda Automatizada (Tradier) — Fase 1: Screener + Señales (2026-07-10)
+
+Cuarto pipeline automático, **independiente** de los tres de SPX — proyecto multi-semana para
+automatizar el ciclo completo de La Rueda (CSP → asignación → Covered Call → reinicio)
+ejecutando en **Tradier** (no TastyTrade, donde vive la Rueda real de JBLU/NU/GAP/SOFI). El
+modelo completo (16 puntos: delta 0.15-0.30, DTE 30-45, cuenta margin, tope 2% por activo y 50%
+del buying power total, roll del Put al mismo strike hasta un costo base objetivo del 20% de
+descuento, selección de fecha por crédito/día, Covered Call condicional a la fase, etc.) se
+consolidó en varias sesiones de diseño con el usuario antes de escribir código. Esta es solo la
+**Fase 1**: el motor de sugerencias (screener), sin colocar ninguna orden real todavía — mismo
+patrón que el Signal Center de SPX existió antes de conectarse a Tradier.
+
+**Arquitectura:**
+- `src/wheel_trading.js` (nuevo, funciones puras, sin I/O): `calcWeinstein`/`calcFractals`
+  (extraídas del inline de `buildSPXContext` para reuso genérico), `calcEMA`/`calcMACD`
+  (estilo array-based de `spx_indicators.js`), `calcWheelEntryScore` (mismo contrato
+  `{score, passed, minScore, checks}` que `calcPlaybookScore`/`calcReversionScore`),
+  `findBestCSPStrike` (selección de strike+fecha por crédito/día, con liquidez ya filtrada).
+- `wheel_trading_config.json`/`wheel_trading_signals.json` en `DATA_DIR` — nombres deliberadamente
+  distintos de `wheel_config.json` (que ya existe para La Rueda pasiva/manual en TastyTrade,
+  ver sección arriba) para no colisionar.
+- **Universo de candidatos**: `spxConfig`... no — `cfg.screener.tickers` (lista propia de la
+  Rueda, en `wheel_trading_config.json`) si está poblada; si está vacía, cae al `watchlist.json`
+  general (`loadWatchlist()`). Arrancó 2026-07-10 con `['SOFI','NU','JBLU']` a pedido explícito
+  del usuario ("vamos a empezar con SOFI, NU, JBLU") — necesario porque el watchlist general
+  **no incluye** NU ni JBLU (esos dos solo viven en `wheel_config.json`, la Rueda pasiva). Se
+  edita desde la UI (campo de texto en el panel de configuración) o vía
+  `POST /api/wheel-trading/config` con `screener.tickers`. Migración no-destructiva en
+  `loadWheelTradingConfig()` (mismo patrón que `loadSPXConfig`) para que un config ya guardado
+  sin esta clave la reciba sin perder el resto.
+- **Gate técnico "3 Mundos"** (`calcWheelEntryScore`), a diferencia de SPX que exige confluencia
+  2m+15m (scalping intradía), acá exige confluencia **diaria + semanal** (horizonte de semanas):
+  Fase Weinstein (40%, ambos timeframes en Fase 1 o 2), GEX positivo del subyacente (15%),
+  rebote en EMA10/20 diaria o fractal de soporte diario (25%), MACD diario con pendiente (20%).
+  `minScore` default 70.
+- **Screener de liquidez/volatilidad** (antes del gate técnico, en `checkWheelCandidates()`):
+  IV Rank real 30-60, delta del Put 0.15-0.30, DTE 30-45, bid/ask <5%, open interest >500.
+- `checkWheelCandidates()` corre **una vez al día** (horizonte de semanas, no minutos) vía
+  `setInterval`, más `POST /api/wheel-trading/scan` para disparar manualmente sin esperar
+  (usado para probar). Notifica por ntfy cuando aparece una señal nueva.
+- Cadena de opciones: reutiliza el endpoint genérico `GET /api/option-chain/:symbol` (ya
+  funciona para cualquier ticker, no solo SPX) vía self-fetch a `localhost` — mismo patrón que
+  ya usa `buildSPXContext()` para la cadena de SPX.
+- UI: nueva pestaña "🎯 Rueda Automatizada" en `public/index.html`, calcada del patrón de
+  config/tabla de SPX Signal Center (`renderSPXConfig`/`toggleSPXConfig` → `renderWheelTradingConfig`/
+  `toggleWheelTradingConfig`).
+
+**Bug real encontrado durante la validación (2026-07-10) — el endpoint de IV Rank de TastyTrade
+que ya usaba el sistema SPX estaba mal y nunca funcionó:** `buildSPXContext()` (y el patrón
+copiado inicialmente para este screener) llamaba `tt._req('/market-data/volatility?symbols[]=' +
+sym)` — ese endpoint **devuelve 404** (confirmado en vivo). El `try/catch` que lo envuelve caía
+siempre al fallback hardcodeado (`ivRank = 30` para SPX) sin loguear el error de forma
+distinguible, así que nadie lo notó: `GET /api/spx/context` lleva devolviendo exactamente
+`ivRank: 30` todo este tiempo, nunca un valor real. Esto afecta lógica real de producción del
+sistema SPX que depende de IV Rank:
+- `useDebit = ctx.ivRank < icCfg.ivRankThreshold` (Iron Condor, default `ivRankThreshold: 25`) —
+  con `ivRank` fijo en 30, `30 < 25` es SIEMPRE falso → el Long Put Condor de débito **nunca se
+  ha disparado por esta vía** en la práctica.
+- `isCredit = !gammaForcesDebit && (ivRank > 30 || vix > 20)` (direccionales) — con `ivRank`
+  fijo en 30, `ivRank > 30` es SIEMPRE falso → la decisión crédito/débito ha estado gobernada
+  **solo por VIX** todo este tiempo, nunca por el IV Rank real del SPX.
+- **Endpoint correcto confirmado**: `GET /market-metrics?symbols=SYMBOL` (coma, no
+  `symbols[]=`), campo `implied-volatility-index-rank` (decimal 0-1, multiplicar por 100). Ya
+  corregido en el código nuevo de este screener (`checkWheelCandidates`). **Pendiente, señalado
+  al usuario, no corregido todavía a propósito** (fuera del alcance de esta Fase 1): aplicar el
+  mismo fix a `buildSPXContext()` en `server.js` — cambiaría el comportamiento real de un
+  sistema que ejecuta órdenes reales en producción, así que se dejó para que el usuario decida
+  cuándo desplegar ese cambio específico, en vez de mezclarlo silenciosamente con este trabajo.
+
+**Validado 2026-07-10** contra datos reales de mercado (29 tickers del watchlist): el pipeline
+completo corre sin errores end-to-end; en la corrida de validación ningún ticker pasó los 4
+checks a la vez (ej. SOFI pasó el filtro de IV Rank pero falló el gate técnico por falta de
+confluencia Fase Weinstein diaria/semanal) — resultado esperado de un gate selectivo, no un bug.
+
+**Fuera de alcance de la Fase 1 (resuelto parcialmente en la Fase 2 de abajo):** colocación real
+de órdenes en Tradier, el state machine de ciclo completo (fases CSP_ACTIVA→ASIGNADO→CC_ACTIVA→
+CERRADO, análogo a `tradier_executions.json` pero con transiciones de fase en vez de un solo
+trade), los monitores de roll/asignación/gestión de Covered Call, el switch de UI Tasty/Tradier,
+y el estimador de requisito de margin por posición. Contexto completo del diseño de las 16
+piezas del modelo en la memoria del proyecto (`wheel_automation_project.md`).
+
+## Rueda Automatizada — Fase 2: aprobar señal → colocar el CSP en Tradier (2026-07-10)
+
+El único checkpoint manual del ciclo completo (ver modelo de 16 puntos): aprobar una señal
+`PENDING` coloca la orden real de venta del Put en Tradier y la deja trackeada como un ciclo
+abierto. **No existe un precedente idéntico en SPX** — se revisó el único endpoint manual de
+SPX (`POST /api/spx/signals/:id/action`, server.js) esperando encontrar el patrón "aprobar →
+ejecutar de verdad", pero ese endpoint solo cambia `status`/`notes` de la señal, nunca coloca
+una orden (todo el auto-trading de SPX es 100% automático, sin aprobación manual). Se construyó
+combinando piezas sí existentes (colocación de órdenes, gate `IS_PRODUCTION`, confirmación de
+fill, registro de ejecución).
+
+**Arquitectura:**
+- `tradier.placeSingleLegOrder({underlyingRoot, optionSymbol, side, quantity, limitPrice})`
+  (nuevo, `src/tradier.js`) — contraparte de `closeSingleLeg` (que solo cierra); abre una pata
+  suelta (`sell_to_open`/`buy_to_open`). `limitPrice` opcional manda `type:limit,price:X` en vez
+  de `market` — mismo criterio de cautela que `minCreditPrice` del Iron Condor.
+- `wheel_trading_executions.json` (DATA_DIR) — **distinto** de `tradier_executions.json` (SPX)
+  porque el ciclo de la Rueda tiene fases que cambian en el tiempo sobre el MISMO registro
+  (`phase: CSP_ACTIVA` por ahora; `ASIGNADO`/`CC_ACTIVA`/`CERRADO` en Fase 3+), a diferencia de
+  un trade SPX que abre y cierra una vez. Registro: `{id, signalId, symbol, phase, entryPrice,
+  costBasisTarget, leg:{optionSymbol,strike,expiry,side,contracts}, orderId, status, entryFillPrice,
+  creditReceived, filledAt}`.
+- `POST /api/wheel-trading/signals/:id/approve` — 404 si no existe la señal, 400 si no está
+  `PENDING`. **Gate `IS_PRODUCTION`** (igual que los 3 pipelines de SPX): en local responde
+  `{ok:false, reason:'local'}` y no coloca nada — mismo sandbox de Tradier que producción, mismo
+  riesgo de doble-ejecución si local y Railway corrieran a la vez. Si es producción: cotiza el
+  Put en vivo (`tradier.getQuotes`), coloca la orden como limit al bid actual, fija
+  `entryPrice`/`costBasisTarget` (= `entryPrice × 0.80`, la regla del 20% de descuento ya
+  decidida) con el spot actual de Yahoo, crea el registro, marca la señal `APPROVED`.
+- `checkWheelExecutionFills()` (cada 30s en horario de mercado) — confirma el fill vía
+  `tradier.getOrder`+`verificarFillPorPata` (reutilizada sin cambios de SPX, ya soporta órdenes
+  de una sola pata en su rama `!legs.length`) → `status:'filled'`, `entryFillPrice`,
+  `creditReceived`.
+- `GET /api/wheel-trading/executions` + sección "Ciclos Activos" en la UI. Botón "✅ Aprobar e
+  iniciar ciclo" por señal `PENDING`, con `confirm()` nativo antes de llamar al endpoint (acción
+  real de dinero, aunque sea sandbox).
+- **Contratos fijos en 1** — mismo patrón ya usado para Iron Condor/Long Put Condor de débito en
+  SPX (sin estimador de requisito de margin todavía, un sizing real sería adivinar un número).
+
+**Validado 2026-07-10 (solo el gate local — la colocación real en Tradier solo se puede probar
+desplegando a Railway):** con una señal de prueba insertada a mano, `POST .../approve` respondió
+`{ok:false, reason:'local'}` sin crear ningún registro ni tocar `tradier.*`; 404/400 confirmados
+para señal inexistente / ya `APPROVED`. UI confirmada visualmente (botón "Aprobar", sección
+"Ciclos Activos" con estado vacío).
+
+**Fuera de alcance de la Fase 2 (Fase 3+):** roll del Put (mismo strike, por crédito/día, hasta
+el `costBasisTarget`), detección de asignación, fase Covered Call (condicional a la fase
+Weinstein), reinicio del ciclo, estimador real de requisito de margin, switch de UI
+Tasty/Tradier.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`
