@@ -17,11 +17,17 @@ const WHEEL_TRADING_CONFIG_DEFAULTS = {
     macd_pendiente:      20, // MACD diario alineado + pendiente a favor
   },
   screener: {
-    // Lista propia de candidatos, separada del watchlist general (que no tiene por
-    // qué incluir tickers de Rueda como NU/JBLU) y de wheel_config.json (la Rueda
-    // pasiva en TastyTrade) — vacía = usar el watchlist completo como antes; si tiene
-    // tickers, el screener evalúa SOLO esta lista. Poblada 2026-07-10 a pedido del
-    // usuario para arrancar con SOFI, NU, JBLU.
+    // Universo de candidatos = union de dos fuentes (2026-07-10):
+    // 1) finvizScreenerId: el screener de Finviz "🔄 La Rueda" ya existente en
+    //    SCREENERS (server.js) — mismo checklist que el usuario ya usaba a mano
+    //    (cap_midover, div>1%, P/E<28, beta<1.3, sobre SMA200 — muy parecido al
+    //    checklist cuantitativo de Alejandro). null/'' = no usar Finviz.
+    // 2) tickers: sugerencias manuales del trader, siempre se suman aparte (no se
+    //    pierden aunque Finviz falle o no devuelva nada) — separado del watchlist
+    //    general (que no tiene NU/JBLU) y de wheel_config.json (Rueda pasiva).
+    // Si ambas fuentes quedan vacías, cae al watchlist completo (comportamiento
+    // original de la Fase 1).
+    finvizScreenerId: 'rueda',
     tickers:          ['SOFI', 'NU', 'JBLU'],
     deltaMin:         0.15,
     deltaMax:         0.30,
@@ -236,9 +242,80 @@ function findBestCSPStrike(expirations, screenerCfg) {
   return best;
 }
 
+// ── Piso de prima mínima — 2% de rentabilidad mensual sobre el NOCIONAL
+// COMPLETO (strike×100), no sobre el requisito real de margin (decisión del
+// usuario: la vara se mide como si fuera cash-secured, aunque la cuenta
+// operativa sea margin, para no inflar artificialmente el % de retorno). ──
+function minPremiumFor(strike, dte, minMonthlyPct = 2) {
+  return strike * 100 * (minMonthlyPct / 100) * (dte / 30);
+}
+
+// ── Selección de strike inicial anclada al Fair Value (Fase 3, 2026-07-10) —
+// reemplaza la selección por rango de delta cuando hay un fair value válido:
+// el strike inicial es el más alto posible ENTRE el spot y el fair value que
+// todavía supere el piso de prima mínima (minPremiumFor). Si no hay ningún
+// strike en ese rango que lo supere, no hay entrada válida para ese ticker
+// hoy (no se fuerza una prima insuficiente). Si fairValue es null/inválido
+// (filtro de sanidad falló en el caller), usar findBestCSPStrike en su lugar. ──
+function findAnchoredCSPStrike(expirations, spotPrice, fairValue, screenerCfg) {
+  const { dteMin, dteMax, bidAskMaxPct, openInterestMin, riskPctPorActivo } = screenerCfg;
+  const minMonthlyPct = riskPctPorActivo ?? 2; // reutiliza el mismo campo de config que el piso de riesgo
+  let best = null;
+
+  for (const exp of expirations) {
+    if (exp.dte == null || exp.dte < dteMin || exp.dte > dteMax) continue;
+
+    const candidates = (exp.strikes || [])
+      .filter(s => s.put && s.strike <= spotPrice && s.strike >= fairValue)
+      .filter(s => (s.put.oi || 0) >= openInterestMin)
+      .filter(s => {
+        const bid = s.put.bid || 0, ask = s.put.ask || 0;
+        const mid = (bid + ask) / 2;
+        if (!mid) return false;
+        return ((ask - bid) / mid * 100) <= bidAskMaxPct;
+      })
+      .filter(s => (s.put.mark || 0) >= minPremiumFor(s.strike, exp.dte, minMonthlyPct) / 100);
+    if (!candidates.length) continue;
+
+    // El strike más alto (más cerca del spot) dentro de los que superan el piso —
+    // "el más alto posible entre spot y fair value que todavía pague prima razonable"
+    const s = candidates.sort((a, b) => b.strike - a.strike)[0];
+    const premium = s.put.mark || 0;
+    const creditPerDay = +(premium / exp.dte).toFixed(4);
+    if (!best || s.strike > best.strike || (s.strike === best.strike && creditPerDay > best.creditPerDay)) {
+      best = {
+        expiry: exp.expiry, dte: exp.dte, strike: s.strike, delta: s.put.delta,
+        premium, creditPerDay, bid: s.put.bid, ask: s.put.ask, oi: s.put.oi,
+      };
+    }
+  }
+  return best;
+}
+
+// ── Mejor fecha para un ROLL a un strike ya elegido — crédito por día, SIN
+// restringir a la ventana 30-45 DTE de la entrada (decisión del usuario:
+// "la evaluacion si el roll es a 1 semana, 15 dias, 3 semanas o un mes lo
+// podemos analizar dividiendo el dinero que me dan por rollear sobre los
+// dias" — se compara contra TODOS los vencimientos disponibles). ──
+function findBestRollDate(expirations, targetStrike) {
+  let best = null;
+  for (const exp of expirations) {
+    if (!exp.dte || exp.dte <= 0) continue;
+    const s = (exp.strikes || []).find(s => s.strike === targetStrike);
+    if (!s || !s.put) continue;
+    const premium = s.put.mark || 0;
+    if (premium <= 0) continue;
+    const creditPerDay = +(premium / exp.dte).toFixed(4);
+    if (!best || creditPerDay > best.creditPerDay) {
+      best = { expiry: exp.expiry, dte: exp.dte, strike: targetStrike, delta: s.put.delta, premium, creditPerDay };
+    }
+  }
+  return best;
+}
+
 module.exports = {
   WHEEL_TRADING_CONFIG_DEFAULTS,
   calcEMA, calcEMAArray, calcMACD, calcWeinstein, calcFractals,
-  calcWheelEntryScore, findBestCSPStrike,
+  calcWheelEntryScore, findBestCSPStrike, findAnchoredCSPStrike, findBestRollDate, minPremiumFor,
   calcGEX, // re-exportado por comodidad (mismo que src/spx.js)
 };

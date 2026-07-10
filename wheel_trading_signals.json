@@ -1,0 +1,56 @@
+[
+  {
+    "id": "wheel-1783689506504-CALM",
+    "timestamp": "2026-07-10T13:18:26.504Z",
+    "symbol": "CALM",
+    "strategy": "CSP_WHEEL",
+    "spotPrice": 85.35,
+    "fairValue": null,
+    "fairValueReason": "DCF se desvía 72% del spot (>65%)",
+    "strike": 80,
+    "delta": -0.29651234,
+    "expiry": "2026-08-21",
+    "dte": 42,
+    "premium": 2.55,
+    "creditPerDay": 0.0607,
+    "ivRank": 59,
+    "gexRegime": "POSITIVO",
+    "score": 75,
+    "minScore": 70,
+    "checks": [
+      {
+        "id": "fase_weinstein",
+        "label": "Fase Weinstein (diario y semanal)",
+        "weight": 40,
+        "ok": true,
+        "value": "Diario: Fase 2 ▲ | Semanal: Fase 2 ▲",
+        "reason": "Ambos marcos en acumulación/avance ✅"
+      },
+      {
+        "id": "regimen_gex",
+        "label": "GEX positivo",
+        "weight": 15,
+        "ok": true,
+        "value": "GEX: POSITIVO",
+        "reason": "Régimen GEX positivo, dealers estabilizan ✅"
+      },
+      {
+        "id": "trigger_ema_fractal",
+        "label": "Rebote en EMA10/20 o fractal de soporte",
+        "weight": 25,
+        "ok": false,
+        "value": "Precio 85.3499984741211, EMA10 82.9587, EMA20 81.1052, Fractal low 75.96",
+        "reason": "Precio lejos de EMA10/20 y del último fractal ❌"
+      },
+      {
+        "id": "macd_pendiente",
+        "label": "MACD diario alineado + pendiente",
+        "weight": 20,
+        "ok": true,
+        "value": "MACD 2.0308 vs Signal 1.3544 (3 velas atrás: 1.4652)",
+        "reason": "MACD alcista con pendiente a favor ✅"
+      }
+    ],
+    "status": "PENDING"
+  }
+]

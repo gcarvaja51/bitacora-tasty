@@ -2129,6 +2129,10 @@ function loadWheelTradingConfig() {
       saved.screener.tickers = wheelTrading.WHEEL_TRADING_CONFIG_DEFAULTS.screener.tickers;
       saveWheelTradingConfig(saved);
     }
+    if (saved?.screener && saved.screener.finvizScreenerId === undefined) {
+      saved.screener.finvizScreenerId = wheelTrading.WHEEL_TRADING_CONFIG_DEFAULTS.screener.finvizScreenerId;
+      saveWheelTradingConfig(saved);
+    }
     return saved;
   } catch(e) {
     return wheelTrading.WHEEL_TRADING_CONFIG_DEFAULTS;
@@ -2174,14 +2178,50 @@ async function fetchYahooOHLC(symbol, interval, range) {
   };
 }
 
+// ── Fair Value (DCF) — mismo proxy FMP ya usado en /api/watchlist/:symbol/fundamentals
+// (jrcdslfwrasitrvjboho.supabase.co, sin auth nueva). Filtro de sanidad (decidido con
+// el usuario 2026-07-10): un DCF negativo, o que se desvíe más del 65% del spot, no es
+// un ancla confiable (limitación conocida del modelo DCF genérico en financieras/
+// aerolíneas con estructura de capital atípica — confirmado con NU/JBLU reales).
+const FAIR_VALUE_MAX_DEVIATION_PCT = 65;
+async function fetchFairValue(symbol, spotPrice) {
+  try {
+    const r = await fetch(`https://jrcdslfwrasitrvjboho.supabase.co/functions/v1/proxy/fmp/discounted-cash-flow?symbol=${symbol}`);
+    const j = await r.json();
+    const dcf = j?.[0]?.dcf;
+    if (dcf == null || dcf <= 0) return { valid: false, value: null, reason: 'DCF negativo o no disponible' };
+    if (spotPrice > 0) {
+      const devPct = Math.abs(dcf - spotPrice) / spotPrice * 100;
+      if (devPct > FAIR_VALUE_MAX_DEVIATION_PCT) {
+        return { valid: false, value: dcf, reason: `DCF se desvía ${devPct.toFixed(0)}% del spot (>${FAIR_VALUE_MAX_DEVIATION_PCT}%)` };
+      }
+    }
+    return { valid: true, value: +dcf.toFixed(2), reason: null };
+  } catch(e) {
+    return { valid: false, value: null, reason: 'Error consultando DCF: ' + e.message };
+  }
+}
+
 async function checkWheelCandidates() {
   try {
     const cfg = loadWheelTradingConfig();
-    // Lista propia de candidatos si está poblada (cfg.screener.tickers) — separada
-    // del watchlist general, que no tiene por qué incluir tickers de Rueda como
-    // NU/JBLU. Si está vacía, cae al watchlist completo (comportamiento original).
-    const tickersCfg = cfg.screener?.tickers;
-    const tickers = (tickersCfg && tickersCfg.length) ? tickersCfg : (loadWatchlist().stocks || []).map(s => s.symbol);
+    // Universo de candidatos = union de Finviz (screener "🔄 La Rueda", el mismo
+    // checklist que el usuario ya usaba a mano) + la lista manual del trader —
+    // ver comentario de screener.finvizScreenerId en src/wheel_trading.js. Un
+    // fallo puntual de Finviz no debe tumbar el resto del screener.
+    let tickers = [];
+    if (cfg.screener?.finvizScreenerId) {
+      try {
+        const finvizRes = await fetch(`http://localhost:${process.env.PORT || 3000}/api/screener/${cfg.screener.finvizScreenerId}`);
+        const finvizTickers = await finvizRes.json();
+        if (Array.isArray(finvizTickers)) tickers.push(...finvizTickers);
+      } catch(e) {
+        console.error('[WHEEL] Error obteniendo screener Finviz:', e.message);
+      }
+    }
+    if (cfg.screener?.tickers?.length) tickers.push(...cfg.screener.tickers);
+    tickers = [...new Set(tickers)];
+    if (!tickers.length) tickers = (loadWatchlist().stocks || []).map(s => s.symbol);
     if (!tickers.length) return;
 
     const signals = loadWheelTradingSignals();
@@ -2224,8 +2264,12 @@ async function checkWheelCandidates() {
         const scoreResult = wheelTrading.calcWheelEntryScore({ daily, weekly, gex }, cfg);
         if (!scoreResult.passed) continue;
 
-        // 6. Mejor strike/fecha por crédito por día, ya filtrando liquidez
-        const best = wheelTrading.findBestCSPStrike(expirations, cfg.screener);
+        // 6. Fair Value (DCF) — ancla el strike si es confiable; si no, cae al
+        // método por delta de la Fase 1 (sin romper el comportamiento actual).
+        const fv = await fetchFairValue(symbol, spotPrice);
+        const best = fv.valid
+          ? wheelTrading.findAnchoredCSPStrike(expirations, spotPrice, fv.value, cfg.screener)
+          : wheelTrading.findBestCSPStrike(expirations, cfg.screener);
         if (!best) continue;
 
         // Evitar duplicar la misma señal si ya hay una pendiente idéntica
@@ -2238,6 +2282,8 @@ async function checkWheelCandidates() {
           symbol,
           strategy: 'CSP_WHEEL',
           spotPrice,
+          fairValue: fv.valid ? fv.value : null,
+          fairValueReason: fv.reason,
           strike: best.strike,
           delta: best.delta,
           expiry: best.expiry,
@@ -2307,6 +2353,17 @@ function saveWheelTradingExecutions(execs) {
   fs.writeFileSync(WHEEL_TRADING_EXECUTIONS_FILE, JSON.stringify(execs, null, 2), 'utf8');
 }
 
+// Mutex propio para wheel_trading_executions.json — a partir de la Fase 3 hay DOS
+// escritores periódicos (checkWheelExecutionFills + el nuevo checkWheelPutManagement)
+// más el endpoint de aprobación; mismo patrón que withExecutionsLock de SPX, pero
+// separado (archivo distinto, no tiene sentido compartir el lock con SPX).
+let wheelExecutionsLock = Promise.resolve();
+function withWheelExecutionsLock(fn) {
+  const run = wheelExecutionsLock.then(fn, fn);
+  wheelExecutionsLock = run.catch(() => {});
+  return run;
+}
+
 app.get('/api/wheel-trading/executions', (req, res) => res.json(loadWheelTradingExecutions()));
 
 app.post('/api/wheel-trading/signals/:id/approve', async (req, res) => {
@@ -2351,12 +2408,21 @@ app.post('/api/wheel-trading/signals/:id/approve', async (req, res) => {
       timestamp: new Date().toISOString(),
       phase: 'CSP_ACTIVA',
       entryPrice,
+      // costBasisTarget histórico (20% fijo) reemplazado por fairValue real como
+      // ancla de asignación — ver memoria del proyecto, punto 5c (2026-07-10).
+      // Se mantiene el campo por compatibilidad con ejecuciones viejas, pero el
+      // monitor de gestión (Fase 3) usa fairValue, no este valor, cuando existe.
       costBasisTarget: +(entryPrice * 0.80).toFixed(4),
+      fairValue: signal.fairValue ?? null,
       leg: { optionSymbol, strike: signal.strike, expiry: signal.expiry, side: 'sell_to_open', contracts: 1 },
       orderId: order.orderId,
       status: 'submitted',
       entryFillPrice: null,
       creditReceived: null,
+      totalCreditAccumulated: null, // se fija = creditReceived al llenar; cada roll neto se le suma
+      rollCount: 0,
+      readyForAssignment: false,
+      events: [],
       filledAt: null,
       notes: null,
     };
@@ -2377,7 +2443,7 @@ app.post('/api/wheel-trading/signals/:id/approve', async (req, res) => {
   }
 });
 
-async function checkWheelExecutionFills() {
+async function checkWheelExecutionFillsImpl() {
   if (!isMarketHours()) return;
   try {
     const executions = loadWheelTradingExecutions();
@@ -2393,6 +2459,7 @@ async function checkWheelExecutionFills() {
           ex.status = 'filled';
           ex.entryFillPrice = order.avg_fill_price || null;
           ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
+          ex.totalCreditAccumulated = ex.creditReceived; // arranca el acumulado de rolls
           ex.filledAt = new Date().toISOString();
           cambios = true;
           console.log(`[WHEEL-FILL] ${ex.symbol}: orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
@@ -2405,10 +2472,224 @@ async function checkWheelExecutionFills() {
     }
     if (cambios) saveWheelTradingExecutions(executions);
   } catch(e) {
-    console.error('[WHEEL-FILL] Error en checkWheelExecutionFills:', e.message);
+    console.error('[WHEEL-FILL] Error en checkWheelExecutionFillsImpl:', e.message);
   }
 }
+function checkWheelExecutionFills() { return withWheelExecutionsLock(checkWheelExecutionFillsImpl); }
 setInterval(checkWheelExecutionFills, 30 * 1000);
+
+// ══════════════════════════════════════════════════════════════
+// ── Rueda Automatizada — Fase 3: gestión activa del Put ───────
+// ══════════════════════════════════════════════════════════════
+// Roll (caminando el strike hacia el Fair Value) o dejar asignar — ver memoria
+// del proyecto (wheel_automation_project.md, puntos 5c-5f) para el diseño
+// completo ya acordado con el usuario. NO vende Covered Call ni reinicia el
+// ciclo — eso es la Fase 4, deliberadamente fuera de esta.
+const WHEEL_ROLL_MIN_DELTA   = 0.35; // trigger de defensa por delta (hasta 0.50 = ATM)
+const WHEEL_ROLL_EXTR_PCT    = 5;    // mismo % relativo que la alerta pasiva existente
+const WHEEL_ROLL_DTE_MAX     = 21;   // regla 50/21
+const WHEEL_ROLL_PROFIT_MIN  = 0.50; // 50% del crédito capturado
+const WHEEL_EMA_FAR_PCT      = 4;    // "lejos de las EMAs" para el caso defensivo
+
+async function checkWheelPutManagementImpl() {
+  if (!isMarketHours()) return;
+  try {
+    const executions = loadWheelTradingExecutions();
+    const abiertas = executions.filter(e => e.phase === 'CSP_ACTIVA' && e.status === 'filled' && !e.readyForAssignment);
+    if (!abiertas.length) return;
+    let cambios = false;
+
+    for (const ex of abiertas) {
+      try {
+        // 1. Datos en vivo: spot, cotización del leg, cadena (delta actual), barras diarias.
+        // SIN filtro de expiry — a diferencia de la entrada, el roll compara TODOS los
+        // vencimientos disponibles (decisión del usuario, ver findBestRollDate); filtrar
+        // acá dejaría un solo vencimiento y el roll terminaría comparándose contra sí mismo.
+        const [daily, quotes, chainRes] = await Promise.all([
+          fetchYahooOHLC(ex.symbol, '1d', '3mo'),
+          tradier.getQuotes([ex.leg.optionSymbol]),
+          fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/${ex.symbol}`),
+        ]);
+        const chainJson = await chainRes.json();
+        const expirations = chainJson.expirations || [];
+        const spot = chainJson.underlyingPrice || daily.closes[daily.closes.length - 1];
+        const quote = quotes[0];
+        if (!spot || !quote) { console.error(`[WHEEL-MGMT] ${ex.symbol}: sin spot/cotización, salteando`); continue; }
+
+        const currentExp = expirations.find(e => e.expiry === ex.leg.expiry) || expirations[0];
+        const currentStrikeData = (currentExp?.strikes || []).find(s => s.strike === ex.leg.strike);
+        const liveDelta = Math.abs(currentStrikeData?.put?.delta ?? 0);
+        const dte = currentExp?.dte ?? null;
+
+        // 2. Extrínseco (misma fórmula que checkExtrinsicAndNotify)
+        const intrinsic = Math.max(0, ex.leg.strike - spot);
+        const extrinsic = Math.max(0, (quote.mark || 0) - intrinsic);
+        const extrPct = ex.creditReceived > 0 ? (extrinsic / ex.creditReceived * 100) : 100;
+
+        // 3. Ganancia actual sobre el crédito recibido
+        const pnlPct = ex.creditReceived > 0 ? (1 - quote.mark / ex.creditReceived) : 0;
+
+        // 4. Triggers
+        const triggerExtr   = extrPct <= WHEEL_ROLL_EXTR_PCT;
+        const triggerDelta  = liveDelta >= WHEEL_ROLL_MIN_DELTA;
+        const triggerDte    = dte != null && dte <= WHEEL_ROLL_DTE_MAX;
+        const triggerProfit = pnlPct >= WHEEL_ROLL_PROFIT_MIN;
+        if (!triggerExtr && !triggerDelta && !triggerDte && !triggerProfit) continue;
+
+        // 5. Costo base real tras primas acumuladas
+        const costoBaseReal = ex.leg.strike - (ex.totalCreditAccumulated || ex.creditReceived || 0);
+
+        // 5a. ¿Ya llegó al Fair Value? → dejar de defender, no rolar más
+        if (ex.fairValue != null && costoBaseReal <= ex.fairValue) {
+          ex.readyForAssignment = true;
+          ex.notes = `Costo base real ($${costoBaseReal.toFixed(2)}) alcanzó el Fair Value ($${ex.fairValue}) — se deja de defender, se permite la asignación.`;
+          cambios = true;
+          console.log(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
+          continue;
+        }
+
+        // 5b. Caso defensivo — Fractal roto y precio lejos de las EMAs → mismo strike, sin piso de prima
+        const fractales = wheelTrading.calcFractals(daily.highs, daily.lows);
+        const ema20 = wheelTrading.calcEMA(daily.closes, 20);
+        const lejosDeEMA = ema20 ? Math.abs(spot - ema20) / ema20 * 100 > WHEEL_EMA_FAR_PCT : false;
+        const soporteRoto = fractales.low != null && spot < fractales.low;
+        const esDefensivo = soporteRoto && lejosDeEMA;
+
+        let targetStrike = ex.leg.strike;
+        let rollDate = null;
+        if (esDefensivo) {
+          rollDate = wheelTrading.findBestRollDate(expirations, ex.leg.strike);
+        } else {
+          // 5c. Caminata — ¿un strike más bajo (hacia el fair value) sigue superando el piso de 2%?
+          const cfg = loadWheelTradingConfig();
+          const minMonthlyPct = cfg.screener?.riskPctPorActivo ?? 2;
+          if (ex.fairValue != null) {
+            const candidatosMenores = (currentExp?.strikes || [])
+              .filter(s => s.strike < ex.leg.strike && s.strike >= ex.fairValue)
+              .sort((a, b) => b.strike - a.strike);
+            for (const cand of candidatosMenores) {
+              const rd = wheelTrading.findBestRollDate(expirations, cand.strike);
+              if (rd && rd.premium >= wheelTrading.minPremiumFor(cand.strike, rd.dte, minMonthlyPct) / 100) {
+                targetStrike = cand.strike;
+                rollDate = rd;
+                break;
+              }
+            }
+          }
+          if (!rollDate) rollDate = wheelTrading.findBestRollDate(expirations, ex.leg.strike);
+        }
+
+        if (!rollDate || rollDate.premium <= 0) {
+          ex.notes = 'Ningún strike/fecha ofrece crédito neto para rolar — requiere atención manual.';
+          cambios = true;
+          console.error(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
+          try {
+            await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+              method: 'POST',
+              headers: { 'Title': '⚠️ Rueda Automatizada — atención manual', 'Priority': 'high', 'Tags': 'warning', 'Content-Type': 'text/plain' },
+              body: `${ex.symbol}: no se encontró roll por crédito neto para el Put ${ex.leg.strike} ${ex.leg.expiry}. Revisar manualmente.`,
+            });
+          } catch(e) {}
+          continue;
+        }
+
+        // 6. Ejecutar el roll — SOLO en producción (mismo gate que el resto del sistema).
+        // En local no se toca la ejecución real, pero se deja una nota informativa (no
+        // confundir con una acción tomada) — sin esto no había forma de verificar la
+        // decisión sin ver la consola del proceso.
+        if (!IS_PRODUCTION) {
+          ex.notes = `[DRY-RUN] Rolaría ${ex.leg.strike}→${targetStrike} ${ex.leg.expiry}→${rollDate.expiry} (crédito/día $${rollDate.creditPerDay}, ${esDefensivo ? 'defensivo' : 'caminata/mismo strike'}).`;
+          cambios = true;
+          console.log(`[WHEEL-MGMT] (dry-run local) ${ex.symbol}: ${ex.notes}`);
+          continue;
+        }
+
+        const newOptionSymbol = tradier.buildOccSymbol(ex.symbol, rollDate.expiry, 'P', targetStrike);
+        const closeOrder = await tradier.closeSingleLeg({
+          underlyingRoot: ex.symbol, optionSymbol: ex.leg.optionSymbol, side: 'buy_to_close', quantity: ex.leg.contracts,
+        });
+        const closeConfirm = await tradier.getOrder(closeOrder.orderId);
+        const closeFill = verificarFillPorPata(closeConfirm, ex.leg.contracts);
+        if (!closeFill.completo) {
+          ex.notes = `Roll abortado: no se confirmó el cierre de la pata vieja (orden ${closeOrder.orderId}) — requiere atención manual.`;
+          cambios = true;
+          console.error(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
+          continue;
+        }
+        const openOrder = await tradier.placeSingleLegOrder({
+          underlyingRoot: ex.symbol, optionSymbol: newOptionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: rollDate.premium,
+        });
+
+        const netCredit = rollDate.premium - Math.abs(parseFloat(closeConfirm.avg_fill_price || 0));
+        ex.events.push({
+          date: new Date().toISOString(), type: esDefensivo ? 'ROLL_DEFENSIVO' : 'ROLL',
+          fromStrike: ex.leg.strike, fromExpiry: ex.leg.expiry,
+          toStrike: targetStrike, toExpiry: rollDate.expiry, netCredit: +netCredit.toFixed(2),
+        });
+        ex.leg = { optionSymbol: newOptionSymbol, strike: targetStrike, expiry: rollDate.expiry, side: 'sell_to_open', contracts: ex.leg.contracts };
+        ex.orderId = openOrder.orderId;
+        ex.status = 'submitted'; // checkWheelExecutionFills confirma el fill de la pata nueva
+        ex.rollCount = (ex.rollCount || 0) + 1;
+        ex.totalCreditAccumulated = (ex.totalCreditAccumulated || 0) + netCredit;
+        cambios = true;
+        console.log(`[WHEEL-MGMT] ${ex.symbol}: roll #${ex.rollCount} ejecutado ${targetStrike}@${rollDate.expiry} (crédito neto $${netCredit.toFixed(2)}).`);
+      } catch(e) {
+        console.error(`[WHEEL-MGMT] Error gestionando ${ex.symbol}:`, e.message);
+      }
+    }
+    if (cambios) saveWheelTradingExecutions(executions);
+  } catch(e) {
+    console.error('[WHEEL-MGMT] Error en checkWheelPutManagementImpl:', e.message);
+  }
+}
+function checkWheelPutManagement() { return withWheelExecutionsLock(checkWheelPutManagementImpl); }
+setInterval(checkWheelPutManagement, 5 * 60 * 1000);
+
+// Chequeo pasivo mínimo de vencimiento/asignación — una vez que se decidió dejar de
+// defender (readyForAssignment) o el DTE llega a 0, confirma si el broker ya asignó
+// las acciones o si expiró sin valor. NO vende Covered Call ni reinicia el ciclo — Fase 4.
+async function checkWheelExpiryImpl() {
+  try {
+    const executions = loadWheelTradingExecutions();
+    const candidatas = executions.filter(e => e.phase === 'CSP_ACTIVA' && e.status === 'filled' && new Date(e.leg.expiry) <= new Date());
+    if (!candidatas.length) return;
+    let cambios = false;
+    const positions = await tradier.getPositions();
+
+    for (const ex of candidatas) {
+      const opcionAbierta = positions.some(p => p.symbol === ex.leg.optionSymbol);
+      if (opcionAbierta) continue; // todavía no venció/se resolvió
+      const acciones = positions.find(p => p.symbol === ex.symbol && parseFloat(p.quantity || 0) > 0);
+      if (acciones) {
+        ex.phase = 'ASIGNADO';
+        ex.notes = `Asignado el ${new Date().toISOString().slice(0,10)} — ${acciones.quantity} acciones.`;
+        console.log(`[WHEEL-EXPIRY] ${ex.symbol}: ${ex.notes}`);
+      } else {
+        ex.phase = 'CERRADO';
+        ex.status = 'closed';
+        ex.notes = 'Expiró sin valor (OTM) — ciclo cerrado sin asignación.';
+        console.log(`[WHEEL-EXPIRY] ${ex.symbol}: ${ex.notes}`);
+      }
+      cambios = true;
+    }
+    if (cambios) saveWheelTradingExecutions(executions);
+  } catch(e) {
+    console.error('[WHEEL-EXPIRY] Error en checkWheelExpiryImpl:', e.message);
+  }
+}
+function checkWheelExpiry() { return withWheelExecutionsLock(checkWheelExpiryImpl); }
+setInterval(checkWheelExpiry, 30 * 60 * 1000); // cada 30 min — solo importa el dia del vencimiento
+
+// Disparo manual del monitor de gestión — mismo espíritu que POST /api/wheel-trading/scan,
+// para poder probar sin esperar el ciclo de 5 minutos.
+app.post('/api/wheel-trading/executions/check-management', async (req, res) => {
+  try {
+    await checkWheelPutManagement();
+    res.json({ ok: true, executions: loadWheelTradingExecutions() });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 
 // ══════════════════════════════════════════════════════════════
@@ -3744,13 +4025,21 @@ async function checkIronCondorTPSLImpl() {
             quantity:        ex.contracts,
           });
         }
-        ex.status      = 'closed';
-        ex.closedAt    = new Date().toISOString();
-        ex.pnl         = +(pnlActual * 100 * ex.contracts).toFixed(2);
-        ex.pnlSource   = 'tp_sl_auto';
-        ex.closeReason = cerrarPor;
+        // Bug real encontrado 2026-07-10: acá se grababa pnlActual (calculado con la
+        // cotizacion de ANTES de cerrar, solo para decidir si disparar el TP/SL) como si
+        // fuera el P&L final — si esa cotizacion venia distorsionada (mercado recien
+        // abierto, poca liquidez), quedaba un numero mal grabado para siempre aunque el
+        // cierre real fuera casi break-even (caso real: -$1590 grabado vs -$10 real segun
+        // getClosedPnl y los fills reales de la orden, confirmado a mano). Fix: NO marcar
+        // status='closed' aca ni grabar ningun pnl todavia — se deja 'filled' a proposito
+        // para que checkTradierExecutions (reconciliacion pasiva, corre cada 5 min) lo
+        // detecte como "posicion que ya no esta" en su proximo ciclo y traiga el P&L REAL
+        // desde tradier.getClosedPnl (la logica que ya tiene el fix de doble-conteo del
+        // 2026-07-09) — mismo mecanismo que ya usan los cierres puramente manuales, en vez
+        // de inventar una confirmacion de fill propia con una convencion de signos incierta.
+        ex.closeReason = cerrarPor; // la reconciliacion pasiva lo respeta (ex.closeReason || 'MANUAL')
         cambios = true;
-        console.log(`[Tradier-IC-TPSL] ✅ Cerrado por ${cerrarPor} — P&L: $${ex.pnl}`);
+        console.log(`[Tradier-IC-TPSL] Orden de cierre enviada por ${cerrarPor} — P&L real pendiente (lo completa la reconciliación pasiva en ≤5 min; estimado pre-cierre habia sido $${(pnlActual*100*ex.contracts).toFixed(2)}).`);
       } catch(e) {
         console.error(`[Tradier-IC-TPSL] ❌ Error cerrando ${ex.orderId}:`, e.message);
       }
@@ -3907,13 +4196,14 @@ async function checkDirectionalTPSLImpl() {
           longStrike:     ex.strikes.longStrike,
           quantity:       ex.contracts,
         });
-        ex.status      = 'closed';
-        ex.closedAt    = new Date().toISOString();
-        ex.pnl         = +(pnlActual * 100 * ex.contracts).toFixed(2);
-        ex.pnlSource   = 'tp_sl_auto';
+        // Mismo fix que checkIronCondorTPSLImpl (2026-07-10, ver comentario ahí para el
+        // caso real que lo motivó): NO marcar status='closed' ni grabar pnl acá — se deja
+        // 'filled' a propósito para que checkTradierExecutions (reconciliación pasiva,
+        // cada 5 min) traiga el P&L REAL desde tradier.getClosedPnl en vez de confiar en
+        // la cotización de antes de cerrar (que solo sirve para decidir el trigger).
         ex.closeReason = cerrarPor;
         cambios = true;
-        console.log(`[Tradier-DIR-TPSL] ✅ Cerrado por ${cerrarPor} — P&L: $${ex.pnl}`);
+        console.log(`[Tradier-DIR-TPSL] Orden de cierre enviada por ${cerrarPor} — P&L real pendiente (lo completa la reconciliación pasiva en ≤5 min; estimado pre-cierre habia sido $${(pnlActual*100*ex.contracts).toFixed(2)}).`);
       } catch(e) {
         console.error(`[Tradier-DIR-TPSL] ❌ Error cerrando ${ex.orderId}:`, e.message);
       }
@@ -4234,13 +4524,14 @@ async function checkAlejamientoSMATPSLImpl() {
           longStrike:     ex.strikes.longStrike,
           quantity:       ex.contracts,
         });
-        ex.status      = 'closed';
-        ex.closedAt    = new Date().toISOString();
+        // Bug real encontrado 2026-07-10 (misma familia que el fix de IC/direccional,
+        // ver comentario en checkIronCondorTPSLImpl): acá se marcaba status='closed' de
+        // inmediato con pnlSource='precio_spx_auto', pero NINGÚN código calculaba el pnl
+        // después — checkTradierExecutions (la reconciliación pasiva que sí trae el P&L
+        // real de getClosedPnl) solo mira status='filled', nunca 'closed', así que el
+        // P&L de esta estrategia se quedaba en null para siempre. Fix: dejar 'filled' a
+        // propósito para que la reconciliación pasiva lo complete en su próximo ciclo.
         ex.closeReason = cerrarPor;
-        // P&L real se completa despues via checkTradierExecutions (reconciliacion
-        // pasiva con tradier.getClosedPnl), igual que ya pasa hoy para posiciones
-        // que "desaparecen" sin que un monitor activo haya calculado el numero.
-        ex.pnlSource   = 'precio_spx_auto';
         cambios = true;
         console.log(`[Tradier-REV-TPSL] ✅ Cerrado por ${cerrarPor} — orden ${ex.orderId}`);
       } catch(e) {

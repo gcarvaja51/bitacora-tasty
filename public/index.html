@@ -6161,14 +6161,19 @@ function renderWheelTradingConfig(cfg) {
 
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
       <div style="margin-bottom:14px;">
-        <div style="font-size:11px;color:var(--text);margin-bottom:4px;">Tickers candidatos (vacío = usar todo el watchlist)</div>
+        <div style="font-size:11px;color:var(--text);margin-bottom:4px;">Screener de Finviz (id en SCREENERS — vacío = no usar Finviz)</div>
+        <input type="text" id="wt-finviz-input" value="${cfg.screener.finvizScreenerId||''}"
+          placeholder="rueda"
+          onchange="updateWheelTradingConfig('finvizScreenerId', this.value.trim())"
+          style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--bright);font-family:var(--mono);font-size:12px;margin-bottom:10px;">
+        <div style="font-size:11px;color:var(--text);margin-bottom:4px;">Tickers manuales adicionales (se suman al screener de Finviz)</div>
         <input type="text" id="wt-tickers-input" value="${(cfg.screener.tickers||[]).join(', ')}"
           placeholder="ej: SOFI, NU, JBLU"
           onchange="updateWheelTradingConfig('tickers', this.value)"
           style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--bright);font-family:var(--mono);font-size:12px;">
       </div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:12px;letter-spacing:.06em;">PARÁMETROS DEL SCREENER</div>
-      ${Object.entries(cfg.screener).filter(([k]) => k !== 'tickers').map(([k,v]) => `
+      ${Object.entries(cfg.screener).filter(([k]) => k !== 'tickers' && k !== 'finvizScreenerId').map(([k,v]) => `
         <div style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
             <span style="font-size:11px;color:var(--text);">${screenerLabels[k]||k}</span>
@@ -6205,6 +6210,7 @@ function updateWheelTradingConfig(type, value, key) {
   if (type === 'weight' && key) wheelTradingConfig.weights[key] = value;
   if (type === 'screener' && key) wheelTradingConfig.screener[key] = value;
   if (type === 'tickers') wheelTradingConfig.screener.tickers = value.split(',').map(t=>t.trim().toUpperCase()).filter(Boolean);
+  if (type === 'finvizScreenerId') wheelTradingConfig.screener.finvizScreenerId = value || null;
 }
 
 async function saveWheelTradingConfig() {

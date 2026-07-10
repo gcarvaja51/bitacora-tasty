@@ -688,15 +688,16 @@ patrón que el Signal Center de SPX existió antes de conectarse a Tradier.
 - `wheel_trading_config.json`/`wheel_trading_signals.json` en `DATA_DIR` — nombres deliberadamente
   distintos de `wheel_config.json` (que ya existe para La Rueda pasiva/manual en TastyTrade,
   ver sección arriba) para no colisionar.
-- **Universo de candidatos**: `spxConfig`... no — `cfg.screener.tickers` (lista propia de la
-  Rueda, en `wheel_trading_config.json`) si está poblada; si está vacía, cae al `watchlist.json`
-  general (`loadWatchlist()`). Arrancó 2026-07-10 con `['SOFI','NU','JBLU']` a pedido explícito
-  del usuario ("vamos a empezar con SOFI, NU, JBLU") — necesario porque el watchlist general
-  **no incluye** NU ni JBLU (esos dos solo viven en `wheel_config.json`, la Rueda pasiva). Se
-  edita desde la UI (campo de texto en el panel de configuración) o vía
-  `POST /api/wheel-trading/config` con `screener.tickers`. Migración no-destructiva en
-  `loadWheelTradingConfig()` (mismo patrón que `loadSPXConfig`) para que un config ya guardado
-  sin esta clave la reciba sin perder el resto.
+- **Universo de candidatos**: unión de dos fuentes (2026-07-10) — `cfg.screener.finvizScreenerId`
+  (default `'rueda'`, el screener de Finviz "🔄 La Rueda" ya existente en `SCREENERS`,
+  `server.js` ~1412 — mismo checklist que el usuario ya usaba a mano: cap_midover, div>1%,
+  P/E<28, beta<1.3, sobre SMA200; se resuelve vía self-fetch a `GET /api/screener/:id`, ya
+  genérico) **más** `cfg.screener.tickers` (lista manual, arrancó con `['SOFI','NU','JBLU']` a
+  pedido del usuario — necesario porque el watchlist general no incluye NU/JBLU, que solo viven
+  en `wheel_config.json` de la Rueda pasiva). Ambas se unen y deduplican; si las dos quedan
+  vacías, cae al `watchlist.json` general. Editable desde la UI (dos campos de texto en el
+  panel de configuración) o `POST /api/wheel-trading/config`. Migración no-destructiva en
+  `loadWheelTradingConfig()` (mismo patrón que `loadSPXConfig`) para ambas claves.
 - **Gate técnico "3 Mundos"** (`calcWheelEntryScore`), a diferencia de SPX que exige confluencia
   2m+15m (scalping intradía), acá exige confluencia **diaria + semanal** (horizonte de semanas):
   Fase Weinstein (40%, ambos timeframes en Fase 1 o 2), GEX positivo del subyacente (15%),
@@ -797,6 +798,106 @@ para señal inexistente / ya `APPROVED`. UI confirmada visualmente (botón "Apro
 el `costBasisTarget`), detección de asignación, fase Covered Call (condicional a la fase
 Weinstein), reinicio del ciclo, estimador real de requisito de margin, switch de UI
 Tasty/Tradier.
+
+## Rueda Automatizada — Fase 3: Fair Value + gestión activa del Put (2026-07-10)
+
+Traduce a código el modelo de "etapa de posicionamiento" diseñado con el usuario en varias
+sesiones (fair value real como ancla de asignación en vez del 20% fijo, caminar el strike hacia
+abajo, triggers de roll, excepción defensiva, siempre por crédito neto).
+
+- **Fair Value (DCF)**: `fetchFairValue(symbol, spotPrice)` (`server.js`) — mismo proxy FMP ya
+  usado en `/api/watchlist/:symbol/fundamentals`
+  (`https://jrcdslfwrasitrvjboho.supabase.co/functions/v1/proxy/fmp/discounted-cash-flow?symbol=X`
+  → `{dcf, "Stock Price"}`, sin auth nueva). Filtro de sanidad: descarta si el DCF es negativo o
+  se desvía más del **65%** del spot (confirmado con datos reales: SOFI válido $17.81 vs spot
+  $18.62; NU rechazado, DCF $64 = 4.7x el spot; JBLU rechazado, DCF negativo).
+- **Selección de strike anclada**: `wheelTrading.findAnchoredCSPStrike(expirations, spotPrice,
+  fairValue, screenerCfg)` (`src/wheel_trading.js`) — el strike más alto entre spot y fair value
+  que supere el piso de prima mínima (`minPremiumFor`, 2% mensual sobre el **nocional completo**
+  strike×100, no sobre el margin real — decisión explícita del usuario). Si el fair value no es
+  válido, cae a `findBestCSPStrike` (delta 0.15-0.30, Fase 1) sin romper el comportamiento
+  anterior — confirmado con CALM real (DCF rechazado por 72% de desviación, cayó correctamente
+  al método por delta).
+- **Selección de fecha al rolar**: `wheelTrading.findBestRollDate(expirations, targetStrike)` —
+  crédito/día **sin restringir a 30-45 DTE** (esa ventana es solo para la entrada; al rolar se
+  compara contra TODOS los vencimientos disponibles, decisión explícita del usuario con su
+  ejemplo de 1 semana vs 2 semanas vs 1 mes).
+- **`checkWheelPutManagementImpl()`** (cada 5 min, `isMarketHours()`) — para cada
+  `phase:'CSP_ACTIVA'`: evalúa 4 triggers (extrínseco ≤5% del crédito original — el usuario
+  rechazó explícitamente el piso absoluto de $5 de Alejandro porque se opera con acciones de
+  precios muy distintos; delta ≥0.35 hasta 0.50; DTE≤21; ganancia≥50-70%). Si dispara: (a) si
+  costo base real ≤ fair value → `readyForAssignment=true`, deja de defender; (b) si Fractal de
+  soporte roto y precio lejos de EMA20 (>4%) → roll defensivo al MISMO strike sin exigir el piso
+  de prima; (c) si no, camina el strike hacia el fair value mientras siga superando el piso;
+  (d) si ningún strike/fecha da crédito neto, no rola (ntfy de atención manual, nunca fuerza un
+  débito — el Jade Lizard subsidiado queda diferido a una fase futura, decisión del usuario).
+- **Bug real encontrado durante la implementación**: el fetch de la cadena de opciones para el
+  roll estaba filtrado a `?expiry=${ex.leg.expiry}` — solo la expiración actual — por lo que
+  `findBestRollDate` terminaba comparando el roll contra sí mismo (sin otras fechas
+  disponibles). Corregido quitando el filtro (la entrada sí necesita 30-45 DTE, pero el roll
+  necesita ver TODAS las expiraciones); confirmado con CALM real (4 vencimientos reales, el
+  monitor eligió correctamente entre ellos tras el fix).
+- **Ejecución del roll**: `tradier.closeSingleLeg` (pata vieja) → confirma fill →
+  `tradier.placeSingleLegOrder` (pata nueva, nuevo método, contraparte de `closeSingleLeg` que
+  solo cerraba) — gateado por `IS_PRODUCTION` igual que el resto del sistema; en local deja una
+  nota `[DRY-RUN]` informativa en vez de no hacer nada silenciosamente (necesario para poder
+  verificar la decisión sin ver la consola del proceso).
+- Mutex propio `withWheelExecutionsLock` (mismo patrón que SPX) — ahora hay 3 escritores
+  periódicos de `wheel_trading_executions.json` (fills, gestión, vencimiento pasivo
+  `checkWheelExpiryImpl`, cada 30 min).
+- **Universo de candidatos ampliado**: se conectó el screener de Finviz "🔄 La Rueda" ya
+  existente (`SCREENERS.rueda`, `server.js`) vía `GET /api/screener/:id`, unido con la lista
+  manual (`SOFI, NU, JBLU`) — validado con datos reales: 60+ tickers de Finviz produjeron una
+  señal real (CALM, score 75%, cayó a delta porque su DCF se desvía 72% del spot).
+- **Validado 2026-07-10**: filtro de sanidad del DCF, `findAnchoredCSPStrike` con fallback, y el
+  monitor de gestión completo con una ejecución sintética (CALM strike 85, delta real 0.44 —
+  disparó el trigger, evaluó la caminata sobre los 4 vencimientos reales, no encontró un strike
+  más bajo que superara el piso, cayó al strike actual — todo en modo dry-run, sin tocar
+  Tradier).
+- **Fuera de alcance (Fase 4+)**: detección real de asignación más allá del check pasivo mínimo
+  ya incluido (`checkWheelExpiryImpl`: revisa posiciones en Tradier el día de expiración, marca
+  `ASIGNADO`/`CERRADO`), venta de la Covered Call, reinicio del ciclo, estimador de margin
+  (contratos fijos en 1), switch de UI Tasty/Tradier.
+
+## Bug real en los 3 monitores de TP/SL de SPX — P&L grabado con la cotización equivocada (2026-07-10)
+
+**Caso real que lo destapó**: un Iron Condor 1DTE cerró por SL con **-$1590** grabado en el
+sistema. Al reconstruir la operación con las órdenes reales de Tradier (fills de entrada, fills
+de cierre, y `tradier.getClosedPnl`, las 3 fuentes coincidiendo), el resultado real fue
+**-$10** — casi break-even. El usuario confirmó que Tradier mismo mostró brevemente un número
+similar al grabado (~$1490) que luego se corrigió solo, señal de que fue un valor transitorio
+(mercado recién abierto, poca liquidez) que nuestro sistema capturó y dejó grabado para
+siempre.
+
+**Causa raíz**: `checkIronCondorTPSLImpl` y `checkDirectionalTPSLImpl` calculan `pnlActual` con
+las cotizaciones vivas de **antes** de cerrar (necesario para decidir si el TP/SL debe
+disparar), pero luego usaban ese mismo número estimado como el P&L final grabado —
+`ex.pnl = pnlActual*100*contracts` — en vez de confirmar el precio de cierre real.
+
+**Segundo bug relacionado, en los 3 monitores**: al intentar arreglarlo copiando el patrón que
+ya usa `checkAlejamientoSMATPSLImpl` ("dejar el P&L pendiente para la reconciliación pasiva"),
+se descubrió que ese patrón **tampoco funcionaba**: `checkTradierExecutionsImpl` (la
+reconciliación pasiva que trae el P&L real vía `getClosedPnl`) solo procesa registros con
+`status==='filled'` — nunca `'closed'`. Los 3 monitores activos marcaban `status='closed'`
+inmediatamente al cerrar, así que ninguno de los tres quedaba disponible para que la
+reconciliación pasiva los completara — para Alejamiento de SMA esto significaba que el P&L de
+sus cierres automáticos (`pnlSource: 'precio_spx_auto'`) se quedaba en `null` **para siempre**,
+sin que nadie lo notara.
+
+**Fix aplicado a los 3 monitores** (`checkIronCondorTPSLImpl`, `checkDirectionalTPSLImpl`,
+`checkAlejamientoSMATPSLImpl`): al cerrar por TP/SL, ya NO se marca `status='closed'` ni se
+graba ningún `pnl` en el momento — se coloca la orden de cierre real, se guarda `closeReason`, y
+se deja el registro en `status='filled'` a propósito. `checkTradierExecutions` (corre cada 5
+min en horario de mercado) lo detecta como "posición que ya no está" en su siguiente ciclo y
+completa el P&L real desde `tradier.getClosedPnl` — mismo mecanismo ya usado y ya arreglado
+(fix de doble-conteo del 2026-07-09) para cierres manuales, reutilizado en vez de inventar una
+confirmación de fill propia con una convención de signos incierta de Tradier. Costo: hasta 5 min
+de retraso en ver el P&L final en el dashboard (antes aparecía al instante, pero podía estar
+gravemente mal).
+
+**Registro corregido a mano**: el Iron Condor de -$1590 se corrigió a -$10 vía
+`POST /api/tradier/executions/:id/patch` (mismo endpoint usado para el caso anterior de
+doble-conteo, $340→$100).
 
 ## Notificaciones
 
