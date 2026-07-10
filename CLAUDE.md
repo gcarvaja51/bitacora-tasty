@@ -859,6 +859,71 @@ abajo, triggers de roll, excepción defensiva, siempre por crédito neto).
   `ASIGNADO`/`CERRADO`), venta de la Covered Call, reinicio del ciclo, estimador de margin
   (contratos fijos en 1), switch de UI Tasty/Tradier.
 
+## Rueda Automatizada — Fase 4: Covered Call, gestión y reinicio del ciclo (2026-07-10)
+
+Cierra el ciclo completo: una vez asignadas las acciones de verdad, vende la Covered Call
+(segundo acto de la Rueda, playbook Alejandro), la gestiona mientras está abierta, y reinicia
+el ciclo automáticamente — sin ningún checkpoint manual nuevo (el único sigue siendo la
+aprobación inicial de la Fase 2).
+
+**Diferencia clave frente al Put**: ser asignado en una Call SIEMPRE es un resultado favorable
+(regla del break-even — nunca se vende por debajo del costo base), a diferencia del Put, donde
+la asignación es algo que se defiende hasta que conviene. Por eso el roll de la Call no tiene
+lógica de "defender" — si se puede rolar hacia arriba/adelante por crédito neto, se hace (para
+capturar más ganancia); si no, simplemente se deja expirar (asignación o vencimiento sin valor,
+ambos aceptables) — mismo "nunca pagar por rolar" del resto del sistema, sin excepción.
+
+- **`wheelTrading.findCoveredCallStrike(expirations, spotPrice, costBasis, weinsteinPhase,
+  screenerCfg)`** — filtra SIEMPRE `strike > costBasis` (regla sagrada, sin excepción). Fase
+  Weinstein **diaria** (decisión primaria, no exige confluencia semanal como el gate de entrada
+  — reacciona más rápido). Si Fase 4 (bajista): vencimientos semanales (5-10 DTE), delta
+  0.25-0.35 (prima agresiva, cerca del precio). Si no (1/2/3): vencimientos 30-45 DTE, delta
+  ~0.15 (bien OTM, deja correr la revalorización).
+- **`wheelTrading.findBestRollDate`** generalizado con un parámetro `optType` (antes
+  hardcodeado a Put) — mismo crédito/día sin restricción de ventana, ahora reutilizable para
+  Calls.
+- **Bug real encontrado al construir el fallback "relajado" de `findCoveredCallStrike`**: el
+  filtro de bid/ask (5%, mismo que usa la entrada del Put) rechaza casi cualquier call barata
+  y OTM (un spread de $0.70/$1.00 = 35%, normal en un contrato de menos de $1, no un problema
+  de liquidez real). El fallback original elegía "el strike más bajo disponible en CUALQUIER
+  vencimiento" sin exigir la ventana de DTE — con datos reales de CALM (spot $88, costBasis
+  $75) esto elegía un strike de **$80 a 7 DTE, delta 0.91** (¡profundamente ITM!) en vez de
+  algo razonable. Corregido: el fallback se queda en la MISMA ventana de DTE (según la fase) y
+  elige el strike más cercano al delta objetivo, solo relajando el filtro de bid/ask — con los
+  mismos datos reales ahora elige correctamente **$100 a 42 DTE, delta 0.16** (bien OTM, como
+  se esperaba).
+- **`checkWheelExpiryImpl`** (Fase 3) extendido con dos ramas nuevas: (B) `CC_ACTIVA` vencida →
+  `CERRADO` (acciones ya no están = ejercida, ciclo completo con ganancia) o `ASIGNADO` de
+  nuevo (acciones siguen = expiró sin valor, vender otra Call — **esta transición ES el
+  reinicio del ciclo**, no hace falta código aparte porque `checkWheelCandidates` ya vuelve a
+  considerar cualquier ticker sin filtrar por historial); (C) `ASIGNADO` sin Call activa →
+  calcula costo base real, trae Fase Weinstein, llama `findCoveredCallStrike`, vende la Call
+  (`placeSingleLegOrder`, mismo patrón de Fase 2-3) y transiciona a `CC_ACTIVA`.
+- **`checkWheelCallManagementImpl()`** (nuevo, cada 5 min) — mismos 4 triggers que el Put
+  (extrínseco ≤5%, delta ≥0.35 hasta 0.50, DTE≤21, ganancia≥50-70%), pero la decisión es
+  distinta: busca un strike MÁS ALTO que dé crédito neto ≥0 (nunca hacia abajo — violaría el
+  break-even más fácilmente); si lo encuentra, rola (mismo patrón de dos pasos —
+  `closeSingleLeg`+`placeSingleLegOrder` — que el Put); si no, no hace nada (sin nota, sin
+  ntfy — no es un problema, es el resultado esperado cuando ningún roll es económicamente
+  sensato).
+- **Segundo bug real, en el manejo del acumulado de primas** (`checkWheelExecutionFillsImpl`,
+  compartido por todas las fases): sobreescribía `ex.totalCreditAccumulated =
+  ex.creditReceived` en CADA fill confirmado — no solo en la entrada inicial — borrando el
+  acumulado que los rolls (Put y ahora Call) ya habían incrementado ellos mismos al decidir el
+  roll. Esto ya afectaba silenciosamente a la Fase 3 (los rolls de Put nunca acumulaban de
+  verdad más de un ciclo). Corregido: solo se inicializa si `totalCreditAccumulated` es `null`
+  (la primera vez); los rolls y la venta inicial de la Call ahora suman su propia prima
+  explícitamente (`ex.totalCreditAccumulated = (ex.totalCreditAccumulated||0) + premium`) antes
+  de volver a `status:'submitted'`.
+- **Validado 2026-07-10** con ejecuciones sintéticas en modo dry-run (sin tocar Tradier,
+  `IS_PRODUCTION` falso en local): transición `ASIGNADO`→`CC_ACTIVA` con datos reales de CALM
+  (encontró correctamente el strike $100 bien OTM); gestión de una Call profundamente ITM
+  (trigger de delta disparó, 8 strikes candidatos evaluados, ninguno dio crédito neto — se
+  dejó correctamente sin acción, comportamiento esperado).
+- **Fuera de alcance (Fase 5+)**: Jade Lizard/débito subsidiado (ya diferido), estimador de
+  margin (contratos fijos en 1), switch de UI Tasty/Tradier, afinar la regla de "rolls de 1
+  semana" en su forma específica para la gestión semanal de la Call en Fase 4 bajista.
+
 ## Bug real en los 3 monitores de TP/SL de SPX — P&L grabado con la cotización equivocada (2026-07-10)
 
 **Caso real que lo destapó**: un Iron Condor 1DTE cerró por SL con **-$1590** grabado en el

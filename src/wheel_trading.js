@@ -296,18 +296,94 @@ function findAnchoredCSPStrike(expirations, spotPrice, fairValue, screenerCfg) {
 // restringir a la ventana 30-45 DTE de la entrada (decisión del usuario:
 // "la evaluacion si el roll es a 1 semana, 15 dias, 3 semanas o un mes lo
 // podemos analizar dividiendo el dinero que me dan por rollear sobre los
-// dias" — se compara contra TODOS los vencimientos disponibles). ──
-function findBestRollDate(expirations, targetStrike) {
+// dias" — se compara contra TODOS los vencimientos disponibles). optType
+// generalizado en la Fase 4 (antes hardcodeado a Put) para reutilizar la misma
+// función al rolar la Covered Call. ──
+function findBestRollDate(expirations, targetStrike, optType = 'P') {
+  const key = optType === 'C' ? 'call' : 'put';
   let best = null;
   for (const exp of expirations) {
     if (!exp.dte || exp.dte <= 0) continue;
     const s = (exp.strikes || []).find(s => s.strike === targetStrike);
-    if (!s || !s.put) continue;
-    const premium = s.put.mark || 0;
+    if (!s || !s[key]) continue;
+    const premium = s[key].mark || 0;
     if (premium <= 0) continue;
     const creditPerDay = +(premium / exp.dte).toFixed(4);
     if (!best || creditPerDay > best.creditPerDay) {
-      best = { expiry: exp.expiry, dte: exp.dte, strike: targetStrike, delta: s.put.delta, premium, creditPerDay };
+      best = { expiry: exp.expiry, dte: exp.dte, strike: targetStrike, delta: s[key].delta, premium, creditPerDay };
+    }
+  }
+  return best;
+}
+
+// ── Selección del strike de la Covered Call inicial — Fase 4 del playbook
+// Alejandro (decidido con el usuario, ver memoria del proyecto punto 7):
+// SIEMPRE por encima del costo base real (regla sagrada, sin excepción). Si
+// la Fase Weinstein (diaria+semanal) es 4 (bajista): vencimientos semanales
+// (5-10 DTE), strike cerca del precio (delta 0.25-0.35) — prima agresiva
+// mientras la acción cae. Si no (fases 1/2/3): vencimientos 30-45 DTE, strike
+// bien OTM (delta ~0.15) — deja correr la revalorización antes de entregar
+// las acciones. Si ningún strike en esas ventanas supera el costBasis, se
+// relaja al strike más bajo disponible que sí lo supere (siempre hay que
+// respetar la regla del break-even, pero no hay por qué exigir además la
+// ventana de DTE/delta ideal si el costo base ya bajó mucho por primas). ──
+function findCoveredCallStrike(expirations, spotPrice, costBasis, weinsteinPhase, screenerCfg) {
+  const esBajista = weinsteinPhase === 4;
+  const dteMin = esBajista ? 5 : 30;
+  const dteMax = esBajista ? 10 : 45;
+  const targetDelta = esBajista ? 0.30 : 0.15; // punto medio de 0.25-0.35, o ~bien OTM
+  const deltaMin = esBajista ? 0.25 : 0.05;
+  const deltaMax = esBajista ? 0.35 : 0.20;
+
+  const buscar = (dMin, dMax, tMin, tMax) => {
+    let best = null;
+    for (const exp of expirations) {
+      if (exp.dte == null || exp.dte < tMin || exp.dte > tMax) continue;
+      const candidates = (exp.strikes || [])
+        .filter(s => s.call && s.strike > costBasis)
+        .filter(s => { const d = Math.abs(s.call.delta || 0); return d >= dMin && d <= dMax; })
+        .filter(s => (s.call.oi || 0) >= (screenerCfg?.openInterestMin ?? 0))
+        .filter(s => {
+          const bid = s.call.bid || 0, ask = s.call.ask || 0;
+          const mid = (bid + ask) / 2;
+          if (!mid) return false;
+          return ((ask - bid) / mid * 100) <= (screenerCfg?.bidAskMaxPct ?? 100);
+        })
+        .sort((a, b) => Math.abs(Math.abs(a.call.delta||0) - targetDelta) - Math.abs(Math.abs(b.call.delta||0) - targetDelta));
+      const s = candidates[0];
+      if (!s) continue;
+      const premium = s.call.mark || 0;
+      const creditPerDay = +(premium / exp.dte).toFixed(4);
+      if (!best || creditPerDay > best.creditPerDay) {
+        best = { expiry: exp.expiry, dte: exp.dte, strike: s.strike, delta: s.call.delta, premium, creditPerDay, bid: s.call.bid, ask: s.call.ask, oi: s.call.oi };
+      }
+    }
+    return best;
+  };
+
+  const preciso = buscar(deltaMin, deltaMax, dteMin, dteMax);
+  if (preciso) return preciso;
+
+  // Relajado: se queda en la MISMA ventana de DTE (fase bajista o no) y elige el strike
+  // más cercano al delta objetivo, pero sin exigir el rango de delta ni el filtro de
+  // bid/ask — opciones OTM baratas suelen tener spreads %grandes aunque sean liquidas en
+  // términos absolutos (ej. bid $0.70/ask $1.00 = spread de 35%, normal para un contrato
+  // de menos de $1). Sigue exigiendo strike > costBasis y open interest mínimo, para no
+  // caer en un strike profundamente ITM ni en un contrato sin nadie operándolo.
+  let best = null;
+  for (const exp of expirations) {
+    if (exp.dte == null || exp.dte < dteMin || exp.dte > dteMax) continue;
+    const candidates = (exp.strikes || [])
+      .filter(s => s.call && s.strike > costBasis)
+      .filter(s => (s.call.oi || 0) >= (screenerCfg?.openInterestMin ?? 0))
+      .sort((a, b) => Math.abs(Math.abs(a.call.delta||0) - targetDelta) - Math.abs(Math.abs(b.call.delta||0) - targetDelta));
+    const s = candidates[0];
+    if (!s) continue;
+    const premium = s.call.mark || 0;
+    if (premium <= 0) continue;
+    const creditPerDay = +(premium / exp.dte).toFixed(4);
+    if (!best || creditPerDay > best.creditPerDay) {
+      best = { expiry: exp.expiry, dte: exp.dte, strike: s.strike, delta: s.call.delta, premium, creditPerDay, bid: s.call.bid, ask: s.call.ask, oi: s.call.oi, relajado: true };
     }
   }
   return best;
@@ -316,6 +392,7 @@ function findBestRollDate(expirations, targetStrike) {
 module.exports = {
   WHEEL_TRADING_CONFIG_DEFAULTS,
   calcEMA, calcEMAArray, calcMACD, calcWeinstein, calcFractals,
-  calcWheelEntryScore, findBestCSPStrike, findAnchoredCSPStrike, findBestRollDate, minPremiumFor,
+  calcWheelEntryScore, findBestCSPStrike, findAnchoredCSPStrike, findBestRollDate,
+  findCoveredCallStrike, minPremiumFor,
   calcGEX, // re-exportado por comodidad (mismo que src/spx.js)
 };

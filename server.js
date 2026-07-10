@@ -2459,7 +2459,13 @@ async function checkWheelExecutionFillsImpl() {
           ex.status = 'filled';
           ex.entryFillPrice = order.avg_fill_price || null;
           ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
-          ex.totalCreditAccumulated = ex.creditReceived; // arranca el acumulado de rolls
+          // Bug real encontrado en la Fase 4: esto sobreescribía totalCreditAccumulated en
+          // CADA fill confirmado (rolls de Put/Call, venta de la Call inicial), borrando el
+          // acumulado que checkWheelPutManagementImpl/checkWheelCallManagementImpl ya habían
+          // incrementado al decidir el roll. Solo debe inicializarse la primera vez (entrada
+          // del CSP inicial, cuando todavia es null) — los rolls se encargan de incrementarlo
+          // ellos mismos antes de volver a poner status='submitted'.
+          if (ex.totalCreditAccumulated == null) ex.totalCreditAccumulated = ex.creditReceived;
           ex.filledAt = new Date().toISOString();
           cambios = true;
           console.log(`[WHEEL-FILL] ${ex.symbol}: orden ${ex.orderId} llenada — crédito recibido: $${ex.creditReceived}`);
@@ -2645,20 +2651,22 @@ async function checkWheelPutManagementImpl() {
 function checkWheelPutManagement() { return withWheelExecutionsLock(checkWheelPutManagementImpl); }
 setInterval(checkWheelPutManagement, 5 * 60 * 1000);
 
-// Chequeo pasivo mínimo de vencimiento/asignación — una vez que se decidió dejar de
-// defender (readyForAssignment) o el DTE llega a 0, confirma si el broker ya asignó
-// las acciones o si expiró sin valor. NO vende Covered Call ni reinicia el ciclo — Fase 4.
+// Chequeo pasivo de vencimiento/asignación/reinicio — Fase 4: además de transicionar
+// CSP_ACTIVA→ASIGNADO/CERRADO, ahora también resuelve CC_ACTIVA→CERRADO/ASIGNADO (el
+// reinicio del ciclo ES esta transición) y dispara la venta de la Covered Call inicial
+// en cuanto detecta ASIGNADO sin una Call activa — todo sin ningún checkpoint manual
+// nuevo (el único checkpoint sigue siendo la aprobación inicial de la Fase 2).
 async function checkWheelExpiryImpl() {
   try {
     const executions = loadWheelTradingExecutions();
-    const candidatas = executions.filter(e => e.phase === 'CSP_ACTIVA' && e.status === 'filled' && new Date(e.leg.expiry) <= new Date());
-    if (!candidatas.length) return;
     let cambios = false;
     const positions = await tradier.getPositions();
 
-    for (const ex of candidatas) {
+    // A. CSP_ACTIVA vencido → ASIGNADO (acciones reales) o CERRADO (expiró OTM)
+    const csps = executions.filter(e => e.phase === 'CSP_ACTIVA' && e.status === 'filled' && new Date(e.leg.expiry) <= new Date());
+    for (const ex of csps) {
       const opcionAbierta = positions.some(p => p.symbol === ex.leg.optionSymbol);
-      if (opcionAbierta) continue; // todavía no venció/se resolvió
+      if (opcionAbierta) continue;
       const acciones = positions.find(p => p.symbol === ex.symbol && parseFloat(p.quantity || 0) > 0);
       if (acciones) {
         ex.phase = 'ASIGNADO';
@@ -2672,6 +2680,97 @@ async function checkWheelExpiryImpl() {
       }
       cambios = true;
     }
+
+    // B. CC_ACTIVA vencida → CERRADO (ejercida, acciones ya no están = ciclo completo con
+    // ganancia) o ASIGNADO de nuevo (expiró sin valor, acciones siguen — vender otra Call).
+    // Este ES el reinicio del ciclo: no hace falta codigo aparte, la transicion a ASIGNADO
+    // dispara la rama C mas abajo en el proximo paso de este mismo loop.
+    const ccs = executions.filter(e => e.phase === 'CC_ACTIVA' && e.status === 'filled' && new Date(e.leg.expiry) <= new Date());
+    for (const ex of ccs) {
+      const opcionAbierta = positions.some(p => p.symbol === ex.leg.optionSymbol);
+      if (opcionAbierta) continue;
+      const acciones = positions.find(p => p.symbol === ex.symbol && parseFloat(p.quantity || 0) > 0);
+      if (!acciones) {
+        ex.phase = 'CERRADO';
+        ex.status = 'closed';
+        ex.notes = `Call ejercida el ${new Date().toISOString().slice(0,10)} — ciclo completo, acciones entregadas.`;
+        console.log(`[WHEEL-EXPIRY] ${ex.symbol}: ${ex.notes}`);
+      } else {
+        ex.phase = 'ASIGNADO';
+        ex.notes = 'Call expiró sin valor (OTM) — se conservan las acciones, se vende otra Call.';
+        console.log(`[WHEEL-EXPIRY] ${ex.symbol}: ${ex.notes}`);
+      }
+      cambios = true;
+    }
+
+    // C. ASIGNADO sin Call activa todavia → vender la Covered Call inicial (o la siguiente,
+    // tras un ciclo de la rama B) — condicional a la Fase Weinstein (playbook Alejandro).
+    const asignados = executions.filter(e => e.phase === 'ASIGNADO');
+    for (const ex of asignados) {
+      try {
+        const costBasis = ex.leg.strike - (ex.totalCreditAccumulated || ex.creditReceived || 0);
+        const [daily, chainRes] = await Promise.all([
+          fetchYahooOHLC(ex.symbol, '1d', '3mo'),
+          fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/${ex.symbol}`),
+        ]);
+        const chainJson = await chainRes.json();
+        const expirations = chainJson.expirations || [];
+        if (!expirations.length) { console.error(`[WHEEL-CC] ${ex.symbol}: sin cadena, se reintenta despues.`); continue; }
+
+        // Fase Weinstein diaria (decisión primaria, más rápida de reaccionar que exigir
+        // confluencia semanal también — a diferencia del gate de entrada de la Fase 1).
+        const weinsteinD = wheelTrading.calcWeinstein(daily.closes);
+        const cfg = loadWheelTradingConfig();
+        const best = wheelTrading.findCoveredCallStrike(expirations, chainJson.underlyingPrice, costBasis, weinsteinD.fase, cfg.screener);
+
+        if (!best) {
+          ex.notes = `Sin strike de Call válido por encima del costo base ($${costBasis.toFixed(2)}) — requiere atención manual.`;
+          console.error(`[WHEEL-CC] ${ex.symbol}: ${ex.notes}`);
+          try {
+            await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+              method: 'POST',
+              headers: { 'Title': '⚠️ Rueda Automatizada — Covered Call', 'Priority': 'high', 'Tags': 'warning', 'Content-Type': 'text/plain' },
+              body: `${ex.symbol}: no se encontró ningún strike de Call por encima del costo base ($${costBasis.toFixed(2)}). Revisar manualmente.`,
+            });
+          } catch(e) {}
+          cambios = true;
+          continue;
+        }
+
+        const optionSymbol = tradier.buildOccSymbol(ex.symbol, best.expiry, 'C', best.strike);
+        if (!IS_PRODUCTION) {
+          ex.notes = `[DRY-RUN] Vendería Call ${best.strike}@${best.expiry} (delta ${best.delta}, Fase ${weinsteinD.fase}, costo base $${costBasis.toFixed(2)}).`;
+          console.log(`[WHEEL-CC] (dry-run local) ${ex.symbol}: ${ex.notes}`);
+          cambios = true;
+          continue;
+        }
+
+        const quotes = await tradier.getQuotes([optionSymbol]);
+        const quote = quotes[0];
+        if (!quote || !quote.bid) { console.error(`[WHEEL-CC] ${ex.symbol}: no se pudo cotizar la Call en vivo.`); continue; }
+
+        const order = await tradier.placeSingleLegOrder({
+          underlyingRoot: ex.symbol, optionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: quote.bid,
+        });
+        ex.events.push({ date: new Date().toISOString(), type: 'STO_CALL', strike: best.strike, expiry: best.expiry, fase: weinsteinD.fase });
+        ex.leg = { optionSymbol, strike: best.strike, expiry: best.expiry, side: 'sell_to_open', contracts: ex.leg.contracts };
+        ex.orderId = order.orderId;
+        ex.status = 'submitted';
+        ex.phase = 'CC_ACTIVA';
+        ex.entryFillPrice = null;
+        ex.creditReceived = null;
+        // Suma la prima (estimada al bid, mismo criterio que ya usan los rolls) al
+        // acumulado — checkWheelExecutionFillsImpl ya no lo hace por defecto (fix de la
+        // Fase 4: antes sobreescribía el acumulado en cada fill en vez de solo inicializar
+        // la primera vez), así que cada venta/roll debe sumarse a sí misma explícitamente.
+        ex.totalCreditAccumulated = (ex.totalCreditAccumulated || 0) + quote.bid;
+        console.log(`[WHEEL-CC] ${ex.symbol}: Call vendida ${best.strike}@${best.expiry} (orden ${order.orderId}).`);
+        cambios = true;
+      } catch(e) {
+        console.error(`[WHEEL-CC] Error vendiendo Call para ${ex.symbol}:`, e.message);
+      }
+    }
+
     if (cambios) saveWheelTradingExecutions(executions);
   } catch(e) {
     console.error('[WHEEL-EXPIRY] Error en checkWheelExpiryImpl:', e.message);
@@ -2680,11 +2779,141 @@ async function checkWheelExpiryImpl() {
 function checkWheelExpiry() { return withWheelExecutionsLock(checkWheelExpiryImpl); }
 setInterval(checkWheelExpiry, 30 * 60 * 1000); // cada 30 min — solo importa el dia del vencimiento
 
+// ── Monitor de gestión de la Covered Call (Fase 4) — mismos 4 triggers que el Put
+// (extrínseco, delta, DTE, ganancia), pero la decisión es distinta: ser asignado en
+// una Call SIEMPRE es favorable (regla del break-even), así que no hay "defensa contra
+// la asignación" — si se puede rolar hacia arriba/adelante por crédito neto, se hace
+// (para capturar más ganancia); si no, simplemente se deja expirar (ambos resultados,
+// asignación o vencimiento sin valor, son aceptables — sin ntfy de atención manual acá,
+// a diferencia del Put, porque no es un problema).
+async function checkWheelCallManagementImpl() {
+  if (!isMarketHours()) return;
+  try {
+    const executions = loadWheelTradingExecutions();
+    const abiertas = executions.filter(e => e.phase === 'CC_ACTIVA' && e.status === 'filled');
+    if (!abiertas.length) return;
+    let cambios = false;
+
+    for (const ex of abiertas) {
+      try {
+        const [quotes, chainRes] = await Promise.all([
+          tradier.getQuotes([ex.leg.optionSymbol]),
+          fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/${ex.symbol}`),
+        ]);
+        const chainJson = await chainRes.json();
+        const expirations = chainJson.expirations || [];
+        const spot = chainJson.underlyingPrice;
+        const quote = quotes[0];
+        if (!spot || !quote) { console.error(`[WHEEL-CC-MGMT] ${ex.symbol}: sin spot/cotización, salteando`); continue; }
+
+        const currentExp = expirations.find(e => e.expiry === ex.leg.expiry) || expirations[0];
+        const currentStrikeData = (currentExp?.strikes || []).find(s => s.strike === ex.leg.strike);
+        const liveDelta = Math.abs(currentStrikeData?.call?.delta ?? 0);
+        const dte = currentExp?.dte ?? null;
+
+        const intrinsic = Math.max(0, spot - ex.leg.strike); // Call: intrinsico si spot > strike
+        const extrinsic = Math.max(0, (quote.mark || 0) - intrinsic);
+        const extrPct = ex.creditReceived > 0 ? (extrinsic / ex.creditReceived * 100) : 100;
+        const pnlPct = ex.creditReceived > 0 ? (1 - quote.mark / ex.creditReceived) : 0;
+
+        const triggerExtr   = extrPct <= WHEEL_ROLL_EXTR_PCT;
+        const triggerDelta  = liveDelta >= WHEEL_ROLL_MIN_DELTA;
+        const triggerDte    = dte != null && dte <= WHEEL_ROLL_DTE_MAX;
+        const triggerProfit = pnlPct >= WHEEL_ROLL_PROFIT_MIN;
+        if (!triggerExtr && !triggerDelta && !triggerDte && !triggerProfit) continue;
+
+        // Buscar un strike MAS ALTO (mas OTM, mas lejos del riesgo de asignacion) que
+        // todavia de credito neto — nunca hacia abajo (bajar el strike de una Call violaria
+        // la regla del break-even mas facilmente). Sin piso de prima minima aca: cualquier
+        // credito, aunque sea chico, ya es mejor que dejar la posicion como esta si esta
+        // amenazada — a diferencia del Put, donde el piso de 2% decide si vale la pena
+        // caminar el strike; acá el objetivo es solo capturar mas ganancia, no alcanzar un
+        // target de rentabilidad.
+        const candidatosMayores = (currentExp?.strikes || [])
+          .filter(s => s.strike > ex.leg.strike && s.call)
+          .sort((a, b) => a.strike - b.strike);
+        let targetStrike = null, rollDate = null;
+        for (const cand of candidatosMayores) {
+          const rd = wheelTrading.findBestRollDate(expirations, cand.strike, 'C');
+          if (rd && rd.premium > 0) {
+            // Credito neto = prima de la call nueva - costo de cerrar la actual (aprox. por
+            // la cotizacion viva, ya que esto solo decide SI vale la pena, no el pnl final).
+            const creditoNeto = rd.premium - (quote.mark || 0);
+            if (creditoNeto >= 0) { targetStrike = cand.strike; rollDate = rd; break; }
+          }
+        }
+
+        if (!rollDate) {
+          // No hay roll por credito neto disponible — se deja expirar (asignacion o
+          // vencimiento sin valor, ambos resultados aceptables). Sin accion, sin ntfy.
+          continue;
+        }
+
+        if (!IS_PRODUCTION) {
+          console.log(`[WHEEL-CC-MGMT] (dry-run local) Rolaría ${ex.symbol} Call ${ex.leg.strike}→${targetStrike} ${ex.leg.expiry}→${rollDate.expiry} (crédito/día $${rollDate.creditPerDay}).`);
+          ex.notes = `[DRY-RUN] Rolaría Call ${ex.leg.strike}→${targetStrike} ${ex.leg.expiry}→${rollDate.expiry}.`;
+          cambios = true;
+          continue;
+        }
+
+        const newOptionSymbol = tradier.buildOccSymbol(ex.symbol, rollDate.expiry, 'C', targetStrike);
+        const closeOrder = await tradier.closeSingleLeg({
+          underlyingRoot: ex.symbol, optionSymbol: ex.leg.optionSymbol, side: 'buy_to_close', quantity: ex.leg.contracts,
+        });
+        const closeConfirm = await tradier.getOrder(closeOrder.orderId);
+        const closeFill = verificarFillPorPata(closeConfirm, ex.leg.contracts);
+        if (!closeFill.completo) {
+          ex.notes = `Roll de Call abortado: no se confirmó el cierre de la pata vieja (orden ${closeOrder.orderId}).`;
+          cambios = true;
+          console.error(`[WHEEL-CC-MGMT] ${ex.symbol}: ${ex.notes}`);
+          continue;
+        }
+        const openOrder = await tradier.placeSingleLegOrder({
+          underlyingRoot: ex.symbol, optionSymbol: newOptionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: rollDate.premium,
+        });
+        const netCredit = rollDate.premium - Math.abs(parseFloat(closeConfirm.avg_fill_price || 0));
+        ex.events.push({ date: new Date().toISOString(), type: 'ROLL_CALL', fromStrike: ex.leg.strike, fromExpiry: ex.leg.expiry, toStrike: targetStrike, toExpiry: rollDate.expiry, netCredit: +netCredit.toFixed(2) });
+        ex.leg = { optionSymbol: newOptionSymbol, strike: targetStrike, expiry: rollDate.expiry, side: 'sell_to_open', contracts: ex.leg.contracts };
+        ex.orderId = openOrder.orderId;
+        ex.status = 'submitted';
+        ex.rollCount = (ex.rollCount || 0) + 1;
+        cambios = true;
+        console.log(`[WHEEL-CC-MGMT] ${ex.symbol}: Call rolada ${targetStrike}@${rollDate.expiry} (crédito neto $${netCredit.toFixed(2)}).`);
+      } catch(e) {
+        console.error(`[WHEEL-CC-MGMT] Error gestionando ${ex.symbol}:`, e.message);
+      }
+    }
+    if (cambios) saveWheelTradingExecutions(executions);
+  } catch(e) {
+    console.error('[WHEEL-CC-MGMT] Error en checkWheelCallManagementImpl:', e.message);
+  }
+}
+function checkWheelCallManagement() { return withWheelExecutionsLock(checkWheelCallManagementImpl); }
+setInterval(checkWheelCallManagement, 5 * 60 * 1000);
+
 // Disparo manual del monitor de gestión — mismo espíritu que POST /api/wheel-trading/scan,
 // para poder probar sin esperar el ciclo de 5 minutos.
 app.post('/api/wheel-trading/executions/check-management', async (req, res) => {
   try {
     await checkWheelPutManagement();
+    res.json({ ok: true, executions: loadWheelTradingExecutions() });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Fase 4 — disparo manual de la gestión de la Call y del chequeo de vencimiento/reinicio.
+app.post('/api/wheel-trading/executions/check-call-management', async (req, res) => {
+  try {
+    await checkWheelCallManagement();
+    res.json({ ok: true, executions: loadWheelTradingExecutions() });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+app.post('/api/wheel-trading/executions/check-expiry', async (req, res) => {
+  try {
+    await checkWheelExpiry();
     res.json({ ok: true, executions: loadWheelTradingExecutions() });
   } catch(e) {
     res.status(500).json({ ok: false, error: e.message });

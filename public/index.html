@@ -6030,19 +6030,21 @@ function renderWheelTradingExecutions(executions) {
             <th style="padding:8px;">Vencimiento</th>
             <th style="padding:8px;">Estado</th>
             <th style="padding:8px;">Crédito recibido</th>
-            <th style="padding:8px;">Costo base objetivo</th>
+            <th style="padding:8px;">Fair Value</th>
+            <th style="padding:8px;">Rolls</th>
           </tr>
         </thead>
         <tbody>
           ${executions.map(e => `
             <tr style="border-bottom:1px solid var(--border);">
               <td style="padding:8px;font-weight:700;color:var(--bright);">${e.symbol}</td>
-              <td style="padding:8px;">${e.phase}</td>
-              <td style="padding:8px;font-family:var(--mono);">$${e.leg?.strike}</td>
+              <td style="padding:8px;">${e.phase}${e.readyForAssignment?' 🎯':''}</td>
+              <td style="padding:8px;font-family:var(--mono);">$${e.leg?.strike} ${/C\d{8}$/.test(e.leg?.optionSymbol||'')?'Call':'Put'}</td>
               <td style="padding:8px;font-family:var(--mono);">${e.leg?.expiry}</td>
               <td style="padding:8px;color:${e.status==='filled'?'var(--green)':'var(--muted)'};">${e.status}</td>
               <td style="padding:8px;font-family:var(--mono);">${e.creditReceived!=null?'$'+e.creditReceived:'—'}</td>
-              <td style="padding:8px;font-family:var(--mono);">$${e.costBasisTarget}</td>
+              <td style="padding:8px;font-family:var(--mono);">${e.fairValue!=null?'$'+e.fairValue:'—'}</td>
+              <td style="padding:8px;">${e.rollCount||0}</td>
             </tr>
           `).join('')}
         </tbody>
