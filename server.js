@@ -2648,7 +2648,9 @@ async function checkWheelPutManagementImpl() {
         const costoBaseReal = ex.leg.strike - (ex.totalCreditAccumulated || ex.creditReceived || 0);
 
         // 5a. ¿Ya llegó al Fair Value? → dejar de defender, no rolar más
-        if (ex.fairValue != null && costoBaseReal <= ex.fairValue) {
+        // (nunca para posiciones neverAssign=true — esas son especulación pura sobre la
+        // prima, no se permite la asignación aunque el costo base ya sea atractivo)
+        if (!ex.neverAssign && ex.fairValue != null && costoBaseReal <= ex.fairValue) {
           ex.readyForAssignment = true;
           ex.notes = `Costo base real ($${costoBaseReal.toFixed(2)}) alcanzó el Fair Value ($${ex.fairValue}) — se deja de defender, se permite la asignación.`;
           cambios = true;
@@ -2688,6 +2690,39 @@ async function checkWheelPutManagementImpl() {
         }
 
         if (!rollDate || rollDate.premium <= 0) {
+          // neverAssign=true: esta posición es especulación sobre la prima, nunca debe
+          // llegar a asignación — si no hay roll por crédito neto disponible, se cierra
+          // el put a mercado (aceptando el débito si hace falta) en vez de dejarla
+          // esperando "atención manual" con riesgo real de asignación al vencer.
+          if (ex.neverAssign) {
+            if (!IS_PRODUCTION) {
+              ex.notes = '[DRY-RUN] neverAssign=true y sin roll por crédito neto — cerraría el put a mercado para garantizar que no se asigne.';
+              cambios = true;
+              console.log(`[WHEEL-MGMT] (dry-run local) ${ex.symbol}: ${ex.notes}`);
+              continue;
+            }
+            try {
+              const closeOrder = await tradier.closeSingleLeg({
+                underlyingRoot: ex.symbol, optionSymbol: ex.leg.optionSymbol, side: 'buy_to_close', quantity: ex.leg.contracts,
+              });
+              ex.phase = 'CERRADO';
+              ex.status = 'closed';
+              ex.closeReason = 'FORZADO_SIN_ASIGNACION';
+              ex.notes = `Cerrado a mercado (orden ${closeOrder.orderId}) — neverAssign=true, sin roll disponible por crédito neto; se prioriza evitar la asignación sobre el costo del cierre.`;
+              cambios = true;
+              console.log(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
+              try {
+                await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+                  method: 'POST',
+                  headers: { 'Title': `⚠️ ${ex.symbol}: cerrado a mercado (evitar asignación)`, 'Priority': 'high', 'Tags': 'warning', 'Content-Type': 'text/plain' },
+                  body: `${ex.symbol}: sin roll por crédito neto, cerrado a mercado para garantizar que NO se asigne (neverAssign=true).`,
+                });
+              } catch(e) {}
+            } catch(e) {
+              console.error(`[WHEEL-MGMT] ${ex.symbol}: error forzando cierre (neverAssign):`, e.message);
+            }
+            continue;
+          }
           ex.notes = 'Ningún strike/fecha ofrece crédito neto para rolar — requiere atención manual.';
           cambios = true;
           console.error(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
@@ -3020,6 +3055,24 @@ app.post('/api/wheel-trading/executions/check-expiry', async (req, res) => {
   } catch(e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// POST /api/wheel-trading/executions/:id/patch — correccion/flag manual puntual de un
+// registro existente (mismo patron que POST /api/tradier/executions/:id/patch de SPX).
+// Uso principal hoy: marcar neverAssign=true en una posicion (ver checkWheelPutManagementImpl)
+// para que esa posicion especifica jamas llegue a asignacion — si no hay roll por credito
+// neto disponible, se cierra el put a mercado en vez de arriesgar la asignacion.
+app.post('/api/wheel-trading/executions/:id/patch', async (req, res) => {
+  const result = await withWheelExecutionsLock(() => {
+    const executions = loadWheelTradingExecutions();
+    const idx = executions.findIndex(e => e.id === req.params.id);
+    if (idx === -1) return { ok: false, error: 'not_found' };
+    executions[idx] = { ...executions[idx], ...req.body };
+    saveWheelTradingExecutions(executions);
+    return { ok: true, execution: executions[idx] };
+  });
+  if (!result.ok) return res.status(404).json(result);
+  res.json(result);
 });
 
 
