@@ -2759,9 +2759,32 @@ async function checkWheelPutManagementImpl() {
           console.error(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
           continue;
         }
-        const openOrder = await tradier.placeSingleLegOrder({
-          underlyingRoot: ex.symbol, optionSymbol: newOptionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: rollDate.premium,
-        });
+        let openOrder;
+        try {
+          openOrder = await placeSingleLegOrderWithRetry({
+            underlyingRoot: ex.symbol, optionSymbol: newOptionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: rollDate.premium,
+          });
+        } catch (openError) {
+          // La pata vieja YA se cerro (closeFill.completo=true) pero la reapertura
+          // fallo tras 3 intentos — la posicion real en Tradier quedo FLAT. No dejar
+          // ex.leg apuntando al contrato viejo (el monitor lo reintentaria cerrar
+          // para siempre, rechazado por Tradier, en silencio). Se marca huerfano y
+          // se saca del ciclo (phase='CERRADO') para que deje de evaluarse.
+          ex.phase = 'CERRADO';
+          ex.status = 'orphaned_roll_failed';
+          ex.closeReason = 'ROLL_REAPERTURA_FALLIDA';
+          ex.notes = `ALERTA: se cerró la pata vieja (${ex.leg.optionSymbol}, costo $${closeConfirm.avg_fill_price}) pero la reapertura del roll falló tras 3 intentos (${openError.message}) — posición quedó FLAT sin protección. Revisar manualmente si conviene re-entrar.`;
+          cambios = true;
+          console.error(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
+          try {
+            await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+              method: 'POST',
+              headers: { 'Title': `🚨 ${ex.symbol}: roll falló a mitad de camino`, 'Priority': 'urgent', 'Tags': 'rotating_light', 'Content-Type': 'text/plain' },
+              body: `${ex.symbol}: se cerró el put viejo pero no se pudo reabrir el nuevo tras 3 intentos. Posición quedó flat, sin protección. Error: ${openError.message}`,
+            });
+          } catch(e) {}
+          continue;
+        }
 
         const netCredit = rollDate.premium - Math.abs(parseFloat(closeConfirm.avg_fill_price || 0));
         ex.events.push({
@@ -3005,9 +3028,27 @@ async function checkWheelCallManagementImpl() {
           console.error(`[WHEEL-CC-MGMT] ${ex.symbol}: ${ex.notes}`);
           continue;
         }
-        const openOrder = await tradier.placeSingleLegOrder({
-          underlyingRoot: ex.symbol, optionSymbol: newOptionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: rollDate.premium,
-        });
+        let openOrder;
+        try {
+          openOrder = await placeSingleLegOrderWithRetry({
+            underlyingRoot: ex.symbol, optionSymbol: newOptionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: rollDate.premium,
+          });
+        } catch (openError) {
+          ex.phase = 'CERRADO';
+          ex.status = 'orphaned_roll_failed';
+          ex.closeReason = 'ROLL_REAPERTURA_FALLIDA';
+          ex.notes = `ALERTA: se cerró la Call vieja (${ex.leg.optionSymbol}, costo $${closeConfirm.avg_fill_price}) pero la reapertura del roll falló tras 3 intentos (${openError.message}) — posición quedó FLAT (sin Call, acciones descubiertas). Revisar manualmente.`;
+          cambios = true;
+          console.error(`[WHEEL-CC-MGMT] ${ex.symbol}: ${ex.notes}`);
+          try {
+            await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+              method: 'POST',
+              headers: { 'Title': `🚨 ${ex.symbol}: roll de Call falló a mitad de camino`, 'Priority': 'urgent', 'Tags': 'rotating_light', 'Content-Type': 'text/plain' },
+              body: `${ex.symbol}: se cerró la Call vieja pero no se pudo reabrir la nueva tras 3 intentos. Acciones quedaron descubiertas. Error: ${openError.message}`,
+            });
+          } catch(e) {}
+          continue;
+        }
         const netCredit = rollDate.premium - Math.abs(parseFloat(closeConfirm.avg_fill_price || 0));
         ex.events.push({ date: new Date().toISOString(), type: 'ROLL_CALL', fromStrike: ex.leg.strike, fromExpiry: ex.leg.expiry, toStrike: targetStrike, toExpiry: rollDate.expiry, netCredit: +netCredit.toFixed(2) });
         ex.leg = { optionSymbol: newOptionSymbol, strike: targetStrike, expiry: rollDate.expiry, side: 'sell_to_open', contracts: ex.leg.contracts };
@@ -4266,6 +4307,26 @@ function calcLivePnl(ex, q) {
     }
   } catch(e) {}
   return null;
+}
+
+// Reintenta la reapertura de una pata suelta (roll de Put/Call de la Rueda) hasta
+// 3 veces antes de rendirse — encontrado 2026-07-11: sin esto, un fallo transitorio
+// de placeSingleLegOrder justo DESPUES de que el cierre de la pata vieja ya se
+// confirmo dejaba la ejecucion en un estado huerfano (leg apuntando a un contrato
+// ya cerrado, reintentado sin exito cada 5 min para siempre — caso real: 5
+// posiciones de la Rueda, BE/NBIS/HOOD/RKLB/IBIT, ~4h de reintentos fallidos,
+// -$387 reales sin registrar).
+async function placeSingleLegOrderWithRetry(params, maxAttempts = 3) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await tradier.placeSingleLegOrder(params);
+    } catch (e) {
+      lastError = e;
+      if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  throw lastError;
 }
 
 function verificarFillPorPata(order, expectedQty) {
