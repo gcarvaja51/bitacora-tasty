@@ -3786,6 +3786,7 @@ app.post('/api/spx/webhook', async (req, res) => {
 
     if (!playbookResult.passed) {
       console.log(`[SPX] ❌ Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`);
+      console.log(`[SPX] Detalle checks: ${JSON.stringify(playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })))}`);
       return;
     }
 
