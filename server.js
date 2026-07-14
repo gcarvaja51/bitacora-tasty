@@ -5372,9 +5372,79 @@ const TRADIER_TRACK_MS = 5 * 60 * 1000; // 5 min
 async function checkTradierExecutions() {
   return withExecutionsLock(checkTradierExecutionsImpl);
 }
+// Extrae el P&L real de una ejecucion cerrada via tradier.getClosedPnl, con la
+// misma heuristica de deduplicacion por strikes repetidos que ya usaba el
+// chequeo de recien-cerradas. Devuelve {pnl, pnlSource} o null si Tradier
+// todavia no asento el gain_loss de alguna pata (para reintentar despues).
+async function intentarResolverPnl(ex, executions) {
+  const legSymbols = [
+    ex.legs?.shortSym, ex.legs?.longSym,
+    ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym,
+    ex.legs?.outerHighSym, ex.legs?.innerHighSym, ex.legs?.innerLowSym, ex.legs?.outerLowSym,
+  ].filter(Boolean);
+  if (!legSymbols.length) return null;
+
+  const pnlList = await tradier.getClosedPnl(ex.timestamp.slice(0, 10));
+  const legSymbolsSorted = legSymbols.slice().sort();
+  const claveSimbolos = JSON.stringify(legSymbolsSorted);
+  const otrasConMismosSimbolos = executions.filter(o => {
+    if (o.id === ex.id || o.status !== 'closed') return false;
+    const legsO = [o.legs?.shortSym, o.legs?.longSym, o.legs?.putShortSym, o.legs?.putLongSym, o.legs?.callShortSym, o.legs?.callLongSym].filter(Boolean).sort();
+    return JSON.stringify(legsO) === claveSimbolos;
+  }).length;
+
+  let pnlTotal = 0, faltaAlgunaPata = false;
+  for (const sym of legSymbols) {
+    const entradasDelSimbolo = (pnlList || []).filter(p => p.symbol === sym && typeof p.gain_loss === 'number');
+    const disponibles = entradasDelSimbolo.slice(otrasConMismosSimbolos);
+    if (!disponibles.length) { faltaAlgunaPata = true; continue; }
+    pnlTotal += disponibles[0].gain_loss;
+  }
+
+  if (faltaAlgunaPata) return null;
+  return { pnl: +pnlTotal.toFixed(2), pnlSource: 'gainloss' };
+}
+
+// Reintento automático (a pedido del usuario, 2026-07-14): antes, una ejecucion
+// que cerraba con 'pnlSource: pendiente_verificar' (Tradier no habia asentado
+// el gain_loss todavia) se quedaba asi PARA SIEMPRE — checkTradierExecutionsImpl
+// solo revisa 'submitted'/'filled', nunca 'closed', asi que nadie volvia a
+// intentarlo salvo que alguien la corrigiera a mano con el endpoint de patch.
+// Ahora cada ciclo de 5 min tambien reintenta las cerradas-sin-resolver de los
+// ultimos 2 dias (ventana acotada para no reintentar indefinidamente registros
+// viejos que Tradier ya nunca va a completar, ej. por vencimiento sin fill real).
+async function reintentarPnlPendientes() {
+  const executions = loadTradierExecutions();
+  const DOS_DIAS_MS = 2 * 24 * 60 * 60 * 1000;
+  const ahora = Date.now();
+  const pendientesDeVerificar = executions.filter(e =>
+    e.status === 'closed' && e.pnlSource === 'pendiente_verificar' &&
+    e.closedAt && (ahora - new Date(e.closedAt).getTime()) < DOS_DIAS_MS
+  );
+  if (!pendientesDeVerificar.length) return;
+
+  console.log(`[TRADIER-TRACK] Reintentando P&L de ${pendientesDeVerificar.length} ejecución(es) pendiente(s) de verificar...`);
+  let cambios = false;
+  for (const ex of pendientesDeVerificar) {
+    try {
+      const resultado = await intentarResolverPnl(ex, executions);
+      if (resultado) {
+        ex.pnl = resultado.pnl;
+        ex.pnlSource = resultado.pnlSource;
+        cambios = true;
+        console.log(`[TRADIER-TRACK] ✅ P&L resuelto en reintento — ${ex.orderId}: ${ex.pnl}`);
+      }
+    } catch(e) {
+      console.error(`[TRADIER-TRACK] Error reintentando P&L de ${ex.orderId}:`, e.message);
+    }
+  }
+  if (cambios) saveTradierExecutions(executions);
+}
+
 async function checkTradierExecutionsImpl() {
   const executions = loadTradierExecutions();
   const pendientes = executions.filter(e => e.status === 'submitted' || e.status === 'filled');
+  await reintentarPnlPendientes();
   if (!pendientes.length) return;
 
   console.log(`[TRADIER-TRACK] Revisando ${pendientes.length} ejecución(es) en curso...`);
@@ -5433,32 +5503,16 @@ async function checkTradierExecutionsImpl() {
         // una heuristica, no un ID real — si el orden no es estrictamente por
         // recencia se puede reconciliar mal, pero es mucho mejor que sumar todo sin
         // distincion.
-        const pnlList = await tradier.getClosedPnl(ex.timestamp.slice(0, 10));
-        const legSymbolsSorted = legSymbols.slice().sort();
-        const claveSimbolos = JSON.stringify(legSymbolsSorted);
-        const otrasConMismosSimbolos = executions.filter(o => {
-          if (o.id === ex.id || o.status !== 'closed') return false;
-          const legsO = [o.legs?.shortSym, o.legs?.longSym, o.legs?.putShortSym, o.legs?.putLongSym, o.legs?.callShortSym, o.legs?.callLongSym].filter(Boolean).sort();
-          return JSON.stringify(legsO) === claveSimbolos;
-        }).length;
-
-        let pnlTotal = 0, faltaAlgunaPata = false;
-        for (const sym of legSymbols) {
-          const entradasDelSimbolo = (pnlList || []).filter(p => p.symbol === sym && typeof p.gain_loss === 'number');
-          const disponibles = entradasDelSimbolo.slice(otrasConMismosSimbolos);
-          if (!disponibles.length) { faltaAlgunaPata = true; continue; }
-          pnlTotal += disponibles[0].gain_loss;
-        }
-
-        if (!faltaAlgunaPata && legSymbols.length) {
-          ex.pnl = +pnlTotal.toFixed(2);
-          ex.pnlSource = 'gainloss';
+        const resultado = await intentarResolverPnl(ex, executions);
+        if (resultado) {
+          ex.pnl = resultado.pnl;
+          ex.pnlSource = resultado.pnlSource;
         } else {
           ex.pnl = null;
           ex.pnlSource = 'pendiente_verificar';
         }
         cambios = true;
-        console.log(`[TRADIER-TRACK] Ejecución ${ex.orderId} cerrada — P&L: ${ex.pnl ?? 'pendiente de verificar'}`);
+        console.log(`[TRADIER-TRACK] Ejecución ${ex.orderId} cerrada — P&L: ${ex.pnl ?? 'pendiente de verificar (se reintentará automáticamente)'}`);
       }
     } catch(e) {
       console.error(`[TRADIER-TRACK] Error revisando orden ${ex.orderId}:`, e.message);
