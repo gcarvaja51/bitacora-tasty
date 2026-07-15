@@ -5444,7 +5444,6 @@ async function reintentarPnlPendientes() {
 async function checkTradierExecutionsImpl() {
   const executions = loadTradierExecutions();
   const pendientes = executions.filter(e => e.status === 'submitted' || e.status === 'filled');
-  await reintentarPnlPendientes();
   if (!pendientes.length) return;
 
   console.log(`[TRADIER-TRACK] Revisando ${pendientes.length} ejecución(es) en curso...`);
@@ -5527,10 +5526,22 @@ function scheduleTradierTracking() {
     if (isMarketHours()) {
       await checkTradierExecutions();
     }
+    // A diferencia del chequeo de arriba (que solo tiene sentido con mercado
+    // abierto — las posiciones no cambian de estado con el mercado cerrado),
+    // el reintento de P&L pendiente_verificar SÍ debe correr siempre: es una
+    // consulta de historial (tradier.getClosedPnl) que no depende de que el
+    // mercado esté abierto, y el usuario suele revisar el dashboard después
+    // del cierre — con el gate viejo, un trade cerrado tarde en el día se
+    // quedaba pendiente_verificar hasta la apertura del día siguiente.
+    try {
+      await withExecutionsLock(reintentarPnlPendientes);
+    } catch(e) {
+      console.error('[TRADIER-TRACK] Error en reintentarPnlPendientes:', e.message);
+    }
     setTimeout(tick, TRADIER_TRACK_MS);
   }
   setTimeout(tick, 90 * 1000); // arranca 90s despues del boot
-  console.log('[TRADIER-TRACK] Monitor iniciado — chequeo cada 5 min en horario de mercado');
+  console.log('[TRADIER-TRACK] Monitor iniciado — chequeo cada 5 min en horario de mercado (P&L pendiente se reintenta 24/7)');
 }
 
 
