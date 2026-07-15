@@ -5523,16 +5523,22 @@ async function checkTradierExecutionsImpl() {
 
 function scheduleTradierTracking() {
   async function tick() {
-    if (isMarketHours()) {
+    // Corregido 2026-07-15: antes este chequeo (detecta si una posición
+    // 'filled' ya se cerró) estaba condicionado a isMarketHours(), bajo el
+    // supuesto de que "las posiciones no cambian de estado con el mercado
+    // cerrado" — supuesto FALSO: un 0DTE expira/se liquida justo al cierre
+    // (4pm ET), que es exactamente el borde de isMarketHours(), así que una
+    // posición podía quedar marcada 'filled' (mostrando P&L no-realizado
+    // ~estimado) toda la noche aunque ya estuviera cerrada de verdad en
+    // Tradier, hasta que el monitor volviera a correr con el mercado abierto
+    // al día siguiente. Consultar tradier.getPositions() es una lectura de
+    // estado de cuenta, no depende de que el mercado esté abierto — corre
+    // siempre, igual que el reintento de P&L de abajo.
+    try {
       await checkTradierExecutions();
+    } catch(e) {
+      console.error('[TRADIER-TRACK] Error en checkTradierExecutions:', e.message);
     }
-    // A diferencia del chequeo de arriba (que solo tiene sentido con mercado
-    // abierto — las posiciones no cambian de estado con el mercado cerrado),
-    // el reintento de P&L pendiente_verificar SÍ debe correr siempre: es una
-    // consulta de historial (tradier.getClosedPnl) que no depende de que el
-    // mercado esté abierto, y el usuario suele revisar el dashboard después
-    // del cierre — con el gate viejo, un trade cerrado tarde en el día se
-    // quedaba pendiente_verificar hasta la apertura del día siguiente.
     try {
       await withExecutionsLock(reintentarPnlPendientes);
     } catch(e) {
@@ -5541,7 +5547,7 @@ function scheduleTradierTracking() {
     setTimeout(tick, TRADIER_TRACK_MS);
   }
   setTimeout(tick, 90 * 1000); // arranca 90s despues del boot
-  console.log('[TRADIER-TRACK] Monitor iniciado — chequeo cada 5 min en horario de mercado (P&L pendiente se reintenta 24/7)');
+  console.log('[TRADIER-TRACK] Monitor iniciado — chequeo cada 5 min, 24/7 (cierre de posiciones y P&L pendiente ya no dependen de horario de mercado)');
 }
 
 
