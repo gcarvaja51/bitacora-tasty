@@ -4361,6 +4361,21 @@ async function aplanarPatasParciales(detalle, underlyingRoot) {
   return cerradas;
 }
 
+// Fix 2026-07-15 (pedido explícito del usuario): cualquier posición 0DTE que
+// siga abierta 30 min antes del cierre (3:30pm ET) se cierra a la fuerza, sin
+// esperar a que se cumpla TP/SL — "los últimos 30 minutos son complejos por la
+// gamma y el cierre del mercado". Las 1DTE quedan excluidas a propósito (ese es
+// justo el diseño: el Iron Condor 1DTE se arma para quedarse abierto sobre la
+// noche). No hace falta límite superior de horario porque los tres monitores ya
+// dejan de correr a las 4pm ET vía isMarketHours() — con chequeos cada 15-90s
+// entre 3:30 y 4:00pm sobra margen para lograr el cierre antes de esa parada.
+function debeForzarCierrePorHorario(ex) {
+  if (ex.expType === '1DTE') return false;
+  const et = getETHour();
+  const mins = et.hour * 60 + et.min;
+  return mins >= 15 * 60 + 30;
+}
+
 // ── Monitor activo de TP/SL para Iron Condor (primer cierre activo del sistema —
 // todo lo demas hoy solo registra P&L despues del hecho, ver checkTradierExecutions) ──
 async function checkIronCondorTPSL() {
@@ -4456,6 +4471,11 @@ async function checkIronCondorTPSLImpl() {
         const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
+      }
+
+      if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
+        cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
+        console.log(`[Tradier-IC-TPSL] ⏰ Cierre forzado por horario (30 min antes del cierre) — orden ${ex.orderId}`);
       }
       if (!cerrarPor) continue;
 
@@ -4655,6 +4675,11 @@ async function checkDirectionalTPSLImpl() {
         const slUmbral = ex.creditReceived * ((ex.debitSlPct ?? 50) / 100);
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
+      }
+
+      if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
+        cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
+        console.log(`[Tradier-DIR-TPSL] ⏰ Cierre forzado por horario (30 min antes del cierre) — orden ${ex.orderId}`);
       }
       if (!cerrarPor) continue;
 
@@ -4994,6 +5019,10 @@ async function checkAlejamientoSMATPSLImpl() {
       else if (!isBullish && price > ex.entryCandleHigh) cerrarPor = 'SL';
       else if (candlesElapsed >= (cfg.maxCandlesTimeStop || 5)) cerrarPor = 'TIME_STOP';
 
+      if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
+        cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
+        console.log(`[Tradier-REV-TPSL] ⏰ Cierre forzado por horario (30 min antes del cierre) — orden ${ex.orderId}`);
+      }
       if (!cerrarPor) continue;
 
       if (!IS_PRODUCTION) {
