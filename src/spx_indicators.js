@@ -457,10 +457,67 @@ function calcReversionScore(indicators, config) {
   });
   score += w5 * fracRegimen;
 
+  // 6. Compás de Medias 8/20 en 5m — v2 (2026-07-14, a pedido del usuario): las
+  // medias no deben estar "trenzadas" (cruzandose seguido, sin ritmo claro) y el
+  // compas debe favorecer la direccion de la reversion — mismo rol que
+  // fase_weinstein pero en el marco de 5m que pide el material de Luis Silva
+  // ("las medias no deben estar trenzadas... ritmo direccional claro"). Se recibe
+  // YA CALCULADO en indicators.compasMedias5m (mismo patron que patronReversion,
+  // calculado afuera con calcCompasMedias5m para evitar un fetch adicional dentro
+  // de esta funcion pura).
+  const w6 = weights.compas_medias_5m ?? 15;
+  totalWeight += w6;
+  const compas = indicators.compasMedias5m || {};
+  checks.push({
+    id:      'compas_medias_5m',
+    label:   'Compás de Medias 8/20 (5m)',
+    weight:  w6,
+    ok:      !!compas.ok,
+    value:   compas.value || '—',
+    reason:  compas.reason || 'Sin datos de compás 5m',
+  });
+  if (compas.ok) score += w6;
+
   const pct = totalWeight > 0 ? +(score / totalWeight * 100).toFixed(1) : 0;
   const minScore = config.minScore ?? 70;
 
   return { score: pct, passed: pct >= minScore, minScore, checks };
 }
 
-module.exports = { calcEMA, calcEMAArray, calcMACD, priceExtension, calcRelativeVolume, calcPlaybookScore, calcSwingStructure, calcSMA, calcSMAArray, calcRSI, calcReversionScore, calcPOC };
+// bars/closes: cierres cronologicos de 5m, idealmente >=25 barras (poco mas de
+// 2h). direction: 'BULLISH' | 'BEARISH' (la direccion de la reversion candidata).
+function calcCompasMedias5m(closes, direction) {
+  const n = closes ? closes.length : 0;
+  if (n < 25) return { ok: false, trenzadas: null, crossCount: null, value: '—', reason: 'Historial 5m insuficiente para el compás de medias' };
+
+  const sma8  = calcSMAArray(closes, 8);
+  const sma20 = calcSMAArray(closes, 20);
+
+  // Cruces de SMA8/SMA20 en las ultimas 15 barras (75 min) — 2 o mas cruces en
+  // ese tramo indica medias "trenzadas" (sin ritmo direccional confiable).
+  const lookback = 15;
+  let crossCount = 0, prevSign = null;
+  for (let i = Math.max(0, n - lookback); i < n; i++) {
+    if (sma8[i] == null || sma20[i] == null) continue;
+    const sign = sma8[i] > sma20[i] ? 1 : (sma8[i] < sma20[i] ? -1 : 0);
+    if (prevSign !== null && sign !== 0 && sign !== prevSign) crossCount++;
+    if (sign !== 0) prevSign = sign;
+  }
+  const trenzadas = crossCount >= 2;
+
+  const last8 = sma8[n - 1], last20 = sma20[n - 1];
+  if (last8 == null || last20 == null) return { ok: false, trenzadas, crossCount, value: '—', reason: 'SMA 5m sin datos suficientes' };
+
+  const alineado = direction === 'BULLISH' ? last8 > last20 : last8 < last20;
+  const ok = alineado && !trenzadas;
+  const value = `SMA8${last8 > last20 ? '>' : '<'}SMA20 (5m), ${crossCount} cruces/75min`;
+  const reason = trenzadas
+    ? `Medias 5m trenzadas (${crossCount} cruces en 75min) — sin ritmo direccional claro ❌`
+    : alineado
+      ? `Compás 5m limpio y a favor de la reversión ✅`
+      : `Compás 5m limpio pero en contra de la reversión (SMA8 ${last8 > last20 ? 'arriba' : 'abajo'} de SMA20) ❌`;
+
+  return { ok, trenzadas, crossCount, value, reason };
+}
+
+module.exports = { calcEMA, calcEMAArray, calcMACD, priceExtension, calcRelativeVolume, calcPlaybookScore, calcSwingStructure, calcSMA, calcSMAArray, calcRSI, calcReversionScore, calcCompasMedias5m, calcPOC };

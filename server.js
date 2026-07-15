@@ -3121,7 +3121,7 @@ app.post('/api/wheel-trading/executions/:id/patch', async (req, res) => {
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
 const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow } = require('./src/spx');
-const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray, calcPOC } = require('./src/spx_indicators');
+const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray, calcCompasMedias5m, calcPOC } = require('./src/spx_indicators');
 // Nota: calcRSI ya existe como funcion local en este archivo (linea ~1243, usada por el
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
@@ -3195,11 +3195,19 @@ const SPX_CONFIG_DEFAULTS = {
     // usuario con Luis Silva, por eso todo vive en config y no hardcodeado).
     smaReversion: {
       weights: {
-        alejamiento_sma8:    50, // subido de 35 a 50 (2026-07-08) — "es lo mas importante", a pedido del usuario
+        // v2 (2026-07-14, a pedido del usuario, tras revisar el material de Luis
+        // Sigma): RSI eliminado del score (Luis es explicito en no usar
+        // osciladores, "simple como las medias moviles") — se deja el check en
+        // 0% en vez de borrarlo (mismo patron que confirmacion_algoritmica en el
+        // playbook direccional): se sigue calculando y mostrando, solo no puntua.
+        // Su 10% se repartio: 5 a alejamiento_sma8 (el motor real) y el nuevo
+        // check compas_medias_5m se lleva el resto del espacio liberado.
+        alejamiento_sma8:    45, // 50->45 (2026-07-14) — cede espacio al nuevo compas_medias_5m
         patron_confirmacion: 20, // Vela Garcia / Vela Tiburon / Vela 9 Secuencial
-        rsi:                 10, // sobrecompra/sobreventa
+        rsi:                 0,  // 10->0 (2026-07-14) — eliminado del score, ver nota arriba
         fase_weinstein:      10, // Fase 15m a favor de la reversion (2 compras, 4 ventas)
         regimen_gex:         10, // GEX Positivo + Muro de Gamma
+        compas_medias_5m:    15, // nuevo (2026-07-14) — SMA8/20 en 5m no "trenzadas" y a favor de la reversion
       },
       minScore:    75,   // 70->80 (2026-07-08), luego 80->75 (2026-07-09) tras revisar caso real 8-jul: con tabla escalonada llegaba a 75, se bajo el piso para no perder ese tipo de entrada
       targetDelta: 0.30,
@@ -3257,6 +3265,14 @@ function loadSPXConfig() {
     if (saved?.trading && saved.trading.debit === undefined) {
       console.log('[SPX] Sumando config de débito direccional (no existía)');
       saved.trading.debit = SPX_CONFIG_DEFAULTS.trading.debit;
+      saveSPXConfig(saved);
+    }
+    // Migra los pesos de smaReversion a v2 (2026-07-14): agrega compas_medias_5m
+    // sin pisar el resto de la config ya ajustada en produccion (targetDelta,
+    // maxStopsPerDay, etc.) — solo toca la clave `weights` de smaReversion.
+    if (saved?.trading?.smaReversion && saved.trading.smaReversion.weights?.compas_medias_5m === undefined) {
+      console.log('[SPX] Migrando pesos de Alejamiento de SMA a v2 (agregando compas_medias_5m)');
+      saved.trading.smaReversion.weights = SPX_CONFIG_DEFAULTS.trading.smaReversion.weights;
       saveSPXConfig(saved);
     }
     return saved;
@@ -4839,6 +4855,21 @@ async function checkAlejamientoSMA() {
     const direction = price < sma8 ? 'BULLISH' : 'BEARISH';
     const patronReversion = evaluateReversionPattern(bars, direction);
 
+    // Compás de Medias 8/20 en 5m — v2 (2026-07-14). Fetch propio, autocontenido
+    // a este pipeline (nadie mas usa 5m todavia, no vale la pena sumarlo a
+    // buildSPXContext para un solo consumidor). Si falla, compasMedias5m queda
+    // con ok:false — el check simplemente no puntua, no rompe el resto del score.
+    let compasMedias5m = { ok: false, value: '—', reason: 'Sin datos 5m' };
+    try {
+      const r5 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=5d',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const j5 = await r5.json();
+      const closes5 = (j5.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(v => v != null);
+      compasMedias5m = calcCompasMedias5m(closes5, direction);
+    } catch(e) {
+      console.error('[SPX-REV] Error trayendo velas 5m para compás de medias:', e.message);
+    }
+
     const scoreResult = calcReversionScore({
       direction, ext8, patronReversion, rsi,
       m15: ctx.indicators?.m15 || {},
@@ -4847,6 +4878,7 @@ async function checkAlejamientoSMA() {
       callWall: ctx.gex?.callWall,
       putWall: ctx.gex?.putWall,
       wallProximityPts: cfg.wallProximityPts,
+      compasMedias5m,
     }, cfg);
 
     if (!scoreResult.passed) {

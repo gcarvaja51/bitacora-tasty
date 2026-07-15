@@ -667,6 +667,44 @@ score agregado a partir de sus checks — no implementado, señalado explícitam
 Esto es temporal y reversible — para volver al sizing por % de capital, revertir estos 4
 puntos a la fórmula `Math.max(1, Math.floor(capital*pct/(width*100)))` que usaban antes.
 
+**Alejamiento de SMA — v2 (2026-07-14), a pedido del usuario tras revisar un análisis del
+material de Luis Sigma:**
+- **Ventana horaria ampliada**: de 9:45am-12pm ET a **10am-2pm ET (9am-1pm hora Colombia)**
+  (`evaluateReversionGate`, `src/spx.js`). Ojo: esto invade ~2h de "la siesta institucional"
+  (12pm-3pm ET) que la ventana original excluía a propósito citando el mismo material de Luis
+  — decisión explícita del usuario, no un ajuste técnico. Si el score empieza a fallar más en
+  el tramo 12-2pm, este es el primer lugar a revisar.
+- **RSI eliminado del score** (10%→0%, `weights.rsi`): Luis es explícito en no usar
+  osciladores ("simple como las medias móviles"). El check se sigue calculando y mostrando
+  (mismo patrón que `confirmacion_algoritmica` en el playbook direccional), solo no puntúa.
+- **Nuevo check `compas_medias_5m` (15%)**: `calcCompasMedias5m` (`src/spx_indicators.js`,
+  nuevo) — exige que SMA8/SMA20 en marco de **5 minutos** (timeframe nuevo, antes el sistema
+  solo usaba 2m/15m/diario) NO estén "trenzadas" (≥2 cruces en las últimas 15 barras / 75 min)
+  y que el compás esté a favor de la dirección de la reversión. Fetch propio y autocontenido
+  dentro de `checkAlejamientoSMA()` (Yahoo `interval=5m`) — no se sumó a `buildSPXContext()`
+  porque hoy es el único consumidor de 5m en todo el sistema.
+- **Pesos v2 finales** (`SPX_CONFIG_DEFAULTS.trading.smaReversion.weights`, suma 100):
+  `alejamiento_sma8` 50→**45**, `patron_confirmacion` 20 (sin cambio), `rsi` 10→**0**,
+  `fase_weinstein` 10 (sin cambio), `regimen_gex` 10 (sin cambio), `compas_medias_5m`
+  **15 (nuevo)**. `minScore` sin cambio (75).
+- Migración no-destructiva en `loadSPXConfig()` (mismo patrón que las anteriores): si
+  `saved.trading.smaReversion.weights.compas_medias_5m` no existe, reemplaza solo `weights`
+  con los defaults nuevos — no toca el resto de `smaReversion` (ventana, `maxStopsPerDay`,
+  etc.) ni el resto de `trading`. Se aplica sola en el primer ciclo tras el deploy (no hace
+  falta el push manual vía `POST /api/spx/config` de otros gotchas documentados arriba, porque
+  la migración corre en cada `loadSPXConfig()`, y `checkAlejamientoSMA` la llama cada 60s).
+- **Confirmado, sin cambios de código**: un direccional o Iron Condor abiertos **no bloquean**
+  que dispare una Reversión — el chequeo de exclusividad de `checkAlejamientoSMA` (server.js)
+  solo mira otras ejecuciones `strategyFamily === 'REVERSION'`, nunca llama a
+  `tradier.hasOpenPosition('SPXW')` (eso sí lo usan el direccional y el IC, y por eso la
+  asimetría documentada arriba sigue siendo cierta: una Reversión abierta sí pausa a esos dos
+  mientras dure, 2-10 min).
+- **Validado con datos sintéticos** (no en vivo todavía): suma de pesos = 100, límites exactos
+  de la ventana horaria (9:59/10:00/13:59/14:00 ET), y `calcCompasMedias5m` con una serie
+  alcista limpia (sin cruces, alineado → `ok:true`) y una serie en contra de la dirección
+  (`ok:false`). **Pendiente**: validar contra un caso real de mercado en vivo, igual que se
+  hizo con los demás ajustes de este pipeline.
+
 ## Rueda Automatizada (Tradier) — Fase 1: Screener + Señales (2026-07-10)
 
 Cuarto pipeline automático, **independiente** de los tres de SPX — proyecto multi-semana para
