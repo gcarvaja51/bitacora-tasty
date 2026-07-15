@@ -4410,6 +4410,15 @@ async function checkIronCondorTPSLImpl() {
 
       if (ex.creditReceived == null) continue;
 
+      // Mismo fix que checkDirectionalTPSLImpl (2026-07-15) — sin este freno, si
+      // la orden de cierre no se llena al instante, el siguiente ciclo (90s
+      // después) puede seguir viendo la condición de TP/SL cumplida y mandar
+      // otra orden de cierre encima de la anterior, repitiendo sin límite.
+      const CLOSE_ORDER_COOLDOWN_MS = 2 * 60 * 1000;
+      if (ex.closeOrderSentAt && (Date.now() - new Date(ex.closeOrderSentAt).getTime()) < CLOSE_ORDER_COOLDOWN_MS) {
+        continue;
+      }
+
       const legSymbols = esDebito
         ? [ex.legs?.outerHighSym, ex.legs?.innerHighSym, ex.legs?.innerLowSym, ex.legs?.outerLowSym].filter(Boolean)
         : [ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym].filter(Boolean);
@@ -4484,6 +4493,7 @@ async function checkIronCondorTPSLImpl() {
         // 2026-07-09) — mismo mecanismo que ya usan los cierres puramente manuales, en vez
         // de inventar una confirmacion de fill propia con una convencion de signos incierta.
         ex.closeReason = cerrarPor; // la reconciliacion pasiva lo respeta (ex.closeReason || 'MANUAL')
+        ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
         console.log(`[Tradier-IC-TPSL] Orden de cierre enviada por ${cerrarPor} — P&L real pendiente (lo completa la reconciliación pasiva en ≤5 min; estimado pre-cierre habia sido $${(pnlActual*100*ex.contracts).toFixed(2)}).`);
       } catch(e) {
@@ -4565,6 +4575,26 @@ async function checkDirectionalTPSLImpl() {
       }
 
       if (ex.creditReceived == null) continue;
+
+      // Fix 2026-07-15 — bug real encontrado ese día (orden 35199549, 12:16pm):
+      // este monitor corre cada 30s, y al mandar la orden de cierre NO marca la
+      // ejecución de forma que el siguiente ciclo sepa que ya hay un cierre en
+      // curso (a propósito se deja 'filled' para que la reconciliación pasiva
+      // traiga el P&L real — ver comentario más abajo). Sin este freno, si la
+      // orden de cierre no se llena al instante, 30s después las condiciones de
+      // TP/SL/stop técnico siguen cumpliéndose y el monitor manda OTRA orden de
+      // cierre sin cancelar la anterior — pasó 9 veces seguidas en ~4.5 min ese
+      // día, apilando órdenes mientras el precio se movía, y terminó cerrando
+      // con solo $20 de P&L real pese a que el estimado antes de cada intento
+      // rondaba $280-430. Ahora, si ya se mandó un cierre hace menos de
+      // CLOSE_ORDER_COOLDOWN_MS, se salta esta ejecución sin re-evaluar ni
+      // reenviar nada — le da tiempo a esa orden de llenarse (o a la
+      // reconciliación pasiva de detectar que la posición ya no existe) antes
+      // de intentar de nuevo.
+      const CLOSE_ORDER_COOLDOWN_MS = 2 * 60 * 1000;
+      if (ex.closeOrderSentAt && (Date.now() - new Date(ex.closeOrderSentAt).getTime()) < CLOSE_ORDER_COOLDOWN_MS) {
+        continue;
+      }
 
       const shortSym = ex.legs?.shortSym, longSym = ex.legs?.longSym;
       if (!shortSym || !longSym) continue;
@@ -4648,6 +4678,7 @@ async function checkDirectionalTPSLImpl() {
         // cada 5 min) traiga el P&L REAL desde tradier.getClosedPnl en vez de confiar en
         // la cotización de antes de cerrar (que solo sirve para decidir el trigger).
         ex.closeReason = cerrarPor;
+        ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
         console.log(`[Tradier-DIR-TPSL] Orden de cierre enviada por ${cerrarPor} — P&L real pendiente (lo completa la reconciliación pasiva en ≤5 min; estimado pre-cierre habia sido $${(pnlActual*100*ex.contracts).toFixed(2)}).`);
       } catch(e) {
@@ -4932,6 +4963,15 @@ async function checkAlejamientoSMATPSLImpl() {
         continue;
       }
 
+      // Mismo fix que checkDirectionalTPSLImpl (2026-07-15) — este monitor corre
+      // cada 15s, el más agresivo de los tres, así que sin este freno era el más
+      // expuesto a apilar órdenes de cierre repetidas si la primera no se llenaba
+      // al instante.
+      const CLOSE_ORDER_COOLDOWN_MS = 2 * 60 * 1000;
+      if (ex.closeOrderSentAt && (Date.now() - new Date(ex.closeOrderSentAt).getTime()) < CLOSE_ORDER_COOLDOWN_MS) {
+        continue;
+      }
+
       // Precio actual del SPX — liviano (mismo endpoint que usa buildSPXContext
       // para el precio, sin reconstruir todo el contexto cada 15-20s).
       let price;
@@ -4978,6 +5018,7 @@ async function checkAlejamientoSMATPSLImpl() {
         // P&L de esta estrategia se quedaba en null para siempre. Fix: dejar 'filled' a
         // propósito para que la reconciliación pasiva lo complete en su próximo ciclo.
         ex.closeReason = cerrarPor;
+        ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
         console.log(`[Tradier-REV-TPSL] ✅ Cerrado por ${cerrarPor} — orden ${ex.orderId}`);
       } catch(e) {
