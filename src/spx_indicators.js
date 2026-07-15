@@ -428,32 +428,31 @@ function calcReversionScore(indicators, config) {
   });
   if (fase_ok) score += w4;
 
-  // 5. Régimen Institucional — GEX Positivo + confluencia con Muro de Gamma.
-  // El "setup dorado" de Luis Silva es estiramiento extremo + gamma positivo + precio
-  // cerca del muro (Call/Put Wall) que frena el movimiento en la direccion contraria —
-  // no solo el signo del GEX. NOTA: GEX positivo es un gate obligatorio aparte (fuera de
-  // este score, en checkAlejamientoSMA) — aqui solo se gradua la CALIDAD de la confluencia.
+  // 5. Confluencia con Muro de Gamma — el "setup dorado" de Luis Silva es
+  // estiramiento extremo + gamma positivo + precio cerca del muro (Call/Put Wall)
+  // que frena el movimiento contrario. GEX positivo YA es un gate obligatorio
+  // aparte (checkAlejamientoSMA corta antes de llegar a este score si es
+  // negativo — calcReversionScore no tiene otro caller), así que la rama que
+  // volvía a preguntar el signo del GEX acá adentro era código muerto en la
+  // práctica: nunca podía valer 0. Eliminada 2026-07-14 (a pedido del usuario) —
+  // este check ya solo gradúa la CALIDAD de la confluencia con el muro.
   const w5 = weights.regimen_gex ?? 10;
   totalWeight += w5;
-  const gexPositivo = indicators.gammaRegime === 'POSITIVO';
   const muroRelevante = dir === 'BULLISH' ? indicators.putWall : indicators.callWall;
   const distanciaMuro = (muroRelevante != null && indicators.spxPrice != null)
     ? Math.abs(indicators.spxPrice - muroRelevante) : null;
   const wallProximityPts = indicators.wallProximityPts ?? 15;
   const cercaDelMuro = distanciaMuro != null && distanciaMuro <= wallProximityPts;
-  const fracRegimen = !gexPositivo ? 0 : (cercaDelMuro ? 1.0 : 0.5);
-  const regimen_ok = fracRegimen > 0;
+  const fracRegimen = cercaDelMuro ? 1.0 : 0.5;
   checks.push({
     id:      'regimen_gex',
-    label:   'Régimen Institucional (GEX + Muro de Gamma)',
+    label:   'Confluencia con Muro de Gamma',
     weight:  w5,
-    ok:      regimen_ok,
-    value:   `${indicators.gammaRegime || '—'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''}`,
-    reason:  !gexPositivo
-      ? `GEX ${indicators.gammaRegime || 'desconocido'} — no favorece reversión ❌`
-      : cercaDelMuro
-        ? `GEX positivo + precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte ✅`
-        : `GEX positivo pero sin muro de gamma cerca (${distanciaMuro != null ? distanciaMuro.toFixed(1) + 'pts' : 'sin datos'}) — confluencia parcial ⚠️`,
+    ok:      true,
+    value:   `${indicators.gammaRegime || 'POSITIVO'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''}`,
+    reason:  cercaDelMuro
+      ? `Precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte (setup dorado) ✅`
+      : `Sin muro de gamma cerca (${distanciaMuro != null ? distanciaMuro.toFixed(1) + 'pts' : 'sin datos'}) — confluencia parcial ⚠️`,
   });
   score += w5 * fracRegimen;
 

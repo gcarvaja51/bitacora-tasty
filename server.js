@@ -3216,6 +3216,7 @@ const SPX_CONFIG_DEFAULTS = {
       maxStopsPerDay:     2,  // circuito: 2 PERDIDAS CONSECUTIVAS (no total) y no se opera mas hoy
       maxDailyDrawdownPct: 3.5, // o -3.5% del capital en el dia, lo que llegue primero (regla Luis: 3-4%)
       wallProximityPts:   15,  // "cerca" de un muro de gamma para la confluencia del score
+      riskPctPerTrade:    1,   // (2026-07-14) % del capital arriesgado por trade — sizing "division sagrada" de Luis Sigma, ver sizeContractsByRisk
       tradierAutoExecute: true, // kill-switch propio, independiente de IC y direccionales
     },
   }
@@ -3273,6 +3274,13 @@ function loadSPXConfig() {
     if (saved?.trading?.smaReversion && saved.trading.smaReversion.weights?.compas_medias_5m === undefined) {
       console.log('[SPX] Migrando pesos de Alejamiento de SMA a v2 (agregando compas_medias_5m)');
       saved.trading.smaReversion.weights = SPX_CONFIG_DEFAULTS.trading.smaReversion.weights;
+      saveSPXConfig(saved);
+    }
+    // Suma riskPctPerTrade a un smaReversion ya guardado que no lo tenga (sizing
+    // por riesgo real en dolares, 2026-07-14, reemplaza sizeContractsByScore).
+    if (saved?.trading?.smaReversion && saved.trading.smaReversion.riskPctPerTrade === undefined) {
+      console.log('[SPX] Sumando riskPctPerTrade a Alejamiento de SMA (no existía)');
+      saved.trading.smaReversion.riskPctPerTrade = SPX_CONFIG_DEFAULTS.trading.smaReversion.riskPctPerTrade;
       saveSPXConfig(saved);
     }
     return saved;
@@ -4297,6 +4305,22 @@ function sizeContractsByScore(score) {
   return (score != null && score >= 90) ? 2 : 1;
 }
 
+// Sizing por riesgo en dólares — método de 5 pasos de Luis Sigma ("la
+// configuración del trade se hace del riesgo hacia el tamaño, nunca al revés"),
+// usado solo por Alejamiento de SMA (2026-07-14). riskPct: % del capital
+// arriesgado en este trade. shortDelta: delta de la pata corta del spread,
+// proxy del delta neto (la pata larga pesa poco, esta mas OTM). distancePts:
+// puntos de SPX entre el precio actual y el nivel tecnico de invalidez.
+// Redondea siempre hacia abajo ("division sagrada"); si ni 1 contrato cabe en
+// el riesgo permitido, fuerza 1 de piso (decision explicita del usuario —
+// nunca deja de operar solo por esto).
+function sizeContractsByRisk(capital, riskPct, shortDelta, distancePts) {
+  const riskDollars = capital * (riskPct / 100);
+  const lossPerContract = (shortDelta || 0) * Math.abs(distancePts || 0) * 100;
+  if (!lossPerContract || lossPerContract <= 0) return 1;
+  return Math.max(1, Math.floor(riskDollars / lossPerContract));
+}
+
 function calcLivePnl(ex, q) {
   try {
     const legs = ex.legs || {};
@@ -4895,11 +4919,20 @@ async function checkAlejamientoSMA() {
       return;
     }
 
-    // Tamaño por score, no por % de capital (2026-07-09, "mientras afinamos todo") —
-    // 1 contrato en general, 2 si el score de la reversion fue >=90%.
-    const contracts = sizeContractsByScore(scoreResult.score);
-
     const entryBar = bars[bars.length - 1];
+
+    // Sizing por riesgo real en dólares — "división sagrada" de Luis Sigma
+    // (2026-07-14, reemplaza el sizing por score de 2026-07-09 SOLO para esta
+    // estrategia): riesgo permitido (capital × 1%) ÷ pérdida estimada por contrato
+    // si el precio llega al nivel técnico de invalidez (la vela de entrada, ya
+    // conocida — es la última vela de 2m ya cerrada, no una futura). La pérdida
+    // por contrato se estima con el delta real de la pata corta (ya lo trae
+    // findStrikesByDelta) en vez de asumir un % fijo de la prima como el ejemplo
+    // mental de Luis — más preciso porque el dato real ya está disponible acá.
+    const distanceToStopPts = direction === 'BULLISH'
+      ? (price - entryBar.low)
+      : (entryBar.high - price);
+    const contracts = sizeContractsByRisk(capital, cfg.riskPctPerTrade ?? 1, strikes.shortDelta, distanceToStopPts);
 
     const signal = buildSignalSummary(strategy, strikes, {
       valid: true, strategy, isCredit: true, expType: '0DTE', spreadWidth: cfg.spreadWidth, contracts,

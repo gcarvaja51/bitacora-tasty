@@ -705,6 +705,47 @@ material de Luis Sigma:**
   (`ok:false`). **Pendiente**: validar contra un caso real de mercado en vivo, igual que se
   hizo con los demás ajustes de este pipeline.
 
+**Ajuste 2026-07-14 (mismo día) — rama muerta eliminada del check `regimen_gex`:** el usuario
+preguntó por qué `regimen_gex` seguía valiendo 10% si GEX positivo/negativo ya es un interruptor
+duro aparte. Respuesta: no era redundante en el diseño (gradúa proximidad al muro, no el signo),
+pero sí tenía una rama de código que nunca podía ejecutarse — `calcReversionScore` solo tiene un
+caller (`checkAlejamientoSMA`), que ya corta antes si `ctx.gex?.regime !== 'POSITIVO'`, así que
+`!gexPositivo` dentro del check siempre era `false` en producción. Eliminada esa rama: ahora
+`fracRegimen` es directamente `cercaDelMuro ? 1.0 : 0.5` (nunca 0), `ok` es siempre `true`, y el
+label pasó de "Régimen Institucional (GEX + Muro de Gamma)" a **"Confluencia con Muro de
+Gamma"** para reflejar que ya no evalúa el signo del GEX, solo la calidad de la confluencia.
+
+**Ajuste 2026-07-14 (mismo día) — sizing por riesgo real en dólares, método de Luis Sigma:**
+el usuario validó el TP (toca SMA8, sin cambios) y el SL (ruptura de la vela de entrada, sin
+cambios — coincide con el "nivel técnico de invalidez" del material de Luis; la nota de que
+Tradier no soporta stops nativos en verticales de 2 patas confirma por qué existe
+`checkAlejamientoSMATPSL()` en primer lugar), pero al revisar el método de 5 pasos de Luis
+("la configuración del trade se hace del riesgo hacia el tamaño, nunca al revés") se encontró
+que el sizing SÍ tenía un gap real: `sizeContractsByScore` (score-based, 1 o 2 contratos según
+si la señal dio ≥90%) no es la "división sagrada" de Luis (riesgo permitido ÷ riesgo real por
+contrato). Reemplazado **solo para esta estrategia** (el direccional sigue usando
+`sizeContractsByScore` sin cambios) por `sizeContractsByRisk(capital, riskPct, shortDelta,
+distancePts)` (server.js):
+- **Riesgo permitido** = capital de la cuenta (`tradier.getBalances()`, ya se traía para el
+  circuito de drawdown diario) × `riskPctPerTrade` (nuevo en config, default **1%** — decisión
+  explícita del usuario, el piso del rango 1-2% que menciona Luis).
+- **Pérdida estimada por contrato** = `shortDelta × distancia_en_puntos × 100` — a diferencia
+  del ejemplo mental de Luis (que asume un 30% fijo de la prima porque un trader discrecional
+  no tiene el delta a mano en el momento), acá se usa el delta real de la pata corta que ya
+  devuelve `findStrikesByDelta`, más preciso. La distancia en puntos ya se conoce *antes* de
+  entrar (la vela de entrada es la última vela de 2m ya cerrada, `entryBar.low`/`.high`, no
+  algo futuro que haya que estimar).
+- **Redondeo**: siempre hacia abajo ("división sagrada"). **Si ni 1 contrato cabe dentro del
+  riesgo permitido, se fuerza 1 de piso** (decisión explícita del usuario — nunca deja de
+  operar solo por esto, a diferencia de la lectura literal de Luis que implicaría saltar el
+  trade).
+- Migración no-destructiva de `spx_config.json` igual que las anteriores (`riskPctPerTrade` se
+  agrega solo si no existe).
+- **Validado con casos sintéticos**: spread angosto con stop lejos → cae al piso de 1; stop
+  cerca → 1 contrato calculado real; cuenta grande (\$50k) con stop cerca → 5 contratos; sin
+  datos de delta/distancia → piso de 1 (nunca rompe por falta de datos). **Pendiente**: validar
+  contra un caso real de mercado en vivo.
+
 ## Rueda Automatizada (Tradier) — Fase 1: Screener + Señales (2026-07-10)
 
 Cuarto pipeline automático, **independiente** de los tres de SPX — proyecto multi-semana para
