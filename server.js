@@ -3312,6 +3312,46 @@ function saveSPXSignals(signals) {
   fs.writeFileSync(SPX_SIGNALS_FILE, JSON.stringify(signals, null, 2), 'utf8');
 }
 
+// ── Log de evaluaciones del Iron Condor (2026-07-15) ──────────────────────
+// A diferencia de spx_signals.json (solo guarda cuando SI se arma la señal),
+// este archivo registra CADA corrida de checkIronCondor() dentro de la ventana
+// horaria, pase o no el gate — a pedido explicito del usuario: "el algoritmo
+// debe decirme porque no disparo el IC a esa hora, siempre, todos los dias,
+// independientemente que yo lo pregunte o no". Antes, un rechazo de gate solo
+// dejaba un console.log (se pierde en el log stream de Railway) sin persistir
+// nada — el mismo punto ciego que ya causo un bug real en el playbook
+// direccional el 2026-07-08 (rechazo silencioso, sin registro).
+const SPX_IC_GATE_LOG_FILE = path.join(DATA_DIR, 'spx_ic_gate_log.json');
+
+function loadICGateLog() {
+  try { return JSON.parse(fs.readFileSync(SPX_IC_GATE_LOG_FILE, 'utf8')); } catch(e) { return []; }
+}
+function saveICGateLog(log) {
+  fs.writeFileSync(SPX_IC_GATE_LOG_FILE, JSON.stringify(log, null, 2), 'utf8');
+}
+// Cap generoso (0DTE puede evaluar hasta ~36 veces/dia en su ventana de 3h a
+// cada 5min; 1DTE solo ~2 veces en su ventana de 10min) — 1000 cubre varias
+// semanas sin crecer sin control.
+function logICGateEvent(entry) {
+  try {
+    const log = loadICGateLog();
+    log.unshift({ timestamp: new Date().toISOString(), ...entry });
+    saveICGateLog(log.slice(0, 1000));
+  } catch(e) { console.error('[SPX-IC-Log] Error guardando log de gate:', e.message); }
+}
+// Snapshot minimo para reconstruir "por que" despues — mismos campos que ya
+// usa evaluateIronCondorGate, no inventa nada nuevo.
+function buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) {
+  return {
+    spxPrice: ctx.spxPrice, vix: ctx.vix, ivRank: ctx.ivRank,
+    gex: ctx.gex ? { regime: ctx.gex.regime, callWall: ctx.gex.callWall, putWall: ctx.gex.putWall, gammaFlip: ctx.gex.gammaFlip, maxPain: ctx.gex.maxPain } : null,
+    weinstein15m: ctx.indicators?.m15?.weinstein ? { fase: ctx.indicators.m15.weinstein.fase } : null,
+    macd15m: ctx.indicators?.m15?.macd ? { hist: ctx.indicators.m15.macd.hist, bullish: ctx.indicators.m15.macd.bullish, bearish: ctx.indicators.m15.macd.bearish } : null,
+    openingRangeRespected: ctx.openingRangeRespected,
+    highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined,
+  };
+}
+
 // ── Historial de ejecuciones en Tradier (dashboard independiente) ──
 const TRADIER_EXECUTIONS_FILE = path.join(DATA_DIR, 'tradier_executions.json');
 function loadTradierExecutions() {
@@ -4040,6 +4080,19 @@ app.get('/api/spx/signals', (req, res) => {
   res.json(loadSPXSignals());
 });
 
+// Log de CADA evaluacion del Iron Condor (pase o no el gate) — ver nota junto
+// a logICGateEvent(). ?date=YYYY-MM-DD filtra por dia (ET del timestamp UTC
+// guardado); sin filtro devuelve todo el historial (cap 1000).
+app.get('/api/spx/ic-gate-log', (req, res) => {
+  const log = loadICGateLog();
+  const { date } = req.query;
+  if (date) {
+    res.json(log.filter(e => (e.timestamp || '').slice(0, 10) === date));
+  } else {
+    res.json(log);
+  }
+});
+
 // ── Chequeo periódico de Iron Condor (0DTE y 1DTE) ──────────────────────
 // A diferencia de las direccionales (disparadas por alerta de Pine), el Iron Condor
 // no tiene un "trigger" — se evalúa el régimen de mercado cada 5 min durante las
@@ -4078,6 +4131,11 @@ async function checkHighImpactUSEventsTomorrow() {
 }
 
 async function checkIronCondor() {
+  // dte/ctx declarados afuera del try (con let) para que el catch de abajo
+  // pueda seguir registrando en el log de gate incluso si buildSPXContext()
+  // u otra llamada revienta a mitad de camino — antes un error asi solo dejaba
+  // un console.error (se pierde en Railway) sin ningun rastro persistido.
+  let dte, ctx;
   try {
     const et = getETHour();
     const etMins = et.hour * 60 + et.min;
@@ -4085,7 +4143,7 @@ async function checkIronCondor() {
     const window1DTE = classifyWindow(etMins) === 'CIERRE_1DTE';
     if (!window0DTE && !window1DTE) return;
 
-    const dte = window1DTE ? '1DTE' : '0DTE';
+    dte = window1DTE ? '1DTE' : '0DTE';
     const today = new Date().toISOString().slice(0, 10);
 
     // No duplicar: si ya hay una señal de Iron Condor de esta variante generada
@@ -4094,12 +4152,18 @@ async function checkIronCondor() {
     const yaExiste = signals.some(s =>
       ['IRON_CONDOR', 'DEBIT_PUT_CONDOR'].includes(s.strategy) && s.expType === dte && (s.timestamp || '').slice(0, 10) === today
     );
-    if (yaExiste) return;
+    if (yaExiste) {
+      logICGateEvent({ dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'DEDUP_SIGNAL_EXISTS', passed: false, reason: `Ya existe una señal ${dte} generada hoy — no se re-evalúa.` });
+      return;
+    }
 
     const yaHayTradeAbierto = await tradier.hasOpenPosition('SPXW');
-    if (yaHayTradeAbierto) return;
+    if (yaHayTradeAbierto) {
+      logICGateEvent({ dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: 'Ya hay un trade SPXW abierto/en curso en Tradier — se pausa para evitar apilar posiciones.' });
+      return;
+    }
 
-    const ctx = await buildSPXContext();
+    ctx = await buildSPXContext();
     const spxConfig = loadSPXConfig();
     const tradingCfg = spxConfig.trading || SPX_CONFIG_DEFAULTS.trading;
     const icCfg = tradingCfg.ironCondor || SPX_CONFIG_DEFAULTS.trading.ironCondor;
@@ -4116,6 +4180,7 @@ async function checkIronCondor() {
 
     if (!gate.valid) {
       console.log(`[SPX-IC ${dte}] ❌ ${gate.reason}`);
+      logICGateEvent({ dte, etTime: ctx.etTime, stage: 'GATE_FAIL', passed: false, reason: gate.reason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
       return;
     }
 
@@ -4143,11 +4208,15 @@ async function checkIronCondor() {
       const dCfg = icCfg.debitCondor || SPX_CONFIG_DEFAULTS.trading.ironCondor.debitCondor;
       strikes = findStrikesByDelta(chainData.expirations || [], 'DEBIT_PUT_CONDOR', ctx.spxPrice, dte, dCfg.targetDelta, dCfg.spreadWidth, dCfg.bodyWidth);
       if (!strikes || !strikes.outerLowStrike) {
-        console.log(`[SPX-IC ${dte}] ❌ No se encontraron strikes completos para el Long Put Condor (débito) con delta ${dCfg.targetDelta}`);
+        const reason = `No se encontraron strikes completos para el Long Put Condor (débito) con delta ${dCfg.targetDelta}`;
+        console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
+        logICGateEvent({ dte, etTime: ctx.etTime, stage: 'NO_STRIKES_DEBIT', passed: false, reason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
         return;
       }
       if (!(strikes.debit > 0)) {
-        console.log(`[SPX-IC ${dte}] ❌ Long Put Condor sin débito neto positivo (${strikes.debit}) — construcción no válida en este momento, se descarta.`);
+        const reason = `Long Put Condor sin débito neto positivo (${strikes.debit}) — construcción no válida en este momento, se descarta.`;
+        console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
+        logICGateEvent({ dte, etTime: ctx.etTime, stage: 'DEBIT_INVALID', passed: false, reason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
         return;
       }
       strategyName = 'DEBIT_PUT_CONDOR';
@@ -4166,7 +4235,9 @@ async function checkIronCondor() {
     } else {
       strikes = findStrikesByDelta(chainData.expirations || [], 'IRON_CONDOR', ctx.spxPrice, dte, icCfg.targetDelta, gate.spreadWidth);
       if (!strikes || !strikes.callShortStrike) {
-        console.log(`[SPX-IC ${dte}] ❌ No se encontraron strikes completos (put+call) con delta ${icCfg.targetDelta}`);
+        const reason = `No se encontraron strikes completos (put+call) con delta ${icCfg.targetDelta}`;
+        console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
+        logICGateEvent({ dte, etTime: ctx.etTime, stage: 'NO_STRIKES_CREDIT', passed: false, reason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
         return;
       }
       // Gate credito/ancho (2026-07-09, a pedido del usuario): distinto del gate
@@ -4175,7 +4246,9 @@ async function checkIronCondor() {
       const minCreditoAnchoPct = icCfg.minCreditoAnchoPct ?? 25;
       const creditoAnchoPct = gate.spreadWidth > 0 ? +(strikes.premium / gate.spreadWidth * 100).toFixed(1) : 0;
       if (creditoAnchoPct < minCreditoAnchoPct) {
-        console.log(`[SPX-IC ${dte}] ❌ Crédito/Ancho ${creditoAnchoPct}% por debajo del mínimo ${minCreditoAnchoPct}% — prima insuficiente para el ancho de las alas.`);
+        const reason = `Crédito/Ancho ${creditoAnchoPct}% por debajo del mínimo ${minCreditoAnchoPct}% — prima insuficiente para el ancho de las alas.`;
+        console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
+        logICGateEvent({ dte, etTime: ctx.etTime, stage: 'CREDIT_WIDTH_FAIL', passed: false, reason, snapshot: { ...buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow), creditoAnchoPct } });
         return;
       }
       strategyName = 'IRON_CONDOR';
@@ -4274,13 +4347,16 @@ async function checkIronCondor() {
 
     signals.unshift(signal);
     saveSPXSignals(signals.slice(0, 50));
-    if (useDebit) {
-      console.log(`[SPX-IC ${dte}] ✅ Señal generada (Long Put Condor, débito): ${signal.strikes?.outerLowStrike}/${signal.strikes?.innerLowStrike}/${signal.strikes?.innerHighStrike}/${signal.strikes?.outerHighStrike}`);
-    } else {
-      console.log(`[SPX-IC ${dte}] ✅ Señal generada: put ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} — call ${signal.strikes?.callShortStrike}/${signal.strikes?.callLongStrike}`);
-    }
+    const successReason = useDebit
+      ? `Señal generada (Long Put Condor, débito): ${signal.strikes?.outerLowStrike}/${signal.strikes?.innerLowStrike}/${signal.strikes?.innerHighStrike}/${signal.strikes?.outerHighStrike}`
+      : `Señal generada: put ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} — call ${signal.strikes?.callShortStrike}/${signal.strikes?.callLongStrike}`;
+    console.log(`[SPX-IC ${dte}] ✅ ${successReason}`);
+    logICGateEvent({ dte, etTime: ctx.etTime, stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
   } catch(e) {
     console.error('[SPX-IC] Error:', e.message);
+    if (dte) {
+      logICGateEvent({ dte, etTime: ctx?.etTime, stage: 'ERROR', passed: false, reason: `Excepción no manejada: ${e.message}`, snapshot: ctx ? buildICGateSnapshot(ctx, dte, undefined) : null });
+    }
   }
 }
 setInterval(checkIronCondor, 5 * 60 * 1000);
