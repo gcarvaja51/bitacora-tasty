@@ -3312,43 +3312,48 @@ function saveSPXSignals(signals) {
   fs.writeFileSync(SPX_SIGNALS_FILE, JSON.stringify(signals, null, 2), 'utf8');
 }
 
-// ── Log de evaluaciones del Iron Condor (2026-07-15) ──────────────────────
+// ── Log unificado de evaluaciones de las 3 estrategias SPX (2026-07-15) ────
 // A diferencia de spx_signals.json (solo guarda cuando SI se arma la señal),
-// este archivo registra CADA corrida de checkIronCondor() dentro de la ventana
-// horaria, pase o no el gate — a pedido explicito del usuario: "el algoritmo
-// debe decirme porque no disparo el IC a esa hora, siempre, todos los dias,
-// independientemente que yo lo pregunte o no". Antes, un rechazo de gate solo
+// este archivo registra CADA evaluacion de las 3 estrategias (Iron Condor/Condor
+// de debito, Direccional, Alejamiento de SMA), pase o no el gate — a pedido
+// explicito del usuario: "el algoritmo debe decirme porque no disparo [el trade]
+// a esa hora, siempre, todos los dias, independientemente que yo lo pregunte o
+// no... igual si lo disparo, porque lo hizo". Antes, un rechazo de gate solo
 // dejaba un console.log (se pierde en el log stream de Railway) sin persistir
 // nada — el mismo punto ciego que ya causo un bug real en el playbook
-// direccional el 2026-07-08 (rechazo silencioso, sin registro).
-const SPX_IC_GATE_LOG_FILE = path.join(DATA_DIR, 'spx_ic_gate_log.json');
+// direccional el 2026-07-08 (rechazo silencioso, sin registro). Empezo como
+// spx_ic_gate_log.json (solo Iron Condor) y se generalizo el mismo dia a las
+// otras 2 estrategias — renombrado antes de que tuviera ningun dato real en
+// produccion (desplegado ~20min antes), sin necesidad de migracion.
+const SPX_STRATEGY_LOG_FILE = path.join(DATA_DIR, 'spx_strategy_log.json');
 
-function loadICGateLog() {
-  try { return JSON.parse(fs.readFileSync(SPX_IC_GATE_LOG_FILE, 'utf8')); } catch(e) { return []; }
+function loadStrategyLog() {
+  try { return JSON.parse(fs.readFileSync(SPX_STRATEGY_LOG_FILE, 'utf8')); } catch(e) { return []; }
 }
-function saveICGateLog(log) {
-  fs.writeFileSync(SPX_IC_GATE_LOG_FILE, JSON.stringify(log, null, 2), 'utf8');
+function saveStrategyLog(log) {
+  fs.writeFileSync(SPX_STRATEGY_LOG_FILE, JSON.stringify(log, null, 2), 'utf8');
 }
-// Cap generoso (0DTE puede evaluar hasta ~36 veces/dia en su ventana de 3h a
-// cada 5min; 1DTE solo ~2 veces en su ventana de 10min) — 1000 cubre varias
-// semanas sin crecer sin control.
-function logICGateEvent(entry) {
+// Cap generoso — el mas frecuente de los 3 es Alejamiento de SMA (cada 60s en
+// su ventana de 4h ⇒ hasta ~240 entradas/dia); 5000 cubre ~3 semanas sin
+// crecer sin control.
+function logStrategyEvent(entry) {
   try {
-    const log = loadICGateLog();
+    const log = loadStrategyLog();
     log.unshift({ timestamp: new Date().toISOString(), ...entry });
-    saveICGateLog(log.slice(0, 1000));
-  } catch(e) { console.error('[SPX-IC-Log] Error guardando log de gate:', e.message); }
+    saveStrategyLog(log.slice(0, 5000));
+  } catch(e) { console.error('[SPX-Log] Error guardando log de estrategia:', e.message); }
 }
 // Snapshot minimo para reconstruir "por que" despues — mismos campos que ya
-// usa evaluateIronCondorGate, no inventa nada nuevo.
-function buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) {
+// usan los gates existentes, no inventa nada nuevo.
+function buildStrategySnapshot(ctx, extra = {}) {
   return {
     spxPrice: ctx.spxPrice, vix: ctx.vix, ivRank: ctx.ivRank,
     gex: ctx.gex ? { regime: ctx.gex.regime, callWall: ctx.gex.callWall, putWall: ctx.gex.putWall, gammaFlip: ctx.gex.gammaFlip, maxPain: ctx.gex.maxPain } : null,
     weinstein15m: ctx.indicators?.m15?.weinstein ? { fase: ctx.indicators.m15.weinstein.fase } : null,
+    weinstein2m: ctx.indicators?.m2?.weinstein ? { fase: ctx.indicators.m2.weinstein.fase } : null,
     macd15m: ctx.indicators?.m15?.macd ? { hist: ctx.indicators.m15.macd.hist, bullish: ctx.indicators.m15.macd.bullish, bearish: ctx.indicators.m15.macd.bearish } : null,
     openingRangeRespected: ctx.openingRangeRespected,
-    highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined,
+    ...extra,
   };
 }
 
@@ -3781,24 +3786,30 @@ app.post('/api/spx/webhook', async (req, res) => {
     // ── GATE OBLIGATORIO — confluencia Weinstein 2m + 15m ──
     // El servidor calcula ambas fases de forma independiente (no depende
     // de que TradingView le avise el contexto 15m por separado).
-    let fase2m = null, fase15m = null;
+    let fase2m = null, fase15m = null, ctxJ = null;
     try {
       const ctxR = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
-      const ctxJ = await ctxR.json();
+      ctxJ = await ctxR.json();
       fase2m  = ctxJ.weinstein?.fase2m  || null;
       fase15m = ctxJ.weinstein?.fase15m || null;
     } catch(e) {}
 
     if (fase2m === null || fase15m === null) {
-      console.log(`[SPX] Sin señal — no se pudo determinar fase Weinstein (2m:${fase2m} 15m:${fase15m}).`);
+      const reason = `No se pudo determinar fase Weinstein (2m:${fase2m} 15m:${fase15m}).`;
+      console.log(`[SPX] Sin señal — ${reason}`);
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_WEINSTEIN_DATA', passed: false, reason, snapshot: buildStrategySnapshot(ctxJ || {}, { directionRequested: direction }) });
       return;
     }
     if (fase2m !== fase15m) {
-      console.log(`[SPX] Sin señal — sin confluencia Weinstein: 2m=Fase${fase2m} vs 15m=Fase${fase15m}. Gate no cumplido.`);
+      const reason = `Sin confluencia Weinstein: 2m=Fase${fase2m} vs 15m=Fase${fase15m}. Gate no cumplido.`;
+      console.log(`[SPX] Sin señal — ${reason}`);
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_CONFLUENCE', passed: false, reason, snapshot: buildStrategySnapshot(ctxJ, { directionRequested: direction }) });
       return;
     }
     if (fase2m !== 2 && fase2m !== 4) {
-      console.log(`[SPX] Sin señal — confluencia en Fase${fase2m}, solo operable en Fase 2 (alcista) o Fase 4 (bajista).`);
+      const reason = `Confluencia en Fase${fase2m}, solo operable en Fase 2 (alcista) o Fase 4 (bajista).`;
+      console.log(`[SPX] Sin señal — ${reason}`);
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'WRONG_PHASE', passed: false, reason, snapshot: buildStrategySnapshot(ctxJ, { directionRequested: direction }) });
       return;
     }
 
@@ -3849,8 +3860,10 @@ app.post('/api/spx/webhook', async (req, res) => {
     }, spxConfig);
 
     if (!playbookResult.passed) {
-      console.log(`[SPX] ❌ Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`);
+      const reason = `Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`;
+      console.log(`[SPX] ❌ ${reason}`);
       console.log(`[SPX] Detalle checks: ${JSON.stringify(playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })))}`);
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, score: playbookResult.score, minScore: playbookResult.minScore, checks: playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })) }) });
       return;
     }
 
@@ -3873,7 +3886,9 @@ app.post('/api/spx/webhook', async (req, res) => {
     });
 
     if (!sel.valid) {
-      console.log(`[SPX] ❌ Estrategia inválida: ${sel.reason}`);
+      const reason = `Estrategia inválida: ${sel.reason}`;
+      console.log(`[SPX] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, score: playbookResult.score }) });
       return;
     }
 
@@ -3895,7 +3910,9 @@ app.post('/api/spx/webhook', async (req, res) => {
     const strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType, targetDelta, spreadWidth);
 
     if (!strikes) {
-      console.log(`[SPX] ❌ No se encontraron strikes con delta ${targetDelta}`);
+      const reason = `No se encontraron strikes con delta ${targetDelta}`;
+      console.log(`[SPX] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, score: playbookResult.score, strategy: sel.strategy }) });
       return;
     }
 
@@ -4066,7 +4083,9 @@ app.post('/api/spx/webhook', async (req, res) => {
     signals.unshift(signal);
     saveSPXSignals(signals.slice(0, 50));
 
-    console.log(`[SPX] ✅ Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}`);
+    const successReason = `Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}${signal.tradierOrder?.orderId ? ' — auto-ejecutada en Tradier' : (signal.tradierOrder?.skipped ? ` — sugerencia (Tradier omitido: ${signal.tradierOrder.reason})` : '')}`;
+    console.log(`[SPX] ✅ ${successReason}`);
+    logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, score: playbookResult.score, strategy: sel.strategy }) });
     // Nota: res ya fue enviado inmediatamente arriba para evitar timeout
 
   } catch(e) {
@@ -4080,17 +4099,16 @@ app.get('/api/spx/signals', (req, res) => {
   res.json(loadSPXSignals());
 });
 
-// Log de CADA evaluacion del Iron Condor (pase o no el gate) — ver nota junto
-// a logICGateEvent(). ?date=YYYY-MM-DD filtra por dia (ET del timestamp UTC
-// guardado); sin filtro devuelve todo el historial (cap 1000).
-app.get('/api/spx/ic-gate-log', (req, res) => {
-  const log = loadICGateLog();
-  const { date } = req.query;
-  if (date) {
-    res.json(log.filter(e => (e.timestamp || '').slice(0, 10) === date));
-  } else {
-    res.json(log);
-  }
+// Log de CADA evaluacion de las 3 estrategias SPX (pase o no el gate) — ver
+// nota junto a logStrategyEvent(). ?date=YYYY-MM-DD filtra por dia,
+// ?family=NEUTRAL|TENDENCIA|REVERSION filtra por estrategia; sin filtros
+// devuelve todo el historial (cap 5000).
+app.get('/api/spx/strategy-log', (req, res) => {
+  let log = loadStrategyLog();
+  const { date, family } = req.query;
+  if (date)   log = log.filter(e => (e.timestamp || '').slice(0, 10) === date);
+  if (family) log = log.filter(e => e.strategyFamily === family);
+  res.json(log);
 });
 
 // ── Chequeo periódico de Iron Condor (0DTE y 1DTE) ──────────────────────
@@ -4153,13 +4171,13 @@ async function checkIronCondor() {
       ['IRON_CONDOR', 'DEBIT_PUT_CONDOR'].includes(s.strategy) && s.expType === dte && (s.timestamp || '').slice(0, 10) === today
     );
     if (yaExiste) {
-      logICGateEvent({ dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'DEDUP_SIGNAL_EXISTS', passed: false, reason: `Ya existe una señal ${dte} generada hoy — no se re-evalúa.` });
+      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'DEDUP_SIGNAL_EXISTS', passed: false, reason: `Ya existe una señal ${dte} generada hoy — no se re-evalúa.` });
       return;
     }
 
     const yaHayTradeAbierto = await tradier.hasOpenPosition('SPXW');
     if (yaHayTradeAbierto) {
-      logICGateEvent({ dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: 'Ya hay un trade SPXW abierto/en curso en Tradier — se pausa para evitar apilar posiciones.' });
+      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: 'Ya hay un trade SPXW abierto/en curso en Tradier — se pausa para evitar apilar posiciones.' });
       return;
     }
 
@@ -4180,7 +4198,7 @@ async function checkIronCondor() {
 
     if (!gate.valid) {
       console.log(`[SPX-IC ${dte}] ❌ ${gate.reason}`);
-      logICGateEvent({ dte, etTime: ctx.etTime, stage: 'GATE_FAIL', passed: false, reason: gate.reason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
+      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime, stage: 'GATE_FAIL', passed: false, reason: gate.reason, snapshot: buildStrategySnapshot(ctx, { highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined }) });
       return;
     }
 
@@ -4210,13 +4228,13 @@ async function checkIronCondor() {
       if (!strikes || !strikes.outerLowStrike) {
         const reason = `No se encontraron strikes completos para el Long Put Condor (débito) con delta ${dCfg.targetDelta}`;
         console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
-        logICGateEvent({ dte, etTime: ctx.etTime, stage: 'NO_STRIKES_DEBIT', passed: false, reason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
+        logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime, stage: 'NO_STRIKES_DEBIT', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined }) });
         return;
       }
       if (!(strikes.debit > 0)) {
         const reason = `Long Put Condor sin débito neto positivo (${strikes.debit}) — construcción no válida en este momento, se descarta.`;
         console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
-        logICGateEvent({ dte, etTime: ctx.etTime, stage: 'DEBIT_INVALID', passed: false, reason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
+        logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime, stage: 'DEBIT_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined }) });
         return;
       }
       strategyName = 'DEBIT_PUT_CONDOR';
@@ -4237,7 +4255,7 @@ async function checkIronCondor() {
       if (!strikes || !strikes.callShortStrike) {
         const reason = `No se encontraron strikes completos (put+call) con delta ${icCfg.targetDelta}`;
         console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
-        logICGateEvent({ dte, etTime: ctx.etTime, stage: 'NO_STRIKES_CREDIT', passed: false, reason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
+        logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime, stage: 'NO_STRIKES_CREDIT', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined }) });
         return;
       }
       // Gate credito/ancho (2026-07-09, a pedido del usuario): distinto del gate
@@ -4248,7 +4266,7 @@ async function checkIronCondor() {
       if (creditoAnchoPct < minCreditoAnchoPct) {
         const reason = `Crédito/Ancho ${creditoAnchoPct}% por debajo del mínimo ${minCreditoAnchoPct}% — prima insuficiente para el ancho de las alas.`;
         console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
-        logICGateEvent({ dte, etTime: ctx.etTime, stage: 'CREDIT_WIDTH_FAIL', passed: false, reason, snapshot: { ...buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow), creditoAnchoPct } });
+        logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime, stage: 'CREDIT_WIDTH_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined, creditoAnchoPct }) });
         return;
       }
       strategyName = 'IRON_CONDOR';
@@ -4351,11 +4369,11 @@ async function checkIronCondor() {
       ? `Señal generada (Long Put Condor, débito): ${signal.strikes?.outerLowStrike}/${signal.strikes?.innerLowStrike}/${signal.strikes?.innerHighStrike}/${signal.strikes?.outerHighStrike}`
       : `Señal generada: put ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} — call ${signal.strikes?.callShortStrike}/${signal.strikes?.callLongStrike}`;
     console.log(`[SPX-IC ${dte}] ✅ ${successReason}`);
-    logICGateEvent({ dte, etTime: ctx.etTime, stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildICGateSnapshot(ctx, dte, highImpactEventsTomorrow) });
+    logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime, stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined }) });
   } catch(e) {
     console.error('[SPX-IC] Error:', e.message);
     if (dte) {
-      logICGateEvent({ dte, etTime: ctx?.etTime, stage: 'ERROR', passed: false, reason: `Excepción no manejada: ${e.message}`, snapshot: ctx ? buildICGateSnapshot(ctx, dte, undefined) : null });
+      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx?.etTime, stage: 'ERROR', passed: false, reason: `Excepción no manejada: ${e.message}`, snapshot: ctx ? buildStrategySnapshot(ctx) : null });
     }
   }
 }
@@ -4906,7 +4924,9 @@ async function checkAlejamientoSMA() {
       perdidasConsecutivas++;
     }
     if (perdidasConsecutivas >= (cfg.maxStopsPerDay || 2)) {
-      console.log(`[SPX-REV] ❌ Circuito diario: ${perdidasConsecutivas} pérdidas consecutivas hoy`);
+      const reason = `Circuito diario: ${perdidasConsecutivas} pérdidas consecutivas hoy`;
+      console.log(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'DAILY_CIRCUIT_LOSSES', passed: false, reason });
       return;
     }
 
@@ -4920,7 +4940,9 @@ async function checkAlejamientoSMA() {
     const drawdownPct = capital > 0 ? (pnlHoy / capital) * 100 : 0;
     const maxDrawdown = cfg.maxDailyDrawdownPct ?? 3.5;
     if (drawdownPct <= -maxDrawdown) {
-      console.log(`[SPX-REV] ❌ Circuito diario: drawdown ${drawdownPct.toFixed(2)}% (límite -${maxDrawdown}%)`);
+      const reason = `Circuito diario: drawdown ${drawdownPct.toFixed(2)}% (límite -${maxDrawdown}%)`;
+      console.log(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'DAILY_CIRCUIT_DRAWDOWN', passed: false, reason });
       return;
     }
 
@@ -4928,7 +4950,10 @@ async function checkAlejamientoSMA() {
     const yaHayReversionAbierta = executions.some(e =>
       e.strategyFamily === 'REVERSION' && (e.status === 'submitted' || e.status === 'filled')
     );
-    if (yaHayReversionAbierta) return;
+    if (yaHayReversionAbierta) {
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: 'Ya hay una Reversión abierta — se pausa para evitar apilar posiciones.' });
+      return;
+    }
 
     const ctx = await buildSPXContext();
 
@@ -4936,18 +4961,26 @@ async function checkAlejamientoSMA() {
     // (dealers amplifican en vez de estabilizar) — no debe poder compensarse con el
     // resto del score como pasaba cuando regimen_gex era solo el 10% del puntaje.
     if (ctx.gex?.regime !== 'POSITIVO') {
-      console.log(`[SPX-REV] ❌ GEX ${ctx.gex?.regime || 'desconocido'} — reversión requiere gamma positivo (gate duro)`);
+      const reason = `GEX ${ctx.gex?.regime || 'desconocido'} — reversión requiere gamma positivo (gate duro)`;
+      console.log(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GEX_NOT_POSITIVE', passed: false, reason, snapshot: buildStrategySnapshot(ctx) });
       return;
     }
 
     const bars = ctx.indicators?.m2?.bars || [];
-    if (bars.length < 25) return;
+    if (bars.length < 25) {
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'INSUFFICIENT_BARS', passed: false, reason: `Solo ${bars.length} velas de 2m disponibles (mínimo 25)`, snapshot: buildStrategySnapshot(ctx) });
+      return;
+    }
 
     const closes = bars.map(b => b.close);
     const price  = closes[closes.length - 1];
     const sma8Arr = calcSMAArray(closes, 8);
     const sma8 = sma8Arr[sma8Arr.length - 1];
-    if (sma8 == null) return;
+    if (sma8 == null) {
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SMA8_NULL', passed: false, reason: 'SMA8 no calculable con las velas disponibles', snapshot: buildStrategySnapshot(ctx) });
+      return;
+    }
 
     const ext8 = priceExtension(price, sma8);
     const rsi  = calcRSI(closes);
@@ -4982,7 +5015,9 @@ async function checkAlejamientoSMA() {
     }, cfg);
 
     if (!scoreResult.passed) {
-      console.log(`[SPX-REV] ❌ Score insuficiente: ${scoreResult.score}% (mínimo ${scoreResult.minScore}%)`);
+      const reason = `Score insuficiente: ${scoreResult.score}% (mínimo ${scoreResult.minScore}%)`;
+      console.log(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, pattern: patronReversion.pattern, score: scoreResult.score, minScore: scoreResult.minScore, checks: scoreResult.checks }) });
       return;
     }
 
@@ -4991,7 +5026,9 @@ async function checkAlejamientoSMA() {
     const chainData = await chainRes.json();
     const strikes = findStrikesByDelta(chainData.expirations || [], strategy, ctx.spxPrice, '0DTE', cfg.targetDelta, cfg.spreadWidth);
     if (!strikes || !strikes.shortStrike) {
-      console.log(`[SPX-REV] ❌ No se encontraron strikes con delta ${cfg.targetDelta}`);
+      const reason = `No se encontraron strikes con delta ${cfg.targetDelta}`;
+      console.log(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, score: scoreResult.score, strategy }) });
       return;
     }
 
@@ -5076,7 +5113,9 @@ async function checkAlejamientoSMA() {
     const signals = loadSPXSignals();
     signals.unshift(signal);
     saveSPXSignals(signals.slice(0, 50));
-    console.log(`[SPX-REV] ✅ Señal generada: ${strategy} ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} (${patronReversion.pattern}, score ${scoreResult.score}%)`);
+    const successReason = `Señal generada: ${strategy} ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} (${patronReversion.pattern}, score ${scoreResult.score}%)`;
+    console.log(`[SPX-REV] ✅ ${successReason}`);
+    logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, score: scoreResult.score, strategy, pattern: patronReversion.pattern }) });
   } catch(e) {
     console.error('[SPX-REV] Error:', e.message);
   }
