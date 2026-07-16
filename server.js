@@ -3357,6 +3357,30 @@ function buildStrategySnapshot(ctx, extra = {}) {
   };
 }
 
+// Chequeo de posicion abierta con doble capa (2026-07-16, tras un bug real): antes
+// las 2 estrategias que comparten el slot de SPXW (Direccional e Iron Condor) solo
+// confiaban en tradier.hasOpenPosition('SPXW') (positions/ordenes EN VIVO via API de
+// Tradier) — un caso real mostro que esa consulta puede devolver false con una
+// posicion genuinamente abierta (Direccional, ~20min despues de la entrada, sin
+// poder explicar la causa exacta desde afuera — posible inconsistencia puntual del
+// sandbox). Eso dejo abrir un segundo trade BEARISH mientras el primero seguia
+// abierto, con un strike compartido que termino neteandose en la cuenta real y
+// atascando el cierre automatico por mas de una hora, con perdida real de dinero
+// (sandbox) que pudo haberse evitado. Ahora se cruza tambien contra nuestro propio
+// registro local (tradier_executions.json) — no depende de una llamada externa, es
+// el mismo dato que nosotros mismos escribimos al abrir cada trade, asi que no
+// puede sufrir el mismo tipo de inconsistencia. Se bloquea si CUALQUIERA de las dos
+// fuentes indica una posicion en curso (la mas conservadora manda). No incluye
+// REVERSION (Alejamiento de SMA) a proposito — esa estrategia ya tiene su propio
+// slot de exclusividad separado, ver checkAlejamientoSMA.
+function hasLocalOpenSPXWPosition() {
+  const executions = loadTradierExecutions();
+  return executions.some(e =>
+    (e.status === 'submitted' || e.status === 'filled') &&
+    e.strategyFamily !== 'REVERSION'
+  );
+}
+
 // ── Historial de ejecuciones en Tradier (dashboard independiente) ──
 const TRADIER_EXECUTIONS_FILE = path.join(DATA_DIR, 'tradier_executions.json');
 function loadTradierExecutions() {
@@ -4011,7 +4035,15 @@ app.post('/api/spx/webhook', async (req, res) => {
       try {
         // No apilar: si ya hay una posicion abierta o una orden en curso, esta
         // señal se guarda como sugerencia pero NO se ejecuta automaticamente.
-        const yaHayTradeAbierto = await tradier.hasOpenPosition('SPXW');
+        // Doble capa desde el 2026-07-16 (ver hasLocalOpenSPXWPosition) — se
+        // registra si las dos fuentes llegan a discrepar, para poder diagnosticar
+        // si el problema de Tradier vuelve a ocurrir.
+        const tradierDiceAbierto = await tradier.hasOpenPosition('SPXW');
+        const localDiceAbierto = hasLocalOpenSPXWPosition();
+        if (tradierDiceAbierto !== localDiceAbierto) {
+          logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbierto}, registro local dice ${localDiceAbierto} — se usa el mas conservador (bloquear si cualquiera dice true).` });
+        }
+        const yaHayTradeAbierto = tradierDiceAbierto || localDiceAbierto;
         if (yaHayTradeAbierto) {
           signal.tradierOrder = { skipped: true, reason: 'Ya hay un trade abierto en Tradier — se espera a que cierre.' };
           console.log('[Tradier] ⏳ Señal omitida — ya hay un trade SPXW abierto/en curso.');
@@ -4175,7 +4207,15 @@ async function checkIronCondor() {
       return;
     }
 
-    const yaHayTradeAbierto = await tradier.hasOpenPosition('SPXW');
+    // Doble capa desde el 2026-07-16 (ver hasLocalOpenSPXWPosition) — se registra
+    // si las dos fuentes discrepan, para diagnosticar si el problema de Tradier
+    // (una posicion genuinamente abierta que hasOpenPosition no detecto) reaparece.
+    const tradierDiceAbiertoIC = await tradier.hasOpenPosition('SPXW');
+    const localDiceAbiertoIC = hasLocalOpenSPXWPosition();
+    if (tradierDiceAbiertoIC !== localDiceAbiertoIC) {
+      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbiertoIC}, registro local dice ${localDiceAbiertoIC} — se usa el mas conservador (bloquear si cualquiera dice true).` });
+    }
+    const yaHayTradeAbierto = tradierDiceAbiertoIC || localDiceAbiertoIC;
     if (yaHayTradeAbierto) {
       logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: 'Ya hay un trade SPXW abierto/en curso en Tradier — se pausa para evitar apilar posiciones.' });
       return;
