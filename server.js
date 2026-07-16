@@ -2368,7 +2368,45 @@ function withWheelExecutionsLock(fn) {
   return run;
 }
 
-app.get('/api/wheel-trading/executions', (req, res) => res.json(loadWheelTradingExecutions()));
+// P&L en vivo del ciclo activo de la Rueda (2026-07-16, a pedido del usuario) —
+// mismo patron ya usado para SPX (ex.livePnl, calcLivePnl mas abajo): de solo
+// lectura, no cierra ni toca nada, separado de ex.pnl (que sigue null hasta el
+// cierre real del ciclo). La posicion vendida (sell_to_open, CSP_ACTIVA o
+// CC_ACTIVA) gana si cuesta menos recomprarla ahora que lo acumulado en creditos
+// a lo largo de los rolls (ex.totalCreditAccumulated, no solo la entrada inicial).
+// ASIGNADO (solo acciones, sin opcion vendida en ese momento) no calcula — el
+// costo base contra el precio de la accion es un calculo distinto, fuera de
+// alcance de este pedido puntual.
+function calcWheelLivePnl(ex, quotesMap) {
+  try {
+    if (!ex.leg?.optionSymbol) return null;
+    const mark = quotesMap[ex.leg.optionSymbol];
+    if (mark == null) return null;
+    const creditBase = ex.totalCreditAccumulated ?? ex.creditReceived ?? 0;
+    const contracts = ex.leg.contracts || 1;
+    return +((creditBase - mark) * 100 * contracts).toFixed(2);
+  } catch(e) { return null; }
+}
+
+app.get('/api/wheel-trading/executions', async (req, res) => {
+  const executions = loadWheelTradingExecutions();
+  try {
+    const abiertas = executions.filter(e => e.status === 'filled' && e.leg?.optionSymbol);
+    if (abiertas.length) {
+      const simbolos = [...new Set(abiertas.map(e => e.leg.optionSymbol))];
+      const quotes = await tradier.getQuotes(simbolos);
+      const q = {};
+      quotes.forEach(x => { q[x.symbol] = x.mark; });
+      for (const ex of abiertas) {
+        ex.liveValuePerContract = q[ex.leg.optionSymbol] ?? null;
+        ex.livePnl = calcWheelLivePnl(ex, q);
+      }
+    }
+  } catch(e) {
+    console.error('[WHEEL] Error calculando P&L en vivo:', e.message);
+  }
+  res.json(executions);
+});
 
 app.post('/api/wheel-trading/signals/:id/approve', async (req, res) => {
   try {

@@ -6032,6 +6032,7 @@ function renderWheelTradingExecutions(executions) {
             <th style="padding:8px;">Crédito recibido</th>
             <th style="padding:8px;">Fair Value</th>
             <th style="padding:8px;">Rolls</th>
+            <th style="padding:8px;">Valor actual / P&amp;L</th>
           </tr>
         </thead>
         <tbody>
@@ -6045,6 +6046,7 @@ function renderWheelTradingExecutions(executions) {
               <td style="padding:8px;font-family:var(--mono);">${e.creditReceived!=null?'$'+e.creditReceived:'—'}</td>
               <td style="padding:8px;font-family:var(--mono);">${e.fairValue!=null?'$'+e.fairValue:'—'}</td>
               <td style="padding:8px;">${e.rollCount||0}</td>
+              <td style="padding:8px;font-family:var(--mono);${e.livePnl!=null?(e.livePnl>=0?'color:var(--green);':'color:var(--red);'):''}">${e.livePnl!=null?'~$'+e.livePnl:(e.status==='filled'?'—':'n/a')}</td>
             </tr>
           `).join('')}
         </tbody>
