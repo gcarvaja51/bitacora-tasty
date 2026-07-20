@@ -3196,6 +3196,15 @@ const SPX_CONFIG_DEFAULTS = {
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
     tradierAutoExecute: true, // kill-switch: false pausa la ejecucion automatica en Tradier
+    // Proteccion de precio al CERRAR un spread direccional (2026-07-20, ver caso real
+    // documentado junto a closeSpreadOrder en src/tradier.js) — antes el cierre iba
+    // siempre a mercado sin piso/techo, exponiendo a slippage de patas cruzadas en
+    // movimientos rapidos de 0DTE. Este buffer (en puntos de prima, no dolares) se resta
+    // del valor neto observado justo antes de cerrar, para no aceptar un fill peor que
+    // "lo que se veia menos este colchon". 1.0 = hasta $100/contrato peor que lo
+    // observado — protege contra el tipo de deslizamiento extremo que motivo el fix
+    // sin ser tan ajustado que el cierre de un stop no llegue a llenarse nunca.
+    closeSlippageBufferPts: 1.0,
     // Debitos direccionales (Bull Call/Bear Put) — parametros propios, separados de los
     // de credito de arriba. El TP/SL de credito (tpPct% del credito, slMult x credito) no
     // aplica conceptualmente a un debito: el riesgo maximo de un debito ya es el 100% de
@@ -3319,6 +3328,13 @@ function loadSPXConfig() {
     if (saved?.trading?.smaReversion && saved.trading.smaReversion.riskPctPerTrade === undefined) {
       console.log('[SPX] Sumando riskPctPerTrade a Alejamiento de SMA (no existía)');
       saved.trading.smaReversion.riskPctPerTrade = SPX_CONFIG_DEFAULTS.trading.smaReversion.riskPctPerTrade;
+      saveSPXConfig(saved);
+    }
+    // Suma closeSlippageBufferPts si no existe todavia (proteccion de precio al
+    // cerrar spreads direccionales, 2026-07-20 — ver nota junto a closeSpreadOrder).
+    if (saved?.trading && saved.trading.closeSlippageBufferPts === undefined) {
+      console.log('[SPX] Sumando closeSlippageBufferPts (no existía)');
+      saved.trading.closeSlippageBufferPts = SPX_CONFIG_DEFAULTS.trading.closeSlippageBufferPts;
       saveSPXConfig(saved);
     }
     return saved;
@@ -4901,6 +4917,12 @@ async function checkDirectionalTPSLImpl() {
       }
 
       try {
+        // Proteccion de precio al cerrar (2026-07-20, ver nota junto a closeSpreadOrder
+        // en src/tradier.js) — netValue usa la misma convencion en credito y debito:
+        // q[longSym]-q[shortSym] (positivo = credito, negativo = debito), consistente
+        // con costoDeCerrar/valorActual ya calculados arriba para decidir TP/SL.
+        const bufferPts = (loadSPXConfig().trading || {}).closeSlippageBufferPts ?? 1.0;
+        const netValueAlCerrar = q[longSym] - q[shortSym];
         await tradier.closeSpreadOrder({
           strategy:       ex.strategy,
           underlyingRoot: 'SPXW',
@@ -4908,6 +4930,7 @@ async function checkDirectionalTPSLImpl() {
           shortStrike:    ex.strikes.shortStrike,
           longStrike:     ex.strikes.longStrike,
           quantity:       ex.contracts,
+          worstNetPrice:  netValueAlCerrar - bufferPts,
         });
         // Mismo fix que checkIronCondorTPSLImpl (2026-07-10, ver comentario ahí para el
         // caso real que lo motivó): NO marcar status='closed' ni grabar pnl acá — se deja
@@ -5289,6 +5312,23 @@ async function checkAlejamientoSMATPSLImpl() {
       }
 
       try {
+        // Proteccion de precio al cerrar (2026-07-20, ver nota junto a closeSpreadOrder
+        // en src/tradier.js) — este monitor no traia cotizaciones de las patas (solo el
+        // precio del SPX para decidir TP/SL por nivel), asi que se piden acá recien antes
+        // de cerrar. Si no se pueden traer, se cierra a mercado sin proteccion (mejor
+        // salir sin colchon que no salir — este monitor cierra por invalidacion de precio,
+        // no conviene demorar el cierre esperando una cotizacion que no llega).
+        let worstNetPrice;
+        try {
+          const quotesCierre = await tradier.getQuotes([ex.legs.shortSym, ex.legs.longSym]);
+          const qc = {};
+          quotesCierre.forEach(x => { qc[x.symbol] = x.mark; });
+          if (qc[ex.legs.shortSym] != null && qc[ex.legs.longSym] != null) {
+            const bufferPts = (loadSPXConfig().trading || {}).closeSlippageBufferPts ?? 1.0;
+            worstNetPrice = (qc[ex.legs.longSym] - qc[ex.legs.shortSym]) - bufferPts;
+          }
+        } catch(eq) { console.warn(`[Tradier-REV-TPSL] No se pudo cotizar para proteger el cierre de ${ex.orderId}, cierra a mercado:`, eq.message); }
+
         await tradier.closeSpreadOrder({
           strategy:       ex.strategy,
           underlyingRoot: 'SPXW',
@@ -5296,6 +5336,7 @@ async function checkAlejamientoSMATPSLImpl() {
           shortStrike:    ex.strikes.shortStrike,
           longStrike:     ex.strikes.longStrike,
           quantity:       ex.contracts,
+          worstNetPrice,
         });
         // Bug real encontrado 2026-07-10 (misma familia que el fix de IC/direccional,
         // ver comentario en checkIronCondorTPSLImpl): acá se marcaba status='closed' de

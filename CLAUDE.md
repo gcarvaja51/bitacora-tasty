@@ -1074,6 +1074,49 @@ gravemente mal).
 `POST /api/tradier/executions/:id/patch` (mismo endpoint usado para el caso anterior de
 doble-conteo, $340→$100).
 
+## Cierre de spreads direccionales a mercado sin protección de precio — pérdida real por encima del ancho (2026-07-20)
+
+**Caso real que lo destapó**: un `BEAR_PUT_SPREAD` (7460/7470, 2 contratos, $860 de débito
+pagado — ancho de $10 × 2 contratos = $2,000 máximo teórico, pero el débito pagado acota la
+pérdida máxima de un débito a lo pagado) cerró por `TECHNICAL_STOP` con **-$1,640** grabado —
+por encima incluso del débito pagado, algo que en teoría no debería poder pasar en un spread de
+débito. Se reconstruyó pata por pata con el `gain_loss` real de Tradier
+(`/accounts/.../gainloss`, no vía la API de la app): la pata larga (7470P) se compró por $3,160
+y se vendió por solo $1,620 al cerrar (-$1,540); la pata corta (7460P) se vendió por $2,220 y se
+recompró por $2,320 (-$100). Total real: -$1,640 — **el número SÍ era correcto, no era un bug
+de reconciliación** (a diferencia de los casos previos de esta sección).
+
+**Causa raíz real**: `closeSpreadOrder` (`src/tradier.js`) manda la orden de cierre como
+`class: multileg` combinada (no dos órdenes separadas — eso ya estaba bien), pero con
+`type: 'market'`, **sin ningún piso/techo de precio neto**. El límite teórico de "la pérdida
+máxima de un débito es lo pagado" solo aplica al **valor intrínseco en un precio neto limpio**
+(mid-market) — no protege contra que una orden a mercado, en un movimiento rápido de 0DTE, cruce
+el bid/ask de cada pata por separado (vender la larga cerca del bid, recomprar la corta cerca
+del ask) y termine costando más que el ancho teórico del spread. El Iron Condor sí tiene esta
+protección desde el 2026-07-09 (`minCreditPrice`/`maxDebitPrice`, `type: credit`/`debit`) pero
+solo en la **apertura** — ni el Iron Condor ni las direccionales la tenían en el **cierre**.
+
+**Fix aplicado (2026-07-20)**: `closeSpreadOrder` acepta un nuevo parámetro `worstNetPrice`
+(convención: positivo = crédito mínimo aceptado al cerrar, negativo = -1 × débito máximo
+aceptado) — si se pasa, la orden va como `type: 'credit'`/`'debit'` con ese precio como
+piso/techo en vez de `market`; sin el parámetro se comporta igual que antes (compatible hacia
+atrás). Los dos call sites que cierran spreads direccionales (`checkDirectionalTPSLImpl` y
+`checkAlejamientoSMATPSLImpl`) ahora calculan el valor neto observado justo antes de cerrar
+(`q[longSym] - q[shortSym]`, misma convención que ya usaban `costoDeCerrar`/`valorActual` para
+decidir TP/SL) y le restan un colchón (`spxConfig.trading.closeSlippageBufferPts`, default
+**1.0** punto = hasta $100/contrato peor que lo observado) antes de mandarlo como
+`worstNetPrice`. `checkAlejamientoSMATPSLImpl` no traía cotizaciones de las patas hasta este fix
+(solo el precio del SPX, para decidir por nivel) — ahora las pide justo antes de cerrar; si la
+cotización falla, cierra a mercado sin protección en vez de demorar la salida (este monitor
+cierra por invalidación de nivel, no conviene arriesgar quedarse abierto esperando una
+cotización que no llega).
+
+**Trade-off consciente, sin resolver del todo**: un colchón muy angosto puede hacer que la
+orden de cierre de un stop no llegue a llenarse en un movimiento realmente rápido (el mismo
+riesgo que ya se acepta en la apertura del Iron Condor) — 1.0 punto es un punto de partida, no
+un valor validado en producción todavía. Revisar/ajustar si empiezan a verse cierres que no
+llenan a tiempo.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`

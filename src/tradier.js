@@ -146,7 +146,22 @@ class TradierClient {
   // Cierra el spread direccional (2 patas) — orden inversa a placeSpreadOrder:
   // buy_to_close la corta, sell_to_close la larga. No existia — el auto-cierre
   // de direccionales dependia de que el usuario cerrara a mano en Tradier.
-  async closeSpreadOrder({ strategy, underlyingRoot, expiry, shortStrike, longStrike, quantity }) {
+  //
+  // worstNetPrice (2026-07-20, a pedido del usuario tras un caso real): antes esta
+  // orden siempre iba 'type: market', sin ningun piso/techo de precio neto — un
+  // Bear Put Spread (7460/7470, 2 contratos, $860 de debito pagado) se cerro por
+  // TECHNICAL_STOP en un movimiento rapido de 0DTE y termino costando $1,640 para
+  // cerrar (reconstruido con el gain_loss real de Tradier: pata larga vendida en
+  // $1,620 tras haber costado $3,160 al abrir, pata corta recomprada en $2,320 tras
+  // haber dado $2,220 al abrir) — muy por encima del "maximo teorico" de perdida de
+  // un debito ($860), porque ese limite solo aplica a un precio neto limpio, no a
+  // dos patas ejecutadas a mercado con el spread bid/ask cruzado en cada una. Mismo
+  // criterio de cautela que minCreditPrice en placeIronCondorOrder: si se pasa
+  // worstNetPrice (convencion: positivo = credito minimo aceptado al cerrar,
+  // negativo = -1 * debito maximo aceptado), la orden se manda como 'credit'/'debit'
+  // con ese precio como piso/techo en vez de 'market'. Sin este parametro, se
+  // comporta igual que antes (market, sin proteccion) — no rompe nada existente.
+  async closeSpreadOrder({ strategy, underlyingRoot, expiry, shortStrike, longStrike, quantity, worstNetPrice }) {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
     const optType  = (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_PUT_SPREAD') ? 'P' : 'C';
     const shortSym = this.buildOccSymbol(underlyingRoot, expiry, optType, shortStrike);
@@ -155,8 +170,9 @@ class TradierClient {
     const body = new URLSearchParams({
       class:    'multileg',
       symbol:   underlyingRoot,
-      type:     'market',
+      type:     worstNetPrice == null ? 'market' : (worstNetPrice >= 0 ? 'credit' : 'debit'),
       duration: 'day',
+      ...(worstNetPrice == null ? {} : { price: String(Math.abs(worstNetPrice)) }),
       'option_symbol[0]': shortSym,
       'side[0]':          'buy_to_close',
       'quantity[0]':      String(quantity),
