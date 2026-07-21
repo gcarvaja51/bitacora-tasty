@@ -4219,6 +4219,50 @@ app.get('/api/spx/strategy-log', (req, res) => {
   res.json(log);
 });
 
+// ── Niveles de Sigma Terminal, alimentados en vivo (2026-07-21) ────────────
+// Nuestro propio cálculo de GEX (calcGEX, src/spx.js, sobre la cadena de
+// TastyTrade) puede discrepar del régimen que muestra Sigma Terminal (fuente
+// Polygon) — confirmado en vivo el 2026-07-16 y otra vez el 2026-07-21 (un
+// caso real bloqueó Alejamiento de SMA los 4 días 17-20 jul completos por
+// esta discrepancia, sin una sola señal). La misma rutina que ya empuja estos
+// niveles a CIARG_V1 en TradingView (loop de 2 min, Sigma Terminal vía
+// claude-in-chrome) ahora TAMBIÉN los manda aquí, para que el servidor pueda
+// usar la fuente que el usuario mira a mano en vez de (o además de) la propia.
+const SIGMA_LEVELS_FILE = path.join(DATA_DIR, 'sigma_terminal_levels.json');
+const SIGMA_LEVELS_MAX_AGE_MS = 5 * 60 * 1000; // 5 min — margen sobre el ciclo de 2 min
+
+function loadSigmaLevels() {
+  try { return JSON.parse(fs.readFileSync(SIGMA_LEVELS_FILE, 'utf8')); } catch(e) { return null; }
+}
+
+app.post('/api/spx/sigma-levels', (req, res) => {
+  const { netGex, regime, callWall, putWall, gammaFlip, mvs, spxPrice } = req.body || {};
+  if (regime !== 'POSITIVO' && regime !== 'NEGATIVO') {
+    return res.status(400).json({ ok: false, error: 'regime debe ser POSITIVO o NEGATIVO' });
+  }
+  const data = { netGex, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
+  fs.writeFileSync(SIGMA_LEVELS_FILE, JSON.stringify(data, null, 2), 'utf8');
+  res.json({ ok: true, saved: data });
+});
+
+app.get('/api/spx/sigma-levels', (req, res) => {
+  const data = loadSigmaLevels();
+  if (!data) return res.json({ ok: false, reason: 'sin datos todavía' });
+  const ageMs = Date.now() - new Date(data.updatedAt).getTime();
+  res.json({ ok: true, ...data, ageMs, fresh: ageMs <= SIGMA_LEVELS_MAX_AGE_MS });
+});
+
+// Devuelve los niveles de Sigma Terminal solo si están frescos (<5 min) —
+// si no hay dato o está stale, null, para que el caller caiga a su propio
+// cálculo sin romper nada.
+function getFreshSigmaLevels() {
+  const data = loadSigmaLevels();
+  if (!data || !data.updatedAt) return null;
+  const ageMs = Date.now() - new Date(data.updatedAt).getTime();
+  if (ageMs > SIGMA_LEVELS_MAX_AGE_MS) return null;
+  return data;
+}
+
 // ── Chequeo periódico de Iron Condor (0DTE y 1DTE) ──────────────────────
 // A diferencia de las direccionales (disparadas por alerta de Pine), el Iron Condor
 // no tiene un "trigger" — se evalúa el régimen de mercado cada 5 min durante las
@@ -5080,15 +5124,22 @@ async function checkAlejamientoSMA() {
 
     const ctx = await buildSPXContext();
 
-    // Gate duro (no ponderado): fuera de GEX positivo la reversión "pierde su hábitat"
-    // (dealers amplifican en vez de estabilizar) — no debe poder compensarse con el
-    // resto del score como pasaba cuando regimen_gex era solo el 10% del puntaje.
-    if (ctx.gex?.regime !== 'POSITIVO') {
-      const reason = `GEX ${ctx.gex?.regime || 'desconocido'} — reversión requiere gamma positivo (gate duro)`;
-      console.log(`[SPX-REV] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GEX_NOT_POSITIVE', passed: false, reason, snapshot: buildStrategySnapshot(ctx) });
-      return;
-    }
+    // Ex-gate duro, suavizado a factor de score (2026-07-21, a pedido del usuario):
+    // el bloqueo binario ("fuera de GEX positivo, ni se calcula el score") costó
+    // los 4 días completos del 17-20 jul sin una sola señal, porque nuestro propio
+    // cálculo (calcGEX, cadena TastyTrade) puede discrepar del régimen real que
+    // muestra Sigma Terminal (Polygon) — discrepancia ya documentada el 16 jul.
+    // Preferimos el dato de Sigma Terminal cuando está fresco (<5 min, alimentado
+    // por el mismo loop de 2 min que ya lo empuja a CIARG_V1 en TradingView) — si
+    // no hay dato fresco, cae al cálculo propio sin romper nada. El régimen ya NO
+    // bloquea la entrada — solo resta puntos en el check regimen_gex (ver
+    // calcReversionScore), permitiendo que el resto del score compense si es
+    // muy fuerte.
+    const sigmaLevels = getFreshSigmaLevels();
+    const effectiveGex = sigmaLevels
+      ? { regime: sigmaLevels.regime, callWall: sigmaLevels.callWall, putWall: sigmaLevels.putWall, source: 'sigma_terminal' }
+      : { regime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, source: 'interno' };
+    console.log(`[SPX-REV] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source})`);
 
     const bars = ctx.indicators?.m2?.bars || [];
     if (bars.length < 25) {
@@ -5129,10 +5180,10 @@ async function checkAlejamientoSMA() {
     const scoreResult = calcReversionScore({
       direction, ext8, patronReversion, rsi,
       m15: ctx.indicators?.m15 || {},
-      gammaRegime: ctx.gex?.regime,
+      gammaRegime: effectiveGex.regime,
       spxPrice: ctx.spxPrice,
-      callWall: ctx.gex?.callWall,
-      putWall: ctx.gex?.putWall,
+      callWall: effectiveGex.callWall,
+      putWall: effectiveGex.putWall,
       wallProximityPts: cfg.wallProximityPts,
       compasMedias5m,
     }, cfg);

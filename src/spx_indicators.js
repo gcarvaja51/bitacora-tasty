@@ -428,31 +428,38 @@ function calcReversionScore(indicators, config) {
   });
   if (fase_ok) score += w4;
 
-  // 5. Confluencia con Muro de Gamma — el "setup dorado" de Luis Silva es
-  // estiramiento extremo + gamma positivo + precio cerca del muro (Call/Put Wall)
-  // que frena el movimiento contrario. GEX positivo YA es un gate obligatorio
-  // aparte (checkAlejamientoSMA corta antes de llegar a este score si es
-  // negativo — calcReversionScore no tiene otro caller), así que la rama que
-  // volvía a preguntar el signo del GEX acá adentro era código muerto en la
-  // práctica: nunca podía valer 0. Eliminada 2026-07-14 (a pedido del usuario) —
-  // este check ya solo gradúa la CALIDAD de la confluencia con el muro.
+  // 5. Régimen GEX + Confluencia con Muro de Gamma — el "setup dorado" de Luis
+  // Silva es estiramiento extremo + gamma positivo + precio cerca del muro
+  // (Call/Put Wall) que frena el movimiento contrario.
+  // Ajuste 2026-07-21 (a pedido del usuario): el signo del régimen HABÍA vuelto a
+  // ser código muerto acá (eliminado 2026-07-14) porque checkAlejamientoSMA tenía
+  // un gate duro aparte que ya cortaba antes de llegar a este score si era
+  // negativo — pero ese gate duro bloqueó los 4 días completos del 17-20 jul sin
+  // una sola señal, por una discrepancia conocida entre nuestro cálculo de GEX y
+  // Sigma Terminal (ver CLAUDE.md). Se quitó el gate duro y el signo del régimen
+  // vuelve a vivir ACÁ, como penalización suave: GEX negativo resta el peso
+  // completo de este check (ok:false, 0 de w5) pero YA NO anula la entrada — el
+  // resto del score (90% del peso) puede compensar si es lo bastante fuerte.
   const w5 = weights.regimen_gex ?? 10;
   totalWeight += w5;
+  const regimenPositivo = indicators.gammaRegime === 'POSITIVO';
   const muroRelevante = dir === 'BULLISH' ? indicators.putWall : indicators.callWall;
   const distanciaMuro = (muroRelevante != null && indicators.spxPrice != null)
     ? Math.abs(indicators.spxPrice - muroRelevante) : null;
   const wallProximityPts = indicators.wallProximityPts ?? 15;
   const cercaDelMuro = distanciaMuro != null && distanciaMuro <= wallProximityPts;
-  const fracRegimen = cercaDelMuro ? 1.0 : 0.5;
+  const fracRegimen = regimenPositivo ? (cercaDelMuro ? 1.0 : 0.5) : 0;
   checks.push({
     id:      'regimen_gex',
-    label:   'Confluencia con Muro de Gamma',
+    label:   'Régimen GEX + Confluencia con Muro de Gamma',
     weight:  w5,
-    ok:      true,
-    value:   `${indicators.gammaRegime || 'POSITIVO'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''}`,
-    reason:  cercaDelMuro
-      ? `Precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte (setup dorado) ✅`
-      : `Sin muro de gamma cerca (${distanciaMuro != null ? distanciaMuro.toFixed(1) + 'pts' : 'sin datos'}) — confluencia parcial ⚠️`,
+    ok:      regimenPositivo,
+    value:   `${indicators.gammaRegime || 'desconocido'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''}`,
+    reason:  !regimenPositivo
+      ? `GEX ${indicators.gammaRegime || 'desconocido'} — la reversión pierde su hábitat, resta puntos pero ya no bloquea la entrada ❌`
+      : cercaDelMuro
+        ? `Precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte (setup dorado) ✅`
+        : `Sin muro de gamma cerca (${distanciaMuro != null ? distanciaMuro.toFixed(1) + 'pts' : 'sin datos'}) — confluencia parcial ⚠️`,
   });
   score += w5 * fracRegimen;
 

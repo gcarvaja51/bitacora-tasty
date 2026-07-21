@@ -737,6 +737,38 @@ caller (`checkAlejamientoSMA`), que ya corta antes si `ctx.gex?.regime !== 'POSI
 label pasó de "Régimen Institucional (GEX + Muro de Gamma)" a **"Confluencia con Muro de
 Gamma"** para reflejar que ya no evalúa el signo del GEX, solo la calidad de la confluencia.
 
+**Fix real 2026-07-21 — el gate duro de GEX bloqueó los 4 días completos del 17-20 jul, cero
+señales:** analizando por qué el usuario no veía ninguna oportunidad de Reversión en varios
+días, `spx_strategy_log.json` mostró **240/240 chequeos bloqueados en `GEX_NOT_POSITIVE` cada
+uno de esos 4 días** — nunca llegó ni una sola vez a calcular el score. Causa: el gate duro de
+`checkAlejamientoSMA` (agregado 2026-07-14, ver arriba en la sección de ese día) exige régimen
+POSITIVO de **nuestro propio cálculo** (`calcGEX`, cadena de opciones de TastyTrade) — pero ese
+cálculo puede discrepar del régimen real que muestra Sigma Terminal (Polygon), discrepancia ya
+documentada el 2026-07-16 (memoria `gamma_flip_discrepancy`: mismo momento, nuestro sistema daba
+NEGATIVO y Sigma Terminal POSITIVO). El día que arrancó este bloqueo de 4 días es el mismo día
+de esa discrepancia — probable causa. A pedido explícito del usuario, dos cambios juntos:
+1. **Sigma Terminal ahora alimenta al servidor, no solo a TradingView**: `POST
+   /api/spx/sigma-levels` (nuevo, `server.js`) recibe `{netGex, regime, callWall, putWall,
+   gammaFlip, mvs, spxPrice}` — el MISMO loop de 2 minutos que ya empuja estos valores a
+   CIARG_V1 (`run_gamma_refresh.ps1`, Paso 3 del skill premercado-spx, vía `claude-in-chrome`)
+   ahora también los manda aquí. `getFreshSigmaLevels()` los usa solo si tienen menos de 5
+   minutos (margen sobre el ciclo de 2 min); si no hay dato fresco, `checkAlejamientoSMA` cae
+   a su propio cálculo (`ctx.gex`) sin romper nada — Sigma Terminal es la fuente preferida
+   cuando está disponible, no la única. `GET /api/spx/sigma-levels` para inspeccionar el
+   último valor guardado y su antigüedad.
+2. **El gate duro se quitó — el régimen vuelve a ser un factor de score, no un bloqueo**: se
+   eliminó el `if (ctx.gex?.regime !== 'POSITIVO') return;` de `checkAlejamientoSMA`, y el
+   check `regimen_gex` de `calcReversionScore` (`src/spx_indicators.js`) recuperó la
+   sensibilidad al signo que se había quitado el mismo 2026-07-14 (arriba): GEX NEGATIVO ahora
+   hace que ese check falle (`ok:false`, resta el 10% completo de su peso) pero **ya no anula
+   la entrada** — el resto del score (90% del peso) puede compensar si es lo bastante fuerte.
+   Decisión explícita del usuario: "que le baje puntos pero que no anule la entrada".
+Con ambos cambios juntos, un día con GEX negativo por nuestro cálculo pero positivo por Sigma
+Terminal ya no pierde la oportunidad dos veces (ni por gate duro, ni por dato equivocado) —
+y si de verdad ambas fuentes coinciden en negativo, la estrategia todavía puede dispararse con
+score suficiente si el resto de la evidencia es muy fuerte, en vez de quedar matemáticamente
+imposible como con el gate duro.
+
 **Ajuste 2026-07-14 (mismo día) — sizing por riesgo real en dólares, método de Luis Sigma:**
 el usuario validó el TP (toca SMA8, sin cambios) y el SL (ruptura de la vela de entrada, sin
 cambios — coincide con el "nivel técnico de invalidez" del material de Luis; la nota de que
