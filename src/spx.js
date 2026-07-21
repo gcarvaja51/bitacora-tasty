@@ -189,8 +189,8 @@ function classifyWindow(etMins) {
 // confiar en una reversion durante la siesta.
 function evaluateReversionGate(etHour, etMin) {
   const etMins = etHour * 60 + etMin;
-  if (etMins < 10 * 60 || etMins >= 14 * 60) {
-    return { valid: false, reason: `Alejamiento de SMA solo opera 10am-2pm ET (9am-1pm Colombia), fuera de ventana (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+  if (etMins < 9 * 60 + 30 || etMins >= 13 * 60) {
+    return { valid: false, reason: `Alejamiento de SMA solo opera 9:30am-1pm ET (8:30am-12pm Colombia), fuera de ventana (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
   }
   return { valid: true };
 }

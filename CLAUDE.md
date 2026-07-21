@@ -684,6 +684,13 @@ material de Luis Sigma:**
   (12pm-3pm ET) que la ventana original excluía a propósito citando el mismo material de Luis
   — decisión explícita del usuario, no un ajuste técnico. Si el score empieza a fallar más en
   el tramo 12-2pm, este es el primer lugar a revisar.
+
+**Ajuste 2026-07-21 — ventana ampliada otra vez, ahora desde la apertura:** de 10am-2pm ET a
+**9:30am-1pm ET (8:30am-12pm Colombia)** — a pedido explícito del usuario, para ver si se
+ejecutan más trades cubriendo la primera media hora de mercado (antes excluida). Recorta el
+final de la ventana de 2pm a 1pm (menos exposición a "la siesta institucional" de la tarde,
+compensando la apertura más temprana). Sin cambios en el resto del gate (`evaluateReversionGate`
+sigue siendo todo-o-nada, sin lógica nueva).
 - **RSI eliminado del score** (10%→0%, `weights.rsi`): Luis es explícito en no usar
   osciladores ("simple como las medias móviles"). El check se sigue calculando y mostrando
   (mismo patrón que `confirmacion_algoritmica` en el playbook direccional), solo no puntúa.
