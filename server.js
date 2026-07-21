@@ -5475,6 +5475,19 @@ app.post('/api/tradier/executions/:id/patch', async (req, res) => {
 
 // GET /api/tradier/executions — historial + balance real de la cuenta demo
 const TRADIER_STARTING_BALANCE = 100000; // capital inicial de la cuenta sandbox
+// Diagnostico crudo del gainloss de Tradier (2026-07-21) — para ver EN VIVO si
+// Tradier ya asento el P&L de una fecha, sin esperar al ciclo de reintento de
+// 5 min ni adivinar desde los logs. ?date=YYYY-MM-DD, default hoy.
+app.get('/api/tradier/gainloss-raw', async (req, res) => {
+  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  try {
+    const list = await tradier.getClosedPnl(date);
+    res.json({ ok: true, date, count: (list || []).length, entries: list });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/tradier/executions', async (req, res) => {
   const executions = loadTradierExecutions();
   let account = null;
@@ -5843,7 +5856,16 @@ async function intentarResolverPnl(ex, executions) {
     pnlTotal += disponibles[0].gain_loss;
   }
 
-  if (faltaAlgunaPata) return null;
+  if (faltaAlgunaPata) {
+    // Diagnostico 2026-07-21 (a pedido del usuario, tras un caso real que no
+    // se resolvio en 3 reintentos de 5 min cada uno) — antes fallaba en
+    // silencio, sin dejar ver SI Tradier ya trae el simbolo o directamente no
+    // trae nada todavia. pnlList puede ser null (error de red/API) o [] (sin
+    // datos) o traer otros simbolos pero no el nuestro (mismatch real).
+    const simbolosEnTradier = (pnlList || []).map(p => p.symbol);
+    console.log(`[TRADIER-TRACK] ⏳ ${ex.orderId}: pnlList=${pnlList == null ? 'null (error API)' : simbolosEnTradier.length + ' entradas'}. Buscando ${JSON.stringify(legSymbols)}. En Tradier: ${JSON.stringify(simbolosEnTradier.slice(0, 10))}`);
+    return null;
+  }
   return { pnl: +pnlTotal.toFixed(2), pnlSource: 'gainloss' };
 }
 
