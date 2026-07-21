@@ -195,6 +195,16 @@ tienen que dar más de 80/100 para disparar el trade. Pesos actuales en
 `macd_cruce_pendiente` subió de 5% a 10% — decisión del usuario, sin cambiar el resto de la
 tabla. Suma sigue dando 100.
 
+**Ajuste 2026-07-21 — `volumen_rompimiento` retirado del score:** análisis de winrate del
+2026-07-16 re-cruzado con 6 trades nuevos mostró que `volumen_rompimiento` nunca pasó ni una
+sola vez en 44 señales — 10% de peso desperdiciado, castigaba a todas las señales por igual sin
+distinguir ganadoras de perdedoras. Mismo patrón que `confirmacion_algoritmica`: peso a 0%, el
+check se sigue calculando y mostrando, solo deja de puntuar. Los 10 puntos liberados se
+repartieron 5/5: `fase_weinstein` 40→**45** (el check de mayor peso, decisión explícita del
+usuario) y `macd_cruce_pendiente` 10→**15** (el único check "menor" con evidencia real de
+discriminar — 33% vs 62% win rate cuando falla junto con volumen, según el mismo análisis).
+Suma sigue dando 100. Migración no-destructiva en `loadSPXConfig()` igual que las anteriores.
+
 **Fix 2026-07-08 — `selectStrategy` no consideraba el régimen de gamma para crédito/débito:**
 `selectStrategy` (`src/spx.js`) decidía crédito vs. débito solo por IV Rank/VIX
 (`ivRank > 30 || vix > 20`). Si el IV Rank/VIX daba crédito pero el gamma resultaba NEGATIVO,

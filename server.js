@@ -3172,16 +3172,28 @@ const SPX_CONFIG_DEFAULTS = {
   minScore: 80, // regla de Alejandro: los 3 Mundos alineados -> score > 80/100
   weights: {
     // Modelo "Peso de la Evidencia" (playbook Alejandro, Framework 3 Mundos).
-    // fase_weinstein a todo-o-nada: si 2m y 15m coinciden (2-2 o 4-4) son los 40
-    // puntos completos, si no cero — no hace falta gradiente, la Dirección sola
-    // no alcanza para pasar minScore, son los otros 60 (Trigger+Fuerza) los que
-    // deciden si la señal cruza el umbral.
-    fase_weinstein:           40,
+    // fase_weinstein a todo-o-nada: si 2m y 15m coinciden (2-2 o 4-4) son los
+    // puntos completos de este check, si no cero — no hace falta gradiente, la
+    // Dirección sola no alcanza para pasar minScore, son los otros 55 (Trigger+
+    // Fuerza) los que deciden si la señal cruza el umbral.
+    //
+    // Ajuste 2026-07-21 (a pedido del usuario, tras el análisis de winrate del
+    // 2026-07-16 re-cruzado con 6 trades nuevos, ver CLAUDE.md): volumen_rompimiento
+    // nunca paso ni una sola vez en 44 señales — 10% de peso desperdiciado que
+    // castigaba a todos por igual sin distinguir ganadores de perdedores. Se retira
+    // del score (mismo patron que confirmacion_algoritmica: peso 0%, el check se
+    // sigue calculando y mostrando, solo deja de puntuar — no hace falta tocar
+    // calcPlaybookScore, w5 ya lee el peso desde config). Los 10 puntos liberados
+    // se repartieron 5/5 entre fase_weinstein (el check de mayor peso, decisión
+    // explícita del usuario) y macd_cruce_pendiente (el único de los checks
+    // "menores" con evidencia real de discriminar: 33% vs 62% win rate cuando
+    // falla junto con volumen, según el mismo análisis).
+    fase_weinstein:           45, // 40->45 (2026-07-21)
     regimen_institucional:    10, // GEX compatible con la dirección (DEX pendiente, sin datos validados aún)
     patrones_estructurales:   20, // Higher-Low / Lower-High via fractales 15m
     ema_10_20_alineadas:      10, // EMAs alineadas 15m y precio no extendido
-    volumen_rompimiento:      10, // Volumen SPY > 2x promedio
-    macd_cruce_pendiente:     10, // MACD alineado + pendiente a favor
+    volumen_rompimiento:       0, // 10->0 (2026-07-21) — retirado del score, ver nota arriba. Check sigue visible.
+    macd_cruce_pendiente:     15, // 10->15 (2026-07-21) — único check "menor" con evidencia real, ver nota arriba
     confirmacion_algoritmica:  0, // Camino A (Trend Magic + SlingShot + MACD) — apoyo, no gatillo
   },
   // Parámetros de trading (compartidos con backtester)
@@ -3335,6 +3347,16 @@ function loadSPXConfig() {
     if (saved?.trading && saved.trading.closeSlippageBufferPts === undefined) {
       console.log('[SPX] Sumando closeSlippageBufferPts (no existía)');
       saved.trading.closeSlippageBufferPts = SPX_CONFIG_DEFAULTS.trading.closeSlippageBufferPts;
+      saveSPXConfig(saved);
+    }
+    // Migra volumen_rompimiento -> 0% (2026-07-21, ver nota junto a SPX_CONFIG_DEFAULTS.weights)
+    // — acotado a esa sola clave y a fase_weinstein/macd_cruce_pendiente, no toca el resto
+    // de weights ya ajustado en producción (regimen_institucional, patrones_estructurales, etc.)
+    if (saved?.weights && saved.weights.volumen_rompimiento !== 0) {
+      console.log('[SPX] Retirando volumen_rompimiento del score (10% -> fase_weinstein +5 / macd_cruce_pendiente +5)');
+      saved.weights.volumen_rompimiento = 0;
+      saved.weights.fase_weinstein = SPX_CONFIG_DEFAULTS.weights.fase_weinstein;
+      saved.weights.macd_cruce_pendiente = SPX_CONFIG_DEFAULTS.weights.macd_cruce_pendiente;
       saveSPXConfig(saved);
     }
     return saved;
