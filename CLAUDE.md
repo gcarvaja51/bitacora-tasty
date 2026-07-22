@@ -1199,6 +1199,41 @@ riesgo que ya se acepta en la apertura del Iron Condor) — 1.0 punto es un punt
 un valor validado en producción todavía. Revisar/ajustar si empiezan a verse cierres que no
 llenan a tiempo.
 
+## Orden fantasma del sandbox de Tradier — "Verificar manual" que nunca se resuelve (2026-07-22)
+
+**Caso real**: un `BULL_CALL_SPREAD` (orden 35725048, 2 contratos, strikes 7525/7515) mostró
+las dos patas con `status: "filled"` y precios de fill reales (avg_fill_price 3 y 7), pero la
+orden **padre** se quedó permanentemente en `status: "open"` y la posición **nunca apareció**
+en `/accounts/.../positions` — verificado 3 veces en más de 3 horas. Tampoco existe ninguna
+orden de cierre en el historial de la cuenta. El usuario confirmó explícitamente que no cerró
+nada manualmente ese día.
+
+**Causa raíz**: inconsistencia del lado del **sandbox de Tradier** (no de nuestro código) — la
+orden multi-pata quedó en un limbo donde reporta fills reales por pata pero nunca termina de
+asentar la posición resultante ni de cerrar el ciclo de vida de la orden padre. Mismo tipo de
+categoría que el gotcha ya documentado de órdenes `pending` que no auto-fillean en sandbox, solo
+que esta vez el síntoma es distinto (fills fantasma en vez de fill nunca confirmado).
+
+**Por qué el sistema no se dio cuenta solo**: `checkTradierExecutionsImpl` hizo exactamente lo
+que debía con la información disponible — consultó `getPositions()`, no encontró la posición,
+la marcó `closed`/`MANUAL` (la etiqueta más honesta que tiene para "desapareció fuera de mis
+monitores activos"). El problema es el reintento automático de P&L (`reintentarPnlPendientes`,
+2026-07-14): asume que Tradier **eventualmente** va a asentar el `gain_loss` real y reintenta
+por 2 días — pero si la posición nunca fue real para Tradier, ese `gain_loss` **jamás** va a
+aparecer, y el registro se queda en `pnlSource: 'pendiente_verificar'` (dashboard: "⚠️ Verificar
+manual") indefinidamente en vez de por unos minutos.
+
+**Corregido a mano** vía `POST /api/tradier/executions/:id/patch`: `pnl: 0` (sin evidencia de
+impacto económico real, no se inventa un número), `pnlSource: 'sandbox_orden_fantasma'`,
+`closeReason: 'SANDBOX_GLITCH_SIN_POSICION'` (se muestra tal cual en el dashboard, no está en
+`CIERRE_LABELS` de `index.html` pero cae al fallback de texto crudo, no al genérico "❓ Sin
+dato" — suficientemente descriptivo sin tocar el frontend).
+
+**No implementado a propósito**: una detección automática de este patrón (ej. "si la orden
+padre lleva horas en `open` con legs `filled` y sin posición, autopatchear a pnl 0") — es un
+caso raro (primera vez visto) y la corrección manual vía el endpoint de patch ya existente fue
+suficiente. Si se repite con frecuencia, ahí sí conviene automatizarlo.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`
