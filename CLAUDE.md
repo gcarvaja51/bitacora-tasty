@@ -92,11 +92,15 @@ las estrategias direccionales de crédito.
    Weinstein de 15m como marco maestro, y la señal final **solo por Camino B** (confluencia
    recién formada — sin exigir retroceso, gap mínimo entre disparos para no repetir en cada
    barra de una tendencia sostenida, configurable como input de Pine `gapMinutes_B` —
-   **20 min actualmente** (bajado de 60 en algún momento directo en el Pine Script, sin
-   documentar en su momento; confirmado leyendo el código fuente real el 2026-07-21 tras una
-   sesión de análisis de un trade real — contar siempre con `pine_get_source` como fuente de
-   verdad para este valor, no esta nota, ya que Pine vive en TradingView, fuera de este repo
-   de git, y puede volver a cambiar sin que quede registrado acá). El **Camino A** (retroceso clásico del
+   **10 min actualmente** (bajado de 20 el 2026-07-22, a pedido explícito del usuario: la
+   exclusividad de posición ya impide 2 trades simultáneos vía `hasOpenPosition`, así que el
+   gap solo necesita evitar spam entre barras de una misma confluencia, no suplir esa
+   exclusividad — el valor anterior de 20 venía de una baja previa desde 60, documentada y
+   confirmada leyendo el código fuente real el 2026-07-21. Edición hecha directo en el Pine
+   Script vía `pine_set_source`/`pine_save`, compilado sin errores nuevos — contar siempre con
+   `pine_get_source` como fuente de verdad para este valor, no esta nota, ya que Pine vive en
+   TradingView, fuera de este repo de git, y puede volver a cambiar sin que quede registrado
+   acá). El **Camino A** (retroceso clásico del
    mentor) se desactivó en `sig_bull_B`/`sig_bear_B` tras el backtest del 2026-07-03: 48.8%
    WR y P&L neto negativo en 41 señales sobre 58 días, vs 67.8% WR / +$975 del Camino B —
    `longCondition`/`shortCondition` se siguen calculando y mostrando en la tabla de info,
