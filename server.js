@@ -4245,9 +4245,27 @@ app.get('/api/spx/strategy-log', (req, res) => {
 // usar la fuente que el usuario mira a mano en vez de (o además de) la propia.
 const SIGMA_LEVELS_FILE = path.join(DATA_DIR, 'sigma_terminal_levels.json');
 const SIGMA_LEVELS_MAX_AGE_MS = 5 * 60 * 1000; // 5 min — margen sobre el ciclo de 2 min
+// Cap generoso — cada 2 min ⇒ ~720/dia, 10000 cubre ~2 semanas sin crecer sin
+// control (mismo criterio que SPX_STRATEGY_LOG_FILE, ver logStrategyEvent).
+const SIGMA_LEVELS_MAX_ENTRIES = 10000;
 
-function loadSigmaLevels() {
-  try { return JSON.parse(fs.readFileSync(SIGMA_LEVELS_FILE, 'utf8')); } catch(e) { return null; }
+// Historial (2026-07-21, a pedido del usuario) — antes este archivo guardaba
+// SOLO el ultimo valor (sobreescrito en cada POST), asi que ni retroactivamente
+// se podia responder "que marcaba Sigma Terminal a tal hora de tal dia" — ni
+// siquiera para incidentes futuros. Ahora es un array, mas reciente primero
+// (unshift, mismo patron que logStrategyEvent), para poder cruzar contra
+// spx_strategy_log.json mas adelante.
+function loadSigmaLevelsHistory() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(SIGMA_LEVELS_FILE, 'utf8'));
+    // Migracion no-destructiva: el formato viejo era un solo objeto, no un array.
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && parsed.updatedAt) return [parsed];
+    return [];
+  } catch(e) { return []; }
+}
+function saveSigmaLevelsHistory(history) {
+  fs.writeFileSync(SIGMA_LEVELS_FILE, JSON.stringify(history, null, 2), 'utf8');
 }
 
 app.post('/api/spx/sigma-levels', (req, res) => {
@@ -4255,13 +4273,24 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   if (regime !== 'POSITIVO' && regime !== 'NEGATIVO') {
     return res.status(400).json({ ok: false, error: 'regime debe ser POSITIVO o NEGATIVO' });
   }
-  const data = { netGex, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(SIGMA_LEVELS_FILE, JSON.stringify(data, null, 2), 'utf8');
-  res.json({ ok: true, saved: data });
+  const entry = { netGex, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
+  const history = loadSigmaLevelsHistory();
+  history.unshift(entry);
+  saveSigmaLevelsHistory(history.slice(0, SIGMA_LEVELS_MAX_ENTRIES));
+  res.json({ ok: true, saved: entry });
 });
 
+// Por defecto devuelve el ultimo valor (compatibilidad con lo que ya consumia
+// esto). ?history=true devuelve el historial completo (opcionalmente
+// ?date=YYYY-MM-DD para filtrar un dia) para analisis retroactivo.
 app.get('/api/spx/sigma-levels', (req, res) => {
-  const data = loadSigmaLevels();
+  const history = loadSigmaLevelsHistory();
+  if (req.query.history === 'true') {
+    let filtered = history;
+    if (req.query.date) filtered = filtered.filter(e => (e.updatedAt || '').slice(0, 10) === req.query.date);
+    return res.json({ ok: true, count: filtered.length, entries: filtered });
+  }
+  const data = history[0];
   if (!data) return res.json({ ok: false, reason: 'sin datos todavía' });
   const ageMs = Date.now() - new Date(data.updatedAt).getTime();
   res.json({ ok: true, ...data, ageMs, fresh: ageMs <= SIGMA_LEVELS_MAX_AGE_MS });
@@ -4271,7 +4300,7 @@ app.get('/api/spx/sigma-levels', (req, res) => {
 // si no hay dato o está stale, null, para que el caller caiga a su propio
 // cálculo sin romper nada.
 function getFreshSigmaLevels() {
-  const data = loadSigmaLevels();
+  const data = loadSigmaLevelsHistory()[0];
   if (!data || !data.updatedAt) return null;
   const ageMs = Date.now() - new Date(data.updatedAt).getTime();
   if (ageMs > SIGMA_LEVELS_MAX_AGE_MS) return null;

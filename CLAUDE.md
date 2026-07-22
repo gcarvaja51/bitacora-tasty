@@ -756,6 +756,14 @@ de esa discrepancia — probable causa. A pedido explícito del usuario, dos cam
    a su propio cálculo (`ctx.gex`) sin romper nada — Sigma Terminal es la fuente preferida
    cuando está disponible, no la única. `GET /api/spx/sigma-levels` para inspeccionar el
    último valor guardado y su antigüedad.
+   **Ajuste el mismo día, más tarde**: al intentar responder "qué marcaba Sigma Terminal a
+   las 9:15am de hoy" para un análisis retroactivo, se descubrió que el archivo solo guardaba
+   el ÚLTIMO valor (sobreescrito en cada POST) — ni siquiera hacia adelante se podría haber
+   respondido esa pregunta para un incidente futuro. Cambiado a historial (array, más
+   reciente primero, cap 10000 ≈ 2 semanas a razón de 1 POST/2min) — mismo patrón que
+   `spx_strategy_log.json`. `GET /api/spx/sigma-levels?history=true` (opcional `&date=YYYY-MM-DD`)
+   devuelve el historial completo; sin ese query param, el comportamiento por defecto
+   (último valor + antigüedad) no cambió, sigue siendo compatible con lo que ya lo consumía.
 2. **El gate duro se quitó — el régimen vuelve a ser un factor de score, no un bloqueo**: se
    eliminó el `if (ctx.gex?.regime !== 'POSITIVO') return;` de `checkAlejamientoSMA`, y el
    check `regimen_gex` de `calcReversionScore` (`src/spx_indicators.js`) recuperó la
