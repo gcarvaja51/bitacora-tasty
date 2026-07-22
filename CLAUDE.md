@@ -769,6 +769,22 @@ y si de verdad ambas fuentes coinciden en negativo, la estrategia todavía puede
 score suficiente si el resto de la evidencia es muy fuerte, en vez de quedar matemáticamente
 imposible como con el gate duro.
 
+**Extendido el mismo día al direccional (`POST /api/spx/webhook`, server.js):** analizando por
+qué un trade con lectura de precio "totalmente clara" (Weinstein, EMAs y MACD confirmando
+alcista) no se ejecutó entre las 9:07-9:38am ET, el log mostró el score pegado en 70/80 las 4
+veces, bloqueado por `regimen_institucional` (GEX NEGATIVO según nuestro cálculo) +
+`patrones_estructurales` sin confirmar — el mismo tipo de discrepancia de fuente que ya se
+había arreglado para Reversión, pero el webhook direccional todavía usaba `ctx.gex` (cálculo
+interno) directo, sin el fix. Ahora el webhook calcula `effectiveGex` (Sigma Terminal si está
+fresco, si no cae al cálculo propio) una sola vez al principio, y lo usa consistentemente en:
+el check `regimen_institucional` de `calcPlaybookScore`, la decisión crédito/débito de
+`selectStrategy` (`gammaForcesDebit`), los niveles de Call/Put Wall del stop técnico sugerido,
+y los niveles que se guardan en la señal final (`buildSignalSummary`). También se actualizaron
+los `snapshot` que se guardan en `spx_strategy_log.json` (`SCORE_FAIL`/`STRATEGY_INVALID`/
+`NO_STRIKES`/`SIGNAL_BUILT`) para reflejar el GEX efectivo usado, no el interno crudo — así un
+futuro análisis como este ve directamente cuál fuente decidió, sin tener que cruzar contra
+`/api/spx/sigma-levels` a mano.
+
 **Ajuste 2026-07-14 (mismo día) — sizing por riesgo real en dólares, método de Luis Sigma:**
 el usuario validó el TP (toca SMA8, sin cambios) y el SL (ruptura de la vela de entrada, sin
 cambios — coincide con el "nivel técnico de invalidez" del material de Luis; la nota de que

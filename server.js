@@ -3927,6 +3927,21 @@ app.post('/api/spx/webhook', async (req, res) => {
     const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
     const ctx    = await ctxRes.json();
 
+    // Preferir Sigma Terminal (fresco, <5 min) sobre nuestro calculo interno de GEX
+    // (2026-07-21, mismo fix que ya se aplico a Alejamiento de SMA) -- un caso real
+    // el mismo dia mostro el direccional atascado en score 70% durante 31 minutos
+    // (9:07-9:38am ET) con GEX NEGATIVO segun nuestro calculo, mientras Weinstein/
+    // EMAs/MACD ya confirmaban alcista con fuerza -- posible mismo tipo de
+    // discrepancia ya documentada (memoria gamma_flip_discrepancy). Afecta el
+    // check regimen_institucional del score, la decision credito/debito
+    // (selectStrategy) y los niveles de Call/Put Wall usados en el stop tecnico
+    // y en la propia señal.
+    const sigmaLevelsWebhook = getFreshSigmaLevels();
+    const effectiveGex = sigmaLevelsWebhook
+      ? { regime: sigmaLevelsWebhook.regime, callWall: sigmaLevelsWebhook.callWall, putWall: sigmaLevelsWebhook.putWall, gammaFlip: sigmaLevelsWebhook.gammaFlip, maxPain: ctx.gex?.maxPain, source: 'sigma_terminal' }
+      : { regime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain, source: 'interno' };
+    console.log(`[SPX] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source})`);
+
     // Capital de la cuenta — DEBE ser el de Tradier (donde de verdad se ejecuta la
     // orden), no el de TastyTrade (una cuenta real completamente distinta y sin
     // relacion). Usaba tt._req a TastyTrade por error, sizeando el riesgo del 2%
@@ -3950,8 +3965,8 @@ app.post('/api/spx/webhook', async (req, res) => {
     const playbookResult = calcPlaybookScore({
       direction,
       spxPrice:    ctx.spxPrice,
-      gammaRegime: ctx.gex?.regime,
-      gammaFlip:   ctx.gex?.gammaFlip,
+      gammaRegime: effectiveGex.regime,
+      gammaFlip:   effectiveGex.gammaFlip,
       daily:       safeDaily,
       m15:         safeM15,
       m2:          safeM2,
@@ -3963,7 +3978,7 @@ app.post('/api/spx/webhook', async (req, res) => {
       const reason = `Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`;
       console.log(`[SPX] ❌ ${reason}`);
       console.log(`[SPX] Detalle checks: ${JSON.stringify(playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })))}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, score: playbookResult.score, minScore: playbookResult.minScore, checks: playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })) }) });
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, minScore: playbookResult.minScore, checks: playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })) }) });
       return;
     }
 
@@ -3978,7 +3993,7 @@ app.post('/api/spx/webhook', async (req, res) => {
       direction,
       ivRank:      ctx.ivRank,
       vix:         ctx.vix,
-      gammaRegime: ctx.gex?.regime,
+      gammaRegime: effectiveGex.regime,
       etHour:      ctx.etHour,
       etMin:       ctx.etMin,
       capital,
@@ -3988,7 +4003,7 @@ app.post('/api/spx/webhook', async (req, res) => {
     if (!sel.valid) {
       const reason = `Estrategia inválida: ${sel.reason}`;
       console.log(`[SPX] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, score: playbookResult.score }) });
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score }) });
       return;
     }
 
@@ -4012,7 +4027,7 @@ app.post('/api/spx/webhook', async (req, res) => {
     if (!strikes) {
       const reason = `No se encontraron strikes con delta ${targetDelta}`;
       console.log(`[SPX] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, score: playbookResult.score, strategy: sel.strategy }) });
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy }) });
       return;
     }
 
@@ -4024,13 +4039,13 @@ app.post('/api/spx/webhook', async (req, res) => {
     const fractal15m = ctx.indicators?.fractal15m || {};
     let technicalStop = null, technicalStopSource = null;
     if (direction === 'BULLISH') {
-      const candidates = [fractal15m.low, ctx.gex?.putWall].filter(v => v != null && v > 0);
+      const candidates = [fractal15m.low, effectiveGex.putWall].filter(v => v != null && v > 0);
       if (candidates.length) {
         technicalStop = Math.max(...candidates);
         technicalStopSource = technicalStop === fractal15m.low ? 'Fractal 15m' : 'Muro Gamma (Put Wall)';
       }
     } else if (direction === 'BEARISH') {
-      const candidates = [fractal15m.high, ctx.gex?.callWall].filter(v => v != null && v > 0);
+      const candidates = [fractal15m.high, effectiveGex.callWall].filter(v => v != null && v > 0);
       if (candidates.length) {
         technicalStop = Math.min(...candidates);
         technicalStopSource = technicalStop === fractal15m.high ? 'Fractal 15m' : 'Muro Gamma (Call Wall)';
@@ -4041,11 +4056,11 @@ app.post('/api/spx/webhook', async (req, res) => {
     const signal = buildSignalSummary(sel.strategy, strikes, sel, {
       ...ctx,
       direction,
-      gammaRegime: ctx.gex?.regime,
-      callWall:    ctx.gex?.callWall,
-      putWall:     ctx.gex?.putWall,
-      gammaFlip:   ctx.gex?.gammaFlip,
-      maxPain:     ctx.gex?.maxPain,
+      gammaRegime: effectiveGex.regime,
+      callWall:    effectiveGex.callWall,
+      putWall:     effectiveGex.putWall,
+      gammaFlip:   effectiveGex.gammaFlip,
+      maxPain:     effectiveGex.maxPain,
       technicalStop,
       technicalStopSource,
       etTime:      ctx.etTime,
@@ -4193,7 +4208,7 @@ app.post('/api/spx/webhook', async (req, res) => {
 
     const successReason = `Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}${signal.tradierOrder?.orderId ? ' — auto-ejecutada en Tradier' : (signal.tradierOrder?.skipped ? ` — sugerencia (Tradier omitido: ${signal.tradierOrder.reason})` : '')}`;
     console.log(`[SPX] ✅ ${successReason}`);
-    logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, score: playbookResult.score, strategy: sel.strategy }) });
+    logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy }) });
     // Nota: res ya fue enviado inmediatamente arriba para evitar timeout
 
   } catch(e) {
