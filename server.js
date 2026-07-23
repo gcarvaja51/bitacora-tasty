@@ -3701,6 +3701,9 @@ async function buildSPXContext() {
         const ts2    = result2?.timestamp || [];
         const highs2 = result2?.indicators?.quote?.[0]?.high || [];
         const lows2  = result2?.indicators?.quote?.[0]?.low  || [];
+        // Open2 (2026-07-23): Yahoo ya lo trae en el mismo objeto, antes se descartaba --
+        // hace falta para medir el cuerpo real de una vela (Vela Tiburon, ver sma_reversion.js).
+        const opens2 = result2?.indicators?.quote?.[0]?.open || [];
         const todayET = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
         let orHigh = -Infinity, orLow = Infinity;
         for (let i = 0; i < ts2.length; i++) {
@@ -3743,7 +3746,10 @@ async function buildSPXContext() {
         const bars2m = [];
         for (let i = 0; i < rawCloses2.length; i++) {
           if (rawCloses2[i] == null || highs2[i] == null || lows2[i] == null) continue;
-          bars2m.push({ high: highs2[i], low: lows2[i], close: rawCloses2[i] });
+          // open puede faltar en alguna barra puntual sin que el resto (high/low/close)
+          // este afectado -- se deja null en vez de descartar la barra completa, los
+          // consumidores (Vela Tiburon) ya saben tratar open==null como "sin cuerpo medible".
+          bars2m.push({ high: highs2[i], low: lows2[i], close: rawCloses2[i], open: opens2[i] ?? null });
         }
         if (indicators.m2) {
           indicators.m2.caminoA = calcCaminoA(bars2m);

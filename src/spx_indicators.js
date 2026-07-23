@@ -352,11 +352,19 @@ function calcReversionScore(indicators, config) {
   const dir = indicators.direction; // BULLISH | BEARISH
 
   // 1. Alejamiento de SMA8 — extensión del precio respecto a la media (el "imán").
-  // Funcion ESCALONADA (no lineal) — decision explicita del usuario (2026-07-09):
-  // meseta de maximo puntaje entre 0.15%-0.20%, no un pico de un solo punto. Por
-  // debajo de 0.10% es ruido sin ventaja; por encima de 0.35% es peligroso por la
-  // razon opuesta (podria ser un dia de tendencia feroz, no una reversion) — ambos
-  // lados caen a 0.
+  // Funcion ESCALONADA (no lineal). Recalibrada 2026-07-23 (a pedido del usuario,
+  // documentado y validado en Word antes de aplicar): las bandas originales
+  // (0.10%-0.35%, decididas el 2026-07-09 contra un solo caso anecdotico del 8 de
+  // julio) resultaron estar calibradas muy por encima de como se mueve realmente
+  // el SPX. Analisis del log de estrategia (385 evaluaciones reales, dias 16/21/22
+  // jul): mediana real de extension = 0.02%, p90 = 0.06%, maximo observado = 0.25%.
+  // Con las bandas viejas, 0 de 385 evaluaciones pasaron el 75% minimo — coincide
+  // exactamente con la ausencia total de trades de Reversion hasta la fecha (el
+  // peso de este check, 45%, hace que sea matematicamente imposible llegar a 75%
+  // sin el). Bandas nuevas ancladas a los percentiles reales en vez de un ejemplo
+  // unico: <0.02% ruido, 0.02-0.04% leve, 0.04-0.07% tension, 0.07-0.14% optimo
+  // (antes 0.15-0.20%), 0.14-0.20% alejandose, >0.20% extremo. Simulado contra los
+  // mismos 385 registros: 14 evaluaciones habrian pasado el minimo (vs 0 antes).
   const ext8 = indicators.ext8;
   const extAbs = ext8 != null ? Math.abs(ext8) : null;
   const direccionCorrecta = ext8 != null && (dir === 'BULLISH' ? ext8 < 0 : ext8 > 0);
@@ -364,12 +372,11 @@ function calcReversionScore(indicators, config) {
   totalWeight += w1;
   let banda = 'ninguna', fracAlejamiento = 0;
   if (direccionCorrecta) {
-    if      (extAbs < 0.10) { banda = 'ruido (insuficiente)';         fracAlejamiento = 0;   }
-    else if (extAbs < 0.12) { banda = 'creciendo hacia el óptimo';    fracAlejamiento = 0.4; }
-    else if (extAbs < 0.15) { banda = 'creciendo hacia el óptimo';    fracAlejamiento = 0.8; }
-    else if (extAbs < 0.20) { banda = 'óptimo';                       fracAlejamiento = 1.0; }
-    else if (extAbs < 0.25) { banda = 'alejándose del óptimo';        fracAlejamiento = 0.8; }
-    else if (extAbs < 0.35) { banda = 'alejándose del óptimo';        fracAlejamiento = 0.4; }
+    if      (extAbs < 0.02) { banda = 'ruido (insuficiente)';         fracAlejamiento = 0;   }
+    else if (extAbs < 0.04) { banda = 'leve';                         fracAlejamiento = 0.5; }
+    else if (extAbs < 0.07) { banda = 'tensión';                      fracAlejamiento = 0.8; }
+    else if (extAbs < 0.14) { banda = 'óptimo';                       fracAlejamiento = 1.0; }
+    else if (extAbs < 0.20) { banda = 'alejándose del óptimo';        fracAlejamiento = 0.6; }
     else                     { banda = 'extremo (riesgo de tendencia)'; fracAlejamiento = 0;   }
   }
   const alejamiento_ok = fracAlejamiento > 0;
@@ -379,23 +386,27 @@ function calcReversionScore(indicators, config) {
     weight:  w1,
     ok:      alejamiento_ok,
     value:   ext8 != null ? `${ext8 > 0 ? '+' : ''}${ext8}% (${banda})` : '—',
-    reason:  alejamiento_ok ? `Precio estirado ${ext8}% de la SMA8 — ${banda} (${(fracAlejamiento*100).toFixed(0)}% del peso) ✅` : `Estiramiento fuera del rango útil 0.10%-0.35% (${ext8 ?? '—'}%) ❌`,
+    reason:  alejamiento_ok ? `Precio estirado ${ext8}% de la SMA8 — ${banda} (${(fracAlejamiento*100).toFixed(0)}% del peso) ✅` : `Estiramiento fuera del rango útil 0.02%-0.20% (${ext8 ?? '—'}%) ❌`,
   });
   score += w1 * fracAlejamiento;
 
-  // 2. Patrón de Confirmación (Vela García / Tiburón / Vela 9) — ya calculado
+  // 2. Patrón de Confirmación (Vela García / Tiburón / Vela 9) — ya calculado.
+  // Ajuste 2026-07-23: Vela Tiburón ahora viene graduada (patron.frac: 0.78/
+  // 0.88/0.91 según variante, ver sma_reversion.js) en vez de sumar el peso
+  // completo con cualquier confirmación — García y Vela 9 siguen en 1.0 (binarias).
   const w2 = weights.patron_confirmacion ?? 25;
   totalWeight += w2;
   const patron = indicators.patronReversion || {};
+  const patronFrac = patron.ok ? (patron.frac ?? 1) : 0;
   checks.push({
     id:      'patron_confirmacion',
     label:   'Patrón de Confirmación (García/Tiburón/9)',
     weight:  w2,
     ok:      !!patron.ok,
-    value:   patron.pattern || '—',
+    value:   patron.pattern ? `${patron.pattern} (${(patronFrac*100).toFixed(0)}%)` : '—',
     reason:  patron.reason || 'Sin datos de patrón',
   });
-  if (patron.ok) score += w2;
+  score += w2 * patronFrac;
 
   // 3. RSI sobrecompra/sobreventa — agotamiento
   const w3 = weights.rsi ?? 15;
@@ -448,7 +459,10 @@ function calcReversionScore(indicators, config) {
     ? Math.abs(indicators.spxPrice - muroRelevante) : null;
   const wallProximityPts = indicators.wallProximityPts ?? 15;
   const cercaDelMuro = distanciaMuro != null && distanciaMuro <= wallProximityPts;
-  const fracRegimen = regimenPositivo ? (cercaDelMuro ? 1.0 : 0.5) : 0;
+  // Ajuste 2026-07-23 (a pedido del usuario): GEX Negativo pasa de 0 a 0.5 (piso de 5pts
+  // sobre 10) — sigue restando frente a Positivo, pero deja de ser un 0 absoluto dentro
+  // del propio check. Positivo+lejos del muro tambien sube de 0.5 a 0.8 (8pts).
+  const fracRegimen = regimenPositivo ? (cercaDelMuro ? 1.0 : 0.8) : 0.5;
   checks.push({
     id:      'regimen_gex',
     label:   'Régimen GEX + Confluencia con Muro de Gamma',
@@ -456,7 +470,7 @@ function calcReversionScore(indicators, config) {
     ok:      regimenPositivo,
     value:   `${indicators.gammaRegime || 'desconocido'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''}`,
     reason:  !regimenPositivo
-      ? `GEX ${indicators.gammaRegime || 'desconocido'} — la reversión pierde su hábitat, resta puntos pero ya no bloquea la entrada ❌`
+      ? `GEX ${indicators.gammaRegime || 'desconocido'} — la reversión pierde su hábitat, resta puntos (5/10) pero ya no bloquea la entrada ❌`
       : cercaDelMuro
         ? `Precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte (setup dorado) ✅`
         : `Sin muro de gamma cerca (${distanciaMuro != null ? distanciaMuro.toFixed(1) + 'pts' : 'sin datos'}) — confluencia parcial ⚠️`,

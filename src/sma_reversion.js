@@ -29,15 +29,66 @@ function detectVelaGarcia(sma8, sma20, direction) {
 }
 
 // ── Vela Tiburón: rango de la vela muy por encima del ATR reciente (rango >
-// 1.8x ATR), cerrando en la mitad de la vela a favor de la reversión —
-// indica capitulación/rechazo, no solo volatilidad.
-function detectVelaTiburon(bars, atrArr, direction) {
+// 1.8x ATR), con cuerpo sólido (mechas chicas) cerrando a favor de la
+// reversión — indica fuerza institucional real, no solo volatilidad.
+// Ajuste 2026-07-23 (a pedido del usuario, tras revisar el concepto ampliado
+// de Luis Sigma): antes solo exigiamos "cierre en la mitad a favor", lo que
+// dejaba pasar velas de mecha larga (rechazo) que el propio material dice que
+// INVALIDAN el patron. Ahora se exige cuerpo >= 60% del rango (mecha chica) Y
+// se gradua la confianza en 3 niveles en vez de un solo si/no:
+//   - Base (78%): cuerpo solido + rango amplio + cierre a favor.
+//   - + rompe SMA20 (88%): ademas el cierre cruza la SMA20 a favor de la reversion.
+//   - Martillo escondido (91%): patron alternativo -- cuerpo CHICO con mecha
+//     larga de rechazo (lo opuesto al Tiburon "elefante"), pero lejos de la
+//     SMA8 (>=1.5x ATR) -- Luis lo llama "Tiburon escondida", la probabilidad
+//     mas alta de las tres variantes.
+// Requiere `open` en las barras (agregado en buildSPXContext, server.js) para
+// medir el cuerpo real -- si falta (dato viejo/incompleto), no se puede medir
+// solidez y el patron base no dispara (fallo seguro, no se inventa un cuerpo).
+function detectVelaTiburon(bars, atrArr, sma8, sma20, direction) {
   const i = bars.length - 1;
-  if (atrArr[i] == null || !atrArr[i]) return false;
-  const range = bars[i].high - bars[i].low;
-  if (range <= atrArr[i] * 1.8) return false;
-  const mid = (bars[i].high + bars[i].low) / 2;
-  return direction === 'BULLISH' ? bars[i].close > mid : bars[i].close < mid;
+  const atr = atrArr[i];
+  if (!atr) return { ok: false };
+  const bar = bars[i];
+  const range = bar.high - bar.low;
+  if (range <= 0) return { ok: false };
+  const mid = (bar.high + bar.low) / 2;
+  const cierreAFavor = direction === 'BULLISH' ? bar.close > mid : bar.close < mid;
+  if (!cierreAFavor) return { ok: false };
+
+  const tieneOpen = bar.open != null;
+  const body = tieneOpen ? Math.abs(bar.close - bar.open) : null;
+  const bodyRatio = body != null ? body / range : null;
+  const upperWick = tieneOpen ? bar.high - Math.max(bar.open, bar.close) : null;
+  const lowerWick = tieneOpen ? Math.min(bar.open, bar.close) - bar.low : null;
+
+  // Variante 1: Tiburon "elefante" -- rango amplio + cuerpo solido
+  const rangoAmplio = range > atr * 1.8;
+  const cuerpoSolido = bodyRatio != null && bodyRatio >= 0.6;
+  if (rangoAmplio && cuerpoSolido) {
+    const sma20Actual = sma20[i];
+    const rompeSMA20 = sma20Actual != null &&
+      (direction === 'BULLISH' ? bar.close > sma20Actual : bar.close < sma20Actual);
+    return rompeSMA20
+      ? { ok: true, pattern: 'VELA_TIBURON_SMA20', frac: 0.88, reason: 'Vela Tiburón — rango amplio, cuerpo sólido y rompe SMA20 a favor (88%) ✅' }
+      : { ok: true, pattern: 'VELA_TIBURON', frac: 0.78, reason: 'Vela Tiburón — rango amplio con cuerpo sólido, rechazo a favor de la reversión (78%) ✅' };
+  }
+
+  // Variante 2: "Tiburon escondida" -- martillo (cuerpo chico, mecha larga de
+  // rechazo) lejos de la SMA8. Forma opuesta al elefante, mismo espiritu:
+  // rechazo fuerte, pero se detecta por la mecha en vez del cuerpo.
+  if (tieneOpen && sma8[i] != null && bodyRatio != null && bodyRatio <= 0.3) {
+    const wickFavor = direction === 'BULLISH'
+      ? (lowerWick > body * 2 && lowerWick > upperWick)
+      : (upperWick > body * 2 && upperWick > lowerWick);
+    const distSMA8 = Math.abs(bar.close - sma8[i]);
+    const lejosSMA8 = distSMA8 > atr * 1.5;
+    if (wickFavor && lejosSMA8) {
+      return { ok: true, pattern: 'VELA_TIBURON_MARTILLO', frac: 0.91, reason: 'Martillo alejado de la SMA8 — "Tiburón escondida" (91%) ✅' };
+    }
+  }
+
+  return { ok: false };
 }
 
 // ── Vela 9 Secuencial: version simplificada del conteo TD Sequential — 9
@@ -55,9 +106,14 @@ function detectVela9(bars, direction) {
   return true;
 }
 
-// bars: [{high, low, close}, ...] cronologico, 2m, idealmente >=35 barras
+// bars: [{high, low, close, open}, ...] cronologico, 2m, idealmente >=35 barras.
+// `frac` en el resultado (2026-07-23): antes patron_confirmacion era puro si/no;
+// ahora Vela Tiburon viene graduada en 3 niveles de confianza (78/88/91%, segun
+// el material de Luis Sigma) y ese `frac` se usa en calcReversionScore para
+// pesar el check en vez de sumar el 100% del peso siempre que pase. Garcia y
+// Vela 9 se mantienen binarias (frac 1.0) -- el usuario no pidio graduarlas.
 function evaluateReversionPattern(bars, direction) {
-  if (!bars || bars.length < 25) return { ok: false, pattern: null, reason: 'Historial insuficiente para detectar patrón' };
+  if (!bars || bars.length < 25) return { ok: false, pattern: null, frac: 0, reason: 'Historial insuficiente para detectar patrón' };
 
   const closes = bars.map(b => b.close);
   const sma8  = calcSMAArray(closes, 8);
@@ -65,15 +121,14 @@ function evaluateReversionPattern(bars, direction) {
   const atr   = calcATR(bars, 14);
 
   if (detectVelaGarcia(sma8, sma20, direction)) {
-    return { ok: true, pattern: 'VELA_GARCIA', reason: 'Vela García — SMA8 aplanándose y enganchando hacia SMA20 ✅' };
+    return { ok: true, pattern: 'VELA_GARCIA', frac: 1.0, reason: 'Vela García — SMA8 aplanándose y enganchando hacia SMA20 ✅' };
   }
-  if (detectVelaTiburon(bars, atr, direction)) {
-    return { ok: true, pattern: 'VELA_TIBURON', reason: 'Vela Tiburón — rango amplio con rechazo a favor de la reversión ✅' };
-  }
+  const tiburon = detectVelaTiburon(bars, atr, sma8, sma20, direction);
+  if (tiburon.ok) return tiburon;
   if (detectVela9(bars, direction)) {
-    return { ok: true, pattern: 'VELA_9', reason: 'Vela 9 Secuencial — agotamiento confirmado (9 cierres) ✅' };
+    return { ok: true, pattern: 'VELA_9', frac: 1.0, reason: 'Vela 9 Secuencial — agotamiento confirmado (9 cierres) ✅' };
   }
-  return { ok: false, pattern: null, reason: 'Ningún patrón de confirmación (García/Tiburón/9) presente ❌' };
+  return { ok: false, pattern: null, frac: 0, reason: 'Ningún patrón de confirmación (García/Tiburón/9) presente ❌' };
 }
 
 module.exports = { evaluateReversionPattern, detectVelaGarcia, detectVelaTiburon, detectVela9 };
