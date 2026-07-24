@@ -1534,14 +1534,13 @@ let wheelTradingConfig = null;
 
 async function loadWheelTrading() {
   try {
-    const [signals, cfg, executions] = await Promise.all([
+    const [signals, cfg] = await Promise.all([
       fetch('/api/wheel-trading/signals').then(r=>r.json()),
       fetch('/api/wheel-trading/config').then(r=>r.json()),
-      fetch('/api/wheel-trading/executions').then(r=>r.json()),
     ]);
     wheelTradingConfig = cfg;
     renderWheelTradingSignals(signals);
-    renderWheelTradingExecutions(executions);
+    loadWheelRichData(); // Etapa 2 — lienzo rico de La Rueda, ver renderWheelRich() más abajo
     if ($('wt-config-panel').style.display !== 'none') renderWheelTradingConfig(cfg);
   } catch(e) {
     $('wt-signals').innerHTML = `<div style="color:var(--red);font-size:12px;">Error: ${e.message}</div>`;
@@ -1562,48 +1561,8 @@ async function approveWheelSignal(id, symbol) {
   }
 }
 
-function renderWheelTradingExecutions(executions) {
-  const el = $('wt-executions');
-  if (!el) return;
-  if (!executions || !executions.length) {
-    el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:16px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:10px;">Sin ciclos abiertos todavía.</div>`;
-    return;
-  }
-  el.innerHTML = `
-    <div style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <thead>
-          <tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;">
-            <th style="padding:8px;">Ticker</th>
-            <th style="padding:8px;">Fase</th>
-            <th style="padding:8px;">Strike</th>
-            <th style="padding:8px;">Vencimiento</th>
-            <th style="padding:8px;">Estado</th>
-            <th style="padding:8px;">Crédito recibido</th>
-            <th style="padding:8px;">Fair Value</th>
-            <th style="padding:8px;">Rolls</th>
-            <th style="padding:8px;">Valor actual / P&amp;L</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${executions.map(e => `
-            <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:8px;font-weight:700;color:var(--bright);">${e.symbol}</td>
-              <td style="padding:8px;">${e.phase}${e.readyForAssignment?' 🎯':''}</td>
-              <td style="padding:8px;font-family:var(--mono);">$${e.leg?.strike} ${/C\d{8}$/.test(e.leg?.optionSymbol||'')?'Call':'Put'}</td>
-              <td style="padding:8px;font-family:var(--mono);">${e.leg?.expiry}</td>
-              <td style="padding:8px;color:${e.status==='filled'?'var(--green)':'var(--muted)'};">${e.status}</td>
-              <td style="padding:8px;font-family:var(--mono);">${e.creditReceived!=null?'$'+e.creditReceived:'—'}</td>
-              <td style="padding:8px;font-family:var(--mono);">${e.fairValue!=null?'$'+e.fairValue:'—'}</td>
-              <td style="padding:8px;">${e.rollCount||0}</td>
-              <td style="padding:8px;font-family:var(--mono);${e.livePnl!=null?(e.livePnl>=0?'color:var(--green);':'color:var(--red);'):''}">${e.livePnl!=null?'~$'+e.livePnl:(e.status==='filled'?'—':'n/a')}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
+// renderWheelTradingExecutions() (tabla simple) reemplazada en la Etapa 2 por
+// renderWheelRich()/loadWheelRichData() — ver más abajo, sección LA RUEDA (TRADIER).
 
 async function scanWheelTrading() {
   const btn = $('wt-scan-btn');
@@ -1776,6 +1735,488 @@ async function saveWheelTradingConfig() {
     });
     alert('✅ Configuración guardada');
   } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ══════════════════════════════════════════
+//  LA RUEDA (Tradier) — lienzo rico portado de loadWheel() (index.html,
+//  Bitacora Tasty), Etapa 2 del roadmap. Misma logica de render tal cual
+//  (tabla/cards/rendimiento/semanal) sobre wheels[] ya adaptado por
+//  /api/wheel-tradier (ver src/wheel_tradier_adapter.js) — a diferencia de
+//  Tasty, NO incluye "+Agregar Rueda" / fecha de inicio / quitar activo,
+//  porque esos tres controles editan wheel_config.json (la Rueda pasiva de
+//  Tasty) y no tienen sentido ni serian seguros de dejar conectados aca —
+//  los ciclos de esta Rueda los abre/cierra el propio sistema automatico.
+// ══════════════════════════════════════════
+let wheelTradierView = 'tabla';
+let _wtWheelsCache = [];
+let _wtPriceMapCache = {};
+
+function renderWheelRich(wheels, priceMap) {
+  _wtWheelsCache = wheels;
+  _wtPriceMapCache = priceMap;
+  const el = $('wt-executions');
+  if (!el) return;
+  if (!wheels.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:10px;">Sin ciclos todavía.</div>';
+    return;
+  }
+
+  const phaseLabel = { CSP_ACTIVA:'🔵 CSP Activa', CC_ACTIVA:'🟢 Covered Call', ACCIONES:'🟡 Acciones', IDLE:'⚪ Sin actividad' };
+  const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
+  const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
+  const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
+
+  // ── VISTA TABLA ──────────────────────────────────────────────
+  const tablaHtml = (() => {
+    const header = `<div class="wheel-table-header">
+      <div>ACTIVO</div><div>FASE</div><div>POSICIÓN</div><div>DTE</div>
+      <div>PRIMA</div><div>COSTO BASE</div><div>MARGEN</div><div>% REDUCIDO</div><div></div>
+    </div>`;
+
+    const rows = wheels.map(w => {
+      const mkt = priceMap[w.underlying] || { price:0, chg:0, chgPct:0 };
+      const currentPrice = mkt.price || 0;
+      const costBase = w.costBasis !== null ? w.costBasis : null;
+      const priceDiff = (costBase !== null && currentPrice > 0) ? currentPrice - costBase : null;
+      const priceDiffPct = (costBase !== null && costBase > 0 && currentPrice > 0) ? (currentPrice - costBase) / costBase * 100 : null;
+      const reductionPct = w.avgCost > 0 && costBase !== null ? Math.max(0, Math.min(100,(w.avgCost - costBase)/w.avgCost*100)) : 0;
+      const diffCls = priceDiff !== null ? (priceDiff >= 0 ? 'pos' : 'neg') : '';
+
+      const activeOpt = w.activePut || w.activeCall;
+      let dte = '—';
+      if (activeOpt?.expiry) {
+        const d = Math.round((new Date(activeOpt.expiry) - new Date()) / 86400000);
+        dte = d >= 0 ? d+'d' : '—';
+      }
+
+      const ctrLabel = (n) => n > 1 ? ` · ${n} ctr` : '';
+      const openInfo = w.activePut  ? `$${w.activePut.strike.toFixed(2)} Put · ${w.activePut.expiry.slice(5)}${ctrLabel(w.contractsPut)}`
+                     : w.activeCall ? `$${w.activeCall.strike.toFixed(2)} Call · ${w.activeCall.expiry.slice(5)}${ctrLabel(w.contractsCall)}`
+                     : w.shares > 0 ? `${w.shares} acciones` : '—';
+
+      const timelineHtml = `<table class="wheel-timeline" style="width:100%;">
+        <thead><tr>
+          <th class="wheel-event-th" style="text-align:left;">FECHA</th>
+          <th class="wheel-event-th" style="text-align:left;">TIPO</th>
+          <th class="wheel-event-th" style="text-align:left;">DESCRIPCIÓN</th>
+          <th class="wheel-event-th" style="text-align:right;">VALOR</th>
+        </tr></thead>
+        <tbody>${w.events.map(e => {
+        const isRoll = e.type === 'ROLL';
+        const tipo = evIcon[e.type]||'•';
+        const desc = isRoll ? `Roll $${e.fromStrike}→$${e.toStrike} · ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
+          : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
+          : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+          : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+          : `${evLabel[e.type]||e.type}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
+        const amt = e.amount||0;
+        const amtCls = amt>=0?'pos':'neg';
+        const amtStr = (amt>=0?'+$':'-$')+Math.abs(amt).toFixed(2);
+        return `<tr class="wheel-event-tr">
+          <td style="color:var(--muted);">${e.date}</td>
+          <td>${tipo} ${evLabel[e.type]||e.type}</td>
+          <td style="color:var(--muted2);">${desc}</td>
+          <td style="text-align:right;" class="${amtCls}">${amtStr}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+
+      const id = 'wtr-'+w.underlying;
+      return `<div class="wheel-row" id="${id}">
+        <div class="wheel-row-main">
+          <span class="wheel-row-sym" onclick="toggleWheelRow('${id}')" style="cursor:pointer;" title="Ver detalle">${w.underlying}</span>
+          <div><span class="wheel-phase ${phaseCls[w.phase]||'phase-idle'}" style="font-size:9px;padding:2px 8px;">${phaseLabel[w.phase]||w.phase}</span></div>
+          <div class="wheel-row-cell">${openInfo}</div>
+          <div class="wheel-row-cell">${dte}</div>
+          <div class="wheel-row-cell pos">+$${w.totalPremium.toFixed(2)}</div>
+          <div class="wheel-row-cell">${costBase !== null ? '$'+costBase.toFixed(2) : '—'}${w.isProjected?' <span style="color:var(--gold);font-size:9px;">P</span>':''}</div>
+          <div class="wheel-row-cell ${diffCls}">${priceDiff !== null ? (priceDiff>=0?'+':'')+priceDiff.toFixed(2)+' ('+( priceDiffPct>=0?'+':'')+priceDiffPct.toFixed(1)+'%)' : '—'}</div>
+          <div class="wheel-row-cell pos">${reductionPct.toFixed(1)}%</div>
+          <div style="display:flex;align-items:center;justify-content:flex-end;">
+            <span class="wheel-row-chevron" id="chv-${id}">▶</span>
+          </div>
+        </div>
+        <div class="wheel-row-detail" id="det-${id}">
+          ${timelineHtml||'<div class="dim" style="font-size:11px;padding:12px;">Sin actividad</div>'}
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;">${header}${rows}</div>`;
+  })();
+
+  // ── VISTA CARDS ──────────────────────────────────────────────
+  const cardsHtml = wheels.map(w => {
+    const origCost = w.avgCost || 0;
+    const adjCost  = w.costBasis !== null ? w.costBasis : origCost;
+    const reductionPct = origCost > 0 ? Math.max(0, Math.min(100,(origCost-adjCost)/origCost*100)) : 0;
+    const ctrLabel = (n) => n > 1 ? ` · ${n} ctr` : ``;
+    const openInfo = w.activePut  ? `Strike $${w.activePut.strike.toFixed(2)} · ${w.activePut.expiry.slice(5)}${ctrLabel(w.contractsPut)}`
+                   : w.activeCall ? `Call $${w.activeCall.strike.toFixed(2)} · ${w.activeCall.expiry.slice(5)}${ctrLabel(w.contractsCall)}`
+                   : w.shares > 0 ? `${w.shares} acciones` : '—';
+
+    const mkt = priceMap[w.underlying] || { price:0, chg:0, chgPct:0 };
+    const currentPrice = mkt.price || 0;
+    const costBase = w.costBasis !== null ? w.costBasis : null;
+    const priceDiff = (costBase !== null && currentPrice > 0) ? currentPrice - costBase : null;
+    const priceDiffPct = (costBase !== null && costBase > 0 && currentPrice > 0) ? (currentPrice - costBase) / costBase * 100 : null;
+    const chgSign = mkt.chg >= 0 ? '+' : '';
+    const priceChgCls = mkt.chg >= 0 ? 'pos' : 'neg';
+    const diffCls = priceDiff !== null ? (priceDiff >= 0 ? 'pos' : 'neg') : '';
+
+    const pricePanelHtml = currentPrice > 0 ? `
+      <div class="wheel-price-panel">
+        <div class="wheel-price-col">
+          <div class="wheel-price-label">Precio Actual</div>
+          <div class="wheel-price-main">$${currentPrice.toFixed(2)}</div>
+          <div class="wheel-price-sub ${priceChgCls}">${chgSign}$${Math.abs(mkt.chg).toFixed(2)} (${chgSign}${mkt.chgPct?.toFixed(2)}%)</div>
+        </div>
+        <div class="wheel-price-divider"></div>
+        <div class="wheel-price-col">
+          <div class="wheel-price-label">Costo Base${w.isProjected?' <span style="color:var(--gold);font-size:9px;">PROY.</span>':''}</div>
+          <div class="wheel-price-main">${costBase !== null ? '$'+costBase.toFixed(2) : '—'}</div>
+          <div class="wheel-price-sub dim">Prima cobrada: +$${w.totalPremium.toFixed(2)}</div>
+        </div>
+        <div class="wheel-price-divider"></div>
+        <div class="wheel-price-col">
+          <div class="wheel-price-label">Margen vs Costo</div>
+          <div class="wheel-price-main ${diffCls}">${priceDiff !== null ? (priceDiff>=0?'+':'')+priceDiff.toFixed(2) : '—'}</div>
+          <div class="wheel-price-sub ${diffCls}">${priceDiffPct !== null ? (priceDiffPct>=0?'+':'')+priceDiffPct.toFixed(1)+'%' : ''}</div>
+        </div>
+      </div>` : '';
+
+    const timelineHtml = w.events.map(e => {
+      const isRoll = e.type === 'ROLL';
+      const desc   = isRoll ? `Roll: $${e.fromStrike}→$${e.toStrike} | ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
+        : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
+        : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+        : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+        : `${evLabel[e.type]||e.type}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
+      const amt = e.amount||0;
+      return `<div class="wheel-event">
+        <div class="wheel-event-icon">${evIcon[e.type]||'•'}</div>
+        <div class="wheel-event-body">
+          <div class="wheel-event-date">${e.date}</div>
+          <div class="wheel-event-desc">${desc}</div>
+        </div>
+        <div class="wheel-event-amount ${amt>=0?'pos':'neg'}">${amt>=0?'+$':'-$'}${Math.abs(amt).toFixed(2)}</div>
+      </div>`;
+    }).join('');
+
+    return `<div class="wheel-card">
+      <div class="wheel-card-header">
+        <div class="wheel-und">${w.underlying}</div>
+        <div class="wheel-phase ${phaseCls[w.phase]||'phase-idle'}">${phaseLabel[w.phase]||w.phase}</div>
+      </div>
+      ${pricePanelHtml}
+      <div class="wheel-stats">
+        <div class="wheel-stat">
+          <div class="wheel-stat-label">Prima Cobrada</div>
+          <div class="wheel-stat-val pos">+$${w.totalPremium.toFixed(2)}</div>
+        </div>
+        <div class="wheel-stat">
+          <div class="wheel-stat-label">% Base Reducido</div>
+          <div class="wheel-stat-val pos">${reductionPct.toFixed(1)}%</div>
+        </div>
+        <div class="wheel-stat">
+          <div class="wheel-stat-label">Contratos</div>
+          <div class="wheel-stat-val">${w.contracts > 0 ? w.contracts+' ctr' : '—'}</div>
+        </div>
+        <div class="wheel-stat">
+          <div class="wheel-stat-label">Acciones</div>
+          <div class="wheel-stat-val dim">${w.shares > 0 ? w.shares+' acc' : (w.contracts > 0 ? (w.contracts*100)+' proy.' : '—')}</div>
+        </div>
+        <div class="wheel-stat" style="grid-column:span 2;">
+          <div class="wheel-stat-label">Posición Actual</div>
+          <div class="wheel-stat-val" style="font-size:12px;">${openInfo}</div>
+        </div>
+      </div>
+      ${reductionPct>0?`<div class="wheel-basis-bar">
+        <div class="wheel-basis-label">Progreso reducción costo base</div>
+        <div class="wheel-basis-track"><div class="wheel-basis-fill" style="width:${reductionPct.toFixed(1)}%"></div></div>
+      </div>`:''}
+      <div class="wheel-timeline">${timelineHtml||'<div class="dim" style="padding:8px;font-size:11px;">Sin actividad registrada</div>'}</div>
+    </div>`;
+  }).join('');
+
+  // ── VISTA RENDIMIENTO ────────────────────────────────────────
+  const META_MENSUAL_PCT = 5;
+  const totalPortValue = wheels.reduce((s, w) => {
+    const mkt = priceMap[w.underlying] || {};
+    const shares = w.shares > 0 ? w.shares : w.contracts * 100;
+    return s + (mkt.price || 0) * shares;
+  }, 0);
+
+  const rendHtml = (() => {
+    const todayD    = new Date();
+    const mesActual = todayD.toISOString().slice(0, 7);
+
+    const rows = wheels.map(w => {
+      const mkt          = priceMap[w.underlying] || {};
+      const currentPrice = mkt.price || 0;
+      const shares       = w.shares > 0 ? w.shares : w.contracts * 100;
+      const posValue     = currentPrice * shares;
+      const marginReal = w.marginRequired > 0
+        ? w.marginRequired
+        : w.costBasis > 0 ? w.costBasis * shares * 0.45 : 0;
+
+      const premTypes  = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
+      const premEvents = w.events.filter(e => premTypes.has(e.type));
+      const firstDate  = premEvents.length > 0 ? new Date(premEvents[0].date) : null;
+
+      const mesesRaw   = firstDate ? (todayD - firstDate) / (1000*60*60*24*30.44) : 1;
+      const meses      = Math.max(1, mesesRaw);
+
+      const primaMesActual = w.events
+        .filter(e => premTypes.has(e.type) && (e.date||'').startsWith(mesActual))
+        .reduce((s, e) => s + (e.amount || 0), 0);
+
+      const metaMes   = marginReal * META_MENSUAL_PCT / 100;
+      const metaPct   = metaMes > 0 ? Math.min(200, (primaMesActual / metaMes) * 100) : 0;
+      const metaCls   = metaPct >= 100 ? 'meta-ok' : metaPct >= 60 ? 'meta-warn' : 'meta-low';
+      const metaBarW  = Math.min(100, metaPct).toFixed(1);
+      const metaBarClr= metaPct >= 100 ? 'var(--green)' : metaPct >= 60 ? 'var(--gold)' : '#e05c5c';
+
+      const rentAcum  = marginReal > 0 ? (w.totalPremium / marginReal) * 100 : 0;
+      const rentMes   = meses > 0 ? rentAcum / meses : 0;
+      const tieneHistoria = mesesRaw >= 1;
+      const rentAnual = tieneHistoria ? (Math.pow(1 + rentMes/100, 12) - 1) * 100 : null;
+      const particip  = totalPortValue > 0 ? (posValue / totalPortValue) * 100 : 0;
+
+      const phaseMap = { CSP_ACTIVA:'CSP', CC_ACTIVA:'Cov. Call', ACCIONES:'Acciones', IDLE:'Idle' };
+      const phaseCss = { CSP_ACTIVA:'#5b82e6', CC_ACTIVA:'var(--green)', ACCIONES:'var(--gold)', IDLE:'var(--muted)' };
+      const estrategia = phaseMap[w.phase] || 'La Rueda';
+
+      return { w, marginReal, rentAcum, rentMes, rentAnual, particip, meses, mesesRaw,
+               currentPrice, shares, posValue, estrategia, phaseCss,
+               primaMesActual, metaMes, metaPct, metaCls, metaBarW, metaBarClr };
+    });
+
+    const totalMargin      = rows.reduce((s,r) => s + r.marginReal, 0);
+    const totalPrem        = rows.reduce((s,r) => s + r.w.totalPremium, 0);
+    const totalMeta        = rows.reduce((s,r) => s + r.metaMes, 0);
+    const totalPrimaMes    = rows.reduce((s,r) => s + r.primaMesActual, 0);
+    const metaTotalPct     = totalMeta > 0 ? Math.min(200, totalPrimaMes/totalMeta*100) : 0;
+    const metaTotalCls     = metaTotalPct>=100?'meta-ok':metaTotalPct>=60?'meta-warn':'meta-low';
+    const avgRentMes       = totalMargin > 0 ? (totalPrem / totalMargin) * 100 / Math.max(1, rows.reduce((s,r)=>s+r.meses,0)/rows.length) : 0;
+
+    const tRows = rows.map(r => {
+      const anualStr = r.rentAnual !== null
+        ? `<span class="${r.rentAnual>=60?'meta-warn':''}">${r.rentAnual.toFixed(1)}%</span>`
+        : `<span class="dim" title="< 1 mes de historia">—</span>`;
+      const metaCell = `
+        <div style="font-size:11px;" class="${r.metaCls}">
+          $${r.primaMesActual.toFixed(0)} / $${r.metaMes.toFixed(0)}
+          <span style="float:right;">${r.metaPct.toFixed(0)}%</span>
+        </div>
+        <div class="meta-bar-track">
+          <div class="meta-bar-fill" style="width:${r.metaBarW}%;background:${r.metaBarClr};"></div>
+        </div>`;
+      return `
+      <tr>
+        <td class="td-sym">${r.w.underlying}</td>
+        <td class="td-phase" style="color:${r.phaseCss[r.w.phase]||'var(--muted)'};">${r.estrategia}</td>
+        <td>${r.marginReal > 0 ? '$'+r.marginReal.toFixed(0) : '<span class="dim">—</span>'}</td>
+        <td class="pos">+$${r.w.totalPremium.toFixed(2)}</td>
+        <td class="pos">${r.rentAcum.toFixed(1)}%</td>
+        <td class="pos">${r.rentMes.toFixed(2)}%/m</td>
+        <td>${anualStr}</td>
+        <td style="min-width:140px;">${metaCell}</td>
+        <td class="dim">${r.mesesRaw >= 1 ? r.meses.toFixed(1)+' m' : '<1m'}</td>
+      </tr>`;
+    }).join('');
+
+    const metaTotalCell = `
+      <div style="font-size:11px;" class="${metaTotalCls}">
+        $${totalPrimaMes.toFixed(0)} / $${totalMeta.toFixed(0)}
+        <span style="float:right;">${metaTotalPct.toFixed(0)}%</span>
+      </div>
+      <div class="meta-bar-track">
+        <div class="meta-bar-fill" style="width:${Math.min(100,metaTotalPct).toFixed(1)}%;background:${metaTotalPct>=100?'var(--green)':metaTotalPct>=60?'var(--gold)':'#e05c5c'};"></div>
+      </div>`;
+
+    return `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+        <div style="font-size:12px;color:var(--muted);">Meta mensual: <strong style="color:var(--bright);">${META_MENSUAL_PCT}% sobre margen invertido</strong></div>
+        <div style="font-size:11px;padding:4px 12px;border-radius:12px;border:1px solid var(--border2);color:var(--muted);">
+          Meta total mes: <strong class="${metaTotalCls}">$${totalMeta.toFixed(0)}</strong>
+          · Cobrado: <strong class="${metaTotalCls}">$${totalPrimaMes.toFixed(0)}</strong>
+          · <strong class="${metaTotalCls}">${metaTotalPct.toFixed(0)}%</strong>
+        </div>
+      </div>
+      <div class="wheel-table-wrap">
+        <table class="wheel-tbl">
+          <thead>
+            <tr>
+              <th>Ticker</th><th>Estrategia</th><th>Margen Inv.</th><th>Prima Total</th>
+              <th>Rent. Acum</th><th>Prom/Mes</th><th>Tasa Anual</th><th>Meta 5%/m · Mes Actual</th><th>Tiempo</th>
+            </tr>
+          </thead>
+          <tbody>${tRows}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="2">TOTAL</td>
+              <td>$${totalMargin.toFixed(0)}</td>
+              <td class="pos">+$${totalPrem.toFixed(2)}</td>
+              <td class="pos">${(totalMargin>0?(totalPrem/totalMargin*100):0).toFixed(1)}%</td>
+              <td class="pos">${avgRentMes.toFixed(2)}%/m</td>
+              <td>—</td>
+              <td>${metaTotalCell}</td>
+              <td>—</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:-8px;margin-bottom:16px;">
+        ⚠️ Margen Inv. = costBasis × acciones × 45% (no hay dato real de margin de Tradier todavía).
+        Tasa Anual se oculta si hay menos de 1 mes de historia.
+      </div>`;
+  })();
+
+  // ── VISTA SEMANAL DE PRIMAS ──────────────────────────────────
+  const semanalHtml = (() => {
+    function mondayOf(dateStr) {
+      const d = new Date(dateStr + 'T12:00:00Z');
+      const dow = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() - dow + 1);
+      return d.toISOString().slice(0,10);
+    }
+    const today = new Date().toISOString().slice(0,10);
+    const tickerMap = {};
+    const allWeeksSet = new Set();
+    const allTickers = wheels.map(w => w.underlying);
+
+    for (const w of wheels) {
+      if (!tickerMap[w.underlying]) tickerMap[w.underlying] = {};
+      const stoIndex = new Map();
+      for (const ev of w.events) {
+        if ((ev.type === 'STO_PUT' || ev.type === 'STO_CALL') && ev.strike != null && ev.expiry) {
+          stoIndex.set(`${ev.strike}|${ev.expiry}`, { amount: ev.amount || 0, date: ev.date, used: false });
+        }
+      }
+      const addAmt = (date, amt) => {
+        const wk = mondayOf(date);
+        allWeeksSet.add(wk);
+        tickerMap[w.underlying][wk] = (tickerMap[w.underlying][wk] || 0) + amt;
+      };
+      for (const ev of w.events) {
+        if (ev.type === 'ROLL') {
+          addAmt(ev.date, ev.amount || 0);
+        } else if (ev.type === 'BTC_PUT' || ev.type === 'BTC_CALL') {
+          const key = `${ev.strike}|${ev.expiry}`;
+          const sto = stoIndex.get(key);
+          if (sto) { sto.used = true; addAmt(ev.date, sto.amount + (ev.amount || 0)); }
+          else { addAmt(ev.date, ev.amount || 0); }
+        }
+      }
+      for (const [key, sto] of stoIndex) {
+        if (!sto.used) {
+          const expiry = key.split('|')[1];
+          if (expiry && expiry < today) addAmt(expiry, sto.amount);
+        }
+      }
+    }
+
+    const allWeeks = [...allWeeksSet].sort().reverse();
+    if (!allWeeks.length) return '<div class="dim" style="padding:40px;text-align:center;">Sin datos de primas semanales.</div>';
+
+    const thWeeks = allWeeks.map(wk => {
+      const fri = new Date(wk + 'T12:00:00Z');
+      fri.setUTCDate(fri.getUTCDate() + 4);
+      return `<th style="font-size:9px;">${wk.slice(5)}<br><span style="color:var(--muted);font-weight:400;">→${fri.toISOString().slice(5,10)}</span></th>`;
+    }).join('');
+
+    const tRows = allTickers.map(t => {
+      const weekCells = allWeeks.map(wk => {
+        const v = tickerMap[t]?.[wk] || 0;
+        if (v === 0) return '<td class="dim">—</td>';
+        return `<td class="${v>=0?'pos':'neg'}">${v>=0?'+$':'-$'}${Math.abs(v).toFixed(2)}</td>`;
+      }).join('');
+      const tickerTotal = allWeeks.reduce((s,wk) => s + (tickerMap[t]?.[wk]||0), 0);
+      const wksWithData = allWeeks.filter(wk => tickerMap[t]?.[wk]).length || 1;
+      const avg = tickerTotal / wksWithData;
+      return `<tr>
+        <td class="td-sym">${t}</td>
+        ${weekCells}
+        <td class="pos" style="font-weight:700;">+$${tickerTotal.toFixed(2)}</td>
+        <td class="dim">$${avg.toFixed(2)}</td>
+      </tr>`;
+    }).join('');
+
+    const totWeekCells = allWeeks.map(wk => {
+      const tot = allTickers.reduce((s,t) => s + (tickerMap[t]?.[wk]||0), 0);
+      return `<td class="${tot>=0?'pos':'neg'}" style="font-weight:700;">${tot>=0?'+$':'-$'}${Math.abs(tot).toFixed(2)}</td>`;
+    }).join('');
+    const grandTotal = wheels.reduce((s,w)=>s+w.totalPremium,0);
+    const avgTotal   = allWeeks.length ? grandTotal/allWeeks.length : 0;
+
+    return `
+      <div class="wheel-table-wrap">
+        <table class="wheel-tbl">
+          <thead><tr><th>Ticker</th>${thWeeks}<th>TOTAL</th><th>Prom/sem</th></tr></thead>
+          <tbody>${tRows}</tbody>
+          <tfoot>
+            <tr style="background:rgba(19,214,143,.05);">
+              <td style="font-weight:700;color:var(--bright);">TOTAL</td>
+              ${totWeekCells}
+              <td class="pos" style="font-weight:700;">+$${grandTotal.toFixed(2)}</td>
+              <td class="dim">$${avgTotal.toFixed(2)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+  })();
+
+  const totalPrem = wheels.reduce((s,w)=>s+w.totalPremium,0);
+  const wv = wheelTradierView;
+  const contentHtml = wv === 'rendimiento' ? rendHtml
+                    : wv === 'semanal'     ? semanalHtml
+                    : wv === 'cards'       ? `<div class="wheel-grid">${cardsHtml||'<div class="dim" style="padding:40px;">Sin ciclos.</div>'}</div>`
+                    : tablaHtml;
+
+  el.innerHTML = `
+    <div style="margin-bottom:16px;">
+      <div class="kpi-row cols-3">
+        ${kpiCard('Ciclos', wheels.filter(w=>w.phase!=='IDLE').length, 'subyacentes en curso','dim')}
+        ${kpiCard('Prima Total Cobrada', fa$(totalPrem), 'todos los ciclos','pos')}
+        ${kpiCard('Estrategia', 'The Wheel (Tradier)', 'CSP → Asignado → CC','dim')}
+      </div>
+    </div>
+    <div class="wheel-view-toggle" style="margin-bottom:16px;">
+      <button class="wheel-view-btn ${wv==='tabla'?'active':''}" onclick="wheelTradierView='tabla';renderWheelRich(_wtWheelsCache,_wtPriceMapCache)">📋 Tabla</button>
+      <button class="wheel-view-btn ${wv==='cards'?'active':''}" onclick="wheelTradierView='cards';renderWheelRich(_wtWheelsCache,_wtPriceMapCache)">🃏 Cards</button>
+      <button class="wheel-view-btn ${wv==='rendimiento'?'active':''}" onclick="wheelTradierView='rendimiento';renderWheelRich(_wtWheelsCache,_wtPriceMapCache)">📈 Rendimiento</button>
+      <button class="wheel-view-btn ${wv==='semanal'?'active':''}" onclick="wheelTradierView='semanal';renderWheelRich(_wtWheelsCache,_wtPriceMapCache)">📅 Primas/Semana</button>
+    </div>
+    ${contentHtml}
+  `;
+}
+
+async function loadWheelRichData() {
+  try {
+    const data = await api('/api/wheel-tradier');
+    const wheels = data.wheels || [];
+    const underlyings = data.underlyings || [];
+    const priceMap = {};
+    await Promise.all(underlyings.map(async sym => {
+      try {
+        const md = await api(`/api/market-data/${sym}`);
+        priceMap[sym] = { price: md.price || 0, chg: md.chg || 0, chgPct: md.chgPct || 0, rsi: md.rsi };
+      } catch(e) { priceMap[sym] = { price: 0, chg: 0, chgPct: 0 }; }
+    }));
+    renderWheelRich(wheels, priceMap);
+  } catch(e) {
+    const el = $('wt-executions');
+    if (el) el.innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
+  }
+}
+
+function toggleWheelRow(id) {
+  const det = document.getElementById("det-"+id);
+  const chv = document.getElementById("chv-"+id);
+  if (!det) return;
+  const isOpen = det.classList.contains("open");
+  det.classList.toggle("open");
+  if (chv) chv.textContent = isOpen ? "▶" : "▼";
 }
 
 // ══ PLAYBOOK ALEJANDRO ══════════════════════════════════════

@@ -6274,6 +6274,18 @@ app.get('/api/extrinsic-report', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Bitacora Tradier — Etapa 2: mismo shape que /api/wheel (buildWheelData de
+// Tasty) pero proyectado desde wheel_trading_executions.json en vez del
+// historial de transacciones de TastyTrade. Adaptador de un solo sentido,
+// no toca wheel.js ni /api/wheel — ver src/wheel_tradier_adapter.js.
+app.get('/api/wheel-tradier', (req, res) => {
+  try {
+    const { buildWheelDataFromTradier } = require('./src/wheel_tradier_adapter');
+    const executions = loadWheelTradingExecutions();
+    const wheels = buildWheelDataFromTradier(executions);
+    res.json({ wheels, underlyings: wheels.map(w => w.underlying), ts: new Date().toISOString() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
