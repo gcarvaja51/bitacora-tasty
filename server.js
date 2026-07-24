@@ -6348,6 +6348,70 @@ app.get('/api/transactions-tradier', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Bitacora Tradier — Etapa 5 (Posiciones): agrupa posiciones reales de
+// Tradier por (subyacente, vencimiento) igual que groupPositions() ya hace
+// para TastyTrade, pero via src/positions_tradier_adapter.js (esquema
+// crudo distinto). Sin Greeks (ver limitacion documentada en el adaptador).
+app.get('/api/positions-tradier', async (req, res) => {
+  try {
+    const data = await cached('positions-tradier', 30, async () => {
+      const { groupPositionsTradier } = require('./src/positions_tradier_adapter');
+      const positions = await tradier.getPositions();
+      const symbols = positions.map(p => p.symbol).filter(Boolean);
+      const quotes = symbols.length ? await tradier.getQuotes(symbols) : [];
+      const quotesMap = {};
+      quotes.forEach(q => { quotesMap[q.symbol] = q; });
+      const groups = groupPositionsTradier(positions, quotesMap);
+
+      // Precio del subyacente por grupo — mismo endpoint generico (Yahoo,
+      // broker-agnostico) que ya usa loadPositions() de Tasty.
+      const underlyings = [...new Set(groups.map(g => g.underlying))];
+      const underlyingPriceMap = {};
+      await Promise.all(underlyings.map(async sym => {
+        try {
+          const r = await fetch(`http://localhost:${process.env.PORT || 3000}/api/market-data/${sym}`);
+          const d = await r.json();
+          underlyingPriceMap[sym] = d.price || 0;
+        } catch(e) { underlyingPriceMap[sym] = 0; }
+      }));
+      groups.forEach(g => { g.underlyingPrice = underlyingPriceMap[g.underlying] || 0; });
+
+      return { groups, totalContracts: positions.length, ts: new Date().toISOString() };
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Bitacora Tradier — Etapa 5 (Dashboard): mismo shape que /api/curve pero
+// construido desde nlv_history_tradier.json (Etapa 3) en vez del historial
+// de transacciones de TastyTrade — reusa buildEquityCurve() (src/metrics.js)
+// y computeMonthlyNlv/computeWeeklyNlv (arriba, linea ~82) SIN modificarlos,
+// ya que ambos son funciones puras que solo esperan {time, close} y un
+// historial {fecha: nlv} respectivamente — nada de esto es TastyTrade-especifico.
+app.get('/api/curve-tradier', async (req, res) => {
+  try {
+    const data = await cached('curve-tradier', 300, async () => {
+      const { buildEquityCurve } = require('./src/metrics');
+      const nlvHistory = loadNlvHistoryTradier();
+      const currentNlv = await tradier.getBalances().then(b => parseFloat(b?.total_equity || 0)).catch(() => 0);
+      const nlvEntries = Object.entries(nlvHistory).sort((a, b) => a[0].localeCompare(b[0]));
+      const nlvItems = nlvEntries.map(([time, close]) => ({ time, close }));
+      // Evitar duplicar el punto de hoy si el snapshot diario ya lo guardo
+      const yaTieneHoy = nlvEntries.some(([d]) => d === todayStr());
+      if (currentNlv > 0 && !yaTieneHoy) nlvItems.push({ time: todayStr(), close: currentNlv });
+      const curve = buildEquityCurve(nlvItems);
+      const nlvByMonth = computeMonthlyNlv(nlvHistory, currentNlv);
+      const nlvByWeek  = computeWeeklyNlv(nlvHistory, currentNlv);
+      return {
+        curve, nlvByMonth, nlvByWeek,
+        nlvSnapshots: yaTieneHoy ? nlvEntries : nlvEntries.concat(currentNlv > 0 ? [[todayStr(), currentNlv]] : []),
+        ts: new Date().toISOString(),
+      };
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ── Guardado automático diario de NLV ─────────────────────────

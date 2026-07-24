@@ -962,9 +962,28 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   <div class="content">
     <!-- ══ DASHBOARD (placeholder — Etapa 5) ══ -->
     <div id="panel-dashboard" class="panel">
-      <div style="padding:60px 20px;text-align:center;color:var(--muted);">
-        <div style="font-size:32px;margin-bottom:12px;">🚧</div>
-        <div style="font-size:14px;">Próximamente — Etapa 5 del roadmap (compone Rueda + Buying Power + Historial/Reportes).</div>
+      <div class="kpi-row cols-6" id="dash-kpis">
+        <div class="loader"><div class="spinner"></div> Cargando...</div>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Curva de Capital (Tradier)</div>
+        <div class="card-body chart-wrap">
+          <canvas id="equityChartTradier" height="240"></canvas>
+        </div>
+      </div>
+      <div class="grid-2b">
+        <div class="card">
+          <div class="card-header">Posiciones Abiertas</div>
+          <div class="card-body" id="dash-positions">
+            <div class="loader"><div class="spinner"></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">Últimas Operaciones</div>
+          <div class="card-body" id="dash-recent">
+            <div class="loader"><div class="spinner"></div></div>
+          </div>
+        </div>
       </div>
     </div>
     <!-- ══ CALENDARIO ══════════════════════ -->
@@ -1001,9 +1020,35 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 
     <!-- ══ POSICIONES (placeholder — Etapa 5) ══ -->
     <div id="panel-positions" class="panel">
-      <div style="padding:60px 20px;text-align:center;color:var(--muted);">
-        <div style="font-size:32px;margin-bottom:12px;">🚧</div>
-        <div style="font-size:14px;">Próximamente — Etapa 5 del roadmap.</div>
+      <div class="kpi-row cols-3" id="pos-kpis" style="margin-bottom:16px;"></div>
+      <div class="card">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span>Posiciones Abiertas <span id="pos-count" style="color:var(--blue);"></span></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead id="pos-thead"><tr>
+              <th onclick="posSortTradier('sym')"    style="cursor:pointer;user-select:none;">Subyacente <span id="sort-sym"></span></th>
+              <th onclick="posSortTradier('tipo')"   style="cursor:pointer;user-select:none;">Tipo <span id="sort-tipo"></span></th>
+              <th onclick="posSortTradier('dir')"    style="cursor:pointer;user-select:none;">Dir. <span id="sort-dir"></span></th>
+              <th onclick="posSortTradier('strike')" style="cursor:pointer;user-select:none;">Strike <span id="sort-strike"></span></th>
+              <th onclick="posSortTradier('exp')"    style="cursor:pointer;user-select:none;">Vencimiento <span id="sort-exp"></span></th>
+              <th onclick="posSortTradier('dte')"    style="cursor:pointer;user-select:none;">DTE <span id="sort-dte"></span></th>
+              <th onclick="posSortTradier('qty')"    style="cursor:pointer;user-select:none;">Qty <span id="sort-qty"></span></th>
+              <th onclick="posSortTradier('pnl')"    style="cursor:pointer;user-select:none;">P&amp;L No Real. <span id="sort-pnl"></span></th>
+              <th onclick="posSortTradier('prem')"   style="cursor:pointer;user-select:none;">Premium Rec. <span id="sort-prem"></span></th>
+              <th onclick="posSortTradier('precio')" style="cursor:pointer;user-select:none;">Precio Subyac. <span id="sort-precio"></span></th>
+              <th onclick="posSortTradier('open')"   style="cursor:pointer;user-select:none;">Apertura <span id="sort-open"></span></th>
+              <th onclick="posSortTradier('pct')"    style="cursor:pointer;user-select:none;">% Capturado <span id="sort-pct"></span></th>
+            </tr></thead>
+            <tbody id="pos-tbody">
+              <tr><td colspan="11"><div class="loader"><div class="spinner"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:10px;">
+        Sin columnas de Delta/Theta/Extrínseco — Tradier no expone Greeks hoy (a diferencia del fallback Black-Scholes que ya tiene el cliente de TastyTrade); quedan fuera de esta etapa, no se inventa un valor.
       </div>
     </div>
     <!-- ══ HISTORIAL ═══════════════════════ -->
@@ -1421,6 +1466,9 @@ function kpiCard(label, val, sub, cls='', barVal=null, barMax=null) {
   const bar = barVal!==null ? `<div class="kpi-bar"><div class="kpi-bar-fill" style="width:${Math.min(100,barVal/barMax*100).toFixed(0)}%;background:${cls==='pos'?'var(--green)':cls==='neg'?'var(--red)':'var(--blue)'}"></div></div>` : '';
   return `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-val ${cls}">${val}</div><div class="kpi-sub">${sub}</div>${bar}</div>`;
 }
+function benchmark(v, good, bad, threshold) {
+  return parseFloat(v) >= threshold ? `<span class="pos">${good}</span>` : `<span class="neg">${bad}</span>`;
+}
 
 // ══════════════════════════════════════════
 //  API
@@ -1446,9 +1494,11 @@ const TABS = {
   calendar:    () => loadCalendarTradier(),
   history:     () => loadHistoryTradier(),
   reports:     () => loadReportsTradier(),
-  // Los tabs sin loader todavía (dashboard, positions, watchlist, ai, today)
-  // solo muestran su placeholder — no hay función que llamar hasta que se
-  // construyan en etapas futuras.
+  dashboard:   () => loadDashboardTradier(),
+  positions:   () => loadPositionsTradier(),
+  // Los tabs sin loader todavía (watchlist, ai, today) solo muestran su
+  // placeholder — no hay función que llamar hasta que se construyan en
+  // etapas futuras.
 };
 
 function nav(tab, el) {
@@ -3071,6 +3121,198 @@ function calShowTradeDetailTradier(tkey) {
 
 function calPrev(){ S.calMonth--; if(S.calMonth<0){S.calMonth=11;S.calYear--;} renderCalendarTradier(); }
 function calNext(){ S.calMonth++; if(S.calMonth>11){S.calMonth=0;S.calYear++;} renderCalendarTradier(); }
+
+// ══════════════════════════════════════════
+//  POSICIONES (Tradier) — Etapa 5. Sin Greeks/sector/OptionStrat (ver nota
+//  en el HTML del panel) — el resto (agrupación por subyacente+vencimiento,
+//  sort, KPIs) sigue el mismo patrón que loadPositions()/groupPositions()
+//  de index.html.
+// ══════════════════════════════════════════
+let _posSortTradier = { col: 'sym', asc: true };
+let _posGroupsTradier = [];
+
+function buildPosRowTradier(g) {
+  const strat = STRAT_TYPE_LABEL(g);
+  const dirBadge = g.direction === 'SHORT' ? 'badge-red' : 'badge-green';
+  const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l => l.strike))].join(' / ');
+  const absPrem = Math.abs(g.premiumNet);
+  const pct = absPrem > 0 ? (g.unrealizedPnL / absPrem * 100) : 0;
+  return `<tr>
+    <td class="td-bright" style="font-weight:700;">${g.underlying}</td>
+    <td class="dim">${strat}</td>
+    <td><span class="badge ${dirBadge}">${g.direction}</span></td>
+    <td class="td-mono dim">${strikes}</td>
+    <td class="td-mono dim">${g.expiry||'—'}</td>
+    <td>${g.dte!==null&&g.dte!==undefined?dteChip(g.dte):'—'}</td>
+    <td class="td-mono">${Math.abs(g.totalQty||0) || g.legs.length}</td>
+    <td class="td-mono ${cc(g.unrealizedPnL)}" style="font-weight:700">${f$(g.unrealizedPnL)}</td>
+    <td class="td-mono ${g.premiumNet>=0?'pos':'neg'}">${g.premiumNet>=0?fa$(g.premiumNet):'-'+fa$(Math.abs(g.premiumNet))}</td>
+    <td class="td-mono dim">${g.underlyingPrice>0?'$'+g.underlyingPrice.toFixed(2):'—'}</td>
+    <td class="td-mono dim" style="font-size:11px;">${g.openDate||'—'}</td>
+    <td>
+      <div class="pct-bar">
+        <div class="pct-track"><div class="pct-fill" style="width:${Math.min(100,Math.abs(pct)).toFixed(0)}%;background:${pct>=20?'var(--green)':pct>=0?'var(--gold)':'var(--red)'}"></div></div>
+        <span class="td-mono ${pct>=0?'pos':'neg'}" style="font-size:10px;min-width:40px;">${pct.toFixed(0)}%</span>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function STRAT_TYPE_LABEL(g) {
+  if (g.isStock) return 'Acciones';
+  const puts = g.legs.filter(l=>l.optType==='P'), calls = g.legs.filter(l=>l.optType==='C');
+  if (g.legs.length===1) return (puts.length?'Put':'Call') + (g.legs[0].isShort?' Vendida':' Comprada');
+  if (g.legs.length===2 && puts.length===2)  return 'Put Spread';
+  if (g.legs.length===2 && calls.length===2) return 'Call Spread';
+  if (g.legs.length===4) return 'Iron Condor';
+  return `Spread (${g.legs.length}p)`;
+}
+
+function annotatePosGroupTradier(g) {
+  g.stratType = STRAT_TYPE_LABEL(g);
+  if (g.isStock) { g.direction = 'LONG'; }
+  else {
+    const shortLeg = g.legs.find(l => l.isShort);
+    const shortIsCall = shortLeg && shortLeg.optType === 'C';
+    g.direction = shortLeg ? (shortIsCall ? 'SHORT' : 'LONG') : 'LONG';
+  }
+  const fl = g.legs[0];
+  if (!g.isStock && fl && fl.expiry) {
+    g.dte = Math.ceil((new Date(fl.expiry) - new Date()) / 86400000);
+  } else { g.dte = null; }
+  return g;
+}
+
+function posSortTradier(col) {
+  if (_posSortTradier.col === col) _posSortTradier.asc = !_posSortTradier.asc;
+  else { _posSortTradier.col = col; _posSortTradier.asc = true; }
+  const cols = ['sym','tipo','dir','strike','exp','dte','qty','pnl','prem','precio','open','pct'];
+  cols.forEach(c => { const el = document.getElementById('sort-'+c); if (el) el.textContent = c===col ? (_posSortTradier.asc?'↑':'↓') : ''; });
+  renderPosRowsTradier(_posGroupsTradier);
+}
+
+function renderPosRowsTradier(groups) {
+  _posGroupsTradier = groups;
+  const col = _posSortTradier.col, asc = _posSortTradier.asc;
+  const sorted = [...groups].sort((a,b) => {
+    let va, vb;
+    if      (col==='sym')    { va=a.underlying;  vb=b.underlying; }
+    else if (col==='tipo')   { va=a.stratType||''; vb=b.stratType||''; }
+    else if (col==='dir')    { va=a.direction||''; vb=b.direction||''; }
+    else if (col==='strike') { va=a.legs[0]?.strike||0; vb=b.legs[0]?.strike||0; }
+    else if (col==='exp')    { va=a.expiry||''; vb=b.expiry||''; }
+    else if (col==='dte')    { va=a.dte??999; vb=b.dte??999; }
+    else if (col==='qty')    { va=a.legs.length; vb=b.legs.length; }
+    else if (col==='pnl')    { va=a.unrealizedPnL; vb=b.unrealizedPnL; }
+    else if (col==='prem')   { va=a.premiumNet; vb=b.premiumNet; }
+    else if (col==='precio') { va=a.underlyingPrice||0; vb=b.underlyingPrice||0; }
+    else if (col==='open')   { va=a.openDate||''; vb=b.openDate||''; }
+    else if (col==='pct')    { va=a.premiumNet?a.unrealizedPnL/Math.abs(a.premiumNet)*100:0;
+                               vb=b.premiumNet?b.unrealizedPnL/Math.abs(b.premiumNet)*100:0; }
+    if (typeof va==='string') return asc?va.localeCompare(vb):vb.localeCompare(va);
+    return asc?va-vb:vb-va;
+  });
+  $('pos-tbody').innerHTML = sorted.length ? sorted.map(g=>buildPosRowTradier(g)).join('') : '<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
+}
+
+async function loadPositionsTradier() {
+  try {
+    const data = await api('/api/positions-tradier');
+    const groups = (data.groups||[]).map(annotatePosGroupTradier);
+    let totalPremium = 0, totalUnreal = 0;
+    groups.forEach(g => { totalPremium += Math.max(0, g.premiumNet); totalUnreal += g.unrealizedPnL; });
+    $('pos-count').textContent = `${groups.length} posiciones (${data.totalContracts||0} contratos)`;
+    $('pos-kpis').innerHTML = [
+      kpiCard('Posiciones', groups.length, `${data.totalContracts||0} contratos`, 'dim'),
+      kpiCard('Premium Neto Rec.', fa$(totalPremium), 'en posiciones SHORT', 'pos'),
+      kpiCard('P&L No Realizado', f$(totalUnreal), 'mark-to-market actual', cc(totalUnreal)),
+    ].join('');
+    renderPosRowsTradier(groups);
+  } catch(e) {
+    $('pos-tbody').innerHTML = `<tr><td colspan="11"><div class="error-box">${e.message}</div></td></tr>`;
+  }
+}
+
+// ══════════════════════════════════════════
+//  DASHBOARD (Tradier) — Etapa 5. Compone Buying Power (Etapa 3), La Rueda/
+//  Historial (Etapa 2/4) y Posiciones de arriba. Simplificaciones
+//  deliberadas frente a index.html: sin topbar propia (sus métricas se
+//  plegaron al kpi-row del dashboard) y curva de capital como line chart
+//  simple de Chart.js — sin los dropdowns de tipo/período/acumulado (mismo
+//  costo/beneficio que decidimos para "La Rueda" en la Etapa 2: reusar el
+//  dato, no la interactividad completa).
+// ══════════════════════════════════════════
+async function loadDashboardTradier() {
+  try {
+    const [bp, curveData, txData, posData] = await Promise.all([
+      api('/api/bp-dashboard-tradier'),
+      api('/api/curve-tradier'),
+      fetchTxnsTradier(),
+      api('/api/positions-tradier'),
+    ]);
+    const groups = (posData.groups||[]).map(annotatePosGroupTradier);
+    const totalUnreal = groups.reduce((s,g)=>s+g.unrealizedPnL, 0);
+    const m = txData.metrics || {};
+
+    const nlv = bp.nlv || 0;
+    const initial = curveData.curve?.initial || nlv;
+    const totalPnL = nlv - initial;
+    const pctPnL = initial ? totalPnL/initial*100 : 0;
+    const dd = curveData.curve?.maxDD || 0;
+    const ddPct = curveData.curve?.maxDDPct || 0;
+
+    $('dash-kpis').innerHTML = [
+      kpiCard('Net Equity (Tradier)', fa$(nlv), fp(pctPnL), cc(totalPnL)),
+      kpiCard('BP Opciones Disp.', fa$(bp.derivAvail||0), 'ver Buying Power', 'dim'),
+      kpiCard('P&L No Realizado', f$(totalUnreal), `${groups.length} posiciones`, cc(totalUnreal)),
+      kpiCard('P&L Realizado', f$(m.totalPnL||0), `${m.totalStrategies||0} estrategias`, cc(m.totalPnL||0)),
+      kpiCard('Win Rate', (m.winRate||0)+'%', benchmark(m.winRate||0,'≥55% ✓','<55% ✗',55), (m.winRate||0)>=55?'pos':'neg'),
+      kpiCard('Max Drawdown', f$(-dd), `-${ddPct.toFixed(1)}% desde pico`, 'neg'),
+    ].join('');
+
+    const curve = curveData.curve || {labels:[],values:[]};
+    const ctx = $('equityChartTradier').getContext('2d');
+    if (S.charts.equityTradier) S.charts.equityTradier.destroy();
+    S.charts.equityTradier = new Chart(ctx, {
+      type: 'line',
+      data: { labels: curve.labels, datasets: [{ data: curve.values, borderColor:'#4f8eff', backgroundColor:'rgba(79,142,255,.1)', fill:true, tension:.2, pointRadius:0 }] },
+      options: { responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+fa$(c.parsed.y)}} },
+        scales:{ x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:10},grid:{display:false}},
+                 y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v).toLocaleString()},grid:{color:'rgba(31,36,51,.5)'}} }
+      }
+    });
+
+    if (!groups.length) { $('dash-positions').innerHTML = '<div class="dim" style="font-size:12px;padding:4px 0;">Sin posiciones abiertas</div>'; }
+    else {
+      $('dash-positions').innerHTML = groups.slice(0,8).map(g => `
+        <div class="stat-row">
+          <div>
+            <span class="td-bright" style="font-size:12px;">${g.underlying}</span>
+            <span class="dim" style="font-size:10px;margin-left:6px;">${g.stratType}</span>
+            ${g.expiry?`<span class="dim" style="font-size:10px;margin-left:4px;">${g.expiry.slice(5)}</span>`:''}
+          </div>
+          <div class="${cc(g.unrealizedPnL)} td-mono" style="font-size:12px;">${f$(g.unrealizedPnL)}</div>
+        </div>`).join('');
+    }
+
+    const recent = consolidateStrategies(m.strategies||[])
+      .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
+      .slice(0, 8);
+    $('dash-recent').innerHTML = recent.length ? recent.map(s => `
+      <div class="stat-row">
+        <div>
+          <span class="td-bright" style="font-size:12px;">${s.underlying}</span>
+          <span class="dim" style="font-size:10px;margin-left:6px;">${s.stratType||'—'}</span>
+          <span class="dim" style="font-size:10px;margin-left:6px;">${s.closeDate}</span>
+        </div>
+        <div class="${cc(s.pnl)} td-mono" style="font-size:12px;">${f$(s.pnl)}</div>
+      </div>`).join('') : '<div class="dim" style="font-size:12px;">Sin operaciones recientes</div>';
+  } catch(e) {
+    console.error('loadDashboardTradier error:', e);
+    $('dash-kpis').innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
+  }
+}
 
 // ══ PLAYBOOK ALEJANDRO ══════════════════════════════════════
 
