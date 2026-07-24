@@ -6274,6 +6274,153 @@ app.get('/api/extrinsic-report', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Bitacora Tradier — Etapa 2: mismo shape que /api/wheel (buildWheelData de
+// Tasty) pero proyectado desde wheel_trading_executions.json en vez del
+// historial de transacciones de TastyTrade. Adaptador de un solo sentido,
+// no toca wheel.js ni /api/wheel — ver src/wheel_tradier_adapter.js.
+app.get('/api/wheel-tradier', (req, res) => {
+  try {
+    const { buildWheelDataFromTradier } = require('./src/wheel_tradier_adapter');
+    const executions = loadWheelTradingExecutions();
+    const wheels = buildWheelDataFromTradier(executions);
+    res.json({ wheels, underlyings: wheels.map(w => w.underlying), ts: new Date().toISOString() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Bitacora Tradier — Etapa 3: mismo shape que /api/bp-dashboard (agrupacion
+// spread/naked/CC, meta 50/25/25) pero leyendo posiciones/balances EN VIVO
+// de Tradier en vez de wheel_trading_executions.json — a diferencia de "La
+// Rueda" (Etapa 2), esto no depende del archivo de tracking del screener,
+// asi que refleja correctamente cualquier posicion real abierta en la
+// cuenta (incluidas las que el tracking no capturo, ver hallazgo del
+// 2026-07-24: 6 puts cortos reales sin registro en wheel_trading_executions.json).
+// "Rueda" acá = universo del screener de la Rueda Automatizada
+// (wheel_trading_config.json), no wheel_config.json (que es de Tasty).
+app.get('/api/bp-dashboard-tradier', async (req, res) => {
+  try {
+    const data = await cached('bp-dashboard-tradier', 60, async () => {
+      const { buildBPDashboardFromTradier } = require('./src/bp_tradier_adapter');
+      const [balances, positions] = await Promise.all([tradier.getBalances(), tradier.getPositions()]);
+      const wtCfg = loadWheelTradingConfig();
+      const wheelSymbols = new Set(wtCfg.screener?.tickers || []);
+      return buildBPDashboardFromTradier(positions, balances || {}, wheelSymbols);
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// NLV History (Tradier) — mismo patron que loadNlvHistory/saveNlvSnapshot de
+// arriba (linea ~59) pero en un archivo separado — nunca se toca el de
+// Tasty. Sin seed historico (la cuenta Tradier no tiene un origen fijo
+// documentado como el deposito inicial de Tasty).
+const NLV_FILE_TRADIER = path.join(DATA_DIR, 'nlv_history_tradier.json');
+function loadNlvHistoryTradier() {
+  try {
+    if (fs.existsSync(NLV_FILE_TRADIER)) return JSON.parse(fs.readFileSync(NLV_FILE_TRADIER, 'utf8'));
+  } catch(e) { /* ignorar */ }
+  return {};
+}
+function saveNlvSnapshotTradier(dateStr, nlv) {
+  const history = loadNlvHistoryTradier();
+  history[dateStr] = nlv;
+  fs.writeFileSync(NLV_FILE_TRADIER, JSON.stringify(history, null, 2), 'utf8');
+}
+app.get('/api/nlv-history-tradier', (req, res) => {
+  try { res.json({ history: loadNlvHistoryTradier() }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Bitacora Tradier — Etapa 4 (+ reconciliacion posterior, 2026-07-24): mismo
+// shape que /api/transactions ({metrics, ts}) pero construido desde
+// tradier_executions.json + wheel_trading_executions.json, RECONCILIADO
+// contra el historial real de Tradier (tradier.getClosedPnl(), fuente de
+// verdad del broker) via src/tradier_closed_pnl_adapter.js — cierra el
+// hueco real encontrado el 2026-07-24 (91 patas cerradas en la cuenta que
+// nunca pasaron por nuestro tracking, ver commit). Cacheado 300s porque
+// getClosedPnl es una llamada real a Tradier, no solo lectura de archivos
+// locales. startDate/endDate se aceptan por paridad de firma con
+// /api/transactions pero no filtran aca — el filtrado por rango de fechas
+// ya lo hace el frontend (loadHistory/loadReports) sobre closeDate.
+app.get('/api/transactions-tradier', async (req, res) => {
+  try {
+    const data = await cached('transactions-tradier', 300, async () => {
+      const { buildMetricsTradier } = require('./src/metrics_tradier');
+      const { reconcileClosedPnl, trackedLegKeys } = require('./src/tradier_closed_pnl_adapter');
+      const spxExecutions   = loadTradierExecutions();
+      const wheelExecutions = loadWheelTradingExecutions();
+      const closedPnl = await tradier.getClosedPnl('2026-01-01');
+      const tracked = trackedLegKeys(spxExecutions, wheelExecutions);
+      const brokerOnlyStrategies = reconcileClosedPnl(closedPnl, tracked);
+      const metrics = buildMetricsTradier(spxExecutions, wheelExecutions, brokerOnlyStrategies);
+      return { metrics, ts: new Date().toISOString() };
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Bitacora Tradier — Etapa 5 (Posiciones): agrupa posiciones reales de
+// Tradier por (subyacente, vencimiento) igual que groupPositions() ya hace
+// para TastyTrade, pero via src/positions_tradier_adapter.js (esquema
+// crudo distinto). Sin Greeks (ver limitacion documentada en el adaptador).
+app.get('/api/positions-tradier', async (req, res) => {
+  try {
+    const data = await cached('positions-tradier', 30, async () => {
+      const { groupPositionsTradier } = require('./src/positions_tradier_adapter');
+      const positions = await tradier.getPositions();
+      const symbols = positions.map(p => p.symbol).filter(Boolean);
+      const quotes = symbols.length ? await tradier.getQuotes(symbols) : [];
+      const quotesMap = {};
+      quotes.forEach(q => { quotesMap[q.symbol] = q; });
+      const groups = groupPositionsTradier(positions, quotesMap);
+
+      // Precio del subyacente por grupo — mismo endpoint generico (Yahoo,
+      // broker-agnostico) que ya usa loadPositions() de Tasty.
+      const underlyings = [...new Set(groups.map(g => g.underlying))];
+      const underlyingPriceMap = {};
+      await Promise.all(underlyings.map(async sym => {
+        try {
+          const r = await fetch(`http://localhost:${process.env.PORT || 3000}/api/market-data/${sym}`);
+          const d = await r.json();
+          underlyingPriceMap[sym] = d.price || 0;
+        } catch(e) { underlyingPriceMap[sym] = 0; }
+      }));
+      groups.forEach(g => { g.underlyingPrice = underlyingPriceMap[g.underlying] || 0; });
+
+      return { groups, totalContracts: positions.length, ts: new Date().toISOString() };
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Bitacora Tradier — Etapa 5 (Dashboard): mismo shape que /api/curve pero
+// construido desde nlv_history_tradier.json (Etapa 3) en vez del historial
+// de transacciones de TastyTrade — reusa buildEquityCurve() (src/metrics.js)
+// y computeMonthlyNlv/computeWeeklyNlv (arriba, linea ~82) SIN modificarlos,
+// ya que ambos son funciones puras que solo esperan {time, close} y un
+// historial {fecha: nlv} respectivamente — nada de esto es TastyTrade-especifico.
+app.get('/api/curve-tradier', async (req, res) => {
+  try {
+    const data = await cached('curve-tradier', 300, async () => {
+      const { buildEquityCurve } = require('./src/metrics');
+      const nlvHistory = loadNlvHistoryTradier();
+      const currentNlv = await tradier.getBalances().then(b => parseFloat(b?.total_equity || 0)).catch(() => 0);
+      const nlvEntries = Object.entries(nlvHistory).sort((a, b) => a[0].localeCompare(b[0]));
+      const nlvItems = nlvEntries.map(([time, close]) => ({ time, close }));
+      // Evitar duplicar el punto de hoy si el snapshot diario ya lo guardo
+      const yaTieneHoy = nlvEntries.some(([d]) => d === todayStr());
+      if (currentNlv > 0 && !yaTieneHoy) nlvItems.push({ time: todayStr(), close: currentNlv });
+      const curve = buildEquityCurve(nlvItems);
+      const nlvByMonth = computeMonthlyNlv(nlvHistory, currentNlv);
+      const nlvByWeek  = computeWeeklyNlv(nlvHistory, currentNlv);
+      return {
+        curve, nlvByMonth, nlvByWeek,
+        nlvSnapshots: yaTieneHoy ? nlvEntries : nlvEntries.concat(currentNlv > 0 ? [[todayStr(), currentNlv]] : []),
+        ts: new Date().toISOString(),
+      };
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
@@ -6321,7 +6468,39 @@ app.listen(PORT, async () => {
   } catch (e) {
     console.error(`⚠️   Auth falló: ${e.message}\n`);
   }
+
+  // Bitacora Tradier — Etapa 3: mismo snapshot diario de NLV, pero para
+  // Tradier, en su propio archivo. Aislado en su propio try/catch — un
+  // fallo aca (ej. .env sin credenciales Tradier) nunca debe impedir que
+  // termine de arrancar la autenticacion/snapshot de Tasty de arriba.
+  try {
+    const balT = await tradier.getBalances();
+    const nlvT = parseFloat(balT?.total_equity || 0);
+    if (nlvT > 0) {
+      saveNlvSnapshotTradier(todayStr(), nlvT);
+      console.log(`[NLV-TRADIER] Snapshot guardado: ${todayStr()} = $${nlvT.toFixed(2)}`);
+    }
+    scheduleDailyTradier();
+  } catch (e) {
+    console.error(`[NLV-TRADIER] Error: ${e.message}`);
+  }
 });
+
+function scheduleDailyTradier() {
+  const now = new Date();
+  const target = new Date(now);
+  target.setUTCHours(20, 35, 0, 0);
+  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+  const ms = target - now;
+  setTimeout(async () => {
+    try {
+      const bal = await tradier.getBalances();
+      const nlv = parseFloat(bal?.total_equity || 0);
+      if (nlv > 0) saveNlvSnapshotTradier(todayStr(), nlv);
+    } catch(e) { console.error('[NLV-TRADIER] Error en snapshot diario:', e.message); }
+    scheduleDailyTradier();
+  }, ms);
+}
 
 // ── Playbooks ────────────────────────────────────────────────
 const PB_FILE = path.join(DATA_DIR, 'playbooks.json');
@@ -6453,6 +6632,115 @@ Responde en español, de forma concisa y directa. Usa bullet points cuando sea �
 
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
+// Bitacora Tradier — Etapa 6: mismo coach de IA, misma mecanica de chat con
+// Claude (system prompt + historial + fetch a la API de Anthropic) — solo
+// cambia el bloque de recoleccion de datos, que ahora usa
+// buildMetricsTradier() (Etapa 4), posiciones/cotizaciones en vivo de
+// Tradier (Etapa 5) y el historial de NLV propio (Etapa 3) en vez de
+// TastyTrade. No toca /api/ai-chat.
+app.post('/api/ai-chat-tradier', async (req, res) => {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(400).json({ error: 'ANTHROPIC_API_KEY no configurada' });
+
+    const { question, history = [] } = req.body;
+
+    const { buildMetricsTradier } = require('./src/metrics_tradier');
+    const { parseOccSymbol } = require('./src/bp_tradier_adapter');
+    const { reconcileClosedPnl, trackedLegKeys } = require('./src/tradier_closed_pnl_adapter');
+    const spxExecutions   = loadTradierExecutions();
+    const wheelExecutions = loadWheelTradingExecutions();
+    const [positions, bal, closedPnl] = await Promise.all([tradier.getPositions(), tradier.getBalances(), tradier.getClosedPnl('2026-01-01')]);
+    const brokerOnlyStrategies = reconcileClosedPnl(closedPnl, trackedLegKeys(spxExecutions, wheelExecutions));
+    const m = buildMetricsTradier(spxExecutions, wheelExecutions, brokerOnlyStrategies);
+    const nlv = parseFloat(bal?.total_equity || 0);
+    const nlvHistory = loadNlvHistoryTradier();
+    const nlvByMonth = computeMonthlyNlv(nlvHistory, nlv);
+
+    const symbols = positions.map(p => p.symbol).filter(Boolean);
+    const quotes = symbols.length ? await tradier.getQuotes(symbols) : [];
+    const quotesMap = {};
+    quotes.forEach(q => { quotesMap[q.symbol] = q; });
+
+    const openPositions = positions.map(p => {
+      const parsed = parseOccSymbol(p.symbol || '');
+      const qty = parseFloat(p.quantity || 0);
+      const mul = parsed ? 100 : 1;
+      const avgPrice = Math.abs(qty) > 0 ? Math.abs(parseFloat(p.cost_basis || 0)) / (Math.abs(qty) * mul) : 0;
+      const mark = quotesMap[p.symbol]?.mark ?? 0;
+      const dir = qty < 0 ? -1 : 1;
+      const pnl = dir * (mark - avgPrice) * Math.abs(qty) * mul;
+      return {
+        sym:    parsed ? parsed.root : p.symbol,
+        tipo:   parsed ? (parsed.optType === 'P' ? 'Put' : 'Call') : 'Stock',
+        dir:    qty < 0 ? 'Short' : 'Long',
+        strike: parsed ? parsed.strike : null,
+        expiry: parsed ? parsed.expiry : null,
+        qty,
+        openPrice: +avgPrice.toFixed(4),
+        currentPrice: mark,
+        pnlNoReal: +pnl.toFixed(2),
+      };
+    });
+
+    const context = `Eres un coach experto en trading de opciones. Tienes acceso a los datos reales de la cuenta sandbox de Tradier (Bitácora Tradier — SPX 0DTE/1DTE y La Rueda automatizada).
+
+DATOS DE LA CUENTA:
+- Net Equity actual: $${nlv.toFixed(2)}
+- Capital inicial: $${TRADIER_STARTING_BALANCE.toLocaleString()}
+- Retorno total: ${(((nlv-TRADIER_STARTING_BALANCE)/TRADIER_STARTING_BALANCE)*100).toFixed(2)}%
+- Total trades: ${m.totalStrategies}
+- Win Rate: ${m.winRate}%
+- Profit Factor: ${m.profitFactor}x
+- P&L Realizado: $${m.totalPnL}
+(Nota: comisiones no trackeadas todavía en Tradier sandbox — no incluidas)
+
+P&L MENSUAL (Net Equity):
+${Object.entries(nlvByMonth).sort().map(([mo,v])=>`- ${mo}: $${v.toFixed(2)}`).join('\n')}
+
+POSICIONES ABIERTAS AHORA:
+${openPositions.map(p=>`- ${p.sym} ${p.tipo} ${p.dir} Strike:${p.strike??'—'} Exp:${p.expiry??'—'} Qty:${p.qty} P&L No Real: $${p.pnlNoReal}`).join('\n')}
+
+POR ESTRATEGIA:
+${Object.entries(m.byStrategy||{}).slice(0,6).map(([t,d])=>`- ${t}: ${d.trades} trades, Win ${d.winRate}%, P&L $${d.pnl.toFixed(2)}`).join('\n')}
+
+POR SUBYACENTE:
+${Object.entries(m.byUnderlying||{}).sort((a,b)=>Math.abs(b[1].pnl)-Math.abs(a[1].pnl)).slice(0,6).map(([s,d])=>`- ${s}: ${d.trades} trades, P&L $${d.pnl.toFixed(2)}`).join('\n')}
+
+TRADES INDIVIDUALES CERRADOS (todos, ordenados por fecha de cierre):
+${(m.strategies||[]).sort((a,b)=>a.closeDate?.localeCompare(b.closeDate)).map(s=>`- ${s.closeDate} | ${s.underlying} | ${s.stratType} | ${s.durationCat} | P&L: $${(s.pnl||0).toFixed(2)} | ${s.win?'WIN':'LOSS'}`).join('\n')}
+
+Responde en español, de forma concisa y directa. Usa bullet points cuando sea útil. Sé específico con números de los datos reales. Máximo 500 palabras.`;
+
+    const messages = [
+      ...history.slice(-8).map(h => ({ role: h.role, content: h.content })),
+      { role: 'user', content: question }
+    ];
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 800,
+        system: context,
+        messages,
+      }),
+    });
+
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    const data = await response.json();
+    const reply = data.content?.[0]?.text || 'Sin respuesta';
+    res.json({ reply });
+
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/ai-analysis', async (req, res) => {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;

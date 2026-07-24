@@ -70,8 +70,9 @@
     "filledAt": "2026-07-09T16:36:01.305Z",
     "closedAt": "2026-07-09T17:24:37.026Z",
     "closeReason": "MANUAL",
-    "pnl": 100,
-    "pnlSource": "gainloss_corregido_manual"
+    "pnl": 240,
+    "pnlSource": "gainloss_recorregido_2026-07-24",
+    "notes": "Recorregido 2026-07-24 al reconciliar el historial completo de Tradier (src/tradier_closed_pnl_adapter.js): este trade y tex-1783611979727 reutilizaron los mismos strikes (C07540000/C07530000) el mismo día — el total real combinado de ambos es $340 (confirmado sumando las 4 patas reales de getClosedPnl), pero la corrección manual anterior de este registro (a $100) no lo reflejaba. División entre los dos registros basada en orden de aparición en getClosedPnl (más reciente primero, criterio ya usado en checkTradierExecutionsImpl) — el total combinado es cierto, la atribución exacta a CUÁL de los dos registros no lo es al 100% sin order-id."
   },
   {
     "id": "tex-1783611979727",
@@ -105,8 +106,9 @@
     "filledAt": "2026-07-09T15:46:53.484Z",
     "closedAt": "2026-07-09T16:21:24.661Z",
     "closeReason": "TP",
-    "pnl": 115,
-    "pnlSource": "tp_sl_auto"
+    "pnl": 100,
+    "pnlSource": "gainloss_recorregido_2026-07-24",
+    "notes": "Recorregido 2026-07-24 — ver nota completa en tex-1783614947128 (mismo par de strikes reutilizado el mismo día, total combinado real $340)."
   },
   {
     "id": "tex-1783605026320",
