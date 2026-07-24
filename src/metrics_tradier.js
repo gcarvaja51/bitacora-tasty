@@ -100,10 +100,16 @@ function mapWheelExecution(ex) {
   };
 }
 
-function buildMetricsTradier(spxExecutions = [], wheelExecutions = []) {
+// brokerOnlyStrategies (opcional): estrategias ya reconciliadas desde el
+// historial REAL de Tradier (src/tradier_closed_pnl_adapter.js) que no
+// estaban en spxExecutions/wheelExecutions — ya vienen en la misma forma
+// que mapSpxExecution/mapWheelExecution producen, se agregan directo sin
+// transformacion.
+function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnlyStrategies = []) {
   const strategies = [
     ...spxExecutions.map(mapSpxExecution).filter(Boolean),
     ...wheelExecutions.map(mapWheelExecution).filter(Boolean),
+    ...brokerOnlyStrategies,
   ].sort((a, b) => (a.closeDate || '').localeCompare(b.closeDate || ''));
 
   // Cash flow por "orden" — aproximado con 2 eventos por estrategia (apertura

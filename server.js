@@ -6330,21 +6330,31 @@ app.get('/api/nlv-history-tradier', (req, res) => {
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Bitacora Tradier — Etapa 4: mismo shape que /api/transactions ({metrics, ts})
-// pero construido desde tradier_executions.json (SPX 0DTE/1DTE) +
-// wheel_trading_executions.json (ciclos de la Rueda) en vez del historial
-// crudo de TastyTrade — ver src/metrics_tradier.js para el porque (Tradier
-// no expone un ledger de transacciones equivalente a tt.getAllTransactions).
-// startDate/endDate se aceptan por paridad de firma con /api/transactions
-// pero no filtran aca — el filtrado por rango de fechas ya lo hace el
-// frontend (loadHistory/loadReports) sobre closeDate, igual que con Tasty.
-app.get('/api/transactions-tradier', (req, res) => {
+// Bitacora Tradier — Etapa 4 (+ reconciliacion posterior, 2026-07-24): mismo
+// shape que /api/transactions ({metrics, ts}) pero construido desde
+// tradier_executions.json + wheel_trading_executions.json, RECONCILIADO
+// contra el historial real de Tradier (tradier.getClosedPnl(), fuente de
+// verdad del broker) via src/tradier_closed_pnl_adapter.js — cierra el
+// hueco real encontrado el 2026-07-24 (91 patas cerradas en la cuenta que
+// nunca pasaron por nuestro tracking, ver commit). Cacheado 300s porque
+// getClosedPnl es una llamada real a Tradier, no solo lectura de archivos
+// locales. startDate/endDate se aceptan por paridad de firma con
+// /api/transactions pero no filtran aca — el filtrado por rango de fechas
+// ya lo hace el frontend (loadHistory/loadReports) sobre closeDate.
+app.get('/api/transactions-tradier', async (req, res) => {
   try {
-    const { buildMetricsTradier } = require('./src/metrics_tradier');
-    const spxExecutions   = loadTradierExecutions();
-    const wheelExecutions = loadWheelTradingExecutions();
-    const metrics = buildMetricsTradier(spxExecutions, wheelExecutions);
-    res.json({ metrics, ts: new Date().toISOString() });
+    const data = await cached('transactions-tradier', 300, async () => {
+      const { buildMetricsTradier } = require('./src/metrics_tradier');
+      const { reconcileClosedPnl, trackedLegKeys } = require('./src/tradier_closed_pnl_adapter');
+      const spxExecutions   = loadTradierExecutions();
+      const wheelExecutions = loadWheelTradingExecutions();
+      const closedPnl = await tradier.getClosedPnl('2026-01-01');
+      const tracked = trackedLegKeys(spxExecutions, wheelExecutions);
+      const brokerOnlyStrategies = reconcileClosedPnl(closedPnl, tracked);
+      const metrics = buildMetricsTradier(spxExecutions, wheelExecutions, brokerOnlyStrategies);
+      return { metrics, ts: new Date().toISOString() };
+    });
+    res.json(data);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -6638,8 +6648,12 @@ app.post('/api/ai-chat-tradier', async (req, res) => {
 
     const { buildMetricsTradier } = require('./src/metrics_tradier');
     const { parseOccSymbol } = require('./src/bp_tradier_adapter');
-    const [positions, bal] = await Promise.all([tradier.getPositions(), tradier.getBalances()]);
-    const m = buildMetricsTradier(loadTradierExecutions(), loadWheelTradingExecutions());
+    const { reconcileClosedPnl, trackedLegKeys } = require('./src/tradier_closed_pnl_adapter');
+    const spxExecutions   = loadTradierExecutions();
+    const wheelExecutions = loadWheelTradingExecutions();
+    const [positions, bal, closedPnl] = await Promise.all([tradier.getPositions(), tradier.getBalances(), tradier.getClosedPnl('2026-01-01')]);
+    const brokerOnlyStrategies = reconcileClosedPnl(closedPnl, trackedLegKeys(spxExecutions, wheelExecutions));
+    const m = buildMetricsTradier(spxExecutions, wheelExecutions, brokerOnlyStrategies);
     const nlv = parseFloat(bal?.total_equity || 0);
     const nlvHistory = loadNlvHistoryTradier();
     const nlvByMonth = computeMonthlyNlv(nlvHistory, nlv);
