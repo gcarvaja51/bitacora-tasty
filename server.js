@@ -20,6 +20,27 @@ if (DATA_DIR !== __dirname) {
   console.log('[DATA] Usando volumen persistente:', DATA_DIR);
 }
 
+// Timestamp ISO con offset real de America/New_York (2026-07-23, a pedido del
+// usuario: toda la bitacora debe referenciarse a hora Nueva York, no Bogota).
+// A diferencia del viejo helper de Bogota (offset fijo -05:00, valido siempre
+// porque Colombia no tiene horario de verano), Nueva York SI observa DST
+// (EDT UTC-4 / EST UTC-5) -- un offset fijo quedaria mal la mitad del ano, asi
+// que el offset se calcula en vivo con Intl en vez de hardcodearlo.
+function nowETIso() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(now).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
+  const offsetName = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', timeZoneName: 'shortOffset',
+  }).formatToParts(now).find(p => p.type === 'timeZoneName').value; // "GMT-4" o "GMT-5"
+  const offsetHours = parseInt(offsetName.replace('GMT', ''), 10) || 0;
+  const offsetStr = (offsetHours <= 0 ? '-' : '+') + String(Math.abs(offsetHours)).padStart(2, '0') + ':00';
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offsetStr}`;
+}
+
 // ── Local vs produccion — evitar doble ejecucion real ───────
 // El servidor local (npm run dev) y el de Railway corren el mismo codigo de
 // forma independiente contra la MISMA cuenta de Tradier. Si ambos estan
@@ -1925,8 +1946,7 @@ app.get('/api/alejandro-checklists', (req, res) => res.json(loadChecklists()));
 
 app.post('/api/alejandro-checklists', (req, res) => {
   const checklists = loadChecklists();
-  const nowCOL = new Date().toLocaleString('sv-SE', {timeZone:'America/Bogota'}).replace(' ','T') + '-05:00';
-  const item = { ...req.body, id: `cl-${Date.now()}`, createdAt: nowCOL };
+  const item = { ...req.body, id: `cl-${Date.now()}`, createdAt: nowETIso() };
   checklists.unshift(item);
   saveChecklists(checklists.slice(0, 200));
   res.json(item);
@@ -1936,8 +1956,7 @@ app.put('/api/alejandro-checklists/:id', (req, res) => {
   const checklists = loadChecklists();
   const idx = checklists.findIndex(c => c.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'No encontrado' });
-  const updCOL = new Date().toLocaleString('sv-SE', {timeZone:'America/Bogota'}).replace(' ','T') + '-05:00';
-  checklists[idx] = { ...checklists[idx], ...req.body, updatedAt: updCOL };
+  checklists[idx] = { ...checklists[idx], ...req.body, updatedAt: nowETIso() };
   saveChecklists(checklists);
   res.json(checklists[idx]);
 });

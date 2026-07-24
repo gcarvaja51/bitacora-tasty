@@ -1705,9 +1705,9 @@ const f$ = (n, d=2) => {
 const fa$ = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fp  = n => { const v=parseFloat(n)||0; return (v>=0?'+':'')+v.toFixed(2)+'%'; };
 const cc  = n => parseFloat(n)>0?'pos':parseFloat(n)<0?'neg':'dim';
-const fTime = iso => { if(!iso)return'—'; const d=new Date(iso); return d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',hour12:false}); };
-const fDate = iso => { if(!iso)return'—'; const d=new Date(iso.length===10?iso+'T12:00:00':iso); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric',timeZone:'America/Bogota'}); };
-const fDateShort = iso => { if(!iso)return'—'; const d=new Date(iso.length===10?iso+'T12:00:00':iso); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',timeZone:'America/Bogota'}); };
+const fTime = iso => { if(!iso)return'—'; const d=new Date(iso); return d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/New_York'}); };
+const fDate = iso => { if(!iso)return'—'; const d=new Date(iso.length===10?iso+'T12:00:00':iso); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric',timeZone:'America/New_York'}); };
+const fDateShort = iso => { if(!iso)return'—'; const d=new Date(iso.length===10?iso+'T12:00:00':iso); return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',timeZone:'America/New_York'}); };
 
 function parseOCC(sym='') {
   const s = sym.replace(/\s+/g,' ').trim();
@@ -1802,8 +1802,8 @@ function renderTopBar(b, positions=[]) {
   // Update conn status
   $('dot').className = 'dot';
   $('conn-status').textContent = 'Conectado';
-  $('last-ts').textContent = 'Act: ' + new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
-  $('refresh-ts').textContent = new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  $('last-ts').textContent = 'Act: ' + new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'});
+  $('refresh-ts').textContent = new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/New_York'});
 }
 
 // ══════════════════════════════════════════
@@ -1869,7 +1869,7 @@ function groupPositions(positions) {
     // FIX Iron Condor: agrupar por subyacente+fecha sin distinguir C/P
     // Así Put Spread + Call Spread del mismo vencimiento → una sola fila
     const key  = isStock ? `${und}::stock` : `${und}::${exp}`;
-    const openDate = p['opened-at'] ? new Date(p['opened-at']).toLocaleDateString('es-CO',{timeZone:'America/Bogota'}) : (p['created-at'] ? new Date(p['created-at']).toLocaleDateString('es-CO',{timeZone:'America/Bogota'}) : '—');
+    const openDate = p['opened-at'] ? new Date(p['opened-at']).toLocaleDateString('es-CO',{timeZone:'America/New_York'}) : (p['created-at'] ? new Date(p['created-at']).toLocaleDateString('es-CO',{timeZone:'America/New_York'}) : '—');
     if (!map.has(key)) map.set(key, { underlying:und, expiry:exp||null, isStock, legs:[], unrealizedPnL:0, premiumNet:0, delta:0, theta:0, openDate });
     const g = map.get(key);
     const qty=parseFloat(p.quantity||0), op=parseFloat(p['average-open-price']||0),
@@ -2180,7 +2180,7 @@ function renderCalendar() {
   const firstDay = new Date(y,mo,1).getDay();
   const offset = firstDay===0 ? 6 : firstDay-1;
   const daysInMonth = new Date(y,mo+1,0).getDate();
-  const todayStr = new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'});
+  const todayStr = new Date().toLocaleDateString('sv-SE',{timeZone:'America/New_York'});
 
   let html='';
   for(let i=0;i<offset;i++) html+=`<div class="cal-day empty"></div>`;
@@ -4492,7 +4492,7 @@ function addAIMsg(role, text, isLoading=false) {
     <div class="ai-avatar ${role}">${avatar}</div>
     <div>
       <div class="ai-bubble ${role} ${isLoading?'loading':''}">${html}</div>
-      ${!isLoading?`<div class="ai-ts">${new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</div>`:''}
+      ${!isLoading?`<div class="ai-ts">${new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})}</div>`:''}
     </div>`;
   area.appendChild(div);
   area.scrollTop = area.scrollHeight;
@@ -4537,7 +4537,7 @@ async function sendAIChat() {
     if (loadingEl) {
       loadingEl.querySelector('.ai-bubble').classList.remove('loading');
       loadingEl.querySelector('.ai-bubble').innerHTML = marked(data.reply);
-      loadingEl.querySelector('.ai-bubble').insertAdjacentHTML('afterend', `<div class="ai-ts">${new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</div>`);
+      loadingEl.querySelector('.ai-bubble').insertAdjacentHTML('afterend', `<div class="ai-ts">${new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})}</div>`);
     }
     aiHistory.push({ role:'assistant', content: data.reply });
     $('ai-chat-area').scrollTop = $('ai-chat-area').scrollHeight;
@@ -4606,7 +4606,7 @@ async function loadBP() {
           <span>NLV: <strong style="color:var(--text);">${fmt(d.nlv)}</strong></span>
           <span>BP opciones libre: <strong style="color:var(--text);">${fmt(d.derivAvail)}</strong></span>
           <span>BP acciones libre: <strong style="color:var(--text);">${fmt(d.equityAvail)}</strong></span>
-          <span>Actualizado: ${new Date(d.ts).toLocaleTimeString()}</span>
+          <span>Actualizado: ${new Date(d.ts).toLocaleTimeString('es-CO',{timeZone:'America/New_York'})}</span>
         </div>
       </div>
 
@@ -5493,7 +5493,7 @@ function renderTradierDemo(execs, account) {
 
   // Tabla historial
   $('tdemo-tbody').innerHTML = execs.length ? execs.map(e => {
-    const fecha = new Date(e.timestamp).toLocaleString('es-CO',{timeZone:'America/Bogota', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+    const fecha = new Date(e.timestamp).toLocaleString('es-CO',{timeZone:'America/New_York', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
     const strikesLabel = e.strikes ? `${e.strikes.shortStrike}/${e.strikes.longStrike}` : '—';
     const estadoLabel = e.status === 'closed' ? '✅ Cerrado' : e.status === 'filled' ? '🟢 Llenado' : '⏳ Pendiente';
     // Si todavia no cerro, mostrar P&L NO REALIZADO en vivo (ex.livePnl, calculado en
@@ -6108,7 +6108,7 @@ function renderWheelTradingSignals(signals) {
               <td style="padding:8px;font-family:var(--mono);color:var(--green);">$${s.premium}</td>
               <td style="padding:8px;font-family:var(--mono);">$${s.creditPerDay}</td>
               <td style="padding:8px;">${s.ivRank}%</td>
-              <td style="padding:8px;color:var(--muted);font-size:11px;">${new Date(s.timestamp).toLocaleString('es-CO',{dateStyle:'short',timeStyle:'short'})}</td>
+              <td style="padding:8px;color:var(--muted);font-size:11px;">${new Date(s.timestamp).toLocaleString('es-CO',{dateStyle:'short',timeStyle:'short',timeZone:'America/New_York'})}</td>
               <td style="padding:8px;">${s.status}</td>
               <td style="padding:8px;">${s.status==='PENDING' ? `<button onclick="approveWheelSignal('${s.id}','${s.symbol}')" class="btn" style="background:rgba(0,200,100,.15);border:1px solid rgba(0,200,100,.3);color:#00c864;padding:5px 12px;font-size:11px;">✅ Aprobar</button>` : ''}</td>
             </tr>
@@ -6291,7 +6291,7 @@ async function loadToday() {
     const strategies = consolidateStrategies(todayLegs);
     strategies.forEach(s => {
       s.capPct = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
-      s.closeTime = s.closeExecAt ? new Date(s.closeExecAt).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}) : '—';
+      s.closeTime = s.closeExecAt ? new Date(s.closeExecAt).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'}) : '—';
     });
     const wins       = strategies.filter(s=>s.pnl>0).length;
     const totalPnl   = strategies.reduce((a,b)=>a+b.pnl, 0);
