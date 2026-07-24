@@ -1,2 +1,9 @@
 
 .env
+
+.claude/
+.scratch/
+debug.log
+gamma_refresh_log.txt
+informe_trade_log.txt
+premercado_auto_log.txt
