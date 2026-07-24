@@ -967,11 +967,35 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div style="font-size:14px;">Próximamente — Etapa 5 del roadmap (compone Rueda + Buying Power + Historial/Reportes).</div>
       </div>
     </div>
-    <!-- ══ CALENDARIO (placeholder — Etapa 4) ══ -->
+    <!-- ══ CALENDARIO ══════════════════════ -->
     <div id="panel-calendar" class="panel">
-      <div style="padding:60px 20px;text-align:center;color:var(--muted);">
-        <div style="font-size:32px;margin-bottom:12px;">🚧</div>
-        <div style="font-size:14px;">Próximamente — Etapa 4 del roadmap (junto con Historial/Reportes).</div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+          <div class="cal-nav">
+            <button onclick="calPrev()">‹</button>
+            <div class="cal-month-label" id="cal-label">—</div>
+            <button onclick="calNext()">›</button>
+          </div>
+          <div style="display:flex;gap:16px;font-family:var(--mono);font-size:11px;">
+            <span>Mes: <strong class="pos" id="cal-month-pnl">—</strong></span>
+            <span class="dim">|</span>
+            <span>Días +: <strong class="pos" id="cal-pos-days">—</strong></span>
+            <span>Días -: <strong class="neg" id="cal-neg-days">—</strong></span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="cal-grid" id="cal-dows"></div>
+          <div class="cal-grid" id="cal-cells"></div>
+        </div>
+      </div>
+      <div class="card" id="cal-detail" style="display:none;">
+        <div class="card-header" id="cal-detail-title">Operaciones del día</div>
+        <div class="card-body table-wrap">
+          <table><thead><tr>
+            <th>Tipo</th><th>Símbolo</th><th>Estrategia</th><th>Duración</th><th>Prima</th><th>P&amp;L</th><th>% Cap.</th>
+          </tr></thead>
+          <tbody id="cal-detail-tbody"></tbody></table>
+        </div>
       </div>
     </div>
 
@@ -982,19 +1006,147 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div style="font-size:14px;">Próximamente — Etapa 5 del roadmap.</div>
       </div>
     </div>
-    <!-- ══ HISTORIAL (placeholder — Etapa 4) ══ -->
+    <!-- ══ HISTORIAL ═══════════════════════ -->
     <div id="panel-history" class="panel">
-      <div style="padding:60px 20px;text-align:center;color:var(--muted);">
-        <div style="font-size:32px;margin-bottom:12px;">🚧</div>
-        <div style="font-size:14px;">Próximamente — Etapa 4 del roadmap. Requiere una función nueva que ingiera <code>getClosedPnl()</code>/<code>getOrders()</code> de Tradier con la misma forma de salida que <code>buildMetrics()</code>.</div>
+      <div class="filters">
+        <span class="filter-label">Desde</span>
+        <input type="date" id="hist-from">
+        <span class="filter-label">Hasta</span>
+        <input type="date" id="hist-to">
+        <button class="btn btn-primary" onclick="loadHistoryTradier()">Filtrar</button>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);" id="hist-summary">—</span>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th onclick="sortHist('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hh-closeDate">▼</span></th>
+              <th onclick="sortHist('openDate')"    style="cursor:pointer;user-select:none;">Apertura <span id="hh-openDate"></span></th>
+              <th onclick="sortHist('underlying')"  style="cursor:pointer;user-select:none;">Símbolo <span id="hh-underlying"></span></th>
+              <th onclick="sortHist('stratType')"   style="cursor:pointer;user-select:none;">Estrategia <span id="hh-stratType"></span></th>
+              <th onclick="sortHist('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hh-durationDays"></span></th>
+              <th onclick="sortHist('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hh-pnl"></span></th>
+              <th onclick="sortHist('capPct')"      style="cursor:pointer;user-select:none;">% Capturado <span id="hh-capPct"></span></th>
+              <th onclick="sortHist('openValue')"   style="cursor:pointer;user-select:none;">Prima cobrada <span id="hh-openValue"></span></th>
+              <th onclick="sortHist('closeValue')"  style="cursor:pointer;user-select:none;">Costo cierre <span id="hh-closeValue"></span></th>
+            </tr></thead>
+            <tbody id="hist-tbody">
+              <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
-    <!-- ══ REPORTES (placeholder — Etapa 4) ══ -->
+    <!-- ══ REPORTES ════════════════════════ -->
     <div id="panel-reports" class="panel">
-      <div style="padding:60px 20px;text-align:center;color:var(--muted);">
-        <div style="font-size:32px;margin-bottom:12px;">🚧</div>
-        <div style="font-size:14px;">Próximamente — Etapa 4 del roadmap (mismo trabajo que Historial).</div>
+      <div class="filters" style="margin-bottom:16px;">
+        <span class="filter-label">Período:</span>
+        <input type="date" id="rep-from" value="2026-02-01">
+        <span class="filter-label">al</span>
+        <input type="date" id="rep-to">
+        <button class="btn btn-primary" onclick="loadReportsTradier(true)">Aplicar</button>
+        <button class="btn" onclick="resetRepFilterTradier()">Todo el período</button>
+        <span id="rep-period-label" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);"></span>
+      </div>
+      <div class="kpi-row cols-4" id="rep-kpis" style="margin-bottom:16px;"></div>
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-header">Win Rate</div>
+          <div class="card-body">
+            <div class="gauge-wrap">
+              <div class="gauge-ring" id="gauge-ring" style="--pct:0%">
+                <div class="gauge-inner">
+                  <div class="gauge-pct" id="gauge-pct">—</div>
+                  <div class="gauge-lbl">WIN RATE</div>
+                </div>
+              </div>
+            </div>
+            <div id="wr-detail" style="margin-top:8px;"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">P&amp;L por Subyacente</div>
+          <div class="card-body" id="rep-underlying"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">P&amp;L por Semana</div>
+          <div class="card-body chart-wrap">
+            <canvas id="weeklyChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2b" style="margin-bottom:16px;">
+        <div class="card">
+          <div class="card-header">Por Tipo de Estrategia</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Tipo</th><th>Trades</th><th>Win %</th>
+                <th>P&amp;L Total</th><th>Prom Gan.</th><th>Prom Per.</th>
+              </tr></thead>
+              <tbody id="strategy-type-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">Análisis Broker vs Tu P&amp;L</div>
+          <div class="card-body" id="broker-analysis"></div>
+        </div>
+      </div>
+
+      <div class="grid-2b" style="margin-bottom:16px;">
+        <div class="card">
+          <div class="card-header">Horario de Cierre (AM vs PM)</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Horario</th><th>Trades</th><th>Win %</th><th>P&amp;L Total</th></tr></thead>
+              <tbody id="timeslot-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">Duración de Posiciones</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Duración</th><th>Trades</th><th>Win %</th><th>P&amp;L Total</th></tr></thead>
+              <tbody id="duration-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Estrategias Cerradas (Round-trips)</div>
+        <div class="table-wrap">
+          <table id="strat-table">
+            <thead><tr>
+              <th onclick="histSort('openDate')"    style="cursor:pointer;user-select:none;">Apertura <span id="hs-openDate"></span></th>
+              <th onclick="histSort('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hs-closeDate"></span></th>
+              <th onclick="histSort('stratType')"   style="cursor:pointer;user-select:none;">Tipo <span id="hs-stratType"></span></th>
+              <th onclick="histSort('underlying')"  style="cursor:pointer;user-select:none;">Símbolo <span id="hs-underlying"></span></th>
+              <th onclick="histSort('openValue')"   style="cursor:pointer;user-select:none;">Recibido <span id="hs-openValue"></span></th>
+              <th onclick="histSort('closeValue')"  style="cursor:pointer;user-select:none;">Pagado Cierre <span id="hs-closeValue"></span></th>
+              <th onclick="histSort('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hs-pnl"></span></th>
+              <th onclick="histSort('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hs-durationDays"></span></th>
+              <th onclick="histSort('win')"         style="cursor:pointer;user-select:none;">Resultado <span id="hs-win"></span></th>
+            </tr></thead>
+            <tbody id="strat-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <div class="card-header">Desglose Mensual</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Mes</th><th>P&amp;L</th><th>Retorno %</th>
+              <th>Días +</th><th>Días –</th><th>Broker (comis.)</th><th>Estado</th>
+            </tr></thead>
+            <tbody id="monthly-tbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -1230,7 +1382,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
 // ══════════════════════════════════════════
 //  STATE (Bitácora Tradier — Etapa 1)
 // ══════════════════════════════════════════
-const S = { charts: {} };
+const S = { charts: {}, txns: null, calYear: new Date().getFullYear(), calMonth: new Date().getMonth() };
 
 // ══════════════════════════════════════════
 //  FORMAT HELPERS (copiados de index.html, no compartidos todavía)
@@ -1291,9 +1443,12 @@ const TABS = {
   wheel:       () => loadWheelTrading(),
   bp:          () => loadBPTradier(),
   alejandro:   () => loadAlejandro(),
-  // Los tabs sin loader todavía (dashboard, calendar, positions, history,
-  // reports, watchlist, ai, today) solo muestran su placeholder — no
-  // hay función que llamar hasta que se construyan en etapas futuras.
+  calendar:    () => loadCalendarTradier(),
+  history:     () => loadHistoryTradier(),
+  reports:     () => loadReportsTradier(),
+  // Los tabs sin loader todavía (dashboard, positions, watchlist, ai, today)
+  // solo muestran su placeholder — no hay función que llamar hasta que se
+  // construyan en etapas futuras.
 };
 
 function nav(tab, el) {
@@ -2425,6 +2580,497 @@ async function loadBPTradier() {
     canvas.addEventListener('mouseleave', () => { draw(); $('bp-center-pct').textContent='—'; $('bp-center-lbl').textContent='hover'; });
   });
 }
+
+// ══════════════════════════════════════════
+//  HISTORIAL / REPORTES / CALENDARIO (Tradier) — Etapa 4. Portados de
+//  index.html, mismo shape de datos (src/metrics_tradier.js produce
+//  exactamente lo que ya consume este render). Se sacó el botón de Trade
+//  Journal (no está portado, esa tabla depende de playbooks.json) y las
+//  llamadas a wlOpenPlaybook()/osShowPopup() (Watchlist/OptionStrat, no
+//  portados) en el modal de detalle del calendario.
+// ══════════════════════════════════════════
+function consolidateStrategies(legs) {
+  const map = new Map();
+  for (const leg of legs) {
+    const key = leg.key || `${leg.underlying}_${leg.openDate}_${leg.closeDate}_${leg.stratType}_${leg.openValue}`;
+    if (!map.has(key)) {
+      map.set(key, { underlying:leg.underlying, openDate:leg.openDate,
+        closeDate:leg.closeDate, closeExecAt:leg.closeExecAt, stratType:leg.stratType,
+        durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0,
+        amPm:leg.amPm, win:leg.win, key:leg.key });
+    }
+    const s = map.get(key);
+    s.openValue  += leg.openValue  || 0;
+    s.closeValue += leg.closeValue || 0;
+    s.pnl        += leg.pnl        || 0;
+  }
+  return [...map.values()];
+}
+
+async function fetchTxnsTradier(force) {
+  if (force || !S.txns) S.txns = await api('/api/transactions-tradier');
+  return S.txns;
+}
+
+// ── HISTORIAL ────────────────────────────────────────────────
+function initHistFiltersTradier() {
+  if (!$('hist-from').value) {
+    const d=new Date(); d.setDate(d.getDate()-90);
+    $('hist-from').value=d.toISOString().slice(0,10);
+  }
+  if (!$('hist-to').value) $('hist-to').value=new Date().toISOString().slice(0,10);
+}
+
+async function loadHistoryTradier() {
+  initHistFiltersTradier();
+  try {
+    const sd = $('hist-from').value, ed = $('hist-to').value;
+    const data = await fetchTxnsTradier();
+    const legs = data.metrics?.strategies || [];
+    const strategies = consolidateStrategies(legs)
+      .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+
+    strategies.forEach(s => { s.capPct = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null; });
+    const wins     = strategies.filter(s => s.pnl > 0).length;
+    const totalPnl = strategies.reduce((a,b) => a + b.pnl, 0);
+    $('hist-summary').textContent =
+      `${strategies.length} trades cerrados · Win Rate: ${strategies.length ? Math.round(wins/strategies.length*100) : 0}% · P&L: ${f$(totalPnl)}`;
+
+    window._histData = strategies;
+    window._histSortCol = 'closeDate';
+    window._histSortAsc = false;
+
+    window.sortHist = function(col) {
+      if (window._histSortCol === col) window._histSortAsc = !window._histSortAsc;
+      else { window._histSortCol = col; window._histSortAsc = false; }
+      ['closeDate','openDate','underlying','stratType','durationDays','pnl','capPct','openValue','closeValue'].forEach(c => {
+        const el = document.getElementById('hh-'+c);
+        if (el) el.textContent = c === col ? (window._histSortAsc ? '▲' : '▼') : '';
+      });
+      window.renderHistRows(window._histData, window._histSortCol, window._histSortAsc);
+    };
+
+    window.renderHistRows = function(list, col, asc) {
+      const numCols = new Set(['durationDays','pnl','capPct','openValue','closeValue']);
+      const sorted = [...list].sort((a,b) => {
+        const va = numCols.has(col) ? (a[col]||0) : (a[col]||'');
+        const vb = numCols.has(col) ? (b[col]||0) : (b[col]||'');
+        if (typeof va === 'number') return asc ? va-vb : vb-va;
+        return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+      });
+      $('hist-tbody').innerHTML = !sorted.length
+        ? '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
+        : sorted.map(s => {
+            const capHtml = s.capPct !== null && s.capPct !== undefined
+              ? `<span class="${s.capPct >= 0 ? 'pos' : 'neg'}">${s.capPct > 0 ? '+' : ''}${s.capPct}%</span>` : '—';
+            const durLabel = s.durationDays === 0 ? 'Intradía' : s.durationDays === 1 ? '1 día' : `${s.durationDays}d`;
+            return `<tr>
+              <td class="td-mono dim">${s.closeDate||'—'}</td>
+              <td class="td-mono dim">${s.openDate||'—'}</td>
+              <td class="td-bright">${s.underlying||'—'}</td>
+              <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType||'—'}</span></td>
+              <td class="td-mono dim">${durLabel}</td>
+              <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+              <td>${capHtml}</td>
+              <td class="td-mono pos">${s.openValue ? '+'+fa$(Math.abs(s.openValue)) : '—'}</td>
+              <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : '—'}</td>
+            </tr>`;
+          }).join('');
+    };
+    renderHistRows(strategies, 'closeDate', false);
+  } catch(e) {
+    $('hist-tbody').innerHTML = `<tr><td colspan="9"><div class="error-box">${e.message}</div></td></tr>`;
+  }
+}
+
+// ── REPORTES ─────────────────────────────────────────────────
+const TRADIER_STARTING_BALANCE_UI = 100000; // mismo valor que server.js (TRADIER_STARTING_BALANCE)
+
+function resetRepFilterTradier() {
+  $('rep-from').value = '2026-02-01';
+  $('rep-to').value   = new Date().toISOString().slice(0,10);
+  loadReportsTradier(true);
+}
+
+async function loadReportsTradier(forceRefresh) {
+  try {
+    const sd = $('rep-from').value || '2026-02-01';
+    const ed = $('rep-to').value   || new Date().toISOString().slice(0,10);
+    if (!$('rep-to').value) $('rep-to').value = ed;
+    $('rep-period-label').textContent = `${sd} → ${ed}`;
+
+    const data = await fetchTxnsTradier(forceRefresh);
+    const allStrats = data.metrics?.strategies || [];
+    const filteredStrats = allStrats.filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+    const wins = filteredStrats.filter(s => s.pnl > 0);
+    const losers = filteredStrats.filter(s => s.pnl <= 0);
+    const totalGain = wins.reduce((a,b) => a+b.pnl, 0);
+    const totalLoss = Math.abs(losers.reduce((a,b) => a+b.pnl, 0));
+    const byUnd = {}, bySt = {}, byTime = {}, byDur = {};
+    for (const s of filteredStrats) {
+      const un = s.underlying||'OTHER';
+      if (!byUnd[un]) byUnd[un] = {pnl:0,trades:0,wins:0};
+      byUnd[un].pnl += s.pnl; byUnd[un].trades++; if(s.pnl>0) byUnd[un].wins++;
+      const st = s.stratType||'Otro';
+      if (!bySt[st]) bySt[st] = {pnl:0,trades:0,wins:0,avgWin:0,avgLoss:0,winRate:0};
+      bySt[st].pnl += s.pnl; bySt[st].trades++; if(s.pnl>0) bySt[st].wins++;
+      const ap = s.amPm||'Unknown';
+      if (!byTime[ap]) byTime[ap] = {pnl:0,trades:0,wins:0};
+      byTime[ap].pnl += s.pnl; byTime[ap].trades++; if(s.pnl>0) byTime[ap].wins++;
+      const dc = s.durationCat||'Unknown';
+      if (!byDur[dc]) byDur[dc] = {pnl:0,trades:0,wins:0};
+      byDur[dc].pnl += s.pnl; byDur[dc].trades++; if(s.pnl>0) byDur[dc].wins++;
+    }
+    for (const [type,d] of Object.entries(bySt)) {
+      const sw = filteredStrats.filter(s=>s.stratType===type&&s.pnl>0);
+      const sl = filteredStrats.filter(s=>s.stratType===type&&s.pnl<=0);
+      d.avgWin  = sw.length ? +(sw.reduce((a,b)=>a+b.pnl,0)/sw.length).toFixed(2) : 0;
+      d.avgLoss = sl.length ? +(sl.reduce((a,b)=>a+b.pnl,0)/sl.length).toFixed(2) : 0;
+      d.winRate = d.trades ? +((d.wins/d.trades)*100).toFixed(1) : 0;
+    }
+    const stratByDay = {}, strategyByMonth = {}, strategyByWeek = {};
+    filteredStrats.forEach(s => {
+      if (!s.closeDate) return;
+      stratByDay[s.closeDate] = (stratByDay[s.closeDate]||0) + s.pnl;
+      const mo = s.closeDate.slice(0,7);
+      strategyByMonth[mo] = (strategyByMonth[mo]||0) + s.pnl;
+      const d    = new Date(s.closeDate + 'T12:00:00Z');
+      const jan1 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const wk   = Math.ceil((((d - jan1) / 86400000) + jan1.getUTCDay() + 1) / 7);
+      const wkKey = `${d.getUTCFullYear()}-W${String(wk).padStart(2,'0')}`;
+      strategyByWeek[wkKey] = (strategyByWeek[wkKey]||0) + s.pnl;
+    });
+    const m = {
+      ...data.metrics,
+      strategies:      filteredStrats,
+      totalStrategies: filteredStrats.length,
+      winRate:         filteredStrats.length ? +((wins.length/filteredStrats.length)*100).toFixed(2) : 0,
+      profitFactor:    totalLoss > 0 ? +(totalGain/totalLoss).toFixed(2) : totalGain>0 ? 999 : 0,
+      avgWinner:       wins.length   ? +(totalGain/wins.length).toFixed(2)   : 0,
+      avgLoser:        losers.length ? +(totalLoss/losers.length).toFixed(2) : 0,
+      totalPnL:        +filteredStrats.reduce((a,b)=>a+b.pnl,0).toFixed(2),
+      byUnderlying:    byUnd,
+      byStrategy:      bySt,
+      byTimeSlot:      byTime,
+      byDuration:      byDur,
+      stratByDay,
+      strategyByMonth,
+      strategyByWeek,
+      totalComm:       0,
+      brokerByMonth:   {},
+    };
+
+    $('rep-kpis').innerHTML = [
+      kpiCard('Total Estrategias', m.totalStrategies, 'round-trips analizados','dim'),
+      kpiCard('Ganancia Prom.', fa$(m.avgWinner), 'por estrategia ganadora','pos'),
+      kpiCard('Pérdida Prom.', '-'+fa$(m.avgLoser), 'por estrategia perdedora','neg'),
+      kpiCard('Comisiones Pagadas', '-'+fa$(m.totalComm), 'Tradier sandbox no las trackea hoy','neg'),
+    ].join('');
+
+    const wr = m.winRate || 0;
+    $('gauge-ring').style.setProperty('--pct', wr.toFixed(1)+'%');
+    $('gauge-pct').textContent = wr+'%';
+    $('wr-detail').innerHTML = `
+      <div class="stat-row"><span class="stat-lbl">Ganadoras</span><span class="stat-val pos">${m.totalStrategies?Math.round(wr/100*m.totalStrategies):0}</span></div>
+      <div class="stat-row"><span class="stat-lbl">Perdedoras</span><span class="stat-val neg">${m.totalStrategies?m.totalStrategies-Math.round(wr/100*m.totalStrategies):0}</span></div>
+      <div class="stat-row"><span class="stat-lbl">Profit Factor</span><span class="stat-val ${m.profitFactor>=1.5?'pos':'neg'}">${m.profitFactor===999?'∞':m.profitFactor}x</span></div>
+    `;
+
+    const und = Object.entries(m.byUnderlying||{}).sort((a,b)=>Math.abs(b[1].pnl)-Math.abs(a[1].pnl)).slice(0,8);
+    $('rep-underlying').innerHTML = und.length ? und.map(([sym,d])=>`
+      <div class="stat-row">
+        <div><span class="td-bright" style="font-size:12px;">${sym}</span><span class="dim" style="font-size:10px;margin-left:6px;">${d.trades} ops</span></div>
+        <span class="td-mono ${cc(d.pnl)}" style="font-size:12px;">${f$(d.pnl)}</span>
+      </div>`).join('') : '<div class="dim">Sin datos</div>';
+
+    const curveByWeek = m.strategyByWeek || m.byWeek || {};
+    const weeks=Object.keys(curveByWeek).sort().slice(-16);
+    const wVals=weeks.map(w=>curveByWeek[w]);
+    const ctx=$('weeklyChart').getContext('2d');
+    if(S.charts.weekly) S.charts.weekly.destroy();
+    S.charts.weekly=new Chart(ctx,{
+      type:'bar',
+      data:{labels:weeks.map(w=>w.slice(5)),datasets:[{data:wVals,backgroundColor:wVals.map(v=>v>=0?'rgba(19,214,143,.7)':'rgba(240,79,90,.7)'),borderColor:wVals.map(v=>v>=0?'#13d68f':'#f04f5a'),borderWidth:1,borderRadius:3}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}}},
+        scales:{x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9}},grid:{display:false}},y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.5)'}}}
+      }
+    });
+
+    const strats = Object.entries(m.byStrategy||{}).sort((a,b)=>b[1].trades-a[1].trades);
+    $('strategy-type-tbody').innerHTML = strats.length ? strats.map(([tipo,d])=>`<tr>
+      <td class="td-bright">${tipo}</td>
+      <td class="td-mono">${d.trades}</td>
+      <td class="td-mono ${d.winRate>=50?'pos':'neg'}">${d.winRate}%</td>
+      <td class="td-mono ${cc(d.pnl)}" style="font-weight:700">${f$(d.pnl)}</td>
+      <td class="td-mono pos">${fa$(d.avgWin)}</td>
+      <td class="td-mono neg">-${fa$(Math.abs(d.avgLoss))}</td>
+    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--muted);">Sin datos</td></tr>';
+
+    const totalPnL   = m.totalPnL || 0;
+    const totalComm  = m.totalComm || 0;
+    const grossPnL   = totalPnL + totalComm;
+    const ratio      = totalComm > 0 ? (totalComm / Math.abs(grossPnL) * 100).toFixed(1) : 0;
+    $('broker-analysis').innerHTML = `
+      <div class="stat-row"><span class="stat-lbl">P&L Bruto (antes comis.)</span><span class="stat-val ${cc(grossPnL)}">${f$(grossPnL)}</span></div>
+      <div class="stat-row"><span class="stat-lbl">Comisiones + Fees</span><span class="stat-val neg">-${fa$(totalComm)}</span></div>
+      <div class="stat-row"><span class="stat-lbl">P&L Neto Real</span><span class="stat-val ${cc(totalPnL)}" style="font-weight:700">${f$(totalPnL)}</span></div>
+      <div class="stat-row"><span class="stat-lbl">Comis. / P&L Bruto</span><span class="stat-val neg">${ratio}%</span></div>
+      <div style="margin-top:12px;font-size:10px;color:var(--muted);">Tradier sandbox no trackea comisiones/fees por trade hoy.</div>
+    `;
+
+    const timeOrder = ['AM (9-12h)','PM (12-16h)','Pre-market','After-hours'];
+    const slots = timeOrder.filter(t => m.byTimeSlot?.[t]);
+    $('timeslot-tbody').innerHTML = slots.length ? slots.map(slot=>{
+      const d = m.byTimeSlot[slot];
+      const wr2 = d.trades ? ((d.wins/d.trades)*100).toFixed(1) : 0;
+      return `<tr>
+        <td class="td-bright">${slot}</td>
+        <td class="td-mono">${d.trades}</td>
+        <td class="td-mono ${wr2>=50?'pos':'neg'}">${wr2}%</td>
+        <td class="td-mono ${cc(d.pnl)}" style="font-weight:700">${f$(d.pnl)}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--muted);">Sin datos</td></tr>';
+
+    const durOrder = ['Intradía','1-7 días','1-4 semanas','> 1 mes','Abierto'];
+    const durs = durOrder.filter(d => m.byDuration?.[d]);
+    $('duration-tbody').innerHTML = durs.length ? durs.map(dur=>{
+      const d = m.byDuration[dur];
+      const wr2 = d.trades ? ((d.wins/d.trades)*100).toFixed(1) : 0;
+      return `<tr>
+        <td class="td-bright">${dur}</td>
+        <td class="td-mono">${d.trades}</td>
+        <td class="td-mono ${wr2>=50?'pos':'neg'}">${wr2}%</td>
+        <td class="td-mono ${cc(d.pnl)}" style="font-weight:700">${f$(d.pnl)}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--muted);">Sin datos</td></tr>';
+
+    const stratList = consolidateStrategies(m.strategies||[])
+      .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
+      .slice(0, 50);
+
+    window._stratList = stratList;
+    window._stratSortCol = 'closeDate';
+    window._stratSortAsc = false;
+    window.histSort = function(col) {
+      if (window._stratSortCol === col) window._stratSortAsc = !window._stratSortAsc;
+      else { window._stratSortCol = col; window._stratSortAsc = false; }
+      ['openDate','closeDate','stratType','underlying','openValue','closeValue','pnl','durationDays','win'].forEach(c => {
+        const el = document.getElementById('hs-'+c);
+        if (el) el.textContent = c === col ? (window._stratSortAsc ? ' ▲' : ' ▼') : '';
+      });
+      const asc = window._stratSortAsc;
+      const sorted = [...window._stratList].sort((a,b) => {
+        const va = a[col], vb = b[col];
+        if (typeof va === 'number') return asc ? va-vb : vb-va;
+        return asc ? String(va||'').localeCompare(String(vb||'')) : String(vb||'').localeCompare(String(va||''));
+      });
+      renderStratRowsTradier(sorted);
+    };
+
+    function renderStratRowsTradier(list) {
+      $('strat-tbody').innerHTML = list.length ? list.map(s=>`<tr>
+      <td class="td-mono dim">${s.openDate||'—'}</td>
+      <td class="td-mono dim">${s.closeDate||'—'}</td>
+      <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+      <td class="td-bright">${s.underlying||'—'}</td>
+      <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+      <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
+      <td class="td-mono ${cc(s.pnl)}" style="font-weight:700">${f$(s.pnl)}</td>
+      <td class="dim td-mono" style="font-size:10px;">${s.durationDays===0?'Intradía':s.durationDays===1?'1d':`${s.durationDays}d`}</td>
+      <td><span class="badge ${s.pnl>0?'badge-green':'badge-red'}">${s.pnl>0?'✓ WIN':'✗ LOSS'}</span></td>
+    </tr>`).join('') : '<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
+    }
+    renderStratRowsTradier(stratList);
+
+    const isFiltered = sd !== '2026-02-01' || ed !== new Date().toISOString().slice(0,10);
+    const curveByMonth = isFiltered ? m.strategyByMonth : (m.strategyByMonth || m.byMonth || {});
+    const months = Object.keys(curveByMonth).sort().reverse();
+    const byDay  = m.stratByDay || m.byDay || {};
+    const initial = TRADIER_STARTING_BALANCE_UI;
+    $('monthly-tbody').innerHTML = months.map(mo=>{
+      const pnl  = curveByMonth[mo], pct = initial ? (pnl/initial*100).toFixed(2) : 0;
+      const moP  = `${mo}-`;
+      const posD = Object.entries(byDay).filter(([d,v])=>d.startsWith(moP)&&v>0).length;
+      const negD = Object.entries(byDay).filter(([d,v])=>d.startsWith(moP)&&v<0).length;
+      const comm = 0;
+      const label = new Date(+mo.slice(0,4),+mo.slice(5,7)-1).toLocaleDateString('es-CO',{month:'long',year:'numeric'});
+      return `<tr>
+        <td class="td-bright">${label.charAt(0).toUpperCase()+label.slice(1)}</td>
+        <td class="td-mono ${cc(pnl)}" style="font-weight:700">${f$(pnl)}</td>
+        <td class="td-mono ${cc(pnl)}">${fp(pct)}</td>
+        <td class="pos td-mono">${posD}</td>
+        <td class="neg td-mono">${negD}</td>
+        <td class="neg td-mono">-${fa$(comm)}</td>
+        <td><span class="badge ${pnl>=0?'badge-green':'badge-red'}">${pnl>=0?'Positivo':'Negativo'}</span></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error('loadReportsTradier error:', e); }
+}
+
+// ── CALENDARIO ───────────────────────────────────────────────
+async function loadCalendarTradier() {
+  try {
+    await fetchTxnsTradier();
+    renderCalendarTradier();
+  } catch(e) { console.error(e); }
+}
+
+function renderCalendarTradier() {
+  const m      = S.txns?.metrics;
+  const cal    = m?.stratByDay || {};
+  const opens  = m?.openByDay  || {};
+
+  const y=S.calYear, mo=S.calMonth;
+  const monthName = new Date(y,mo,1).toLocaleDateString('es-CO',{month:'long',year:'numeric'});
+  $('cal-label').textContent = monthName.charAt(0).toUpperCase()+monthName.slice(1);
+
+  let moTotal=0, moPos=0, moNeg=0;
+  const prefix = `${y}-${String(mo+1).padStart(2,'0')}`;
+  Object.entries(cal).forEach(([d,v])=>{ if(d.startsWith(prefix)){moTotal+=v;if(v>0)moPos++;else if(v<0)moNeg++;} });
+  $('cal-month-pnl').textContent = f$(moTotal);
+  $('cal-month-pnl').className   = cc(moTotal);
+  $('cal-pos-days').textContent  = moPos;
+  $('cal-neg-days').textContent  = moNeg;
+
+  const dows = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  $('cal-dows').innerHTML = dows.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+
+  const firstDay = new Date(y,mo,1).getDay();
+  const offset = firstDay===0 ? 6 : firstDay-1;
+  const daysInMonth = new Date(y,mo+1,0).getDate();
+  const todayStr = new Date().toLocaleDateString('sv-SE',{timeZone:'America/New_York'});
+
+  let html='';
+  for(let i=0;i<offset;i++) html+=`<div class="cal-day empty"></div>`;
+  for(let d=1;d<=daysInMonth;d++){
+    const dateStr=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const pnl=cal[dateStr];
+    let cls='cal-day';
+    if(pnl!==undefined && pnl>0)  cls+=' pos-day';
+    else if(pnl!==undefined && pnl<0) cls+=' neg-day';
+    if(dateStr===todayStr) cls+=' today';
+    const pnlHtml  = pnl!==undefined ? `<div class="cal-pnl ${cc(pnl)}">${f$(pnl)}</div>` : '';
+    const openAmt  = opens[dateStr];
+    const openHtml = openAmt ? `<div class="cal-open" title="Prima cobrada (posición abierta)">+${openAmt.toFixed(0)}</div>` : '';
+    html+=`<div class="${cls}" onclick="calDayClickTradier('${dateStr}',${pnl||0})">
+      <div class="cal-num">${d}</div>${pnlHtml}${openHtml}
+    </div>`;
+  }
+  $('cal-cells').innerHTML=html;
+}
+
+async function calDayClickTradier(dateStr, pnl) {
+  const detail=$('cal-detail'), title=$('cal-detail-title'), tbody=$('cal-detail-tbody');
+  if (!detail) return;
+  detail.style.display='block';
+  detail.scrollIntoView({ behavior:'smooth', block:'start' });
+  title.textContent=`${fDate(dateStr)}  —  P&L: ${f$(pnl)}`;
+  tbody.innerHTML='<tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr>';
+
+  try {
+    await fetchTxnsTradier();
+    const legs = S.txns.metrics?.strategies || [];
+    const closedLegs = legs.filter(s => s.closeDate === dateStr);
+    const closed      = consolidateStrategies(closedLegs);
+    const openLegs = legs.filter(s => s.openDate === dateStr && s.closeDate !== dateStr);
+    const opened   = consolidateStrategies(openLegs);
+
+    if (!closed.length && !opened.length) {
+      tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">Sin trades este día</td></tr>';
+      return;
+    }
+
+    const rows = [
+      ...closed.map((s,ci) => {
+        window._calTrades = window._calTrades||{};
+        const tkey = 'c_'+ci+'_'+dateStr;
+        window._calTrades[tkey] = s;
+        const cap = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
+        return `<tr style="cursor:pointer;" onclick="calShowTradeDetailTradier('${tkey}')">
+          <td><span class="badge badge-gold" style="font-size:9px;">Cierre</span></td>
+          <td class="td-bright" style="font-weight:700;">${s.underlying}</td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td class="td-mono dim">${s.durationDays===0?'Intradía':s.durationDays+'d'}</td>
+          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+          <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+          <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
+        </tr>`;
+      }),
+      ...opened.map((s,oi) => {
+        window._calTrades = window._calTrades||{};
+        const tkey = 'o_'+oi+'_'+dateStr;
+        window._calTrades[tkey] = s;
+        return `<tr style="opacity:.8;cursor:pointer;" onclick="calShowTradeDetailTradier('${tkey}')">
+          <td><span class="badge badge-blue" style="font-size:9px;">Apertura</span></td>
+          <td class="td-bright" style="font-weight:700;">${s.underlying}</td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td class="td-mono dim">Abierto</td>
+          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+          <td class="td-mono dim">En curso</td>
+          <td class="dim">—</td>
+        </tr>`;
+      }),
+    ];
+    tbody.innerHTML = rows.join('');
+  } catch(e) { tbody.innerHTML=`<tr><td colspan="7"><div class="error-box">${e.message}</div></td></tr>`; }
+}
+
+function calShowTradeDetailTradier(tkey) {
+  const s = (window._calTrades||{})[tkey];
+  if (!s) return;
+  const cap = s.openValue ? Math.round(s.pnl/Math.abs(s.openValue)*100) : null;
+
+  const existing = document.getElementById('cal-trade-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'cal-trade-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:500px;width:100%;position:relative;">
+      <button onclick="document.getElementById('cal-trade-modal').remove()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,.08);border:none;color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <div style="font-size:24px;font-weight:800;color:var(--bright);font-family:var(--mono);">${s.underlying}</div>
+        <span class="badge ${s.closeDate?'badge-gold':'badge-blue'}" style="font-size:11px;">${s.closeDate?'Cerrado':'Abierto'}</span>
+        <span class="badge badge-muted" style="font-size:11px;">${s.stratType||'—'}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">PRIMA COBRADA</div>
+          <div style="font-size:18px;font-weight:700;color:var(--green);font-family:var(--mono);">+${fa$(Math.abs(s.openValue||0))}</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">P&L REALIZADO</div>
+          <div style="font-size:18px;font-weight:700;font-family:var(--mono);" class="${cc(s.pnl)}">${s.pnl!=null?f$(s.pnl):'En curso'}</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">APERTURA</div>
+          <div style="font-size:13px;font-weight:600;color:var(--bright);">${s.openDate||'—'}</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">${s.closeDate?'CIERRE':'ESTADO'}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--bright);">${s.closeDate||'Abierto'}</div>
+        </div>
+        ${s.durationDays!=null?`
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">DURACIÓN</div>
+          <div style="font-size:13px;font-weight:600;color:var(--bright);">${s.durationDays===0?'Intradía':s.durationDays+' días'}</div>
+        </div>`:''}
+        ${cap!=null?`
+        <div style="background:var(--bg);border-radius:8px;padding:10px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">% CAPTURADO</div>
+          <div style="font-size:18px;font-weight:700;font-family:var(--mono);" class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</div>
+        </div>`:''}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target===modal) modal.remove(); });
+}
+
+function calPrev(){ S.calMonth--; if(S.calMonth<0){S.calMonth=11;S.calYear--;} renderCalendarTradier(); }
+function calNext(){ S.calMonth++; if(S.calMonth>11){S.calMonth=0;S.calYear++;} renderCalendarTradier(); }
 
 // ══ PLAYBOOK ALEJANDRO ══════════════════════════════════════
 

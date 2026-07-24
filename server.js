@@ -6330,6 +6330,24 @@ app.get('/api/nlv-history-tradier', (req, res) => {
   catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Bitacora Tradier — Etapa 4: mismo shape que /api/transactions ({metrics, ts})
+// pero construido desde tradier_executions.json (SPX 0DTE/1DTE) +
+// wheel_trading_executions.json (ciclos de la Rueda) en vez del historial
+// crudo de TastyTrade — ver src/metrics_tradier.js para el porque (Tradier
+// no expone un ledger de transacciones equivalente a tt.getAllTransactions).
+// startDate/endDate se aceptan por paridad de firma con /api/transactions
+// pero no filtran aca — el filtrado por rango de fechas ya lo hace el
+// frontend (loadHistory/loadReports) sobre closeDate, igual que con Tasty.
+app.get('/api/transactions-tradier', (req, res) => {
+  try {
+    const { buildMetricsTradier } = require('./src/metrics_tradier');
+    const spxExecutions   = loadTradierExecutions();
+    const wheelExecutions = loadWheelTradingExecutions();
+    const metrics = buildMetricsTradier(spxExecutions, wheelExecutions);
+    res.json({ metrics, ts: new Date().toISOString() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ── Guardado automático diario de NLV ─────────────────────────
