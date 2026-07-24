@@ -6287,6 +6287,49 @@ app.get('/api/wheel-tradier', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Bitacora Tradier — Etapa 3: mismo shape que /api/bp-dashboard (agrupacion
+// spread/naked/CC, meta 50/25/25) pero leyendo posiciones/balances EN VIVO
+// de Tradier en vez de wheel_trading_executions.json — a diferencia de "La
+// Rueda" (Etapa 2), esto no depende del archivo de tracking del screener,
+// asi que refleja correctamente cualquier posicion real abierta en la
+// cuenta (incluidas las que el tracking no capturo, ver hallazgo del
+// 2026-07-24: 6 puts cortos reales sin registro en wheel_trading_executions.json).
+// "Rueda" acá = universo del screener de la Rueda Automatizada
+// (wheel_trading_config.json), no wheel_config.json (que es de Tasty).
+app.get('/api/bp-dashboard-tradier', async (req, res) => {
+  try {
+    const data = await cached('bp-dashboard-tradier', 60, async () => {
+      const { buildBPDashboardFromTradier } = require('./src/bp_tradier_adapter');
+      const [balances, positions] = await Promise.all([tradier.getBalances(), tradier.getPositions()]);
+      const wtCfg = loadWheelTradingConfig();
+      const wheelSymbols = new Set(wtCfg.screener?.tickers || []);
+      return buildBPDashboardFromTradier(positions, balances || {}, wheelSymbols);
+    });
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// NLV History (Tradier) — mismo patron que loadNlvHistory/saveNlvSnapshot de
+// arriba (linea ~59) pero en un archivo separado — nunca se toca el de
+// Tasty. Sin seed historico (la cuenta Tradier no tiene un origen fijo
+// documentado como el deposito inicial de Tasty).
+const NLV_FILE_TRADIER = path.join(DATA_DIR, 'nlv_history_tradier.json');
+function loadNlvHistoryTradier() {
+  try {
+    if (fs.existsSync(NLV_FILE_TRADIER)) return JSON.parse(fs.readFileSync(NLV_FILE_TRADIER, 'utf8'));
+  } catch(e) { /* ignorar */ }
+  return {};
+}
+function saveNlvSnapshotTradier(dateStr, nlv) {
+  const history = loadNlvHistoryTradier();
+  history[dateStr] = nlv;
+  fs.writeFileSync(NLV_FILE_TRADIER, JSON.stringify(history, null, 2), 'utf8');
+}
+app.get('/api/nlv-history-tradier', (req, res) => {
+  try { res.json({ history: loadNlvHistoryTradier() }); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ── Guardado automático diario de NLV ─────────────────────────
@@ -6333,7 +6376,39 @@ app.listen(PORT, async () => {
   } catch (e) {
     console.error(`⚠️   Auth falló: ${e.message}\n`);
   }
+
+  // Bitacora Tradier — Etapa 3: mismo snapshot diario de NLV, pero para
+  // Tradier, en su propio archivo. Aislado en su propio try/catch — un
+  // fallo aca (ej. .env sin credenciales Tradier) nunca debe impedir que
+  // termine de arrancar la autenticacion/snapshot de Tasty de arriba.
+  try {
+    const balT = await tradier.getBalances();
+    const nlvT = parseFloat(balT?.total_equity || 0);
+    if (nlvT > 0) {
+      saveNlvSnapshotTradier(todayStr(), nlvT);
+      console.log(`[NLV-TRADIER] Snapshot guardado: ${todayStr()} = $${nlvT.toFixed(2)}`);
+    }
+    scheduleDailyTradier();
+  } catch (e) {
+    console.error(`[NLV-TRADIER] Error: ${e.message}`);
+  }
 });
+
+function scheduleDailyTradier() {
+  const now = new Date();
+  const target = new Date(now);
+  target.setUTCHours(20, 35, 0, 0);
+  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+  const ms = target - now;
+  setTimeout(async () => {
+    try {
+      const bal = await tradier.getBalances();
+      const nlv = parseFloat(bal?.total_equity || 0);
+      if (nlv > 0) saveNlvSnapshotTradier(todayStr(), nlv);
+    } catch(e) { console.error('[NLV-TRADIER] Error en snapshot diario:', e.message); }
+    scheduleDailyTradier();
+  }, ms);
+}
 
 // ── Playbooks ────────────────────────────────────────────────
 const PB_FILE = path.join(DATA_DIR, 'playbooks.json');

@@ -1201,10 +1201,7 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     </div>
     <!-- ══ BUYING POWER (placeholder — Etapa 3) ══ -->
     <div id="panel-bp" class="panel">
-      <div style="padding:60px 20px;text-align:center;color:var(--muted);">
-        <div style="font-size:32px;margin-bottom:12px;">🚧</div>
-        <div style="font-size:14px;">Próximamente — Etapa 3 del roadmap (adaptador de agrupación spread/naked/CC para posiciones de Tradier).</div>
-      </div>
+      <div id="bp-content"><div class="loader"><div class="spinner"></div></div></div>
     </div>
     <div id="panel-alejandro" class="panel">
       <div id="alejandro-content"><div class="loader"><div class="spinner"></div></div></div>
@@ -1292,9 +1289,10 @@ const TABS = {
   tradierdemo: () => loadTradierDemo(),
   backtester:  () => loadBacktester(),
   wheel:       () => loadWheelTrading(),
+  bp:          () => loadBPTradier(),
   alejandro:   () => loadAlejandro(),
   // Los tabs sin loader todavía (dashboard, calendar, positions, history,
-  // reports, watchlist, bp, ai, today) solo muestran su placeholder — no
+  // reports, watchlist, ai, today) solo muestran su placeholder — no
   // hay función que llamar hasta que se construyan en etapas futuras.
 };
 
@@ -2217,6 +2215,215 @@ function toggleWheelRow(id) {
   const isOpen = det.classList.contains("open");
   det.classList.toggle("open");
   if (chv) chv.textContent = isOpen ? "▶" : "▼";
+}
+
+// ══════════════════════════════════════════
+//  BUYING POWER (Tradier) — Etapa 3. Port casi textual de loadBP()
+//  (index.html), mismo shape de respuesta (src/bp_tradier_adapter.js
+//  produce exactamente lo que ya consume este render) — solo cambia el
+//  endpoint.
+// ══════════════════════════════════════════
+async function loadBPTradier() {
+  $('bp-content').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  let d;
+  try {
+    d = await fetch('/api/bp-dashboard-tradier?t='+Date.now()).then(r=>r.json());
+  } catch(e) {
+    $('bp-content').innerHTML = `<div class="dim" style="padding:40px;text-align:center;">Error: ${e.message}</div>`;
+    return;
+  }
+
+  const fmt = v => '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0});
+
+  const segments = [
+    { label:'La Rueda',     pct: d.pctRueda, bp: d.ruedaBP, color:'#4f8ef7', target: d.targets.rueda },
+    { label:'Especulación', pct: d.pctSpec,  bp: d.specBP,  color:'#f7a54f', target: d.targets.spec  },
+    { label:'Libre',        pct: d.pctLibre, bp: d.libreBP, color: d.pctLibre < d.targets.libre ? '#e05c5c' : '#4fca7a', target: d.targets.libre },
+  ];
+  const ruedaStockBP = d.ruedaStockBP || 0;
+  const specStockBP  = d.specStockBP  || 0;
+
+  function posRows(posArr) {
+    if (!posArr.length) return '<tr><td colspan="3" class="dim" style="text-align:center;padding:12px;">Sin posiciones</td></tr>';
+    return posArr.map(p => `
+      <tr>
+        <td style="font-weight:600;">${p.underlying}</td>
+        <td style="color:var(--muted);font-size:11px;">${p.label}</td>
+        <td style="text-align:right;color:${p.bpUsed>0?'var(--pos)':'var(--muted)'};">${p.bpUsed > 0 ? fmt(p.bpUsed) : '—'}</td>
+      </tr>`).join('');
+  }
+
+  $('bp-content').innerHTML = `
+    <div style="padding:24px;max-width:1100px;margin:0 auto;">
+      <div style="margin-bottom:24px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;">Buying Power (Tradier) — opciones (derivados)</div>
+        <div style="font-size:28px;font-weight:700;margin-top:4px;">${fmt(d.base)} <span style="font-size:14px;color:var(--muted);font-weight:400;">Total BP opciones</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;display:flex;gap:20px;flex-wrap:wrap;">
+          <span>Net Equity: <strong style="color:var(--text);">${fmt(d.nlv)}</strong></span>
+          <span>BP opciones libre: <strong style="color:var(--text);">${fmt(d.derivAvail)}</strong></span>
+          <span>BP acciones libre: <strong style="color:var(--text);">${fmt(d.equityAvail)}</strong></span>
+          <span>Actualizado: ${new Date(d.ts).toLocaleTimeString('es-CO',{timeZone:'America/New_York'})}</span>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px;">
+        ${segments.map(s => {
+          const overLimit = s.label !== 'Libre' && s.pct > s.target;
+          const underMin  = s.label === 'Libre' && s.pct < s.target;
+          const alert     = overLimit || underMin;
+          return `
+          <div style="background:var(--card);border:1px solid ${alert?'rgba(224,92,92,.4)':'var(--border2)'};border-radius:14px;padding:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${s.label}</span>
+              ${alert ? '<span style="font-size:10px;background:rgba(224,92,92,.15);color:#e05c5c;padding:2px 8px;border-radius:8px;">⚠ Fuera de rango</span>' : ''}
+            </div>
+            <div style="font-size:26px;font-weight:700;color:${s.color};">${fmt(s.bp)}</div>
+            <div style="margin-top:12px;">
+              <div style="background:var(--bg2);border-radius:4px;height:6px;overflow:hidden;">
+                <div style="width:${Math.min(s.pct/s.target*100,130)}%;height:100%;background:${s.color};border-radius:4px;transition:width .4s;"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;">
+                <span style="color:${s.color};font-weight:600;">${s.pct}% del BP</span>
+                <span style="color:var(--muted);">meta: ${s.target}%</span>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div style="display:grid;grid-template-columns:280px 1fr;gap:24px;align-items:start;">
+        <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:20px;text-align:center;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;">% del BP opciones</div>
+          <div style="position:relative;display:inline-block;">
+            <canvas id="bp-donut" width="200" height="200"></canvas>
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;">
+              <div id="bp-center-pct" style="font-size:22px;font-weight:700;">—</div>
+              <div id="bp-center-lbl" style="font-size:10px;color:var(--muted);">hover</div>
+            </div>
+          </div>
+          <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
+            ${segments.map(s=>`
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+                <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
+                <span style="flex:1;text-align:left;">${s.label}</span>
+                <span style="color:${s.color};font-weight:600;">${s.pct}%</span>
+                <span style="color:var(--muted);">(meta ${s.target}%)</span>
+              </div>`).join('')}
+          </div>
+          <div style="margin-top:12px;font-size:10px;color:var(--muted);">Líneas punteadas = targets</div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:12px;font-weight:600;color:#4f8ef7;">🔄 La Rueda</span>
+              <div style="text-align:right;">
+                <span style="font-size:13px;font-weight:700;color:#4f8ef7;">${fmt(d.ruedaBP)}</span>
+                <span style="font-size:11px;color:var(--muted);"> opciones (${d.pctRueda}% BP)</span>
+                ${ruedaStockBP > 0 ? `<br><span style="font-size:10px;color:var(--muted);">+ ${fmt(ruedaStockBP)} acciones (equity BP)</span>` : ''}
+              </div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase;">
+                <th style="padding:8px 18px;text-align:left;">Activo</th>
+                <th style="padding:8px 18px;text-align:left;">Posición</th>
+                <th style="padding:8px 18px;text-align:right;">BP usado</th>
+              </tr></thead>
+              <tbody>${posRows(d.ruedaPos)}</tbody>
+            </table>
+          </div>
+
+          <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:12px;font-weight:600;color:#f7a54f;">⚡ Especulación</span>
+              <div style="text-align:right;">
+                <span style="font-size:13px;font-weight:700;color:#f7a54f;">${fmt(d.specBP)}</span>
+                <span style="font-size:11px;color:var(--muted);"> opciones (${d.pctSpec}% BP)</span>
+                ${specStockBP > 0 ? `<br><span style="font-size:10px;color:var(--muted);">+ ${fmt(specStockBP)} acciones (equity BP)</span>` : ''}
+              </div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase;">
+                <th style="padding:8px 18px;text-align:left;">Activo</th>
+                <th style="padding:8px 18px;text-align:left;">Posición</th>
+                <th style="padding:8px 18px;text-align:right;">BP usado</th>
+              </tr></thead>
+              <tbody>${posRows(d.specPos)}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  requestAnimationFrame(() => {
+    const canvas = document.getElementById('bp-donut');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const cx = 100, cy = 100, r = 80, inner = 52;
+    const total = segments.reduce((s,x) => s + x.pct, 0) || 100;
+
+    let startAngle = -Math.PI / 2;
+    const arcs = segments.map(s => {
+      const sweep = (s.pct / total) * 2 * Math.PI;
+      const arc = { start: startAngle, end: startAngle + sweep, color: s.color, label: s.label, pct: s.pct, bp: s.bp };
+      startAngle += sweep;
+      return arc;
+    });
+
+    function drawTargetMarker(pctCumulative) {
+      const angle = -Math.PI/2 + (pctCumulative/100)*2*Math.PI;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3,3]);
+      ctx.beginPath();
+      ctx.moveTo(cx + (inner-4)*Math.cos(angle), cy + (inner-4)*Math.sin(angle));
+      ctx.lineTo(cx + (r+4)*Math.cos(angle), cy + (r+4)*Math.sin(angle));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function draw(hoveredIdx = -1) {
+      ctx.clearRect(0, 0, 200, 200);
+      arcs.forEach((arc, i) => {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, i === hoveredIdx ? r+6 : r, arc.start, arc.end);
+        ctx.closePath();
+        ctx.fillStyle = arc.color + (i === hoveredIdx ? 'ff' : 'cc');
+        ctx.fill();
+      });
+      ctx.beginPath();
+      ctx.arc(cx, cy, inner, 0, 2*Math.PI);
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--card') || '#1a1d27';
+      ctx.fill();
+      let cum = 0;
+      for (const s of segments) { cum += s.target; drawTargetMarker(cum); }
+    }
+
+    draw();
+
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left - cx;
+      const my = e.clientY - rect.top  - cy;
+      const dist = Math.sqrt(mx*mx + my*my);
+      if (dist < inner || dist > r+10) { draw(); $('bp-center-pct').textContent='—'; $('bp-center-lbl').textContent='hover'; return; }
+      let angle = Math.atan2(my, mx) - (-Math.PI/2);
+      if (angle < 0) angle += 2*Math.PI;
+      const hit = arcs.findIndex((arc,i) => {
+        let s = arc.start + Math.PI/2; if(s<0) s+=2*Math.PI;
+        let en = arc.end + Math.PI/2;  if(en<0) en+=2*Math.PI;
+        return en >= s ? angle >= s && angle <= en : angle >= s || angle <= en;
+      });
+      draw(hit);
+      if (hit >= 0) {
+        $('bp-center-pct').textContent = arcs[hit].pct + '%';
+        $('bp-center-lbl').textContent = arcs[hit].label;
+      }
+    });
+    canvas.addEventListener('mouseleave', () => { draw(); $('bp-center-pct').textContent='—'; $('bp-center-lbl').textContent='hover'; });
+  });
 }
 
 // ══ PLAYBOOK ALEJANDRO ══════════════════════════════════════
