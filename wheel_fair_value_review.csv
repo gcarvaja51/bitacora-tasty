@@ -1,0 +1,13 @@
+Simbolo,Spot,DCF (caja descontada),Validacion,Fair Value Manual,Fuente,Notas
+RIO,90.57,176.99,INVALIDO - se desvia 95% del spot (>65%),,,
+PDD,86.21,322.21,INVALIDO - se desvia 274% del spot (>65%),,,
+NBIS,217.83,-65.997,INVALIDO - DCF negativo,,,
+HOOD,112.64,-47.56,INVALIDO - DCF negativo,,,
+RKLB,80.63,-49.01,INVALIDO - DCF negativo,,,
+BE,233.70,-17.32,INVALIDO - DCF negativo,,,
+IBIT,36.32,(sin dato),"INVALIDO - es un ETF, el DCF no aplica",,,
+MARA,12.69,-7.71,INVALIDO - DCF negativo,,,
+KO,83.61,97.53,VALIDO,,,
+JBLU,5.84,-17.72,INVALIDO - DCF negativo,,,
+NU,13.85,64.06,INVALIDO - se desvia 363% del spot (>65%),,,
+SOFI,18.88,17.80,VALIDO,,,

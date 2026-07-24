@@ -1,0 +1,76 @@
+[
+  {
+    "id": "tex-1783280873649",
+    "signalId": "spx-1783280872841",
+    "timestamp": "2026-07-05T19:47:52.841Z",
+    "strategy": "IRON_CONDOR",
+    "expType": "1DTE",
+    "strikes": {
+      "expiry": "2026-07-06",
+      "shortStrike": 7430,
+      "longStrike": 7420,
+      "shortDelta": 0.12,
+      "premium": 1.93,
+      "callShortStrike": 7550,
+      "callLongStrike": 7560,
+      "callDelta": 0.13,
+      "callPremium": 1.18
+    },
+    "expiry": "2026-07-06",
+    "contracts": 1,
+    "orderId": 33979113,
+    "legs": {
+      "putShortSym": "SPXW260706P07430000",
+      "putLongSym": "SPXW260706P07420000",
+      "callShortSym": "SPXW260706C07550000",
+      "callLongSym": "SPXW260706C07560000"
+    },
+    "status": "submitted",
+    "entryFillPrice": null,
+    "creditReceived": null,
+    "tpPct": 25,
+    "slMult": 1.5,
+    "filledAt": null,
+    "closedAt": null,
+    "closeReason": null,
+    "pnl": null,
+    "pnlSource": null
+  },
+  {
+    "id": "tex-1783194388639",
+    "signalId": "spx-1783194387798",
+    "timestamp": "2026-07-04T19:46:27.798Z",
+    "strategy": "IRON_CONDOR",
+    "expType": "1DTE",
+    "strikes": {
+      "expiry": "2026-07-05",
+      "shortStrike": 7430,
+      "longStrike": 7420,
+      "shortDelta": 0.12,
+      "premium": 1.93,
+      "callShortStrike": 7550,
+      "callLongStrike": 7560,
+      "callDelta": 0.13,
+      "callPremium": 1.18
+    },
+    "expiry": "2026-07-05",
+    "contracts": 1,
+    "orderId": null,
+    "legs": {
+      "putShortSym": "SPXW260705P07430000",
+      "putLongSym": "SPXW260705P07420000",
+      "callShortSym": "SPXW260705C07550000",
+      "callLongSym": "SPXW260705C07560000"
+    },
+    "status": "submitted",
+    "entryFillPrice": null,
+    "creditReceived": null,
+    "tpPct": 25,
+    "slMult": 1.5,
+    "filledAt": null,
+    "closedAt": null,
+    "closeReason": null,
+    "pnl": null,
+    "pnlSource": null
+  }
+]
