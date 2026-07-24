@@ -537,8 +537,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 
 /* ══ TABLES ══════════════════════════════ */
 .table-wrap { overflow-x: auto; }
-.tdemo-filter { width: 100%; box-sizing: border-box; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 10px; font-family: var(--mono); padding: 3px 4px; }
-#tdemo-filter-row th { padding: 4px 6px; background: var(--card2); }
+.tdemo-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.tdemo-sortable:hover { color: var(--bright); }
+.tdemo-sort-arrow { display: inline-block; width: 12px; font-size: 9px; color: var(--accent, #5b8cff); }
 table { width: 100%; border-collapse: collapse; }
 thead tr { background: var(--card2); }
 th {
@@ -1448,20 +1449,16 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div class="table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>Fecha</th><th>Dirección</th><th>Origen</th><th>Estrategia</th><th>Strikes</th>
-                <th>Estado</th><th>Cierre</th><th>Fill entrada</th><th>P&amp;L</th>
-              </tr>
-              <tr id="tdemo-filter-row">
-                <th><input type="text" class="tdemo-filter" data-col="fecha" placeholder="filtrar..." oninput="applyTdemoFilters()"></th>
-                <th><select class="tdemo-filter" data-col="direccion" onchange="applyTdemoFilters()"><option value="">Todas</option></select></th>
-                <th><select class="tdemo-filter" data-col="origen" onchange="applyTdemoFilters()"><option value="">Todos</option></select></th>
-                <th><select class="tdemo-filter" data-col="estrategia" onchange="applyTdemoFilters()"><option value="">Todas</option></select></th>
-                <th><input type="text" class="tdemo-filter" data-col="strikes" placeholder="filtrar..." oninput="applyTdemoFilters()"></th>
-                <th><select class="tdemo-filter" data-col="estado" onchange="applyTdemoFilters()"><option value="">Todos</option></select></th>
-                <th><select class="tdemo-filter" data-col="cierre" onchange="applyTdemoFilters()"><option value="">Todos</option></select></th>
-                <th><input type="text" class="tdemo-filter" data-col="fill" placeholder="filtrar..." oninput="applyTdemoFilters()"></th>
-                <th><input type="text" class="tdemo-filter" data-col="pnl" placeholder="filtrar..." oninput="applyTdemoFilters()"></th>
+              <tr id="tdemo-sort-row">
+                <th class="tdemo-sortable" data-col="fecha" onclick="sortTdemoBy('fecha')">Fecha<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="direccion" onclick="sortTdemoBy('direccion')">Dirección<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="origen" onclick="sortTdemoBy('origen')">Origen<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="estrategia" onclick="sortTdemoBy('estrategia')">Estrategia<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="strikes" onclick="sortTdemoBy('strikes')">Strikes<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="estado" onclick="sortTdemoBy('estado')">Estado<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="cierre" onclick="sortTdemoBy('cierre')">Cierre<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="fill" onclick="sortTdemoBy('fill')">Fill entrada<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="pnl" onclick="sortTdemoBy('pnl')">P&amp;L<span class="tdemo-sort-arrow"></span></th>
               </tr>
             </thead>
             <tbody id="tdemo-tbody"></tbody>
@@ -5506,11 +5503,11 @@ function renderTradierDemo(execs, account) {
     }
   });
 
-  // Tabla historial — guarda el set completo sin filtrar para que los filtros de
-  // columna (2026-07-23) puedan recalcular sobre los datos originales, no sobre
-  // lo que ya este filtrado en pantalla.
+  // Tabla historial — guarda el set completo para que el sort por columna
+  // (2026-07-23) pueda reordenar sobre los datos originales.
   window._tdemoExecs = execs;
-  populateTdemoFilterOptions(execs);
+  window._tdemoSort = null; // {col, dir} — se resetea con cada carga (orden natural: mas reciente primero)
+  updateTdemoSortArrows();
   renderTdemoRows(execs);
 }
 
@@ -5521,66 +5518,45 @@ const TDEMO_CIERRE_LABELS = {
   MANUAL: '👤 Manual', PARTIAL_FILL_EMERGENCY: '🚨 Emergencia',
 };
 
-// Llena los <select> de Dirección/Origen/Estrategia/Estado/Cierre con los valores
-// unicos que existen hoy en los datos, en vez de una lista fija — asi nunca queda
-// una opcion vieja/inexistente ni falta una nueva estrategia que se agregue despues.
-function populateTdemoFilterOptions(execs) {
-  const fill = (col, values, labelFn) => {
-    const sel = document.querySelector(`.tdemo-filter[data-col="${col}"]`);
-    if (!sel || sel.tagName !== 'SELECT') return;
-    const current = sel.value;
-    const unique = [...new Set(values.filter(v => v != null && v !== ''))].sort();
-    sel.innerHTML = `<option value="">Todas</option>` + unique.map(v => `<option value="${v}">${labelFn ? labelFn(v) : v}</option>`).join('');
-    if (unique.includes(current)) sel.value = current;
-  };
-  fill('direccion', execs.map(e => e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':null)));
-  fill('origen', execs.map(e => e.strategyFamily), v => TDEMO_ORIGEN_LABELS[v] || v);
-  fill('estrategia', execs.map(e => e.strategy));
-  fill('estado', execs.map(e => e.status));
-  fill('cierre', execs.map(e => e.closeReason).filter(Boolean));
+// Valor comparable de cada columna para una ejecucion dada — usado por el sort.
+function tdemoSortValue(e, col) {
+  switch (col) {
+    case 'fecha':      return new Date(e.timestamp).getTime();
+    case 'direccion':  return e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'');
+    case 'origen':     return TDEMO_ORIGEN_LABELS[e.strategyFamily] || e.strategyFamily || '';
+    case 'estrategia': return e.strategy || '';
+    case 'strikes':    return e.strikes ? e.strikes.shortStrike : -Infinity;
+    case 'estado':     return e.status || '';
+    case 'cierre':     return e.closeReason || '';
+    case 'fill':       return typeof e.entryFillPrice === 'number' ? e.entryFillPrice : -Infinity;
+    case 'pnl':        return typeof e.pnl === 'number' ? e.pnl : typeof e.livePnl === 'number' ? e.livePnl : -Infinity;
+    default:           return '';
+  }
 }
 
-// Filtra window._tdemoExecs con los valores actuales de cada control y vuelve a
-// pintar solo el tbody (los KPIs/graficos de arriba siguen reflejando TODO el
-// historico, no el filtro — el filtro es solo para leer la tabla mas facil).
-function applyTdemoFilters() {
-  const all = window._tdemoExecs || [];
-  const val = col => (document.querySelector(`.tdemo-filter[data-col="${col}"]`) || {}).value || '';
-  const fecha = val('fecha').toLowerCase();
-  const direccion = val('direccion');
-  const origen = val('origen');
-  const estrategia = val('estrategia');
-  const strikesQ = val('strikes').toLowerCase();
-  const estado = val('estado');
-  const cierre = val('cierre');
-  const fillQ = val('fill').toLowerCase();
-  const pnlQ = val('pnl').toLowerCase();
-
-  const filtered = all.filter(e => {
-    if (direccion && (e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'')) !== direccion) return false;
-    if (origen && e.strategyFamily !== origen) return false;
-    if (estrategia && e.strategy !== estrategia) return false;
-    if (estado && e.status !== estado) return false;
-    if (cierre && e.closeReason !== cierre) return false;
-    if (fecha) {
-      const fechaTxt = new Date(e.timestamp).toLocaleString('es-CO',{timeZone:'America/New_York', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}).toLowerCase();
-      if (!fechaTxt.includes(fecha)) return false;
-    }
-    if (strikesQ) {
-      const s = e.strikes ? `${e.strikes.shortStrike}/${e.strikes.longStrike}`.toLowerCase() : '';
-      if (!s.includes(strikesQ)) return false;
-    }
-    if (fillQ) {
-      const f = e.entryFillPrice ? ('$'+e.entryFillPrice).toLowerCase() : '';
-      if (!f.includes(fillQ)) return false;
-    }
-    if (pnlQ) {
-      const p = typeof e.pnl === 'number' ? f$(e.pnl).toLowerCase() : typeof e.livePnl === 'number' ? `~${f$(e.livePnl)}`.toLowerCase() : '';
-      if (!p.includes(pnlQ)) return false;
-    }
-    return true;
+// Clic en un encabezado: primer clic ascendente, segundo clic en la MISMA columna
+// invierte a descendente, clic en OTRA columna vuelve a empezar en ascendente.
+function sortTdemoBy(col) {
+  const cur = window._tdemoSort;
+  const dir = (cur && cur.col === col && cur.dir === 'asc') ? 'desc' : 'asc';
+  window._tdemoSort = { col, dir };
+  const sorted = [...(window._tdemoExecs || [])].sort((a, b) => {
+    const va = tdemoSortValue(a, col), vb = tdemoSortValue(b, col);
+    let cmp;
+    if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
+    else cmp = String(va).localeCompare(String(vb), 'es');
+    return dir === 'asc' ? cmp : -cmp;
   });
-  renderTdemoRows(filtered);
+  updateTdemoSortArrows();
+  renderTdemoRows(sorted);
+}
+
+function updateTdemoSortArrows() {
+  document.querySelectorAll('#tdemo-sort-row .tdemo-sort-arrow').forEach(el => el.textContent = '');
+  const s = window._tdemoSort;
+  if (!s) return;
+  const th = document.querySelector(`#tdemo-sort-row [data-col="${s.col}"] .tdemo-sort-arrow`);
+  if (th) th.textContent = s.dir === 'asc' ? '▲' : '▼';
 }
 
 function renderTdemoRows(execs) {
@@ -5608,7 +5584,7 @@ function renderTdemoRows(execs) {
       <td class="td-mono">${e.entryFillPrice ? '$'+e.entryFillPrice : '—'}</td>
       <td class="td-mono ${pnlCls}">${pnlLabel}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones para este filtro</td></tr>';
+  }).join('') : '<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
 }
 
 async function testSPXSignal(direction) {
