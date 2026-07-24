@@ -3182,7 +3182,7 @@ const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtensio
 // Nota: calcRSI ya existe como funcion local en este archivo (linea ~1243, usada por el
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
-const { calcCaminoA } = require('./src/camino_a');
+const { calcCaminoA, calcATR } = require('./src/camino_a');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -3686,6 +3686,18 @@ async function buildSPXContext() {
           bars15hoy.push({ high: rawHighs15[i], low: rawLows15[i], close: rawCloses15[i], volume: vols15[i] });
         }
         indicators.poc15m = calcPOC(bars15hoy);
+
+        // ATR(15m) de sesion (2026-07-23, a pedido del usuario) — usado para exigir
+        // una distancia minima entre la entrada y el Fractal/POC que actua de stop
+        // tecnico (ver mas abajo, donde se congelan signal.fractalLevel/pocLevel).
+        // Caso real que lo origino: 5 trades del mismo dia con el Fractal 15m a
+        // 0.65x-1.14x ATR de la entrada -- una sola vela de retroceso normal (dentro
+        // de una tendencia que el ADX seguia confirmando como fuerte) bastaba para
+        // tocar el stop. Simulado con Black-Scholes sobre precios reales: las 5
+        // habrian tocado el TP economico (30%) si el stop tecnico no hubiera
+        // disparado antes -- diferencia de ~$2,700 en ese cluster.
+        const atr15arr = calcATR(bars15hoy, 14);
+        indicators.atr15m = atr15arr.length ? atr15arr[atr15arr.length - 1] : null;
       }
 
       // 2m SPX (últimos 5 dias, no solo hoy) — marco de ejecución fina.
@@ -4096,8 +4108,32 @@ app.post('/api/spx/webhook', async (req, res) => {
     // POC de sesion en 15m. Separados de technicalStop (que ya combina fractal+muro
     // en un solo numero "el mas conservador") porque el monitor de salida necesita
     // los dos gatillos por separado, no un combinado.
-    signal.fractalLevel = direction === 'BULLISH' ? fractal15m.low : fractal15m.high;
-    signal.pocLevel     = ctx.indicators?.poc15m ?? null;
+    let fractalLevelRaw = direction === 'BULLISH' ? fractal15m.low : fractal15m.high;
+    let pocLevelRaw     = ctx.indicators?.poc15m ?? null;
+
+    // Piso de distancia minima (2026-07-23, a pedido del usuario): un nivel de
+    // Fractal/POC a menos de 1.5x ATR(15m) de la entrada esta dentro del ruido
+    // normal de una sola vela de 15m -- no hace falta que la tendencia se invalide
+    // de verdad para tocarlo. Caso real: 5 trades el mismo dia con el Fractal a
+    // 0.65x-1.14x ATR, las 5 habrian llegado al TP economico si el stop tecnico no
+    // hubiera disparado antes (simulado con Black-Scholes, ~$2,700 de diferencia).
+    // Si no hay ATR calculable todavia (pocas barras de sesion), se deja el nivel
+    // activo tal cual (comportamiento previo a este cambio) -- falla segura hacia
+    // NO relajar la proteccion cuando falta el dato, no hacia relajarla de mas.
+    const atr15m = ctx.indicators?.atr15m;
+    if (atr15m != null && ctx.spxPrice != null) {
+      const minDist = atr15m * 1.5;
+      if (fractalLevelRaw != null && Math.abs(ctx.spxPrice - fractalLevelRaw) < minDist) {
+        console.log(`[SPX] Fractal 15m (${fractalLevelRaw}) a menos de 1.5x ATR15m (${atr15m.toFixed(2)}) de la entrada — no se usa como gatillo de TECHNICAL_STOP esta vez`);
+        fractalLevelRaw = null;
+      }
+      if (pocLevelRaw != null && Math.abs(ctx.spxPrice - pocLevelRaw) < minDist) {
+        console.log(`[SPX] POC 15m (${pocLevelRaw}) a menos de 1.5x ATR15m (${atr15m.toFixed(2)}) de la entrada — no se usa como gatillo de TECHNICAL_STOP esta vez`);
+        pocLevelRaw = null;
+      }
+    }
+    signal.fractalLevel = fractalLevelRaw;
+    signal.pocLevel     = pocLevelRaw;
 
     signal.playbook       = playbookResult;
     signal.fuerzaTotal    = fuerzaTotal;

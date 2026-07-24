@@ -1234,6 +1234,41 @@ padre lleva horas en `open` con legs `filled` y sin posición, autopatchear a pn
 caso raro (primera vez visto) y la corrección manual vía el endpoint de patch ya existente fue
 suficiente. Si se repite con frecuencia, ahí sí conviene automatizarlo.
 
+## Piso de distancia mínima (1.5x ATR15m) para el stop técnico direccional (2026-07-23)
+
+**Caso real que lo originó**: 5 trades de TENDENCIA el mismo día (23 jul, ~13:06-13:56 ET),
+todos cerrados por `TECHNICAL_STOP` con el Fractal 15m como gatillo, resultado real:
+-$640/-$640/-$640/-$40 (4 de 5 perdedores). Se validó con dos análisis independientes:
+- **ADX(14) real** (velas de 15m, calculado con datos de Yahoo Finance): durante toda la
+  ventana del cluster el ADX estuvo en 51-53 — tendencia muy fuerte según el estándar, no un
+  mercado lateral. Descarta la hipótesis inicial ("el sistema no detectó que el mercado se
+  volvió rango") — el ADX confirma que la tendencia bajista seguía siendo fuerte.
+- **Distancia Fractal-vs-ATR**: la distancia real entrada→Fractal 15m en los 5 trades fue de
+  **0.65x a 1.14x ATR(14) de 15m** (~15-16 puntos ese día) — dentro del ruido normal de una
+  sola vela de 15m, no una señal de invalidación real de la tendencia.
+- **Simulación con Black-Scholes** (precio real del SPX minuto a minuto tras cada entrada, IV
+  ~19% aproximada): **las 5 trades habrían tocado el TP económico (30% del débito) antes que
+  cualquier SL**, si el stop técnico no hubiera cerrado la posición primero. Diferencia real
+  vs. hipotético solo-económico: -$1,960 vs. +$732, ~$2,700 en un solo cluster.
+
+**Fix aplicado**: `buildSPXContext()` ahora calcula `indicators.atr15m` (ATR de 14 periodos
+sobre las velas de 15m de la sesión de HOY, mismo array `bars15hoy` ya usado para el POC —
+`calcATR`, `src/camino_a.js`, reusada sin cambios). En el webhook (`POST /api/spx/webhook`),
+antes de congelar `signal.fractalLevel`/`signal.pocLevel` en la ejecución, se exige que cada
+nivel esté a un mínimo de **1.5x ATR15m** de la entrada — si está más cerca, ese nivel
+específico se pone en `null` (no se usa como gatillo de `TECHNICAL_STOP` esa vez), quedando
+solo el stop económico como respaldo (que ya existía, sin cambios). Los dos niveles se evalúan
+de forma independiente — puede quedar activo el POC pero no el Fractal, o viceversa.
+
+**Fallo seguro si no hay ATR calculable todavía** (pocas velas de sesión, primeros minutos
+tras la apertura): el nivel se deja activo tal cual, igual que antes de este cambio — la falla
+segura es hacia NO relajar la protección cuando falta el dato, no hacia relajarla de más.
+
+**No implementado a propósito**: ensanchar el Fractal/POC hacia 1.5x ATR en vez de anularlo
+(por ejemplo, mover el nivel a `entrada ± 1.5xATR` en vez de descartarlo) — se prefirió la
+opción más simple (nivel activo o inactivo, sin inventar un nivel nuevo que no viene de un
+fractal/POC real) hasta validar cómo se comporta esto en producción.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`
