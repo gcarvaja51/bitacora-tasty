@@ -6622,6 +6622,111 @@ Responde en español, de forma concisa y directa. Usa bullet points cuando sea �
 
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
+// Bitacora Tradier — Etapa 6: mismo coach de IA, misma mecanica de chat con
+// Claude (system prompt + historial + fetch a la API de Anthropic) — solo
+// cambia el bloque de recoleccion de datos, que ahora usa
+// buildMetricsTradier() (Etapa 4), posiciones/cotizaciones en vivo de
+// Tradier (Etapa 5) y el historial de NLV propio (Etapa 3) en vez de
+// TastyTrade. No toca /api/ai-chat.
+app.post('/api/ai-chat-tradier', async (req, res) => {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(400).json({ error: 'ANTHROPIC_API_KEY no configurada' });
+
+    const { question, history = [] } = req.body;
+
+    const { buildMetricsTradier } = require('./src/metrics_tradier');
+    const { parseOccSymbol } = require('./src/bp_tradier_adapter');
+    const [positions, bal] = await Promise.all([tradier.getPositions(), tradier.getBalances()]);
+    const m = buildMetricsTradier(loadTradierExecutions(), loadWheelTradingExecutions());
+    const nlv = parseFloat(bal?.total_equity || 0);
+    const nlvHistory = loadNlvHistoryTradier();
+    const nlvByMonth = computeMonthlyNlv(nlvHistory, nlv);
+
+    const symbols = positions.map(p => p.symbol).filter(Boolean);
+    const quotes = symbols.length ? await tradier.getQuotes(symbols) : [];
+    const quotesMap = {};
+    quotes.forEach(q => { quotesMap[q.symbol] = q; });
+
+    const openPositions = positions.map(p => {
+      const parsed = parseOccSymbol(p.symbol || '');
+      const qty = parseFloat(p.quantity || 0);
+      const mul = parsed ? 100 : 1;
+      const avgPrice = Math.abs(qty) > 0 ? Math.abs(parseFloat(p.cost_basis || 0)) / (Math.abs(qty) * mul) : 0;
+      const mark = quotesMap[p.symbol]?.mark ?? 0;
+      const dir = qty < 0 ? -1 : 1;
+      const pnl = dir * (mark - avgPrice) * Math.abs(qty) * mul;
+      return {
+        sym:    parsed ? parsed.root : p.symbol,
+        tipo:   parsed ? (parsed.optType === 'P' ? 'Put' : 'Call') : 'Stock',
+        dir:    qty < 0 ? 'Short' : 'Long',
+        strike: parsed ? parsed.strike : null,
+        expiry: parsed ? parsed.expiry : null,
+        qty,
+        openPrice: +avgPrice.toFixed(4),
+        currentPrice: mark,
+        pnlNoReal: +pnl.toFixed(2),
+      };
+    });
+
+    const context = `Eres un coach experto en trading de opciones. Tienes acceso a los datos reales de la cuenta sandbox de Tradier (Bitácora Tradier — SPX 0DTE/1DTE y La Rueda automatizada).
+
+DATOS DE LA CUENTA:
+- Net Equity actual: $${nlv.toFixed(2)}
+- Capital inicial: $${TRADIER_STARTING_BALANCE.toLocaleString()}
+- Retorno total: ${(((nlv-TRADIER_STARTING_BALANCE)/TRADIER_STARTING_BALANCE)*100).toFixed(2)}%
+- Total trades: ${m.totalStrategies}
+- Win Rate: ${m.winRate}%
+- Profit Factor: ${m.profitFactor}x
+- P&L Realizado: $${m.totalPnL}
+(Nota: comisiones no trackeadas todavía en Tradier sandbox — no incluidas)
+
+P&L MENSUAL (Net Equity):
+${Object.entries(nlvByMonth).sort().map(([mo,v])=>`- ${mo}: $${v.toFixed(2)}`).join('\n')}
+
+POSICIONES ABIERTAS AHORA:
+${openPositions.map(p=>`- ${p.sym} ${p.tipo} ${p.dir} Strike:${p.strike??'—'} Exp:${p.expiry??'—'} Qty:${p.qty} P&L No Real: $${p.pnlNoReal}`).join('\n')}
+
+POR ESTRATEGIA:
+${Object.entries(m.byStrategy||{}).slice(0,6).map(([t,d])=>`- ${t}: ${d.trades} trades, Win ${d.winRate}%, P&L $${d.pnl.toFixed(2)}`).join('\n')}
+
+POR SUBYACENTE:
+${Object.entries(m.byUnderlying||{}).sort((a,b)=>Math.abs(b[1].pnl)-Math.abs(a[1].pnl)).slice(0,6).map(([s,d])=>`- ${s}: ${d.trades} trades, P&L $${d.pnl.toFixed(2)}`).join('\n')}
+
+TRADES INDIVIDUALES CERRADOS (todos, ordenados por fecha de cierre):
+${(m.strategies||[]).sort((a,b)=>a.closeDate?.localeCompare(b.closeDate)).map(s=>`- ${s.closeDate} | ${s.underlying} | ${s.stratType} | ${s.durationCat} | P&L: $${(s.pnl||0).toFixed(2)} | ${s.win?'WIN':'LOSS'}`).join('\n')}
+
+Responde en español, de forma concisa y directa. Usa bullet points cuando sea útil. Sé específico con números de los datos reales. Máximo 500 palabras.`;
+
+    const messages = [
+      ...history.slice(-8).map(h => ({ role: h.role, content: h.content })),
+      { role: 'user', content: question }
+    ];
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 800,
+        system: context,
+        messages,
+      }),
+    });
+
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    const data = await response.json();
+    const reply = data.content?.[0]?.text || 'Sin respuesta';
+    res.json({ reply });
+
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/ai-analysis', async (req, res) => {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;

@@ -1405,10 +1405,21 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
     </div>
     <!-- ══ IA ANÁLISIS (placeholder — Etapa 6) ══ -->
     <div id="panel-ai" class="panel">
-      <div style="padding:60px 20px;text-align:center;color:var(--muted);">
-        <div style="font-size:32px;margin-bottom:12px;">🚧</div>
-        <div style="font-size:14px;">Próximamente — Etapa 6 del roadmap (reusa la mecánica de chat con Claude tal cual, solo cambia el bloque de datos).</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+        <button onclick="runAITradier()" class="btn btn-primary" style="padding:6px 16px;">⚡ Análisis General</button>
+        <button onclick="clearChatTradier()" class="btn" style="padding:6px 12px;font-size:11px;">🗑 Limpiar</button>
       </div>
+      <div id="ai-chat-area" style="height:calc(100vh - 280px);overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:4px 2px;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:10px;align-items:flex-end;">
+        <textarea id="ai-input" placeholder="Pregúntame cualquier cosa sobre tus trades en Tradier... (ej: ¿por qué gané todos los Bull Call Spread? / ¿debo cerrar la put de ANET?)"
+          style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--bright);font-size:13px;resize:none;min-height:50px;max-height:120px;font-family:inherit;line-height:1.5;"
+          rows="2"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAIChatTradier();}"></textarea>
+        <button onclick="sendAIChatTradier()" id="ai-send-btn" class="btn btn-primary" style="padding:12px 20px;height:50px;">
+          ➤ Enviar
+        </button>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;">Enter para enviar · Shift+Enter para nueva línea · Datos de la cuenta sandbox de Tradier completa (sin filtro de período, a diferencia de Bitácora Tasty)</div>
     </div>
 
     <!-- ══ HOY (placeholder — sin etapa asignada, depende de Etapa 4) ══ -->
@@ -1496,7 +1507,8 @@ const TABS = {
   reports:     () => loadReportsTradier(),
   dashboard:   () => loadDashboardTradier(),
   positions:   () => loadPositionsTradier(),
-  // Los tabs sin loader todavía (watchlist, ai, today) solo muestran su
+  ai:          () => loadAITradier(),
+  // Los tabs sin loader todavía (watchlist, today) solo muestran su
   // placeholder — no hay función que llamar hasta que se construyan en
   // etapas futuras.
 };
@@ -3312,6 +3324,100 @@ async function loadDashboardTradier() {
     console.error('loadDashboardTradier error:', e);
     $('dash-kpis').innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
   }
+}
+
+// ══════════════════════════════════════════
+//  IA ANÁLISIS (Tradier) — Etapa 6. Misma mecánica de chat con Claude tal
+//  cual (portada de index.html) — solo cambia el endpoint y se sacó el
+//  filtro de período (POST /api/ai-chat-tradier no lo necesita, ver
+//  server.js: siempre usa toda la cuenta, todavía joven).
+// ══════════════════════════════════════════
+const aiHistoryTradier = [];
+
+function marked(text) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^• (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+    .replace(/\n/g, '<br>');
+}
+
+function loadAITradier() {
+  if (aiHistoryTradier.length === 0) {
+    addAIMsgTradier('bot', `¡Hola! 👋 Soy tu coach de trading con IA para Bitácora Tradier.\n\nTengo acceso a los datos reales de la cuenta sandbox (SPX 0DTE/1DTE + La Rueda automatizada). Puedes preguntarme cualquier cosa:\n\n• **"¿Por qué gané todos los Bull Call Spread?"**\n• **"¿Debo cerrar la put de ANET?"**\n• **"¿Qué familia de estrategia está funcionando mejor?"**\n\nO usa el botón **⚡ Análisis General** para un diagnóstico completo.`);
+  }
+}
+
+function clearChatTradier() {
+  aiHistoryTradier.length = 0;
+  $('ai-chat-area').innerHTML = '';
+  loadAITradier();
+}
+
+function addAIMsgTradier(role, text, isLoading=false) {
+  const area = $('ai-chat-area');
+  const id = 'ai-msg-' + Date.now();
+  const avatar = role==='bot' ? '🤖' : '👤';
+  const html = isLoading
+    ? `<div class="ai-typing"><span></span><span></span><span></span></div>`
+    : marked(text);
+
+  const div = document.createElement('div');
+  div.className = `ai-msg ${role}`;
+  div.id = id;
+  div.innerHTML = `
+    <div class="ai-avatar ${role}">${avatar}</div>
+    <div>
+      <div class="ai-bubble ${role} ${isLoading?'loading':''}">${html}</div>
+      ${!isLoading?`<div class="ai-ts">${new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})}</div>`:''}
+    </div>`;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  return id;
+}
+
+async function sendAIChatTradier() {
+  const input = $('ai-input');
+  const question = (input.value || '').trim();
+  if (!question) return;
+
+  input.value = '';
+  input.style.height = '50px';
+  addAIMsgTradier('user', question);
+  aiHistoryTradier.push({ role:'user', content: question });
+
+  const loadingId = addAIMsgTradier('bot', '', true);
+  $('ai-send-btn').disabled = true;
+
+  try {
+    const res = await fetch('/api/ai-chat-tradier', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question, history: aiHistoryTradier.slice(-10) }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) {
+      loadingEl.querySelector('.ai-bubble').classList.remove('loading');
+      loadingEl.querySelector('.ai-bubble').innerHTML = marked(data.reply);
+      loadingEl.querySelector('.ai-bubble').insertAdjacentHTML('afterend', `<div class="ai-ts">${new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})}</div>`);
+    }
+    aiHistoryTradier.push({ role:'assistant', content: data.reply });
+    $('ai-chat-area').scrollTop = $('ai-chat-area').scrollHeight;
+  } catch(e) {
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.querySelector('.ai-bubble').innerHTML = `❌ Error: ${e.message}`;
+  } finally {
+    $('ai-send-btn').disabled = false;
+    input.focus();
+  }
+}
+
+async function runAITradier() {
+  $('ai-input').value = 'Dame un análisis completo de la cuenta';
+  sendAIChatTradier();
 }
 
 // ══ PLAYBOOK ALEJANDRO ══════════════════════════════════════
