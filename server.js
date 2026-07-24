@@ -4619,13 +4619,18 @@ setInterval(checkIronCondor, 5 * 60 * 1000);
 // Devuelve null si faltan cotizaciones o la estrategia no se reconoce — nunca inventa
 // un numero.
 // Tamaño de posicion por score (2026-07-09, a pedido del usuario, "mientras afinamos
-// todo"): 1 contrato en general, 2 si la señal viene con score >=90% (muy alineada).
-// Reemplaza el sizing por % de capital en las estrategias que SI tienen un score 0-100
-// real (direccional, reversion) — Iron Condor y Condor de debito no tienen un score
+// todo"). Reemplaza el sizing por % de capital en las estrategias que SI tienen un score
+// 0-100 real (direccional, reversion) — Iron Condor y Condor de debito no tienen un score
 // numerico equivalente (son gates booleanos, pasa/no pasa), asi que se quedan fijas
-// en 1 contrato por ahora, sin la logica de 90%.
+// en 1 contrato por ahora.
+// Ajuste 2026-07-23 (a pedido del usuario, tras revisar un dia real con 2 trades de
+// score perfecto que ganaron $240/$720 con solo 2 contratos): de binario (1/2) a 3
+// escalones (1/2/4) para aprovechar mas las confluencias mas fuertes.
 function sizeContractsByScore(score) {
-  return (score != null && score >= 90) ? 2 : 1;
+  if (score == null) return 1;
+  if (score >= 95) return 4;
+  if (score >= 90) return 2;
+  return 1;
 }
 
 // Sizing por riesgo en dólares — método de 5 pasos de Luis Sigma ("la
