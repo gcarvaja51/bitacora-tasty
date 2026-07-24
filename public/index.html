@@ -537,6 +537,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 
 /* ══ TABLES ══════════════════════════════ */
 .table-wrap { overflow-x: auto; }
+.tdemo-filter { width: 100%; box-sizing: border-box; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 10px; font-family: var(--mono); padding: 3px 4px; }
+#tdemo-filter-row th { padding: 4px 6px; background: var(--card2); }
 table { width: 100%; border-collapse: collapse; }
 thead tr { background: var(--card2); }
 th {
@@ -1445,10 +1447,23 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
         <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Incluye Bull Put/Bear Call e Iron Condor ejecutados automáticamente en el sandbox (débito manual, aún no conectado a Tradier). En Iron Condor, "Strikes" solo muestra la pata del put — ver detalle completo en Señales SPX.</div>
         <div class="table-wrap">
           <table>
-            <thead><tr>
-              <th>Fecha</th><th>Dirección</th><th>Estrategia</th><th>Strikes</th>
-              <th>Estado</th><th>Cierre</th><th>Fill entrada</th><th>P&amp;L</th>
-            </tr></thead>
+            <thead>
+              <tr>
+                <th>Fecha</th><th>Dirección</th><th>Origen</th><th>Estrategia</th><th>Strikes</th>
+                <th>Estado</th><th>Cierre</th><th>Fill entrada</th><th>P&amp;L</th>
+              </tr>
+              <tr id="tdemo-filter-row">
+                <th><input type="text" class="tdemo-filter" data-col="fecha" placeholder="filtrar..." oninput="applyTdemoFilters()"></th>
+                <th><select class="tdemo-filter" data-col="direccion" onchange="applyTdemoFilters()"><option value="">Todas</option></select></th>
+                <th><select class="tdemo-filter" data-col="origen" onchange="applyTdemoFilters()"><option value="">Todos</option></select></th>
+                <th><select class="tdemo-filter" data-col="estrategia" onchange="applyTdemoFilters()"><option value="">Todas</option></select></th>
+                <th><input type="text" class="tdemo-filter" data-col="strikes" placeholder="filtrar..." oninput="applyTdemoFilters()"></th>
+                <th><select class="tdemo-filter" data-col="estado" onchange="applyTdemoFilters()"><option value="">Todos</option></select></th>
+                <th><select class="tdemo-filter" data-col="cierre" onchange="applyTdemoFilters()"><option value="">Todos</option></select></th>
+                <th><input type="text" class="tdemo-filter" data-col="fill" placeholder="filtrar..." oninput="applyTdemoFilters()"></th>
+                <th><input type="text" class="tdemo-filter" data-col="pnl" placeholder="filtrar..." oninput="applyTdemoFilters()"></th>
+              </tr>
+            </thead>
             <tbody id="tdemo-tbody"></tbody>
           </table>
         </div>
@@ -5491,7 +5506,84 @@ function renderTradierDemo(execs, account) {
     }
   });
 
-  // Tabla historial
+  // Tabla historial — guarda el set completo sin filtrar para que los filtros de
+  // columna (2026-07-23) puedan recalcular sobre los datos originales, no sobre
+  // lo que ya este filtrado en pantalla.
+  window._tdemoExecs = execs;
+  populateTdemoFilterOptions(execs);
+  renderTdemoRows(execs);
+}
+
+const TDEMO_ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor' };
+const TDEMO_CIERRE_LABELS = {
+  TP: '🤖 Auto (TP)', SL: '🤖 Auto (SL)',
+  TECHNICAL_STOP: '🤖 Auto (Técnico)', TIME_STOP: '🤖 Auto (Tiempo)',
+  MANUAL: '👤 Manual', PARTIAL_FILL_EMERGENCY: '🚨 Emergencia',
+};
+
+// Llena los <select> de Dirección/Origen/Estrategia/Estado/Cierre con los valores
+// unicos que existen hoy en los datos, en vez de una lista fija — asi nunca queda
+// una opcion vieja/inexistente ni falta una nueva estrategia que se agregue despues.
+function populateTdemoFilterOptions(execs) {
+  const fill = (col, values, labelFn) => {
+    const sel = document.querySelector(`.tdemo-filter[data-col="${col}"]`);
+    if (!sel || sel.tagName !== 'SELECT') return;
+    const current = sel.value;
+    const unique = [...new Set(values.filter(v => v != null && v !== ''))].sort();
+    sel.innerHTML = `<option value="">Todas</option>` + unique.map(v => `<option value="${v}">${labelFn ? labelFn(v) : v}</option>`).join('');
+    if (unique.includes(current)) sel.value = current;
+  };
+  fill('direccion', execs.map(e => e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':null)));
+  fill('origen', execs.map(e => e.strategyFamily), v => TDEMO_ORIGEN_LABELS[v] || v);
+  fill('estrategia', execs.map(e => e.strategy));
+  fill('estado', execs.map(e => e.status));
+  fill('cierre', execs.map(e => e.closeReason).filter(Boolean));
+}
+
+// Filtra window._tdemoExecs con los valores actuales de cada control y vuelve a
+// pintar solo el tbody (los KPIs/graficos de arriba siguen reflejando TODO el
+// historico, no el filtro — el filtro es solo para leer la tabla mas facil).
+function applyTdemoFilters() {
+  const all = window._tdemoExecs || [];
+  const val = col => (document.querySelector(`.tdemo-filter[data-col="${col}"]`) || {}).value || '';
+  const fecha = val('fecha').toLowerCase();
+  const direccion = val('direccion');
+  const origen = val('origen');
+  const estrategia = val('estrategia');
+  const strikesQ = val('strikes').toLowerCase();
+  const estado = val('estado');
+  const cierre = val('cierre');
+  const fillQ = val('fill').toLowerCase();
+  const pnlQ = val('pnl').toLowerCase();
+
+  const filtered = all.filter(e => {
+    if (direccion && (e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'')) !== direccion) return false;
+    if (origen && e.strategyFamily !== origen) return false;
+    if (estrategia && e.strategy !== estrategia) return false;
+    if (estado && e.status !== estado) return false;
+    if (cierre && e.closeReason !== cierre) return false;
+    if (fecha) {
+      const fechaTxt = new Date(e.timestamp).toLocaleString('es-CO',{timeZone:'America/New_York', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}).toLowerCase();
+      if (!fechaTxt.includes(fecha)) return false;
+    }
+    if (strikesQ) {
+      const s = e.strikes ? `${e.strikes.shortStrike}/${e.strikes.longStrike}`.toLowerCase() : '';
+      if (!s.includes(strikesQ)) return false;
+    }
+    if (fillQ) {
+      const f = e.entryFillPrice ? ('$'+e.entryFillPrice).toLowerCase() : '';
+      if (!f.includes(fillQ)) return false;
+    }
+    if (pnlQ) {
+      const p = typeof e.pnl === 'number' ? f$(e.pnl).toLowerCase() : typeof e.livePnl === 'number' ? `~${f$(e.livePnl)}`.toLowerCase() : '';
+      if (!p.includes(pnlQ)) return false;
+    }
+    return true;
+  });
+  renderTdemoRows(filtered);
+}
+
+function renderTdemoRows(execs) {
   $('tdemo-tbody').innerHTML = execs.length ? execs.map(e => {
     const fecha = new Date(e.timestamp).toLocaleString('es-CO',{timeZone:'America/New_York', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
     const strikesLabel = e.strikes ? `${e.strikes.shortStrike}/${e.strikes.longStrike}` : '—';
@@ -5503,15 +5595,12 @@ function renderTradierDemo(execs, account) {
       : typeof e.livePnl === 'number' ? `~${f$(e.livePnl)}`
       : (e.status==='closed' ? '⚠️ Verificar manual' : '—');
     const pnlCls = typeof e.pnl === 'number' ? cc(e.pnl) : typeof e.livePnl === 'number' ? cc(e.livePnl) : 'dim';
-    const CIERRE_LABELS = {
-      TP: '🤖 Auto (TP)', SL: '🤖 Auto (SL)',
-      TECHNICAL_STOP: '🤖 Auto (Técnico)', TIME_STOP: '🤖 Auto (Tiempo)',
-      MANUAL: '👤 Manual', PARTIAL_FILL_EMERGENCY: '🚨 Emergencia',
-    };
-    const cierreLabel = e.status !== 'closed' ? '—' : (CIERRE_LABELS[e.closeReason] || e.closeReason || '❓ Sin dato');
+    const cierreLabel = e.status !== 'closed' ? '—' : (TDEMO_CIERRE_LABELS[e.closeReason] || e.closeReason || '❓ Sin dato');
+    const origenLabel = TDEMO_ORIGEN_LABELS[e.strategyFamily] || e.strategyFamily || '—';
     return `<tr>
       <td class="td-mono" style="font-size:11px;">${fecha}</td>
       <td class="${e.direction==='BULLISH'?'pos':e.direction==='BEARISH'?'neg':'dim'}">${e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'—')}</td>
+      <td style="font-size:11px;">${origenLabel}</td>
       <td>${e.strategy}</td>
       <td class="td-mono">${strikesLabel}</td>
       <td>${estadoLabel}</td>
@@ -5519,7 +5608,7 @@ function renderTradierDemo(execs, account) {
       <td class="td-mono">${e.entryFillPrice ? '$'+e.entryFillPrice : '—'}</td>
       <td class="td-mono ${pnlCls}">${pnlLabel}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
+  }).join('') : '<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones para este filtro</td></tr>';
 }
 
 async function testSPXSignal(direction) {
