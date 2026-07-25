@@ -270,6 +270,32 @@ class TradierClient {
     }));
   }
 
+  // Velas intradia (timesales) para un simbolo — usado para reemplazar el feed de
+  // Yahoo Finance en buildSPXContext() (server.js): Yahoo demostro servir datos
+  // congelados/cacheados en vivo el 2026-07-24 (SPX se movio ~54pts en 2h44min
+  // mientras Yahoo devolvia el mismo precio exacto en cada llamada), probablemente
+  // por caching/rate-limit silencioso de su CDN ante requests repetidos desde la
+  // misma IP. Tradier es el mismo broker que ya usamos para ejecutar ordenes reales
+  // (misma cuenta, mismo SLA del que ya depende todo el sistema) y expone velas
+  // intradia reales via /markets/timesales. interval: '1min'|'2min'|'5min'|'15min'.
+  // start/end: 'YYYY-MM-DD HH:MM' (hora del servidor de Tradier, ET).
+  async getTimesales(symbol, interval, start, end) {
+    const params = new URLSearchParams({ symbol, interval });
+    if (start) params.set('start', start);
+    if (end)   params.set('end', end);
+    const data = await this._req(`/markets/timesales?${params.toString()}`);
+    const rows = data.series?.data;
+    const list = Array.isArray(rows) ? rows : (rows ? [rows] : []);
+    return list.map(r => ({
+      timestamp: r.timestamp,
+      open:  r.open  != null ? parseFloat(r.open)  : null,
+      high:  r.high  != null ? parseFloat(r.high)  : null,
+      low:   r.low   != null ? parseFloat(r.low)   : null,
+      close: r.close != null ? parseFloat(r.close) : null,
+      volume: r.volume != null ? parseFloat(r.volume) : 0,
+    }));
+  }
+
   // Coloca la orden multi-leg (4 patas) para Iron Condor: short put + long put +
   // short call + long call, todas en la misma orden combinada.
   // minCreditPrice (2026-07-09, a pedido del usuario): si se pasa, la orden se manda

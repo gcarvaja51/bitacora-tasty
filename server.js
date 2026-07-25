@@ -1225,6 +1225,17 @@ function calcEMA(closes, period) {
   return +ema.toFixed(4);
 }
 
+// start/end para tradier.getTimesales() — "YYYY-MM-DD HH:MM" en hora ET (formato que
+// espera /markets/timesales). daysBack en dias calendario (no de mercado), para cubrir
+// fines de semana con margen y siempre traer suficientes barras para el warmup de EMA20.
+function tradierRangeParams(daysBack) {
+  const now = new Date();
+  const past = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+  const fmt = (d) => d.toLocaleString('en-CA', { timeZone: 'America/New_York', hour12: false })
+    .replace(',', '').slice(0, 16);
+  return { start: fmt(past), end: fmt(now) };
+}
+
 function calcMACD(closes) {
   if (closes.length < 35) return { line: null, signal: null, hist: null, histPrev: null, bullish: false, bearish: false, slope: 0 };
   const ema12 = calcEMA(closes, 12);
@@ -3508,14 +3519,26 @@ async function buildSPXContext() {
     const chainData = await tt._req('/option-chains/SPX/nested');
     const expirations = chainData.data?.items?.[0]?.expirations || [];
 
-    // 2. Precio SPX desde Yahoo
+    // 2. Precio SPX — Tradier primero (mismo broker que ya usamos para ejecutar
+    // ordenes reales, mismo SLA del que ya depende todo el sistema), Yahoo como
+    // respaldo. Cambiado 2026-07-24: Yahoo demostro servir el mismo precio
+    // "congelado" durante 2h44min en vivo ese mismo dia (SPX se movio ~54pts
+    // reales mientras Yahoo devolvia siempre 7411.02), causa raiz confirmada de
+    // que el gate de confluencia Weinstein se quedara ciego a un rally real —
+    // ver nota completa en src/tradier.js (getTimesales).
     let spxPrice = 5530;
     try {
-      const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const j = await r.json();
-      spxPrice = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice || spxPrice);
+      const q = await tradier.getQuotes(['SPX']);
+      if (q[0]?.last) spxPrice = q[0].last;
     } catch(e) {}
+    if (!spxPrice || spxPrice < 1000) {
+      try {
+        const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const j = await r.json();
+        spxPrice = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice || spxPrice);
+      } catch(e) {}
+    }
 
     // 3. VIX desde Yahoo
     let vix = 20;
@@ -3624,12 +3647,22 @@ async function buildSPXContext() {
         return { fase: 3, label: 'Fase 3 ●', price, ema10, ema20 };
       }
 
-      // 15m SPX (últimos 5 días)
+      // 15m SPX (últimos 5 días). Yahoo se mantiene para fractal15m/POC/ATR (necesitan
+      // volumen, que Tradier no reporta para el índice SPX — siempre 0) — pero el array
+      // de cierres que alimenta calcWeinstein/calcMACD ahora sale de Tradier primero
+      // (2026-07-24, ver nota en la sección de spxPrice de arriba), con Yahoo como
+      // respaldo si Tradier falla o no trae suficientes barras.
       const r15 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=15m&range=5d',
         { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const j15 = await r15.json();
       const q15 = j15.chart?.result?.[0]?.indicators?.quote?.[0] || {};
-      const closes15 = (q15.close || []).filter(v => v != null);
+      let closes15 = (q15.close || []).filter(v => v != null);
+      try {
+        const { start: start15, end: end15 } = tradierRangeParams(7);
+        const tBars15 = await tradier.getTimesales('SPX', '15min', start15, end15);
+        const tCloses15 = tBars15.map(b => b.close).filter(v => v != null);
+        if (tCloses15.length >= 30) closes15 = tCloses15;
+      } catch(eT15) { console.error('[SPX] Tradier 15m error, usando Yahoo:', eT15.message); }
       if (closes15.length >= 30) {
         const price15 = closes15[closes15.length - 1];
         const ema10_15  = calcEMA(closes15, 10);
@@ -3711,7 +3744,17 @@ async function buildSPXContext() {
           { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const j2 = await r2.json();
         const result2 = j2.chart?.result?.[0];
-        const closes2 = result2?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+        // Yahoo se mantiene para rango de apertura/fractal2m/Camino A (necesitan
+        // highs2/lows2/opens2 alineados con result2, no solo cierres) — pero el
+        // array de cierres que alimenta calcWeinstein/calcMACD sale de Tradier
+        // primero (2026-07-24, misma razon que el bloque 15m de arriba).
+        let closes2 = result2?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+        try {
+          const { start: start2, end: end2 } = tradierRangeParams(7);
+          const tBars2 = await tradier.getTimesales('SPX', '2min', start2, end2);
+          const tCloses2 = tBars2.map(b => b.close).filter(v => v != null);
+          if (tCloses2.length >= 20) closes2 = tCloses2;
+        } catch(eT2) { console.error('[SPX] Tradier 2m error, usando Yahoo:', eT2.message); }
         if (closes2.length >= 20) {
           const price2 = closes2[closes2.length - 1];
           const ema10_2 = calcEMA(closes2, 10);
@@ -3910,6 +3953,24 @@ app.post('/api/spx/webhook', async (req, res) => {
     direction = (direction || '').toUpperCase();
     if (!['BULLISH','BEARISH','NEUTRAL'].includes(direction))
       return res.status(400).json({ error: `direction inválido: ${direction}. Usar BULLISH|BEARISH|NEUTRAL` });
+
+    // ── FILTRO DE FUENTE (2026-07-24) ──
+    // Se encontraron 4 alertas "zombie" activas en TradingView, creadas el
+    // 16 de junio contra una version vieja del script (source:"CIAR_v3",
+    // pine_version 1.0, parametros distintos a los actuales — ej. multiplicador
+    // ATR 2.5 en vez de 1) — 2 corriendo en 2m y 2 en 15m (timeframe equivocado
+    // para el direccional). Seguian activas y disparando el mismo dia, mezclando
+    // senales viejas/de otro timeframe con las reales sin que el servidor lo
+    // notara (nunca se validaba el campo 'source'). Se intento borrarlas desde
+    // TradingView (alert_delete via MCP) sin poder confirmar si el borrado se
+    // aplico del lado del servidor — este filtro bloquea el efecto en el origen,
+    // sin depender de eso: solo se acepta la fuente real que manda el Pine
+    // actual (alert() con source:"CIARG_V1" literal, ver CIARG_V1.pine).
+    if (source !== 'CIARG_V1') {
+      console.log(`[SPX] Webhook rechazado — fuente no reconocida: "${source}"`);
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'REJECTED_SOURCE', passed: false, reason: `Fuente no reconocida: "${source}" (se esperaba CIARG_V1) — posible alerta zombie/vieja`, snapshot: { direction, source, timeframe, price } });
+      return res.status(200).json({ signal: 'rejected', reason: 'unrecognized_source' });
+    }
 
     // ── RESPONDER INMEDIATAMENTE para evitar timeout en TradingView ──
     // (antes esto estaba DESPUES del chequeo de confluencia Weinstein, que
