@@ -4984,21 +4984,28 @@ async function checkIronCondorTPSLImpl() {
       }
 
       try {
+        let closeResult;
         if (esDebito) {
-          await tradier.closeDebitCondorOrder({
+          closeResult = await tradier.closeDebitCondorOrder({
             underlyingRoot: 'SPXW', expiry: ex.expiry,
             outerHighStrike: ex.strikes.outerHighStrike, innerHighStrike: ex.strikes.innerHighStrike,
             innerLowStrike:  ex.strikes.innerLowStrike,  outerLowStrike:  ex.strikes.outerLowStrike,
             quantity: ex.contracts,
           });
         } else {
-          await tradier.closeIronCondorOrder({
+          closeResult = await tradier.closeIronCondorOrder({
             underlyingRoot:  'SPXW', expiry: ex.expiry,
             putShortStrike:  ex.strikes.shortStrike,     putLongStrike:  ex.strikes.longStrike,
             callShortStrike: ex.strikes.callShortStrike, callLongStrike: ex.strikes.callLongStrike,
             quantity:        ex.contracts,
           });
         }
+        // Guardar el orderId de la orden de CIERRE (2026-07-27) -- permite calcular el
+        // P&L real desde los fills reales de las 2 ordenes (entrada+cierre) en vez de
+        // depender del endpoint ambiguo /gainloss, que no distingue entre operaciones
+        // cuando una misma pata se reutiliza en combinaciones distintas el mismo dia
+        // (ver resolverPnlDesdeOrdenes).
+        ex.closeOrderId = closeResult?.orderId ?? null;
         // Bug real encontrado 2026-07-10: acá se grababa pnlActual (calculado con la
         // cotizacion de ANTES de cerrar, solo para decidir si disparar el TP/SL) como si
         // fuera el P&L final — si esa cotizacion venia distorsionada (mercado recien
@@ -5194,7 +5201,7 @@ async function checkDirectionalTPSLImpl() {
         // con costoDeCerrar/valorActual ya calculados arriba para decidir TP/SL.
         const bufferPts = (loadSPXConfig().trading || {}).closeSlippageBufferPts ?? 1.0;
         const netValueAlCerrar = q[longSym] - q[shortSym];
-        await tradier.closeSpreadOrder({
+        const closeResultDir = await tradier.closeSpreadOrder({
           strategy:       ex.strategy,
           underlyingRoot: 'SPXW',
           expiry:         ex.expiry,
@@ -5203,6 +5210,9 @@ async function checkDirectionalTPSLImpl() {
           quantity:       ex.contracts,
           worstNetPrice:  netValueAlCerrar - bufferPts,
         });
+        // Guardar el orderId de cierre (2026-07-27, ver resolverPnlDesdeOrdenes) —
+        // permite calcular el P&L real desde los fills reales en vez de /gainloss.
+        ex.closeOrderId = closeResultDir?.orderId ?? null;
         // Mismo fix que checkIronCondorTPSLImpl (2026-07-10, ver comentario ahí para el
         // caso real que lo motivó): NO marcar status='closed' ni grabar pnl acá — se deja
         // 'filled' a propósito para que checkTradierExecutions (reconciliación pasiva,
@@ -5599,7 +5609,7 @@ async function checkAlejamientoSMATPSLImpl() {
           }
         } catch(eq) { console.warn(`[Tradier-REV-TPSL] No se pudo cotizar para proteger el cierre de ${ex.orderId}, cierra a mercado:`, eq.message); }
 
-        await tradier.closeSpreadOrder({
+        const closeResultRev = await tradier.closeSpreadOrder({
           strategy:       ex.strategy,
           underlyingRoot: 'SPXW',
           expiry:         ex.expiry,
@@ -5608,6 +5618,9 @@ async function checkAlejamientoSMATPSLImpl() {
           quantity:       ex.contracts,
           worstNetPrice,
         });
+        // Guardar el orderId de cierre (2026-07-27, ver resolverPnlDesdeOrdenes) —
+        // permite calcular el P&L real desde los fills reales en vez de /gainloss.
+        ex.closeOrderId = closeResultRev?.orderId ?? null;
         // Bug real encontrado 2026-07-10 (misma familia que el fix de IC/direccional,
         // ver comentario en checkIronCondorTPSLImpl): acá se marcaba status='closed' de
         // inmediato con pnlSource='precio_spx_auto', pero NINGÚN código calculaba el pnl
@@ -6024,11 +6037,73 @@ const TRADIER_TRACK_MS = 5 * 60 * 1000; // 5 min
 async function checkTradierExecutions() {
   return withExecutionsLock(checkTradierExecutionsImpl);
 }
-// Extrae el P&L real de una ejecucion cerrada via tradier.getClosedPnl, con la
-// misma heuristica de deduplicacion por strikes repetidos que ya usaba el
-// chequeo de recien-cerradas. Devuelve {pnl, pnlSource} o null si Tradier
-// todavia no asento el gain_loss de alguna pata (para reintentar despues).
+// Extrae el P&L real de una ejecucion cerrada. Primero intenta con las ORDENES
+// REALES (entrada + cierre, ver resolverPnlDesdeOrdenes) -- no tienen la
+// ambiguedad del endpoint /gainloss, que puede mezclar el P&L de dos
+// operaciones distintas si comparten una misma pata (mismo option_symbol) en
+// combinaciones diferentes el mismo dia. Bug real encontrado 2026-07-27: un
+// BEAR_PUT_SPREAD con ganancia real de +$100 (TP) quedo grabado con -$2970
+// porque el put 7390 se habia reutilizado en otros 2 spreads ese mismo dia y
+// el heuristico de /gainloss (basado en contar cuantas OTRAS ejecuciones
+// comparten el PAR COMPLETO de patas) no detecta la reutilizacion de una pata
+// INDIVIDUAL en combinaciones distintas -- solo duplicados de par completo.
+// Si no hay closeOrderId disponible (registros viejos de antes de este fix, o
+// cierres puramente manuales donde nosotros nunca mandamos la orden), cae al
+// metodo viejo basado en /gainloss.
 async function intentarResolverPnl(ex, executions) {
+  if (ex.orderId && ex.closeOrderId) {
+    const porOrdenes = await resolverPnlDesdeOrdenes(ex);
+    if (porOrdenes) return porOrdenes;
+  }
+  return intentarResolverPnlPorGainloss(ex, executions);
+}
+
+// Calcula el P&L real sumando los fills reales de la orden de entrada y la de
+// cierre -- cada orden de Tradier es un objeto propio con fills reales por
+// pata (side/quantity/avg_fill_price), sin mezclarse entre operaciones aunque
+// una misma pata se haya reutilizado en otro spread ese dia.
+async function resolverPnlDesdeOrdenes(ex) {
+  try {
+    const [entryOrder, closeOrder] = await Promise.all([
+      tradier.getOrder(ex.orderId),
+      tradier.getOrder(ex.closeOrderId),
+    ]);
+    if (!entryOrder || entryOrder.status !== 'filled') return null;
+    if (!closeOrder || closeOrder.status !== 'filled') return null;
+
+    // Flujo de caja neto de una orden: sell_to_open/sell_to_close = entra
+    // dinero (+), buy_to_open/buy_to_close = sale dinero (-). Sumar entrada +
+    // cierre da el P&L real, sin importar si es credito o debito, direccional
+    // o Iron Condor (2 o 4 patas).
+    const cashFlow = (order) => {
+      const legs = Array.isArray(order.leg) ? order.leg : (order.leg ? [order.leg] : []);
+      if (!legs.length) return null;
+      let total = 0;
+      for (const leg of legs) {
+        const qty   = parseFloat(leg.quantity);
+        const price = parseFloat(leg.avg_fill_price);
+        if (!qty || !Number.isFinite(price)) return null;
+        const sign = (leg.side || '').startsWith('sell') ? 1 : -1;
+        total += sign * price * qty * 100;
+      }
+      return total;
+    };
+
+    const entryFlow = cashFlow(entryOrder);
+    const closeFlow = cashFlow(closeOrder);
+    if (entryFlow == null || closeFlow == null) return null;
+
+    return { pnl: +(entryFlow + closeFlow).toFixed(2), pnlSource: 'ordenes_reales' };
+  } catch(e) {
+    console.error(`[TRADIER-TRACK] Error calculando P&L desde ordenes (${ex.orderId}/${ex.closeOrderId}):`, e.message);
+    return null;
+  }
+}
+
+// (Metodo anterior, 2026-07-09 — ahora solo un fallback, ver nota en
+// intentarResolverPnl arriba.) Extrae el P&L via tradier.getClosedPnl, con la
+// heuristica de deduplicacion por PAR COMPLETO de strikes repetidos.
+async function intentarResolverPnlPorGainloss(ex, executions) {
   const legSymbols = [
     ex.legs?.shortSym, ex.legs?.longSym,
     ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym,
