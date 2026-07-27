@@ -3302,8 +3302,7 @@ const SPX_CONFIG_DEFAULTS = {
       targetDelta: 0.30,
       spreadWidth: 5,    // credit spread mas angosto, acorde al hold corto (2-10 min)
       maxCandlesTimeStop: 5,  // tope duro: 5 velas de 2m (10 min) sin excepcion
-      maxStopsPerDay:     2,  // circuito: 2 PERDIDAS CONSECUTIVAS (no total) y no se opera mas hoy
-      maxDailyDrawdownPct: 3.5, // o -3.5% del capital en el dia, lo que llegue primero (regla Luis: 3-4%)
+      maxDailyDrawdownPct: 3.5, // circuito diario restante -- 2026-07-27: se quito el freno de 2 perdidas consecutivas (maxStopsPerDay) a pedido del usuario, para poder acumular ~100 trades reales por estrategia y medir el win rate real
       wallProximityPts:   15,  // "cerca" de un muro de gamma para la confluencia del score
       riskPctPerTrade:    1,   // (2026-07-14) % del capital arriesgado por trade — sizing "division sagrada" de Luis Sigma, ver sizeContractsByRisk
       tradierAutoExecute: true, // kill-switch propio, independiente de IC y direccionales
@@ -5249,24 +5248,16 @@ async function checkAlejamientoSMA() {
     const today = new Date().toISOString().slice(0, 10);
     const executions = loadTradierExecutions();
 
-    // Circuito diario (regla de Luis Silva): 2 PERDIDAS CONSECUTIVAS o un drawdown
-    // diario de 3-4% de la cuenta, lo que llegue primero — no un simple conteo total
-    // de stops (una ganadora en el medio resetea el contador de consecutivas).
+    // Circuito diario (regla de Luis Silva): drawdown diario de 3-4% de la cuenta.
+    // El freno de 2 PERDIDAS CONSECUTIVAS que vivía acá se quitó (2026-07-27, a
+    // pedido explícito del usuario) — con muestras tan chicas no se puede medir el
+    // win rate real de la estrategia; el objetivo ahora es llegar a ~100 trades
+    // reales (Reversión, Direccional e Iron Condor) para poder calcular el average
+    // de bateo de cada una. El tope de drawdown % sigue como única red de
+    // seguridad diaria — decisión explícita del usuario, no quitar sin que lo pida.
     const reversionesHoy = executions
       .filter(e => e.strategyFamily === 'REVERSION' && (e.closedAt || '').slice(0, 10) === today)
       .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
-
-    let perdidasConsecutivas = 0;
-    for (let i = reversionesHoy.length - 1; i >= 0; i--) {
-      if (reversionesHoy[i].closeReason === 'TP') break;
-      perdidasConsecutivas++;
-    }
-    if (perdidasConsecutivas >= (cfg.maxStopsPerDay || 2)) {
-      const reason = `Circuito diario: ${perdidasConsecutivas} pérdidas consecutivas hoy`;
-      console.log(`[SPX-REV] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'DAILY_CIRCUIT_LOSSES', passed: false, reason });
-      return;
-    }
 
     let capital = 10000;
     try {

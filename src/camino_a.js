@@ -9,15 +9,21 @@
 // -$130 en 41 señales, por eso esta desactivado como disparador en Pine).
 const { calcEMAArray } = require('./spx_indicators');
 
+// Pine real: ta.cci(src_TM, period_TM) con src_TM = input.source(close, ...) —
+// el CCI de Pine se calcula sobre el SOURCE (close, por default, nunca cambiado
+// en CIARG_V1), NO sobre precio tipico (H+L+C)/3 como la definicion "de libro"
+// que este puerto usaba antes (bug encontrado 2026-07-25 al revalidar Camino B
+// contra el codigo Pine real linea por linea). Afecta directo a MagicTrend, la
+// base de Camino A y Camino B.
 function calcCCI(bars, period) {
-  const tp = bars.map(b => (b.high + b.low + b.close) / 3);
+  const src = bars.map(b => b.close);
   const out = new Array(bars.length).fill(null);
   for (let i = 0; i < bars.length; i++) {
     if (i < period - 1) continue;
-    const slice = tp.slice(i - period + 1, i + 1);
+    const slice = src.slice(i - period + 1, i + 1);
     const sma = slice.reduce((a, b) => a + b, 0) / period;
     const meanDev = slice.reduce((a, b) => a + Math.abs(b - sma), 0) / period;
-    out[i] = meanDev === 0 ? 0 : (tp[i] - sma) / (0.015 * meanDev);
+    out[i] = meanDev === 0 ? 0 : (src[i] - sma) / (0.015 * meanDev);
   }
   return out;
 }
@@ -79,8 +85,12 @@ function calcCaminoA(bars) {
     return { bullish: false, bearish: false, reason: 'Datos insuficientes para Camino A (warmup)' };
   }
 
-  const entryUp = ema10[i] > ema20[i] && closes[prev] < ema10[prev] && closes[i] > ema10[i];
-  const entryDn = ema10[i] < ema20[i] && closes[prev] > ema10[prev] && closes[i] < ema10[i];
+  // Pine real: entryUpT_SS = emaFast_SS > emaSlow_SS and close[1] < emaFast_SS and
+  // close > emaFast_SS — "emaFast_SS" sin indice es la EMA de la barra ACTUAL, usada
+  // para las dos comparaciones (no ema10[prev] como tenia este puerto antes — bug
+  // encontrado 2026-07-25 al revalidar linea por linea contra el Pine real).
+  const entryUp = ema10[i] > ema20[i] && closes[prev] < ema10[i] && closes[i] > ema10[i];
+  const entryDn = ema10[i] < ema20[i] && closes[prev] > ema10[i] && closes[i] < ema10[i];
   const emaSlope  = ema10[i] - ema10[prev];
   const macdSlope = macdLineFull[i] - macdLineFull[prev];
 

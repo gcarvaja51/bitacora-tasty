@@ -43,7 +43,12 @@ function calcFase15mSimple(closes15) {
 // state: {lastFireBullAt, lastFireBearAt} en ms epoch — mutado in-place, persistente
 // entre llamadas (equivalente a 'var lastFireBull_B' de Pine, pero por tiempo real
 // en vez de bar_index ya que este chequeo no corre exactamente una vez por vela).
-function calcCaminoB(bars2m, closes15m, state, gapMinutes = 10) {
+// nowMs: opcional, para poder simular/backtestear (el throttle usaria Date.now()
+// real, que en un loop de simulacion rapido queda practicamente constante y
+// bloquea casi todo despues del primer disparo — bug de arnes de prueba
+// encontrado 2026-07-25, no de la logica en si, que en produccion (llamada real
+// cada 30-60s) funciona bien con Date.now()).
+function calcCaminoB(bars2m, closes15m, state, gapMinutes = 10, nowMs = null) {
   if (!bars2m || bars2m.length < 35) {
     return { bull: false, bear: false, coreAlignBull: false, coreAlignBear: false, reason: 'Historial insuficiente (2m)' };
   }
@@ -82,7 +87,7 @@ function calcCaminoB(bars2m, closes15m, state, gapMinutes = 10) {
   const coreAlignBull = close2m > magicTrend[i] && ema10_2m[i] > ema20_2m[i] && macdLineFull[i] > macdSignalFull[i] && fase15.bull;
   const coreAlignBear = close2m < magicTrend[i] && ema10_2m[i] < ema20_2m[i] && macdLineFull[i] < macdSignalFull[i] && fase15.bear;
 
-  const now = Date.now();
+  const now = nowMs ?? Date.now();
   const gapMs = gapMinutes * 60 * 1000;
   const enoughGapBull = !state.lastFireBullAt || (now - state.lastFireBullAt) >= gapMs;
   const enoughGapBear = !state.lastFireBearAt || (now - state.lastFireBearAt) >= gapMs;
