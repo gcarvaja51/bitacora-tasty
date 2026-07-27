@@ -3194,6 +3194,7 @@ const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtensio
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
 const { calcCaminoA, calcATR } = require('./src/camino_a');
+const { calcCaminoB } = require('./src/camino_b');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -3940,9 +3941,11 @@ app.get('/api/spx/context', async (req, res) => {
   }
 });
 
-// POST /api/spx/webhook — recibe señal de entrada de TradingView (compra/venta)
+// POST /api/spx/webhook — recibe la alerta de Pine (CIARG_V1). Desde 2026-07-27
+// ya NO decide nada por si sola: solo sirve de "empujoncito" para correr de
+// inmediato el mismo chequeo compartido que ya corre solo cada 30s (ver
+// checkDirectionalAutonomous mas abajo) — sin esperar hasta el proximo ciclo.
 app.post('/api/spx/webhook', async (req, res) => {
-  const tWebhookStart = Date.now(); // para medir cuanto tarda desde que llega la alerta hasta que se envia la orden
   try {
     let { direction, timeframe = '2m', source = 'TradingView', playbook_score = null, price, time } = req.body;
 
@@ -3972,54 +3975,89 @@ app.post('/api/spx/webhook', async (req, res) => {
     }
 
     // ── RESPONDER INMEDIATAMENTE para evitar timeout en TradingView ──
-    // (antes esto estaba DESPUES del chequeo de confluencia Weinstein, que
-    // hace un fetch a /api/spx/context — varias llamadas a Yahoo Finance en
-    // cadena — y eso por si solo ya tardaba mas que el timeout de TradingView,
-    // causando "webhook delivery failed" en las 4 alertas del 2026-07-06 pese
-    // a que el servidor si las habia recibido). Todo lo demas, incluido el
-    // gate, corre en background sin depender de la respuesta HTTP.
     res.json({ signal: 'processing', message: 'Señal recibida, procesando en background...' });
 
-    // ── GATE OBLIGATORIO — confluencia Weinstein 2m + 15m ──
-    // El servidor calcula ambas fases de forma independiente (no depende
-    // de que TradingView le avise el contexto 15m por separado).
-    let fase2m = null, fase15m = null, ctxJ = null;
-    try {
-      const ctxR = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
-      ctxJ = await ctxR.json();
-      fase2m  = ctxJ.weinstein?.fase2m  || null;
-      fase15m = ctxJ.weinstein?.fase15m || null;
-    } catch(e) {}
+    // ── YA NO SE USA calcWeinstein PARA LA DECISION (2026-07-27) ──
+    // El gate viejo de confluencia 2m+15m via calcWeinstein tenia un bug real:
+    // la banda de "neutral" (±1% de la EMA20) esta mal calibrada para 2 minutos
+    // (el precio casi nunca se aleja 1% de su propia EMA20 de 40min, tienda o
+    // no) — dejaba el direccional ciego a tendencias reales (caso real
+    // 2026-07-24, ~54pts de rally invisible para el gate). Se reemplaza por
+    // Camino B (src/camino_b.js), puerto fiel de la logica real de Pine (Trend
+    // Magic + SlingShot sin retroceso + estado MACD + marco 15m, sin bandas de
+    // porcentaje) — la MISMA funcion que corre de forma autonoma cada 30s. El
+    // webhook ya no decide nada por si solo; la alerta de Pine solo dispara
+    // ese chequeo compartido de inmediato en vez de esperar el proximo ciclo.
+    console.log(`[SPX] Alerta Pine recibida (direction=${direction}, source=${source}) — disparando chequeo Camino B compartido`);
+    await checkDirectionalAutonomous();
 
-    if (fase2m === null || fase15m === null) {
-      const reason = `No se pudo determinar fase Weinstein (2m:${fase2m} 15m:${fase15m}).`;
-      console.log(`[SPX] Sin señal — ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_WEINSTEIN_DATA', passed: false, reason, snapshot: buildStrategySnapshot(ctxJ || {}, { directionRequested: direction }) });
-      return;
-    }
-    if (fase2m !== fase15m) {
-      const reason = `Sin confluencia Weinstein: 2m=Fase${fase2m} vs 15m=Fase${fase15m}. Gate no cumplido.`;
-      console.log(`[SPX] Sin señal — ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_CONFLUENCE', passed: false, reason, snapshot: buildStrategySnapshot(ctxJ, { directionRequested: direction }) });
-      return;
-    }
-    if (fase2m !== 2 && fase2m !== 4) {
-      const reason = `Confluencia en Fase${fase2m}, solo operable en Fase 2 (alcista) o Fase 4 (bajista).`;
-      console.log(`[SPX] Sin señal — ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'WRONG_PHASE', passed: false, reason, snapshot: buildStrategySnapshot(ctxJ, { directionRequested: direction }) });
-      return;
-    }
+  } catch(e) {
+    console.error('[SPX] webhook error:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  }
+});
 
-    // Forzar dirección según fase (la fase manda sobre el webhook)
-    const weinsteinDirection = fase2m === 2 ? 'BULLISH' : 'BEARISH';
-    if (direction !== weinsteinDirection) {
-      console.log(`[SPX] Dirección webhook (${direction}) ajustada a Weinstein (${weinsteinDirection})`);
-      direction = weinsteinDirection;
+// Estado compartido del throttle de Camino B (10 min entre disparos de la misma
+// direccion, igual que gapMinutes_B en Pine) — persistente en memoria mientras
+// viva el proceso, mismo patron que el resto de los circuitos diarios de este
+// archivo. Compartido entre el webhook (arriba) y el chequeo autonomo (abajo)
+// para no disparar el mismo trade dos veces si ambos caminos coinciden.
+const caminoBState = { lastFireBullAt: null, lastFireBearAt: null };
+
+// Trae velas 2m (7 dias, warmup real de EMA/MACD/CCI/ATR) y cierres 15m desde
+// Tradier — misma fuente que ya usa buildSPXContext() desde el fix del
+// 2026-07-24 (ver tradierRangeParams, mas arriba en este archivo).
+async function fetchCaminoBBars() {
+  const { start: start2, end: end2 } = tradierRangeParams(7);
+  const tBars2 = await tradier.getTimesales('SPX', '2min', start2, end2);
+  const bars2m = tBars2
+    .filter(b => b.close != null && b.high != null && b.low != null)
+    .map(b => ({ high: b.high, low: b.low, close: b.close }));
+
+  const { start: start15, end: end15 } = tradierRangeParams(7);
+  const tBars15 = await tradier.getTimesales('SPX', '15min', start15, end15);
+  const closes15m = tBars15.filter(b => b.close != null).map(b => b.close);
+
+  return { bars2m, closes15m };
+}
+
+// Chequeo autonomo de Camino B (2026-07-27) — corre solo, sin depender de que
+// TradingView mande nada. Reemplaza al gate viejo de calcWeinstein como unica
+// fuente de la decision de entrada del direccional.
+async function checkDirectionalAutonomous() {
+  try {
+    const et = getETHour();
+    const etMins = et.hour * 60 + et.min;
+    // Misma ventana que selectStrategy() (9:45am-2:30pm ET) — evita llamadas
+    // inutiles a Tradier fuera del horario operable del direccional.
+    if (etMins < 9 * 60 + 45 || etMins >= 14 * 60 + 30) return;
+
+    const { bars2m, closes15m } = await fetchCaminoBBars();
+    const r = calcCaminoB(bars2m, closes15m, caminoBState, 10);
+
+    if (r.bull || r.bear) {
+      const direction = r.bull ? 'BULLISH' : 'BEARISH';
+      console.log(`[SPX] ✅ Camino B ${direction} — ${r.reason}`);
+      await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m' });
+    } else {
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_CAMINO_B', passed: false, reason: r.reason, snapshot: { coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
     }
+  } catch(e) {
+    console.error('[SPX] checkDirectionalAutonomous error:', e.message);
+  }
+}
+setInterval(checkDirectionalAutonomous, 30 * 1000);
 
-    console.log(`[SPX] ✅ Gate Weinstein OK — Fase${fase2m} en 2m y 15m → ${direction} (+${Date.now()-tWebhookStart}ms desde que llegó la alerta)`);
-
-    // ── GENERAR SUGERENCIA (en background) ───────────────────────────
+// Genera y (si corresponde) ejecuta la señal direccional una vez que Camino B
+// ya decidio la direccion — extraido del webhook el 2026-07-27 para poder
+// llamarse tanto desde una alerta real de Pine como desde el chequeo autonomo,
+// sin duplicar codigo. meta.source/meta.timeframe son solo metadata para el
+// dashboard (columna "Origen"), no afectan la decision.
+async function processDirectionalEntry(direction, meta = {}) {
+  const tStart = Date.now();
+  const source = meta.source || 'CaminoB_autonomo';
+  const timeframe = meta.timeframe || '2m';
+  try {
     // Obtener contexto de mercado
     const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
     const ctx    = await ctxRes.json();
@@ -4199,7 +4237,7 @@ app.post('/api/spx/webhook', async (req, res) => {
     signal.fuerzaTotal    = fuerzaTotal;
     signal.source         = source;
     signal.timeframe      = timeframe;
-    signal.tf15m          = weinsteinDirection;
+    signal.tf15m          = direction; // Camino B ya exige que el marco 15m confirme la misma direccion
     signal.strategyFamily = 'TENDENCIA';
 
     // Agregar parámetros de trading y TP/SL calculados
@@ -4272,7 +4310,7 @@ app.post('/api/spx/webhook', async (req, res) => {
           signal.status    = 'EXECUTED';
           signal.notes     = 'Auto-ejecutado en Tradier sandbox';
           signal.actionAt  = new Date().toISOString();
-          signal.timingMs  = Date.now() - tWebhookStart; // desde que llego la alerta hasta que se envio la orden
+          signal.timingMs  = Date.now() - tStart; // desde que Camino B decidio hasta que se envio la orden
           console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym} (+${signal.timingMs}ms desde que llegó la alerta — analisis + envio de orden)`);
 
           // Registro dedicado para el dashboard de seguimiento (no comparte
@@ -4330,13 +4368,10 @@ app.post('/api/spx/webhook', async (req, res) => {
     const successReason = `Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}${signal.tradierOrder?.orderId ? ' — auto-ejecutada en Tradier' : (signal.tradierOrder?.skipped ? ` — sugerencia (Tradier omitido: ${signal.tradierOrder.reason})` : '')}`;
     console.log(`[SPX] ✅ ${successReason}`);
     logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy }) });
-    // Nota: res ya fue enviado inmediatamente arriba para evitar timeout
-
   } catch(e) {
-    console.error('[SPX] webhook error:', e.message);
-    if (!res.headersSent) res.status(500).json({ error: e.message });
+    console.error('[SPX] processDirectionalEntry error:', e.message);
   }
-});
+}
 
 // GET /api/spx/signals — lista de señales pendientes/historial
 app.get('/api/spx/signals', (req, res) => {
