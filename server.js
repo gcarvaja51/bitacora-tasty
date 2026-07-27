@@ -4158,9 +4158,12 @@ async function processDirectionalEntry(direction, meta = {}) {
       return;
     }
 
-    // Tamaño por score, no por % de capital (2026-07-09, "mientras afinamos todo") —
-    // 1 contrato en general, 2 si el score del playbook fue >=90%.
-    sel.contracts = sizeContractsByScore(playbookResult.score);
+    // Fijo en 1 contrato para todas las entradas (2026-07-27, a pedido explicito
+    // del usuario tras el trade de -$980 con 4 contratos) -- reemplaza el sizing
+    // por score (sizeContractsByScore, 2026-07-23/27) que llegaba hasta 4
+    // contratos con score >=90. La funcion queda sin uso pero no se borra, por si
+    // se quiere volver a este esquema mas adelante.
+    sel.contracts = 1;
     sel.maxRisk   = sel.contracts * sel.spreadWidth * 100;
 
     // Parámetros de trading desde config
@@ -5437,18 +5440,12 @@ async function checkAlejamientoSMA() {
 
     const entryBar = bars[bars.length - 1];
 
-    // Sizing por riesgo real en dólares — "división sagrada" de Luis Sigma
-    // (2026-07-14, reemplaza el sizing por score de 2026-07-09 SOLO para esta
-    // estrategia): riesgo permitido (capital × 1%) ÷ pérdida estimada por contrato
-    // si el precio llega al nivel técnico de invalidez (la vela de entrada, ya
-    // conocida — es la última vela de 2m ya cerrada, no una futura). La pérdida
-    // por contrato se estima con el delta real de la pata corta (ya lo trae
-    // findStrikesByDelta) en vez de asumir un % fijo de la prima como el ejemplo
-    // mental de Luis — más preciso porque el dato real ya está disponible acá.
-    const distanceToStopPts = direction === 'BULLISH'
-      ? (price - entryBar.low)
-      : (entryBar.high - price);
-    const contracts = sizeContractsByRisk(capital, cfg.riskPctPerTrade ?? 1, strikes.shortDelta, distanceToStopPts);
+    // Fijo en 1 contrato para todas las entradas (2026-07-27, a pedido explicito
+    // del usuario) -- reemplaza el sizing por riesgo en dolares ("division sagrada"
+    // de Luis Sigma, sizeContractsByRisk, 2026-07-14) que se usaba solo para esta
+    // estrategia. La funcion queda sin uso pero no se borra, por si se quiere
+    // volver a este esquema mas adelante.
+    const contracts = 1;
 
     const signal = buildSignalSummary(strategy, strikes, {
       valid: true, strategy, isCredit: true, expType: '0DTE', spreadWidth: cfg.spreadWidth, contracts,
