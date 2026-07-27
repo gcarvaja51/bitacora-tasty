@@ -167,20 +167,33 @@ function calcPlaybookScore(indicators, config) {
   // ── Mundo 1: Dirección ────────────────────────────────────
 
   // 1. Fase Weinstein — 2m y 15m coinciden con la dirección (booleano, todo o nada)
+  // 2026-07-27, a pedido explicito del usuario ("que score y entrada miren
+  // exactamente lo mismo"): este check ya NO recalcula la fase con
+  // calcWeinstein (la funcion vieja, banda +-1% -- bien calibrada en 15m pero
+  // rota en 2m, ver git log de esta fecha). En vez de eso lee
+  // indicators.m2.caminoBConfirmed, el resultado REAL que ya devolvio Camino B
+  // (calcCaminoB, src/camino_b.js) al decidir la entrada -- coreAlignBull/
+  // coreAlignBear, que ya incluye el marco 15m (fase15.bull/bear) como parte
+  // de su propia formula. No se recalcula una segunda vez con otra fuente de
+  // datos (server.js arma esto en processDirectionalEntry, pasando el mismo
+  // objeto que calculo checkDirectionalAutonomous, no uno nuevo) para evitar
+  // reintroducir el problema que se esta arreglando: dos funciones distintas
+  // (o la misma funcion con datos de origen distinto) que pueden discrepar.
+  // Si por algun motivo esta invocacion no viene de Camino B, caminoBConfirmed
+  // queda undefined y el check no suma puntos (default seguro).
   const w1 = weights.fase_weinstein ?? 40;
   totalWeight += w1;
-  const fase2m  = indicators.m2?.weinstein?.fase;
-  const fase15m = indicators.m15?.weinstein?.fase;
-  const faseObjetivo = dir === 'BULLISH' ? 2 : 4;
-  const fase_ok = fase2m === faseObjetivo && fase15m === faseObjetivo;
+  const esAlcista = dir === 'BULLISH';
+  const confirmado = indicators.m2?.caminoBConfirmed;
+  const fase_ok = esAlcista ? !!confirmado?.bull : !!confirmado?.bear;
   checks.push({
     id:      'fase_weinstein',
-    label:   'Fase Weinstein (2m + 15m)',
+    label:   'Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)',
     mundo:   1,
     weight:  w1,
     ok:      fase_ok,
-    value:   `2m:Fase${fase2m ?? '—'} 15m:Fase${fase15m ?? '—'}`,
-    reason:  fase_ok ? `Fase ${faseObjetivo} confirmada en 2m y 15m ✅` : `Fase Weinstein no confirmada (2m:${fase2m ?? '—'} 15m:${fase15m ?? '—'}) ❌`,
+    value:   fase_ok ? `${esAlcista ? 'alcista' : 'bajista'} (Camino B)` : 'no confirmado',
+    reason:  fase_ok ? `Alineación ${esAlcista ? 'alcista' : 'bajista'} confirmada por Camino B (2m + marco 15m) ✅` : `Camino B no confirmó la alineación de esta señal ❌`,
   });
   if (fase_ok) score += w1;
 

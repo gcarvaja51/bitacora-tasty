@@ -4038,7 +4038,7 @@ async function checkDirectionalAutonomous() {
     if (r.bull || r.bear) {
       const direction = r.bull ? 'BULLISH' : 'BEARISH';
       console.log(`[SPX] ✅ Camino B ${direction} — ${r.reason}`);
-      await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m' });
+      await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r });
     } else {
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_CAMINO_B', passed: false, reason: r.reason, snapshot: { coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
     }
@@ -4096,6 +4096,22 @@ async function processDirectionalEntry(direction, meta = {}) {
     const safeSpy   = ctx.indicators?.spy   || {};
     if (!safeDaily.macd) safeDaily.macd = { line: null, signal: null, hist: null };
     if (!safeM15.macd)   safeM15.macd   = { line: null, signal: null, hist: null };
+
+    // 2026-07-27, a pedido explicito del usuario: el check "fase_weinstein" del
+    // score (calcPlaybookScore) ahora mira el MISMO resultado de Camino B que ya
+    // decidio la entrada (coreAlignBull/coreAlignBear, que ya incluye el marco
+    // 15m), en vez de recalcular con una funcion distinta (calcWeinstein) que
+    // podia discrepar -- para 2m estaba directamente rota (banda +-1%, ver nota
+    // en calcPlaybookScore), y para 15m era una segunda funcion separada que
+    // igual corria el riesgo de no coincidir con lo que Camino B ya confirmo.
+    // Se pasa por meta.caminoB en vez de recalcular aca porque este bloque usa
+    // /api/spx/context (bars2m via Yahoo), mientras que Camino B decidio con su
+    // propia fuente (Tradier, ver fetchCaminoBBars) -- recalcular con datos de
+    // otro origen reintroduciria el mismo problema de fondo que se esta
+    // arreglando. Si en el futuro processDirectionalEntry se llamara desde un
+    // camino que no sea Camino B, meta.caminoB quedaria undefined y el check
+    // simplemente no suma puntos (default seguro: no inventar una confirmacion).
+    safeM2.caminoBConfirmed = { bull: !!meta.caminoB?.coreAlignBull, bear: !!meta.caminoB?.coreAlignBear };
 
     const playbookResult = calcPlaybookScore({
       direction,
