@@ -4773,10 +4773,16 @@ setInterval(checkIronCondor, 5 * 60 * 1000);
 // Ajuste 2026-07-23 (a pedido del usuario, tras revisar un dia real con 2 trades de
 // score perfecto que ganaron $240/$720 con solo 2 contratos): de binario (1/2) a 3
 // escalones (1/2/4) para aprovechar mas las confluencias mas fuertes.
+// Ajuste 2026-07-27 (a pedido explicito del usuario, tras el fix de fase_weinstein
+// del mismo dia que hizo que los unicos scores ejecutables reales sean 80/85/90/100
+// -- el viejo umbral de 95 para 4 contratos nunca se alcanzaba salvo en el 100
+// exacto, ver charla de esta sesion): mapeo exacto confirmado con el usuario sobre
+// los 4 valores reales -- 80 -> 1, 85 -> 2, 90 y 100 -> 4. <80 nunca llega aca
+// (minScore ya lo descarta antes), se deja el fallback de 1 solo por seguridad.
 function sizeContractsByScore(score) {
   if (score == null) return 1;
-  if (score >= 95) return 4;
-  if (score >= 90) return 2;
+  if (score >= 90) return 4;
+  if (score > 80) return 2;
   return 1;
 }
 
