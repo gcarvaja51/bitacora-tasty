@@ -4616,6 +4616,11 @@ function renderTradierDemo(execs, account) {
 const TDEMO_ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor' };
 const TDEMO_CIERRE_LABELS = {
   TP: '🤖 Auto (TP)', SL: '🤖 Auto (SL)',
+  // Reversión a la Media cierra por nivel de precio del SPX (toca la SMA8 objetivo /
+  // rompe la vela de entrada), no por P&L del spread — a diferencia de TP/SL arriba
+  // (Direccional/Iron Condor), que sí equivalen a ganancia/perdida real. Etiquetas
+  // separadas (2026-07-27) para no prometer un resultado que ese cierre no controla.
+  PRECIO_OBJETIVO: '🤖 Auto (Objetivo SMA8)', PRECIO_INVALIDACION: '🤖 Auto (Invalidación)',
   TECHNICAL_STOP: '🤖 Auto (Técnico)', TIME_STOP: '🤖 Auto (Tiempo)',
   MANUAL: '👤 Manual', PARTIAL_FILL_EMERGENCY: '🚨 Emergencia',
 };

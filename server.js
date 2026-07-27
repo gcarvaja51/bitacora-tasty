@@ -5592,11 +5592,22 @@ async function checkAlejamientoSMATPSLImpl() {
       const cfg = (loadSPXConfig().trading || {}).smaReversion || SPX_CONFIG_DEFAULTS.trading.smaReversion;
       const candlesElapsed = ex.filledAt ? Math.floor((Date.now() - new Date(ex.filledAt).getTime()) / (2 * 60 * 1000)) : 0;
 
+      // 2026-07-27, a pedido explicito del usuario: esta estrategia cierra por
+      // NIVEL DE PRECIO del SPX (toca la SMA8 objetivo / rompe la vela de entrada),
+      // no por el P&L real del spread de opciones -- a diferencia de Direccional/
+      // Iron Condor, donde "TP"/"SL" SI equivalen a ganancia/perdida real. Usar las
+      // mismas etiquetas "TP"/"SL" aca era enganoso: un caso real mostro un cierre
+      // "TP" con -$30 (el precio llego al objetivo, pero el spread igual perdio
+      // valor en el camino) -- parecia un bug de calculo, pero el numero era
+      // correcto, solo la etiqueta prometia algo que el mecanismo de salida nunca
+      // garantizo. Renombrado a PRECIO_OBJETIVO/PRECIO_INVALIDACION para que el
+      // nombre describa el evento real (nivel de precio tocado), no un resultado
+      // de P&L que no controla. La logica de CUANDO cerrar no cambia en nada.
       let cerrarPor = null;
-      if      (isBullish  && price >= ex.smaTarget)      cerrarPor = 'TP';
-      else if (!isBullish && price <= ex.smaTarget)       cerrarPor = 'TP';
-      else if (isBullish  && price < ex.entryCandleLow)  cerrarPor = 'SL';
-      else if (!isBullish && price > ex.entryCandleHigh) cerrarPor = 'SL';
+      if      (isBullish  && price >= ex.smaTarget)      cerrarPor = 'PRECIO_OBJETIVO';
+      else if (!isBullish && price <= ex.smaTarget)       cerrarPor = 'PRECIO_OBJETIVO';
+      else if (isBullish  && price < ex.entryCandleLow)  cerrarPor = 'PRECIO_INVALIDACION';
+      else if (!isBullish && price > ex.entryCandleHigh) cerrarPor = 'PRECIO_INVALIDACION';
       else if (candlesElapsed >= (cfg.maxCandlesTimeStop || 5)) cerrarPor = 'TIME_STOP';
 
       if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
