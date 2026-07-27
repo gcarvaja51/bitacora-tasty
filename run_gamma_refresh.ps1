@@ -1,5 +1,23 @@
 Set-Location -Path 'C:\Users\gcarv\bitacora-tasty'
 
+# Guard de horario DURO, en PowerShell -- no delegado al prompt de Claude
+# (bug real encontrado 2026-07-27: la invocacion aislada calculaba la hora ET a
+# mano -- probablemente con "TZ=America/New_York date" via bash, que en esta
+# maquina NO aplica el offset de horario de verano y devuelve UTC crudo mal
+# etiquetado como ET -- y aunque el prompt se corrigio para pedir el metodo de
+# PowerShell/.NET correcto, la instruccion de texto no se siguio de forma
+# confiable en corridas posteriores; se saco la ambiguedad por completo
+# calculando la hora ET ACA, antes de invocar a Claude, para que nunca dependa
+# de que el modelo elija bien el metodo). Ventana: 09:30-16:05 ET, lunes-viernes.
+$etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, "Eastern Standard Time")
+$etMinutes = $etNow.Hour * 60 + $etNow.Minute
+$dentroDeVentana = ($etNow.DayOfWeek -ne 'Saturday') -and ($etNow.DayOfWeek -ne 'Sunday') -and ($etMinutes -ge (9*60+30)) -and ($etMinutes -le (16*60+5))
+if (-not $dentroDeVentana) {
+    $msg = "Fuera de horario ($($etNow.DayOfWeek) $($etNow.ToString('HH:mm')) ET, ventana valida 09:30-16:05 ET lunes-viernes) -- guard duro de PowerShell, no se invoco a Claude."
+    Set-Content -Path 'C:\Users\gcarv\bitacora-tasty\gamma_refresh_log.txt' -Value $msg -Encoding utf8
+    exit 0
+}
+
 $prompt = @'
 Ciclo unico de refresco de niveles de Gamma (Sigma Terminal -> TradingView CIARG_V1), Paso 3 del skill premercado-spx.
 Esta es una invocacion nueva y aislada -- no tenes historial de conversacion ni tabId previos, conseguilos de cero.
@@ -13,7 +31,11 @@ para cargar sus definiciones -- recien despues de intentar eso, si siguen sin ap
 no disponible la herramienta.
 
 Pasos:
-1. Guard de horario: si estamos fuera de 09:30-16:05 ET o es sabado/domingo, no hagas nada mas y termina (una linea: "fuera de horario").
+1. El guard de horario (09:30-16:05 ET, lunes-viernes) YA SE HIZO en PowerShell
+   ANTES de invocarte a vos -- si estas leyendo esto es porque ya estamos dentro
+   de la ventana. No vuelvas a calcular ni verificar la hora ET (bug real
+   2026-07-27: calcularla dentro de esta invocacion daba resultados incorrectos
+   de forma no confiable -- por eso se saco de aca). Segui directo al paso 2.
 2. mcp__tradingview__tv_health_check -- si falla, termina sin reintentar ni relanzar TradingView (puede estar en uso manual, no lo interrumpas). Responde: "TradingView no conectado". Si conecta pero chart_symbol NO es SPCFD:SPX (puede haber quedado pegado a otra pestana, ej SPY -- gotcha conocido del skill), llama mcp__tradingview__tab_list, busca la entrada cuyo chart_id/url corresponda a SPX (si no sabes cual es, proba la que NO se llama "Wk609vJL", ese chart_id es SPY), tab_switch a ese indice, y repite tv_health_check UNA vez para confirmar chart_symbol SPCFD:SPX antes de seguir. Si sigue sin quedar en SPX tras un intento, termina: "no se pudo fijar el chart correcto (SPY en vez de SPX)".
 3. mcp__claude-in-chrome__tabs_context_mcp con createIfEmpty true -- si alguna pestana ya tiene web.sigma.trade en la url, navega esa (mcp__claude-in-chrome__navigate con su tabId) a https://web.sigma.trade/terminal/?tab=greeks. Si ninguna la tiene, crea una nueva con tabs_create_mcp y navega ahi. NUNCA crees una pestana nueva si ya existe una de sigma.trade (evita acumular pestanas cada 2 min).
 4. Sigma Terminal es una app JS que tarda unos segundos en renderizar despues de navigate -- justo despues de navegar, ejecuta PowerShell "Start-Sleep -Seconds 3" (o equivalente) ANTES de leer la pagina, nunca leas inmediatamente despues de navigate. Luego mcp__claude-in-chrome__read_page en esa pestana. Si el resultado tiene muy pocos elementos (menos de 10, senal de que la SPA todavia no cargo), espera 3 segundos mas y reintenta read_page una vez mas antes de concluir que algo esta mal. Confirma que el boton de simbolo dice SPX (si no, termina: "simbolo incorrecto en Sigma Terminal"). Extrae: Spot SPX (precio), Net GEX (con signo -- ej "$-165.09M" es negativo, "$10.53B" es positivo; convertilo a un numero en dolares, B=x1e9, M=x1e6), Call Wall, Put Wall, Gamma Flip, y MVS (el valor "Neto" de la tarjeta principal, no el toggle Abs).
