@@ -4133,6 +4133,17 @@ async function processDirectionalEntry(direction, meta = {}) {
       return;
     }
 
+    // Detalle check-por-check (id/peso/ok/value) para los stages POSTERIORES al
+    // gate de score (2026-07-28, a pedido del usuario) — antes SCORE_FAIL era el
+    // UNICO stage que guardaba esto; STRATEGY_INVALID/NO_STRIKES/SIGNAL_BUILT
+    // (las señales que sí pasaron el score, incluidas las que terminan
+    // ejecutandose) solo guardaban el score total, sin el desglose. Eso hacia
+    // imposible cruzar retroactivamente trades reales contra el voto de un check
+    // individual (ej. confirmacion_algoritmica/Camino A) — se intento hacer ese
+    // cruce el mismo dia y no se pudo por esto, hubo que reconstruir Camino A
+    // desde cero contra velas historicas en vez de leerlo del log.
+    const checksSnapshot = playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value }));
+
     // Fuerza total (Mundo 3): todos los criterios de fuerza cumplidos.
     // Informativo — el playbook dice que ATM (débito, R:R 1:1) solo aplica
     // cuando la fuerza es total; hoy el switch OTM/ATM sigue decidido por
@@ -4154,7 +4165,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     if (!sel.valid) {
       const reason = `Estrategia inválida: ${sel.reason}`;
       console.log(`[SPX] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score }) });
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, checks: checksSnapshot }) });
       return;
     }
 
@@ -4181,7 +4192,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     if (!strikes) {
       const reason = `No se encontraron strikes con delta ${targetDelta}`;
       console.log(`[SPX] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy }) });
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
       return;
     }
 
@@ -4386,7 +4397,7 @@ async function processDirectionalEntry(direction, meta = {}) {
 
     const successReason = `Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}${signal.tradierOrder?.orderId ? ' — auto-ejecutada en Tradier' : (signal.tradierOrder?.skipped ? ` — sugerencia (Tradier omitido: ${signal.tradierOrder.reason})` : '')}`;
     console.log(`[SPX] ✅ ${successReason}`);
-    logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy }) });
+    logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
   } catch(e) {
     console.error('[SPX] processDirectionalEntry error:', e.message);
   }
