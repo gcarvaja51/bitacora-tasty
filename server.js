@@ -5282,8 +5282,28 @@ async function checkDirectionalTPSLImpl() {
         // en src/tradier.js) — netValue usa la misma convencion en credito y debito:
         // q[longSym]-q[shortSym] (positivo = credito, negativo = debito), consistente
         // con costoDeCerrar/valorActual ya calculados arriba para decidir TP/SL.
+        //
+        // Fix real 2026-07-28 (bug encontrado revisando 4 BEAR_PUT_SPREAD del 2026-07-23
+        // que perdieron 1.4x-2x el debito pagado, imposible en un vertical de debito —
+        // el valor de una vertical SIEMPRE esta acotado entre 0 y el ancho, cerrarla NUNCA
+        // deberia costar mas de lo ya pagado): un vertical de DEBITO cerca de agotarse
+        // (ej. tras un TECHNICAL_STOP, tesis invalidada, valor cayendo hacia 0) puede
+        // tener netValueAlCerrar positivo pero MENOR que bufferPts (ej. $0.30 de valor,
+        // buffer de $1.00) — sin este piso, `netValueAlCerrar - bufferPts` da NEGATIVO
+        // (ej. -$0.70), y closeSpreadOrder() interpreta cualquier valor negativo como
+        // "estoy dispuesto a PAGAR para cerrar" (type:'debit') en vez de "acepto hasta
+        // $0 de credito" — pedirle al mercado un debito adicional para cerrar una
+        // posicion que ya deberia cerrar por credito (aunque sea minimo) es exactamente
+        // al reves de la proteccion que se queria dar. Ahora, si netValueAlCerrar ya era
+        // >=0 (spread de debito cerrando en su regimen normal, credito/breakeven), el
+        // piso nunca cruza a debito — se limita a 0 en vez de volverse negativo. Si
+        // netValueAlCerrar es negativo (spread de CREDITO que cuesta dinero cerrar, el
+        // caso ya bien probado), el comportamiento no cambia.
         const bufferPts = (loadSPXConfig().trading || {}).closeSlippageBufferPts ?? 1.0;
         const netValueAlCerrar = q[longSym] - q[shortSym];
+        const worstNetPriceDir = netValueAlCerrar >= 0
+          ? Math.max(netValueAlCerrar - bufferPts, 0)
+          : netValueAlCerrar - bufferPts;
         const closeResultDir = await tradier.closeSpreadOrder({
           strategy:       ex.strategy,
           underlyingRoot: 'SPXW',
@@ -5291,7 +5311,7 @@ async function checkDirectionalTPSLImpl() {
           shortStrike:    ex.strikes.shortStrike,
           longStrike:     ex.strikes.longStrike,
           quantity:       ex.contracts,
-          worstNetPrice:  netValueAlCerrar - bufferPts,
+          worstNetPrice:  worstNetPriceDir,
         });
         // Guardar el orderId de cierre (2026-07-27, ver resolverPnlDesdeOrdenes) —
         // permite calcular el P&L real desde los fills reales en vez de /gainloss.
@@ -5692,8 +5712,14 @@ async function checkAlejamientoSMATPSLImpl() {
           const qc = {};
           quotesCierre.forEach(x => { qc[x.symbol] = x.mark; });
           if (qc[ex.legs.shortSym] != null && qc[ex.legs.longSym] != null) {
+            // Mismo piso que checkDirectionalTPSLImpl (fix 2026-07-28) — Reversion
+            // solo abre credito hoy asi que este caso no se ha visto en la practica,
+            // pero deja la funcion correcta si algun dia abre debito tambien.
             const bufferPts = (loadSPXConfig().trading || {}).closeSlippageBufferPts ?? 1.0;
-            worstNetPrice = (qc[ex.legs.longSym] - qc[ex.legs.shortSym]) - bufferPts;
+            const netValueAlCerrarRev = qc[ex.legs.longSym] - qc[ex.legs.shortSym];
+            worstNetPrice = netValueAlCerrarRev >= 0
+              ? Math.max(netValueAlCerrarRev - bufferPts, 0)
+              : netValueAlCerrarRev - bufferPts;
           }
         } catch(eq) { console.warn(`[Tradier-REV-TPSL] No se pudo cotizar para proteger el cierre de ${ex.orderId}, cierra a mercado:`, eq.message); }
 
