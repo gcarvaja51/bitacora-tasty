@@ -1269,6 +1269,50 @@ segura es hacia NO relajar la protección cuando falta el dato, no hacia relajar
 opción más simple (nivel activo o inactivo, sin inventar un nivel nuevo que no viene de un
 fractal/POC real) hasta validar cómo se comporta esto en producción.
 
+## Camino B autónomo — de throttle por tiempo a gate por posición real (2026-07-27/28)
+
+Desde el 2026-07-27, `checkDirectionalAutonomous()` (`server.js`, cada 30s en horario
+9:45am-2:30pm ET) calcula Camino B (`calcCaminoB`, `src/camino_b.js`) por su cuenta con velas
+de Tradier — ya no depende de que TradingView mande el webhook de alerta (aunque el webhook
+sigue existiendo y simplemente dispara el mismo chequeo compartido).
+
+**Bug real #1 (2026-07-28) — el throttle de 10 min se consumía en un intento rechazado por
+score:** `calcCaminoB` traía un throttle propio (`gapMinutes`, puerto fiel del input de Pine)
+que marcaba el timestamp de disparo apenas detectaba alineación, sin importar si el score
+después rechazaba la señal. Caso real: Camino B disparó a las 11:29am, el score dio 75%
+(insuficiente, `SCORE_FAIL`, ningún trade) — pero el timestamp ya había quedado marcado, así
+que el reintento legítimo (que 10 min después sí llegó a 80% y se ejecutó) quedó esperando
+esos 10 minutos de más sin ninguna posición abierta que lo justificara. Primer fix: se movió
+la responsabilidad de marcar el throttle del interior de `calcCaminoB()` al caller
+(`markCaminoBFired()`, llamado solo cuando `processDirectionalEntry` llegaba a `SIGNAL_BUILT`).
+
+**Bug real #2 (mismo día, encontrado al revisar el fix anterior con el usuario) — "señal
+construida" seguía sin ser lo mismo que "posición realmente abierta":** `SIGNAL_BUILT` (y por
+lo tanto el throttle) se disparaba también cuando: (a) ya había una posición abierta y la señal
+quedaba como simple sugerencia sin mandarse a Tradier, (b) el envío a Tradier tiraba una
+excepción, o (c) la orden se mandaba pero nunca llegaba a llenarse (sandbox, ver "Orden
+fantasma" arriba) — en los 3 casos no se abrió ninguna posición real, y el throttle igual
+bloqueaba 10 minutos. El usuario lo resumió así: *"la única activación para el siguiente trade
+sería cuando el trade abierto se cierre"*.
+
+**Fix final: se eliminó el throttle de tiempo por completo.** `calcCaminoB` ya no recibe
+`state`/`gapMinutes`/`nowMs` — solo calcula `coreAlignBull`/`coreAlignBear` y los devuelve
+directo como `bull`/`bear`, sin ninguna lógica de repetición. En su lugar,
+`checkDirectionalAutonomous()` corre un gate de posición real **antes** de evaluar Camino B
+siquiera: la misma doble capa que ya usaba `processDirectionalEntry` justo antes de mandar la
+orden (`tradier.hasOpenPosition('SPXW')` + `hasLocalOpenSPXWPosition()`, gana el más
+conservador; esta última ya trataba `status: 'submitted'` como abierto, no solo `'filled'`,
+así que ya cubre la ventana entre "orden enviada" y "fill confirmado"). Si hay una posición
+SPXW abierta/en curso, no se evalúa nada ese ciclo — si no la hay, se evalúa fresco cada 30s,
+sin ningún timer artificial de por medio. Una orden que se manda y nunca llena se autolibera
+sola vía `cleanupStalePendingOrdersImpl` (cancela pending >10 min y marca el registro local
+`canceled`, liberando el gate) — no hace falta lógica nueva para ese caso.
+
+`markCaminoBFired`/`caminoBState` se eliminaron del todo (ya no tienen función). El chequeo de
+posición que sigue existiendo dentro de `processDirectionalEntry`, justo antes de mandar la
+orden, se dejó sin cambios — sigue siendo la última red de seguridad contra una condición de
+carrera en los segundos entre el gate temprano y el envío real de la orden.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`

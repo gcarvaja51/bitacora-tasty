@@ -3194,7 +3194,7 @@ const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtensio
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
 const { calcCaminoA, calcATR } = require('./src/camino_a');
-const { calcCaminoB, markCaminoBFired } = require('./src/camino_b');
+const { calcCaminoB } = require('./src/camino_b');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -4001,12 +4001,18 @@ app.post('/api/spx/webhook', async (req, res) => {
   }
 });
 
-// Estado compartido del throttle de Camino B (10 min entre disparos de la misma
-// direccion, igual que gapMinutes_B en Pine) — persistente en memoria mientras
-// viva el proceso, mismo patron que el resto de los circuitos diarios de este
-// archivo. Compartido entre el webhook (arriba) y el chequeo autonomo (abajo)
-// para no disparar el mismo trade dos veces si ambos caminos coinciden.
-const caminoBState = { lastFireBullAt: null, lastFireBearAt: null };
+// 2026-07-28 (a pedido explicito del usuario, segunda vuelta sobre el mismo
+// tema): se elimino el throttle de gapMinutes de Camino B (calcCaminoB ya no
+// recibe state/gapMinutes, ver src/camino_b.js) en favor de un gate mas
+// honesto: la unica razon real para no evaluar de nuevo es que YA hay una
+// posicion SPXW abierta/en curso -- ver el chequeo al inicio de
+// checkDirectionalAutonomous(). El throttle de tiempo fijo (pensado
+// originalmente para Pine, donde no habia forma de saber si una alerta se
+// habia convertido en operacion real) quedaba corriendo en paralelo a ese
+// chequeo de posicion y podia bloquear minutos de mas incluso cuando NINGUNA
+// posicion real estaba abierta (score insuficiente, error al enviar la orden,
+// o una orden que nunca llego a llenarse) -- el mismo tipo de bug encontrado
+// unas horas antes ese mismo dia, un nivel mas profundo.
 
 // Trae velas 2m (7 dias, warmup real de EMA/MACD/CCI/ATR) y cierres 15m desde
 // Tradier — misma fuente que ya usa buildSPXContext() desde el fix del
@@ -4036,21 +4042,28 @@ async function checkDirectionalAutonomous() {
     // inutiles a Tradier fuera del horario operable del direccional.
     if (etMins < 9 * 60 + 45 || etMins >= 14 * 60 + 30) return;
 
+    // Gate de posicion real (2026-07-28, a pedido explicito del usuario) —
+    // antes de evaluar Camino B siquiera, confirmar que no hay ya una
+    // posicion SPXW abierta/en curso. Misma doble capa que ya se usaba mas
+    // abajo, justo antes de mandar la orden a Tradier (Tradier en vivo +
+    // registro local, gana el mas conservador — hasLocalOpenSPXWPosition ya
+    // trata 'submitted' como abierto, no solo 'filled'). Si no hay posicion
+    // real abierta, se evalua fresco cada 30s, sin ningun timer artificial de
+    // por medio.
+    const tradierDiceAbierto = await tradier.hasOpenPosition('SPXW');
+    const localDiceAbierto = hasLocalOpenSPXWPosition();
+    if (tradierDiceAbierto !== localDiceAbierto) {
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbierto}, registro local dice ${localDiceAbierto} — se usa el mas conservador (bloquear si cualquiera dice true).` });
+    }
+    if (tradierDiceAbierto || localDiceAbierto) return; // ya hay un trade SPXW abierto/en curso — no evaluar
+
     const { bars2m, closes15m } = await fetchCaminoBBars();
-    const r = calcCaminoB(bars2m, closes15m, caminoBState, 10);
+    const r = calcCaminoB(bars2m, closes15m);
 
     if (r.bull || r.bear) {
       const direction = r.bull ? 'BULLISH' : 'BEARISH';
       console.log(`[SPX] ✅ Camino B ${direction} — ${r.reason}`);
-      // El throttle de 10 min SOLO se consume si la señal realmente se
-      // construyo (SIGNAL_BUILT) -- 2026-07-28, bug real en vivo: un intento
-      // rechazado por score insuficiente (75%, faltaban 5 puntos) marcaba
-      // igual el timestamp del throttle, y el reintento legitimo (que 10 min
-      // despues si llego a 80% y se ejecuto) quedo esperando 10 minutos de mas
-      // sin ninguna posicion abierta que lo justificara. Ver markCaminoBFired
-      // en src/camino_b.js.
-      const built = await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r });
-      if (built) markCaminoBFired(caminoBState, direction);
+      await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r });
     } else {
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_CAMINO_B', passed: false, reason: r.reason, snapshot: { coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
     }
@@ -4147,7 +4160,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       console.log(`[SPX] ❌ ${reason}`);
       console.log(`[SPX] Detalle checks: ${JSON.stringify(playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })))}`);
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, minScore: playbookResult.minScore, checks: playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })) }) });
-      return false; // no se construyo señal -- el caller NO debe consumir el throttle de Camino B
+      return false; // no se construyo señal
     }
 
     // Detalle check-por-check (id/peso/ok/value) para los stages POSTERIORES al
@@ -4183,7 +4196,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       const reason = `Estrategia inválida: ${sel.reason}`;
       console.log(`[SPX] ❌ ${reason}`);
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, checks: checksSnapshot }) });
-      return false; // no se construyo señal -- el caller NO debe consumir el throttle de Camino B
+      return false; // no se construyo señal
     }
 
     // Fijo en 1 contrato para todas las entradas (2026-07-27, a pedido explicito
@@ -4210,7 +4223,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       const reason = `No se encontraron strikes con delta ${targetDelta}`;
       console.log(`[SPX] ❌ ${reason}`);
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
-      return false; // no se construyo señal -- el caller NO debe consumir el throttle de Camino B
+      return false; // no se construyo señal
     }
 
     // Stop técnico sugerido — el más conservador entre el último Fractal de
@@ -4416,7 +4429,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     const successReason = `Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}${signal.tradierOrder?.orderId ? ' — auto-ejecutada en Tradier' : (signal.tradierOrder?.skipped ? ` — sugerencia (Tradier omitido: ${signal.tradierOrder.reason})` : '')}`;
     console.log(`[SPX] ✅ ${successReason}`);
     logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
-    return true; // señal construida de verdad -- el caller SI debe consumir el throttle de Camino B
+    return true; // señal construida de verdad
   } catch(e) {
     console.error('[SPX] processDirectionalEntry error:', e.message);
     return false;

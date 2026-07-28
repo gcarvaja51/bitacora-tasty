@@ -3,16 +3,25 @@
 // ── Camino B: puerto fiel de CIARG_V1 (Pine) — a diferencia de Camino A
 // (retroceso clasico, entryUpT/entryDnT), Camino B NO exige que el precio haya
 // retrocedido bajo la EMA10 — solo exige que la alineacion (Trend Magic +
-// SlingShot + estado del MACD + marco 15m) este activa, con un throttle de
-// tiempo minimo entre disparos (gapMinutes, default 10 = el input real de Pine)
-// para no repetir en cada vela mientras la alineacion se sostenga. Es la unica
-// logica de entrada que dispara alert() en Pine hoy (Camino A se desactivo tras
-// el backtest de 58 dias: 48.8% WR vs 67.8% WR de Camino B) — ver CLAUDE.md.
+// SlingShot + estado del MACD + marco 15m) este activa. Es la unica logica de
+// entrada que dispara alert() en Pine hoy (Camino A se desactivo tras el
+// backtest de 58 dias: 48.8% WR vs 67.8% WR de Camino B) — ver CLAUDE.md.
 //
 // Construido 2026-07-24 para eliminar la dependencia de que TradingView mande
 // el webhook: este modulo permite que el propio servidor calcule la señal de
 // entrada, con los mismos datos frescos de Tradier ya usados para el gate de
 // confluencia (ver src/tradier.js:getTimesales).
+//
+// 2026-07-28: se elimino el throttle de tiempo (gapMinutes_B en Pine, 10 min
+// entre disparos de la misma direccion) que este modulo tenia al principio —
+// a pedido explicito del usuario, la unica razon real para no evaluar de nuevo
+// es que YA hay una posicion SPXW abierta/en curso (chequeo que ahora corre al
+// inicio de checkDirectionalAutonomous(), server.js, antes de llamar aca). Un
+// timer fijo en paralelo a ese chequeo de posicion podia bloquear minutos de
+// mas incluso cuando NINGUNA posicion real estaba abierta (señal rechazada por
+// score, error al enviar la orden, orden que nunca llego a llenarse) — bug
+// real encontrado ese mismo dia, primero a nivel de throttle-vs-SCORE_FAIL,
+// despues (esta vuelta) a nivel de throttle-vs-posicion-realmente-abierta.
 const { calcMagicTrend, calcCCI, calcATR } = require('./camino_a');
 const { calcEMAArray } = require('./spx_indicators');
 
@@ -40,17 +49,7 @@ function calcFase15mSimple(closes15) {
 
 // bars2m: [{high,low,close}, ...] cronologico, ideal 40+ barras de warmup.
 // closes15m: array de cierres de 15m, cronologico.
-// state: {lastFireBullAt, lastFireBearAt} en ms epoch — SOLO LECTURA aca adentro
-// (2026-07-28: la mutacion se movio a markCaminoBFired(), llamada por el caller
-// solo cuando la señal se ejecuta de verdad, ver nota mas abajo). Equivalente a
-// 'var lastFireBull_B' de Pine, pero por tiempo real en vez de bar_index ya que
-// este chequeo no corre exactamente una vez por vela.
-// nowMs: opcional, para poder simular/backtestear (el throttle usaria Date.now()
-// real, que en un loop de simulacion rapido queda practicamente constante y
-// bloquea casi todo despues del primer disparo — bug de arnes de prueba
-// encontrado 2026-07-25, no de la logica en si, que en produccion (llamada real
-// cada 30-60s) funciona bien con Date.now()).
-function calcCaminoB(bars2m, closes15m, state, gapMinutes = 10, nowMs = null) {
+function calcCaminoB(bars2m, closes15m) {
   if (!bars2m || bars2m.length < 35) {
     return { bull: false, bear: false, coreAlignBull: false, coreAlignBear: false, reason: 'Historial insuficiente (2m)' };
   }
@@ -89,42 +88,18 @@ function calcCaminoB(bars2m, closes15m, state, gapMinutes = 10, nowMs = null) {
   const coreAlignBull = close2m > magicTrend[i] && ema10_2m[i] > ema20_2m[i] && macdLineFull[i] > macdSignalFull[i] && fase15.bull;
   const coreAlignBear = close2m < magicTrend[i] && ema10_2m[i] < ema20_2m[i] && macdLineFull[i] < macdSignalFull[i] && fase15.bear;
 
-  const now = nowMs ?? Date.now();
-  const gapMs = gapMinutes * 60 * 1000;
-  const enoughGapBull = !state.lastFireBullAt || (now - state.lastFireBullAt) >= gapMs;
-  const enoughGapBear = !state.lastFireBearAt || (now - state.lastFireBearAt) >= gapMs;
-
-  const bull = coreAlignBull && enoughGapBull;
-  const bear = coreAlignBear && enoughGapBear;
-
-  // 2026-07-28: el throttle YA NO se consume aca adentro (bug real encontrado el
-  // mismo dia con un caso en vivo: Camino B disparo a las 11:29am, el score dio
-  // 75% -- insuficiente, SCORE_FAIL, ningun trade -- pero como el timestamp ya
-  // habia quedado marcado, el sistema no pudo reintentar hasta las 11:39am,
-  // diez minutos despues, aunque en el medio no hubo ninguna posicion abierta
-  // que justificara esa espera. El proposito del throttle es evitar redisparar
-  // en cada vela DESPUES de una señal que si se convirtio en operacion, no
-  // penalizar un intento que nunca llego a ejecutarse. Ahora el caller decide
-  // cuando consumir el throttle, llamando a markCaminoBFired() SOLO si la señal
-  // realmente se construyo (ver processDirectionalEntry en server.js).
+  // bull/bear = coreAlignBull/coreAlignBear directo -- sin throttle de tiempo
+  // (ver nota arriba). El unico gate real contra redisparar en cada vela
+  // mientras la alineacion se sostiene es la exclusividad de posicion
+  // (checkDirectionalAutonomous en server.js): una vez que una señal se
+  // convierte en operacion real, esa posicion abierta bloquea cualquier nueva
+  // evaluacion hasta que cierre -- no hace falta un timer aparte.
   return {
-    bull, bear, coreAlignBull, coreAlignBear,
-    reason: bull ? 'Camino B alcista — alineación fresca (Trend Magic + SlingShot + MACD + 15m)'
-      : bear ? 'Camino B bajista — alineación fresca (Trend Magic + SlingShot + MACD + 15m)'
-      : (coreAlignBull || coreAlignBear) ? 'Alineación activa pero dentro del gap mínimo entre señales (throttle)'
+    bull: coreAlignBull, bear: coreAlignBear, coreAlignBull, coreAlignBear,
+    reason: coreAlignBull ? 'Camino B alcista — alineación activa (Trend Magic + SlingShot + MACD + 15m)'
+      : coreAlignBear ? 'Camino B bajista — alineación activa (Trend Magic + SlingShot + MACD + 15m)'
       : 'Sin alineación Camino B',
   };
 }
 
-// Consume el throttle -- llamar SOLO cuando la señal realmente se construyo
-// (processDirectionalEntry llego a SIGNAL_BUILT), nunca en un SCORE_FAIL/
-// STRATEGY_INVALID/NO_STRIKES. Antes esto vivia como efecto secundario dentro
-// de calcCaminoB() y se disparaba con solo detectar la alineacion, sin importar
-// si el score despues rechazaba la señal.
-function markCaminoBFired(state, direction, nowMs = null) {
-  const now = nowMs ?? Date.now();
-  if (direction === 'BULLISH') state.lastFireBullAt = now;
-  else if (direction === 'BEARISH') state.lastFireBearAt = now;
-}
-
-module.exports = { calcCaminoB, calcFase15mSimple, markCaminoBFired };
+module.exports = { calcCaminoB, calcFase15mSimple };
