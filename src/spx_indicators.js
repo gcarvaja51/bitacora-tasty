@@ -191,47 +191,101 @@ function calcPlaybookScore(indicators, config) {
     label:   'Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)',
     mundo:   1,
     weight:  w1,
+    points:  fase_ok ? w1 : 0,
     ok:      fase_ok,
     value:   fase_ok ? `${esAlcista ? 'alcista' : 'bajista'} (Camino B)` : 'no confirmado',
     reason:  fase_ok ? `Alineación ${esAlcista ? 'alcista' : 'bajista'} confirmada por Camino B (2m + marco 15m) ✅` : `Camino B no confirmó la alineación de esta señal ❌`,
   });
   if (fase_ok) score += w1;
 
-  // 2. Régimen Institucional — GEX compatible con la dirección
-  // (DEX pendiente: los datos de delta ya están disponibles en la cadena de
-  // opciones pero falta validar en qué dirección favorece cada régimen antes
-  // de sumarlo al score de un sistema que ejecuta órdenes reales)
+  // 2. Régimen Institucional — GEX + DEX (tabla de 4 cuadrantes, playbook
+  // Alejandro, Sesión 8: Grind/Rango/Pánico/Short Squeeze — agregado 2026-07-28
+  // tras un audit contra la mentoría que señaló que operar solo con GEX es
+  // "mirar la mitad del mapa"). netDex viene de Sigma Terminal (mismo loop de
+  // 2 min que ya alimenta Call Wall/Put Wall/Gamma Flip/MVS) — si no hay dato
+  // fresco (<5 min, mismo criterio que el resto del sistema), cae al
+  // comportamiento viejo (solo GEX + Gamma Flip como proxy de flujo), sin
+  // romper nada de lo que ya corría en producción.
+  //
+  // Tabla (para señales direccionales, no aplica igual al Iron Condor):
+  //   GEX+/DEX+ Grind alcista       -> BULLISH ok (sube lento, sano)
+  //   GEX-/DEX+ Short Squeeze       -> BULLISH ok (rally violento, calls de débito)
+  //   GEX+/DEX- Rango lateral       -> NI bullish NI bearish ok — "atrapado sin
+  //                                     combustible", es tesis de Iron Condor,
+  //                                     no de spread direccional
+  //   GEX-/DEX- Pánico/Crash        -> BEARISH ok (única combinación que la
+  //                                     tabla describe como "Estrategias
+  //                                     Direccionales")
+  // Asimétrico a propósito: "Short Squeeze" es un fenómeno inherentemente
+  // alcista, no hay un cuadrante espejo bajista en la tabla de la mentoría.
   const w2 = weights.regimen_institucional ?? 10;
   totalWeight += w2;
   const regime    = indicators.gammaRegime;
   const gammaFlip = indicators.gammaFlip;
   const spxPrice  = indicators.spxPrice;
+  const netDex    = indicators.netDex;
   let regimen_ok = false;
+  let regimen_points = 0;
   let regimen_reason = '—';
-  if (regime === 'POSITIVO') {
+  if (netDex != null && regime != null) {
+    // Cuadrante real primero (independiente de la direccion de la señal), y
+    // recien despues se decide el puntaje segun esa direccion -- evita el bug
+    // de un primer intento (2026-07-28) donde el texto del cuadrante en el
+    // caso BEARISH-no-pasa quedaba mal etiquetado (asumia el cuadrante por la
+    // rama en vez de calcularlo de los signos reales de GEX/DEX).
+    //
+    // Puntaje parcial (2026-07-28, ajuste tras revisar la sugerencia del
+    // audit de la mentoria): el cuadrante Rango Lateral (+/-) da MEDIO peso
+    // en vez de cero, en las dos direcciones -- la propia tabla de Alejandro
+    // lo describe como "Medio/Alerta", no "Evitar" como Panico. Se descarto
+    // a proposito graduar tambien Short Squeeze (el audit sugeria "7-10 pts"
+    // sin una regla exacta de que determina el valor dentro de ese rango, y
+    // no hay datos historicos de DEX para calibrar un umbral de magnitud sin
+    // inventarlo a ojo) -- se mantiene binario (10 o 0) fuera de Rango.
+    const dexPos = netDex > 0;
+    const gexPos = regime === 'POSITIVO';
+    const quadrant = gexPos && dexPos  ? 'Grind alcista'
+                    : !gexPos && dexPos  ? 'Short Squeeze'
+                    : gexPos && !dexPos  ? 'Rango lateral'
+                    : 'Pánico/Crash';
+    const esRango = gexPos && !dexPos;
+    const fullMatch = dir === 'BULLISH' ? dexPos : (!gexPos && !dexPos);
+    regimen_points = fullMatch ? w2 : (esRango ? w2 / 2 : 0);
+    regimen_ok = fullMatch; // Rango queda "no ok" para visualizacion (❌), aunque sume medio puntaje
+    const signos = `GEX${gexPos ? '+' : '-'}/DEX${dexPos ? '+' : '-'} (${netDex})`;
+    regimen_reason = fullMatch
+      ? `${quadrant} — ${signos} ✅ (${regimen_points}/${w2} pts)`
+      : esRango
+        ? `${quadrant} — ${signos}, sin combustible claro para ${dir === 'BULLISH' ? 'alcista' : 'bajista'} — medio puntaje (${regimen_points}/${w2} pts) ⚠️`
+        : `${quadrant} — ${signos}, no confirma ${dir === 'BULLISH' ? 'alcista' : 'bajista'} ❌ (0/${w2} pts)`;
+  } else if (regime === 'POSITIVO') {
     regimen_ok = true;
-    regimen_reason = 'Gamma positivo — mercado estabilizador ✅';
+    regimen_points = w2;
+    regimen_reason = 'Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)';
   } else if (regime === 'NEGATIVO') {
     if (dir === 'BULLISH' && gammaFlip && spxPrice > gammaFlip) {
       regimen_ok = true;
-      regimen_reason = `Precio (${spxPrice}) sobre Gamma Flip (${gammaFlip}) ✅`;
+      regimen_points = w2;
+      regimen_reason = `Precio (${spxPrice}) sobre Gamma Flip (${gammaFlip}) ✅ (sin DEX fresco, fallback GEX-solo)`;
     } else if (dir === 'BEARISH' && gammaFlip && spxPrice < gammaFlip) {
       regimen_ok = true;
-      regimen_reason = `Precio (${spxPrice}) bajo Gamma Flip (${gammaFlip}) ✅`;
+      regimen_points = w2;
+      regimen_reason = `Precio (${spxPrice}) bajo Gamma Flip (${gammaFlip}) ✅ (sin DEX fresco, fallback GEX-solo)`;
     } else {
-      regimen_reason = `Gamma negativo pero precio no confirmó flip (${gammaFlip}) ❌`;
+      regimen_reason = `Gamma negativo pero precio no confirmó flip (${gammaFlip}) ❌ (sin DEX fresco, fallback GEX-solo)`;
     }
   }
   checks.push({
     id:      'regimen_institucional',
-    label:   'Régimen Institucional (GEX)',
+    label:   'Régimen Institucional (GEX + DEX)',
     mundo:   1,
     weight:  w2,
+    points:  regimen_points,
     ok:      regimen_ok,
-    value:   `Regime:${regime} Flip:${gammaFlip}`,
+    value:   `Regime:${regime} Flip:${gammaFlip} DEX:${netDex ?? 'sin dato'}`,
     reason:  regimen_reason,
   });
-  if (regimen_ok) score += w2;
+  score += regimen_points;
 
   // ── Mundo 2: Trigger ──────────────────────────────────────
 
@@ -244,6 +298,7 @@ function calcPlaybookScore(indicators, config) {
     label:   'Patrón Estructural (HL/LH)',
     mundo:   2,
     weight:  w3,
+    points:  swing.ok ? w3 : 0,
     ok:      swing.ok,
     value:   swing.value ?? '—',
     reason:  swing.reason,
@@ -264,6 +319,7 @@ function calcPlaybookScore(indicators, config) {
     label:   'EMAs 10/20 alineadas y no extendidas (15m)',
     mundo:   2,
     weight:  w4,
+    points:  ema_ok ? w4 : 0,
     ok:      ema_ok,
     value:   `EMA10:${m.ema10} EMA20:${m.ema20} Ext10:${m.ext10}% Ext20:${m.ext20}%`,
     reason:  ema_ok
@@ -284,6 +340,7 @@ function calcPlaybookScore(indicators, config) {
     label:   'Volumen de Rompimiento > 2x',
     mundo:   3,
     weight:  w5,
+    points:  volumen_ok ? w5 : 0,
     ok:      volumen_ok,
     value:   relVol !== null ? `${relVol}x` : '—',
     reason:  volumen_ok
@@ -311,6 +368,7 @@ function calcPlaybookScore(indicators, config) {
     label:   'MACD cruce + pendiente (15m)',
     mundo:   3,
     weight:  w6,
+    points:  macd_ok ? w6 : 0,
     ok:      macd_ok,
     value:   `MACD:${macdLine} Signal:${macd.signal} (3 velas atrás: ${macd.linePrev3 ?? '—'})`,
     reason:  macd_ok
@@ -329,6 +387,7 @@ function calcPlaybookScore(indicators, config) {
     label:   'Confirmación Algorítmica (Camino A)',
     mundo:   3,
     weight:  w7,
+    points:  algo_ok ? w7 : 0,
     ok:      algo_ok,
     value:   caminoA.reason || '—',
     reason:  algo_ok ? 'Camino A confirma la dirección ✅' : 'Camino A no confirma ❌',

@@ -601,6 +601,7 @@ function buildSignalSummary(strategy, strikes, sel, context) {
       vix:         context.vix,
       ivRank:      context.ivRank,
       gammaRegime: context.gammaRegime,
+      netDex:      context.netDex,
       callWall:    context.callWall,
       putWall:     context.putWall,
       gammaFlip:   context.gammaFlip,

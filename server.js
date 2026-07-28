@@ -3220,7 +3220,7 @@ const SPX_CONFIG_DEFAULTS = {
     // "menores" con evidencia real de discriminar: 33% vs 62% win rate cuando
     // falla junto con volumen, según el mismo análisis).
     fase_weinstein:           45, // 40->45 (2026-07-21)
-    regimen_institucional:    10, // GEX compatible con la dirección (DEX pendiente, sin datos validados aún)
+    regimen_institucional:    10, // GEX + DEX (tabla 4 cuadrantes, 2026-07-28 -- ver calcPlaybookScore)
     patrones_estructurales:   20, // Higher-Low / Lower-High via fractales 15m
     ema_10_20_alineadas:      10, // EMAs alineadas 15m y precio no extendido
     volumen_rompimiento:       0, // 10->0 (2026-07-21) — retirado del score, ver nota arriba. Check sigue visible.
@@ -4072,10 +4072,14 @@ async function processDirectionalEntry(direction, meta = {}) {
     // (selectStrategy) y los niveles de Call/Put Wall usados en el stop tecnico
     // y en la propia señal.
     const sigmaLevelsWebhook = getFreshSigmaLevels();
+    // netDex viaja pegado al mismo objeto effectiveGex (mismo origen, misma
+    // frescura <5min) en vez de un "effectiveDex" aparte -- si no hay dato de
+    // Sigma Terminal fresco, queda undefined y regimen_institucional cae solo
+    // al fallback GEX-solo (ver calcPlaybookScore).
     const effectiveGex = sigmaLevelsWebhook
-      ? { regime: sigmaLevelsWebhook.regime, callWall: sigmaLevelsWebhook.callWall, putWall: sigmaLevelsWebhook.putWall, gammaFlip: sigmaLevelsWebhook.gammaFlip, maxPain: ctx.gex?.maxPain, source: 'sigma_terminal' }
-      : { regime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain, source: 'interno' };
-    console.log(`[SPX] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source})`);
+      ? { regime: sigmaLevelsWebhook.regime, netDex: sigmaLevelsWebhook.netDex, callWall: sigmaLevelsWebhook.callWall, putWall: sigmaLevelsWebhook.putWall, gammaFlip: sigmaLevelsWebhook.gammaFlip, maxPain: ctx.gex?.maxPain, source: 'sigma_terminal' }
+      : { regime: ctx.gex?.regime, netDex: undefined, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain, source: 'interno' };
+    console.log(`[SPX] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source}) DEX: ${effectiveGex.netDex ?? 'sin dato'}`);
 
     // Capital de la cuenta — DEBE ser el de Tradier (donde de verdad se ejecuta la
     // orden), no el de TastyTrade (una cuenta real completamente distinta y sin
@@ -4118,6 +4122,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       spxPrice:    ctx.spxPrice,
       gammaRegime: effectiveGex.regime,
       gammaFlip:   effectiveGex.gammaFlip,
+      netDex:      effectiveGex.netDex,
       daily:       safeDaily,
       m15:         safeM15,
       m2:          safeM2,
@@ -4222,6 +4227,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       ...ctx,
       direction,
       gammaRegime: effectiveGex.regime,
+      netDex:      effectiveGex.netDex,
       callWall:    effectiveGex.callWall,
       putWall:     effectiveGex.putWall,
       gammaFlip:   effectiveGex.gammaFlip,
@@ -4455,11 +4461,16 @@ function saveSigmaLevelsHistory(history) {
 }
 
 app.post('/api/spx/sigma-levels', (req, res) => {
-  const { netGex, regime, callWall, putWall, gammaFlip, mvs, spxPrice } = req.body || {};
+  // netDex agregado 2026-07-28 (a pedido del usuario, tras el audit de la
+  // mentoria de Alejandro sobre GEX+DEX) -- opcional, no rompe a los callers
+  // viejos del loop de premercado que todavia no lo manden (queda undefined,
+  // getFreshSigmaLevels() lo propaga igual y el consumidor trata "sin dato"
+  // como "sin DEX fresco", cae al comportamiento de antes).
+  const { netGex, netDex, regime, callWall, putWall, gammaFlip, mvs, spxPrice } = req.body || {};
   if (regime !== 'POSITIVO' && regime !== 'NEGATIVO') {
     return res.status(400).json({ ok: false, error: 'regime debe ser POSITIVO o NEGATIVO' });
   }
-  const entry = { netGex, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
+  const entry = { netGex, netDex, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
   const history = loadSigmaLevelsHistory();
   history.unshift(entry);
   saveSigmaLevelsHistory(history.slice(0, SIGMA_LEVELS_MAX_ENTRIES));
