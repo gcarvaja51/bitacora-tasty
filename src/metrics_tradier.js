@@ -71,30 +71,43 @@ function mapSpxExecution(ex) {
 
 // wheel_trading_executions.json — ciclos de la Rueda. Simplificacion conocida,
 // sin validar contra un ciclo real todavia (vacio al momento de escribir esto):
-// el pnl es SOLO la prima acumulada (totalCreditAccumulated) — no incluye la
-// variacion del precio de las acciones mientras se mantuvieron entre CSP y CC,
-// que el sistema hoy no trackea como P&L separado. Tampoco hay un campo
-// closedAt explicito.
+// para un cierre NORMAL (expiro OTM o Call ejercida, via checkWheelExpiryImpl)
+// no existe un P&L real separado del stock — ex.pnl nunca se setea en esos
+// casos, asi que el pnl es SOLO la prima acumulada (totalCreditAccumulated),
+// sin incluir la variacion del precio de las acciones mientras se mantuvieron
+// entre CSP y CC. Tampoco hay un campo closedAt explicito para esos casos.
 //
-// Fix real 2026-07-28: el proxy de fecha de cierre usaba SIEMPRE el
-// vencimiento nominal del ultimo leg (ex.leg.expiry) — correcto para un ciclo
-// que de verdad llego al vencimiento, pero HOOD/BE (reconciliados a mano el
-// 2026-07-11 por el bug de "roll cierra la pata vieja pero la reapertura
-// falla silenciosamente", posicion quedo flat desde el 2026-07-10) tenian
-// closeReason:'ROLL_REAPERTURA_FALLIDA' con leg.expiry:'2026-07-31' — el
-// calendario los mostraba el 31 de julio, 3 semanas despues del cierre real.
-// Ahora se prefiere la fecha del ULTIMO evento registrado (ROLL/ROLL_DEFENSIVO/
-// STO_CALL/ROLL_CALL) — esos eventos solo se agregan cuando algo realmente
-// ocurrio, nunca proyectan una fecha futura — y solo se cae a leg.expiry
-// cuando no hay ningun evento (ciclo sin rolls que si llego al vencimiento,
-// ahi el vencimiento nominal SI es la fecha de cierre real).
+// Fix real 2026-07-28 (2 bugs encontrados al pedido del usuario de "revisar
+// todos los ciclos y validar la fecha", validando los 12 ciclos reales uno
+// por uno, no solo los 2 que ya se sabia que estaban mal):
+//
+// 1) PNL: cuando un ciclo se reconcilio a mano (closeReason:'ROLL_REAPERTURA_
+//    FALLIDA', ver el bug de roll con reapertura fallida documentado en el
+//    endpoint de gestion, server.js) SI existe un ex.pnl real (el cash flow
+//    neto reconciliado, ej. HOOD -$50, BE -$225, NBIS -$95, RKLB -$15,
+//    IBIT -$2) — pero este mapeo lo IGNORABA por completo y usaba
+//    totalCreditAccumulated (la prima bruta cobrada, sin restar el costo de
+//    cerrar la pata abandonada) como si fuera el resultado final. Los 5
+//    ciclos aparecian en el calendario como pequenas GANANCIAS (+$2.95,
+//    +$18.65, etc.) cuando en realidad 5 de esos 6 fueron PERDIDAS reales
+//    (-$387 combinado). Ahora se prefiere ex.pnl cuando es un numero.
+// 2) FECHA: el proxy de cierre usaba SIEMPRE el vencimiento nominal del
+//    ultimo leg (ex.leg.expiry) — correcto para un ciclo que de verdad llego
+//    al vencimiento, pero los 6 ciclos reconciliados a mano tenian
+//    leg.expiry de semanas/meses en el futuro respecto a cuando realmente se
+//    cerraron (HOOD/BE: 2026-07-31; NBIS/RKLB/IBIT: 2026-08-21 — ninguno de
+//    los 3 tenia eventos registrados para usar como proxy, a diferencia de
+//    HOOD/BE que si). Se agrega un fallback nuevo: si pnlSource sigue el
+//    patron 'reconciliado_manual_YYYY-MM-DD', esa fecha (el dia real de la
+//    reconciliacion) se usa antes de caer al vencimiento nominal.
 function mapWheelExecution(ex) {
   if (ex.phase !== 'CERRADO') return null;
-  const pnl      = ex.totalCreditAccumulated ?? ex.creditReceived ?? 0;
+  const pnl      = typeof ex.pnl === 'number' ? ex.pnl : (ex.totalCreditAccumulated ?? ex.creditReceived ?? 0);
   const openDate = (ex.timestamp || '').slice(0, 10);
   const eventDates = (ex.events || []).map(e => (e.date || '').slice(0, 10)).filter(Boolean);
   const lastEventDate = eventDates.length ? eventDates.sort().slice(-1)[0] : null;
-  const closeDate = lastEventDate || (ex.leg && ex.leg.expiry) || openDate;
+  const reconciledMatch = /^reconciliado_manual_(\d{4}-\d{2}-\d{2})$/.exec(ex.pnlSource || '');
+  const closeDate = lastEventDate || (reconciledMatch && reconciledMatch[1]) || (ex.leg && ex.leg.expiry) || openDate;
   if (!openDate) return null;
   return {
     key:          ex.id,
