@@ -2435,6 +2435,15 @@ app.get('/api/wheel-trading/executions', async (req, res) => {
   } catch(e) {
     console.error('[WHEEL] Error calculando P&L en vivo:', e.message);
   }
+  // Comision estimada (2026-07-28) — Tradier no la expone via API, se calcula
+  // sobre la tarifa publicada (ver src/broker_fees.js). Solo aplica a ciclos
+  // que ya tuvieron al menos una transaccion real (CSP_ACTIVA en adelante).
+  const { estimateWheelCommission } = require('./src/broker_fees');
+  for (const ex of executions) {
+    if (ex.status === 'filled' || ex.status === 'closed') {
+      ex.commissionEstimate = estimateWheelCommission(ex);
+    }
+  }
   res.json(executions);
 });
 
@@ -5818,6 +5827,17 @@ app.get('/api/tradier/executions', async (req, res) => {
     }
   } catch(e) {
     console.error('[TRADIER] Error calculando P&L en vivo:', e.message);
+  }
+
+  // Comision estimada (2026-07-28, a pedido del usuario — "no estamos
+  // cargando los costos del broker") — Tradier no la expone via API (ver
+  // src/broker_fees.js), se calcula sobre la tarifa publicada. Solo aplica
+  // una vez hubo al menos una transaccion real (filled en adelante).
+  const { estimateSpxCommission } = require('./src/broker_fees');
+  for (const ex of executions) {
+    if (ex.status === 'filled' || ex.status === 'closed') {
+      ex.commissionEstimate = estimateSpxCommission(ex);
+    }
   }
 
   res.json({ executions, account });

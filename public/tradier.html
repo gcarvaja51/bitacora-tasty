@@ -309,7 +309,7 @@
         <div style="font-size:18px;font-weight:700;color:var(--bright);">🧪 Demo Tradier — Seguimiento</div>
         <button onclick="loadTradierDemo()" class="btn btn-primary" style="padding:8px 18px;font-size:12px;">🔄 Actualizar</button>
       </div>
-      <div class="kpi-row cols-4" id="tdemo-kpis" style="margin-bottom:16px;"></div>
+      <div class="kpi-row cols-5" id="tdemo-kpis" style="margin-bottom:16px;"></div>
       <div class="grid-3">
         <div class="card">
           <div class="card-header">Win Rate</div>
@@ -343,7 +343,7 @@
       </div>
       <div class="card" style="margin-top:16px;">
         <div class="card-header">Historial de Ejecuciones</div>
-        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Incluye Bull Put/Bear Call e Iron Condor ejecutados automáticamente en el sandbox (débito manual, aún no conectado a Tradier). En Iron Condor, "Strikes" solo muestra la pata del put. Columna "Checks" abre el detalle de score y checks del playbook que generó la señal (solo disponible para señales dentro de las últimas 50, historial de <code>spx_signals.json</code>).</div>
+        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Incluye Bull Put/Bear Call e Iron Condor ejecutados automáticamente en el sandbox (débito manual, aún no conectado a Tradier). En Iron Condor, "Strikes" solo muestra la pata del put. Columna "Checks" abre el detalle de score y checks del playbook que generó la señal (solo disponible para señales dentro de las últimas 50, historial de <code>spx_signals.json</code>). Columna "Comisión (est.)" es un <strong>cálculo</strong>, no un dato real de Tradier — la API no expone comisión por orden; se estima con la tarifa publicada del plan Lite ($1.05/contrato/pata SPX, ida y vuelta), ver <code>src/broker_fees.js</code>.</div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -357,6 +357,7 @@
                 <th class="tdemo-sortable" data-col="cierre" onclick="sortTdemoBy('cierre')">Cierre<span class="tdemo-sort-arrow"></span></th>
                 <th class="tdemo-sortable" data-col="fill" onclick="sortTdemoBy('fill')">Fill entrada<span class="tdemo-sort-arrow"></span></th>
                 <th class="tdemo-sortable" data-col="pnl" onclick="sortTdemoBy('pnl')">P&amp;L<span class="tdemo-sort-arrow"></span></th>
+                <th class="tdemo-sortable" data-col="comision" onclick="sortTdemoBy('comision')" title="Estimada — Tradier no la expone via API, ver src/broker_fees.js">Comisión (est.)<span class="tdemo-sort-arrow"></span></th>
                 <th>Checks</th>
                 <th>Informe</th>
               </tr>
@@ -694,6 +695,16 @@ function renderTradierDemo(execs, account) {
   const avgWin  = wins.length ? wins.reduce((s,e)=>s+e.pnl,0)/wins.length : 0;
   const avgLoss = losers.length ? losers.reduce((s,e)=>s+e.pnl,0)/losers.length : 0;
 
+  // Comision estimada (2026-07-28) — Tradier no la expone via API, se calcula
+  // sobre la tarifa publicada (src/broker_fees.js, ex.commissionEstimate ya
+  // viene calculado desde el servidor). Suma sobre TODO lo que ya tuvo al
+  // menos una transaccion real (filled o closed), no solo lo cerrado — la
+  // comision de entrada ya se pagó aunque el trade siga abierto.
+  const totalComisiones = execs.reduce((s,e) => s + (e.commissionEstimate || 0), 0);
+  const pnlBrutoClosed  = closed.reduce((s,e) => s + (e.pnl || 0), 0);
+  const comisionesClosed = closed.reduce((s,e) => s + (e.commissionEstimate || 0), 0);
+  const pnlNeto = pnlBrutoClosed - comisionesClosed;
+
   // KPIs principales — balance REAL de la cuenta Tradier, no calculado por nosotros
   if (account) {
     $('tdemo-kpis').innerHTML = [
@@ -701,6 +712,7 @@ function renderTradierDemo(execs, account) {
       kpiCard('P&L Total', f$(account.pnlTotal), `vs $${account.startingBalance.toLocaleString()} inicial`, cc(account.pnlTotal)),
       kpiCard('Buying Power', f$(account.buyingPower), 'disponible en Tradier'),
       kpiCard('Ejecutadas', total, `${closed.length} cerradas, ${total-closed.length} en curso`),
+      kpiCard('P&L Neto (post-comisión)', f$(pnlNeto), `-${fa$(totalComisiones)} comisión est. total`, cc(pnlNeto)),
     ].join('');
   } else {
     $('tdemo-kpis').innerHTML = [
@@ -708,6 +720,7 @@ function renderTradierDemo(execs, account) {
       kpiCard('P&L Acumulado (interno)', f$(closed.reduce((s,e)=>s+(e.pnl||0),0)), `${closed.length} trades cerrados`),
       kpiCard('Net Liq (Tradier)', '—', 'no disponible ahora'),
       kpiCard('Buying Power', '—', 'no disponible ahora'),
+      kpiCard('P&L Neto (post-comisión)', f$(pnlNeto), `-${fa$(totalComisiones)} comisión est. total`, cc(pnlNeto)),
     ].join('');
   }
 
@@ -822,6 +835,7 @@ function tdemoSortValue(e, col) {
     case 'cierre':     return e.closeReason || '';
     case 'fill':       return typeof e.entryFillPrice === 'number' ? e.entryFillPrice : -Infinity;
     case 'pnl':        return typeof e.pnl === 'number' ? e.pnl : typeof e.livePnl === 'number' ? e.livePnl : -Infinity;
+    case 'comision':   return typeof e.commissionEstimate === 'number' ? e.commissionEstimate : -Infinity;
     default:           return '';
   }
 }
@@ -873,6 +887,7 @@ function renderTdemoRows(execs) {
     const informeBtn = tieneInforme
       ? `<a href="/api/informe-trade/${e.id}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
       : `<span class="dim" style="font-size:10px;">—</span>`;
+    const comisionLabel = typeof e.commissionEstimate === 'number' ? `-${fa$(e.commissionEstimate)}` : '—';
     return `<tr>
       <td class="td-mono" style="font-size:11px;">${fecha}</td>
       <td class="${e.direction==='BULLISH'?'pos':e.direction==='BEARISH'?'neg':'dim'}">${e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'—')}</td>
@@ -883,10 +898,11 @@ function renderTdemoRows(execs) {
       <td style="font-size:11px;">${cierreLabel}</td>
       <td class="td-mono">${e.entryFillPrice ? '$'+e.entryFillPrice : '—'}</td>
       <td class="td-mono ${pnlCls}">${pnlLabel}</td>
+      <td class="td-mono neg" style="font-size:11px;">${comisionLabel}</td>
       <td>${checksBtn}</td>
       <td>${informeBtn}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="11" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
+  }).join('') : '<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
 }
 
 // Modal de detalle de checks/score del playbook que genero la senal (2026-07-28) —
