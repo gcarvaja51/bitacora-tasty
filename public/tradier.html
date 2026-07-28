@@ -175,10 +175,9 @@
               <th onclick="sortHist('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hh-pnl"></span></th>
               <th onclick="sortHist('capPct')"      style="cursor:pointer;user-select:none;">% Capturado <span id="hh-capPct"></span></th>
               <th onclick="sortHist('openValue')"   style="cursor:pointer;user-select:none;">Prima cobrada <span id="hh-openValue"></span></th>
-              <th onclick="sortHist('closeValue')"  style="cursor:pointer;user-select:none;">Costo cierre <span id="hh-closeValue"></span></th>
             </tr></thead>
             <tbody id="hist-tbody">
-              <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
+              <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -194,6 +193,9 @@
         <input type="date" id="rep-to">
         <button class="btn btn-primary" onclick="loadReportsTradier(true)">Aplicar</button>
         <button class="btn" onclick="resetRepFilterTradier()">Todo el período</button>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:12px;" title="Trades marcados a mano en Demo Tradier como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
+          <input type="checkbox" id="rep-incluir-errores" onchange="loadReportsTradier(true)"> Incluir trades con error de implementación
+        </label>
         <span id="rep-period-label" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);"></span>
       </div>
       <div class="kpi-row cols-4" id="rep-kpis" style="margin-bottom:16px;"></div>
@@ -221,6 +223,19 @@
           <div class="card-body chart-wrap">
             <canvas id="weeklyChart"></canvas>
           </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Por Familia de Estrategia (Direccional / Reversión / Neutral / Rueda)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Familia</th><th>Trades</th><th>Win %</th>
+              <th>P&amp;L Total</th><th>Prom Gan.</th><th>Prom Per.</th>
+            </tr></thead>
+            <tbody id="strategy-family-tbody"></tbody>
+          </table>
         </div>
       </div>
 
@@ -274,7 +289,6 @@
               <th onclick="histSort('stratType')"   style="cursor:pointer;user-select:none;">Tipo <span id="hs-stratType"></span></th>
               <th onclick="histSort('underlying')"  style="cursor:pointer;user-select:none;">Símbolo <span id="hs-underlying"></span></th>
               <th onclick="histSort('openValue')"   style="cursor:pointer;user-select:none;">Recibido <span id="hs-openValue"></span></th>
-              <th onclick="histSort('closeValue')"  style="cursor:pointer;user-select:none;">Pagado Cierre <span id="hs-closeValue"></span></th>
               <th onclick="histSort('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hs-pnl"></span></th>
               <th onclick="histSort('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hs-durationDays"></span></th>
               <th onclick="histSort('win')"         style="cursor:pointer;user-select:none;">Resultado <span id="hs-win"></span></th>
@@ -360,6 +374,7 @@
                 <th class="tdemo-sortable" data-col="comision" onclick="sortTdemoBy('comision')" title="Estimada — Tradier no la expone via API, ver src/broker_fees.js">Comisión (est.)<span class="tdemo-sort-arrow"></span></th>
                 <th>Checks</th>
                 <th>Informe</th>
+                <th title="Marca un trade como bug/error de implementación (no un resultado real de la estrategia) — se puede excluir en Reportes">Error</th>
               </tr>
             </thead>
             <tbody id="tdemo-tbody"></tbody>
@@ -542,10 +557,9 @@
               <th onclick="sortTodayTradier('pnl')"          style="cursor:pointer;user-select:none;">P&amp;L <span id="th-today-pnl"></span></th>
               <th onclick="sortTodayTradier('capPct')"       style="cursor:pointer;user-select:none;">% Cap. <span id="th-today-capPct"></span></th>
               <th onclick="sortTodayTradier('openValue')"    style="cursor:pointer;user-select:none;">Prima <span id="th-today-openValue"></span></th>
-              <th onclick="sortTodayTradier('closeValue')"   style="cursor:pointer;user-select:none;">Costo cierre <span id="th-today-closeValue"></span></th>
             </tr></thead>
             <tbody id="today-tbody-tradier">
-              <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
+              <tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -888,6 +902,9 @@ function renderTdemoRows(execs) {
       ? `<a href="/api/informe-trade/${e.id}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
       : `<span class="dim" style="font-size:10px;">—</span>`;
     const comisionLabel = typeof e.commissionEstimate === 'number' ? `-${fa$(e.commissionEstimate)}` : '—';
+    const errorBtn = e.flaggedError
+      ? `<button onclick="toggleTdemoError('${e.id}', true)" title="${(e.flaggedErrorNote||'').replace(/"/g,'&quot;')} — clic para desmarcar" style="background:rgba(240,79,90,.15);border:1px solid rgba(240,79,90,.4);color:var(--red);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🐛 Error</button>`
+      : `<button onclick="toggleTdemoError('${e.id}', false)" title="Marcar como bug/error de implementación" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 9px;font-size:10px;cursor:pointer;">🐛</button>`;
     return `<tr>
       <td class="td-mono" style="font-size:11px;">${fecha}</td>
       <td class="${e.direction==='BULLISH'?'pos':e.direction==='BEARISH'?'neg':'dim'}">${e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'—')}</td>
@@ -901,8 +918,30 @@ function renderTdemoRows(execs) {
       <td class="td-mono neg" style="font-size:11px;">${comisionLabel}</td>
       <td>${checksBtn}</td>
       <td>${informeBtn}</td>
+      <td>${errorBtn}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
+  }).join('') : '<tr><td colspan="13" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
+}
+
+// Marcar/desmarcar un trade como bug/error de implementacion (2026-07-28) —
+// permite excluirlo del win rate real en Reportes sin borrar el registro.
+async function toggleTdemoError(id, currentlyFlagged) {
+  let note = '';
+  if (!currentlyFlagged) {
+    note = prompt('Nota breve (opcional) — ¿qué bug/error causó este resultado?', '') || '';
+  } else if (!confirm('¿Desmarcar este trade como error de implementación?')) {
+    return;
+  }
+  try {
+    await fetch(`/api/tradier/executions/${id}/patch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flaggedError: !currentlyFlagged, flaggedErrorNote: currentlyFlagged ? null : note }),
+    });
+    loadTradierDemo();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
 }
 
 // Modal de detalle de checks/score del playbook que genero la senal (2026-07-28) —
@@ -1923,7 +1962,7 @@ async function loadHistoryTradier() {
     window.sortHist = function(col) {
       if (window._histSortCol === col) window._histSortAsc = !window._histSortAsc;
       else { window._histSortCol = col; window._histSortAsc = false; }
-      ['closeDate','openDate','underlying','stratType','durationDays','pnl','capPct','openValue','closeValue'].forEach(c => {
+      ['closeDate','openDate','underlying','stratType','durationDays','pnl','capPct','openValue'].forEach(c => {
         const el = document.getElementById('hh-'+c);
         if (el) el.textContent = c === col ? (window._histSortAsc ? '▲' : '▼') : '';
       });
@@ -1931,7 +1970,7 @@ async function loadHistoryTradier() {
     };
 
     window.renderHistRows = function(list, col, asc) {
-      const numCols = new Set(['durationDays','pnl','capPct','openValue','closeValue']);
+      const numCols = new Set(['durationDays','pnl','capPct','openValue']);
       const sorted = [...list].sort((a,b) => {
         const va = numCols.has(col) ? (a[col]||0) : (a[col]||'');
         const vb = numCols.has(col) ? (b[col]||0) : (b[col]||'');
@@ -1939,7 +1978,7 @@ async function loadHistoryTradier() {
         return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
       });
       $('hist-tbody').innerHTML = !sorted.length
-        ? '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
+        ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
         : sorted.map(s => {
             const capHtml = s.capPct !== null && s.capPct !== undefined
               ? `<span class="${s.capPct >= 0 ? 'pos' : 'neg'}">${s.capPct > 0 ? '+' : ''}${s.capPct}%</span>` : '—';
@@ -1953,13 +1992,12 @@ async function loadHistoryTradier() {
               <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
               <td>${capHtml}</td>
               <td class="td-mono pos">${s.openValue ? '+'+fa$(Math.abs(s.openValue)) : '—'}</td>
-              <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : '—'}</td>
             </tr>`;
           }).join('');
     };
     renderHistRows(strategies, 'closeDate', false);
   } catch(e) {
-    $('hist-tbody').innerHTML = `<tr><td colspan="9"><div class="error-box">${e.message}</div></td></tr>`;
+    $('hist-tbody').innerHTML = `<tr><td colspan="8"><div class="error-box">${e.message}</div></td></tr>`;
   }
 }
 
@@ -1981,12 +2019,32 @@ async function loadReportsTradier(forceRefresh) {
 
     const data = await fetchTxnsTradier(forceRefresh);
     const allStrats = data.metrics?.strategies || [];
-    const filteredStrats = allStrats.filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+    // Filtro de errores de implementacion (2026-07-28, a pedido del usuario) —
+    // trades marcados a mano (flaggedError, seteado desde Demo Tradier via
+    // PATCH) como bug/error de proceso, no un resultado real de la estrategia
+    // (ej. roll con reapertura fallida, orden fantasma del sandbox). Por
+    // default se EXCLUYEN (checkbox sin marcar) para ver el desempeño real
+    // de cada estrategia; marcar el checkbox los vuelve a incluir para
+    // comparar el win rate con/sin ellos.
+    const incluirErrores = !!$('rep-incluir-errores')?.checked;
+    const baseStrats = incluirErrores ? allStrats : allStrats.filter(s => !s.flaggedError);
+    const filteredStrats = baseStrats.filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+    const errorTradesEnPeriodo = allStrats.filter(s => s.flaggedError && s.closeDate && s.closeDate >= sd && s.closeDate <= ed).length;
+    if (errorTradesEnPeriodo) {
+      $('rep-period-label').textContent += incluirErrores
+        ? ` (incluye ${errorTradesEnPeriodo} con error de implementación)`
+        : ` (excluye ${errorTradesEnPeriodo} con error de implementación)`;
+    }
     const wins = filteredStrats.filter(s => s.pnl > 0);
     const losers = filteredStrats.filter(s => s.pnl <= 0);
     const totalGain = wins.reduce((a,b) => a+b.pnl, 0);
     const totalLoss = Math.abs(losers.reduce((a,b) => a+b.pnl, 0));
-    const byUnd = {}, bySt = {}, byTime = {}, byDur = {};
+    const byUnd = {}, bySt = {}, byTime = {}, byDur = {}, byFam = {};
+    // Familia (2026-07-28, a pedido del usuario): las 3 familias SPX
+    // (TENDENCIA/REVERSION/NEUTRAL, ya vienen en s.strategyFamily) mas "RUEDA"
+    // como cuarto segmento (s.stratType==='The Wheel', que no tiene
+    // strategyFamily propio por no ser parte de la clasificacion SPX).
+    const FAMILIA_LABEL = { TENDENCIA:'📈 Direccional', REVERSION:'🔄 Reversión', NEUTRAL:'🦅 Neutral', RUEDA:'🎯 La Rueda' };
     for (const s of filteredStrats) {
       const un = s.underlying||'OTHER';
       if (!byUnd[un]) byUnd[un] = {pnl:0,trades:0,wins:0};
@@ -2000,10 +2058,23 @@ async function loadReportsTradier(forceRefresh) {
       const dc = s.durationCat||'Unknown';
       if (!byDur[dc]) byDur[dc] = {pnl:0,trades:0,wins:0};
       byDur[dc].pnl += s.pnl; byDur[dc].trades++; if(s.pnl>0) byDur[dc].wins++;
+      const fam = s.strategyFamily || (s.stratType==='The Wheel' ? 'RUEDA' : null);
+      if (fam) {
+        if (!byFam[fam]) byFam[fam] = {pnl:0,trades:0,wins:0,avgWin:0,avgLoss:0,winRate:0};
+        byFam[fam].pnl += s.pnl; byFam[fam].trades++; if(s.pnl>0) byFam[fam].wins++;
+      }
     }
     for (const [type,d] of Object.entries(bySt)) {
       const sw = filteredStrats.filter(s=>s.stratType===type&&s.pnl>0);
       const sl = filteredStrats.filter(s=>s.stratType===type&&s.pnl<=0);
+      d.avgWin  = sw.length ? +(sw.reduce((a,b)=>a+b.pnl,0)/sw.length).toFixed(2) : 0;
+      d.avgLoss = sl.length ? +(sl.reduce((a,b)=>a+b.pnl,0)/sl.length).toFixed(2) : 0;
+      d.winRate = d.trades ? +((d.wins/d.trades)*100).toFixed(1) : 0;
+    }
+    for (const [fam,d] of Object.entries(byFam)) {
+      const famOf = s => (s.strategyFamily || (s.stratType==='The Wheel' ? 'RUEDA' : null));
+      const sw = filteredStrats.filter(s=>famOf(s)===fam&&s.pnl>0);
+      const sl = filteredStrats.filter(s=>famOf(s)===fam&&s.pnl<=0);
       d.avgWin  = sw.length ? +(sw.reduce((a,b)=>a+b.pnl,0)/sw.length).toFixed(2) : 0;
       d.avgLoss = sl.length ? +(sl.reduce((a,b)=>a+b.pnl,0)/sl.length).toFixed(2) : 0;
       d.winRate = d.trades ? +((d.wins/d.trades)*100).toFixed(1) : 0;
@@ -2031,12 +2102,16 @@ async function loadReportsTradier(forceRefresh) {
       totalPnL:        +filteredStrats.reduce((a,b)=>a+b.pnl,0).toFixed(2),
       byUnderlying:    byUnd,
       byStrategy:      bySt,
+      byFamily:        byFam,
       byTimeSlot:      byTime,
       byDuration:      byDur,
       stratByDay,
       strategyByMonth,
       strategyByWeek,
-      totalComm:       0,
+      // Comision estimada real (2026-07-28) — antes hardcoded en 0. Tradier
+      // no la expone via API, se calcula sobre la tarifa publicada del plan
+      // Lite (ver src/broker_fees.js) — no es un dato exacto de Tradier.
+      totalComm:       +filteredStrats.reduce((a,b)=>a+(b.commissionEstimate||0),0).toFixed(2),
       brokerByMonth:   {},
     };
 
@@ -2044,7 +2119,7 @@ async function loadReportsTradier(forceRefresh) {
       kpiCard('Total Estrategias', m.totalStrategies, 'round-trips analizados','dim'),
       kpiCard('Ganancia Prom.', fa$(m.avgWinner), 'por estrategia ganadora','pos'),
       kpiCard('Pérdida Prom.', '-'+fa$(m.avgLoser), 'por estrategia perdedora','neg'),
-      kpiCard('Comisiones Pagadas', '-'+fa$(m.totalComm), 'Tradier sandbox no las trackea hoy','neg'),
+      kpiCard('Comisiones Pagadas (est.)', '-'+fa$(m.totalComm), 'Tradier no la expone, ver src/broker_fees.js','neg'),
     ].join('');
 
     const wr = m.winRate || 0;
@@ -2087,16 +2162,32 @@ async function loadReportsTradier(forceRefresh) {
       <td class="td-mono neg">-${fa$(Math.abs(d.avgLoss))}</td>
     </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--muted);">Sin datos</td></tr>';
 
-    const totalPnL   = m.totalPnL || 0;
+    // Familia (2026-07-28) — mismo orden que las tarjetas de Demo Tradier
+    // (Tendencia/Neutral/Reversión) mas Rueda al final.
+    const famOrder = ['TENDENCIA','NEUTRAL','REVERSION','RUEDA'];
+    const fams = famOrder.filter(f => m.byFamily?.[f]).map(f => [f, m.byFamily[f]]);
+    $('strategy-family-tbody').innerHTML = fams.length ? fams.map(([fam,d])=>`<tr>
+      <td class="td-bright">${FAMILIA_LABEL[fam]||fam}</td>
+      <td class="td-mono">${d.trades}</td>
+      <td class="td-mono ${d.winRate>=50?'pos':'neg'}">${d.winRate}%</td>
+      <td class="td-mono ${cc(d.pnl)}" style="font-weight:700">${f$(d.pnl)}</td>
+      <td class="td-mono pos">${fa$(d.avgWin)}</td>
+      <td class="td-mono neg">-${fa$(Math.abs(d.avgLoss))}</td>
+    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--muted);">Sin datos</td></tr>';
+
+    // P&L bruto (real, reconciliado con Tradier — NO incluye comision, Tradier
+    // no la reporta por trade) menos la comision estimada (src/broker_fees.js)
+    // = P&L neto que de verdad tendrias despues de pagarle a Tradier.
+    const grossPnL   = m.totalPnL || 0;
     const totalComm  = m.totalComm || 0;
-    const grossPnL   = totalPnL + totalComm;
-    const ratio      = totalComm > 0 ? (totalComm / Math.abs(grossPnL) * 100).toFixed(1) : 0;
+    const netPnL     = grossPnL - totalComm;
+    const ratio      = grossPnL !== 0 ? (totalComm / Math.abs(grossPnL) * 100).toFixed(1) : 0;
     $('broker-analysis').innerHTML = `
-      <div class="stat-row"><span class="stat-lbl">P&L Bruto (antes comis.)</span><span class="stat-val ${cc(grossPnL)}">${f$(grossPnL)}</span></div>
-      <div class="stat-row"><span class="stat-lbl">Comisiones + Fees</span><span class="stat-val neg">-${fa$(totalComm)}</span></div>
-      <div class="stat-row"><span class="stat-lbl">P&L Neto Real</span><span class="stat-val ${cc(totalPnL)}" style="font-weight:700">${f$(totalPnL)}</span></div>
+      <div class="stat-row"><span class="stat-lbl">P&L Bruto (real, sin comisión)</span><span class="stat-val ${cc(grossPnL)}">${f$(grossPnL)}</span></div>
+      <div class="stat-row"><span class="stat-lbl">Comisiones + Fees (est.)</span><span class="stat-val neg">-${fa$(totalComm)}</span></div>
+      <div class="stat-row"><span class="stat-lbl">P&L Neto (post-comisión)</span><span class="stat-val ${cc(netPnL)}" style="font-weight:700">${f$(netPnL)}</span></div>
       <div class="stat-row"><span class="stat-lbl">Comis. / P&L Bruto</span><span class="stat-val neg">${ratio}%</span></div>
-      <div style="margin-top:12px;font-size:10px;color:var(--muted);">Tradier sandbox no trackea comisiones/fees por trade hoy.</div>
+      <div style="margin-top:12px;font-size:10px;color:var(--muted);">Comisión estimada — Tradier no la expone por trade vía API, ni en sandbox ni en cuenta real. Ver src/broker_fees.js.</div>
     `;
 
     const timeOrder = ['AM (9-12h)','PM (12-16h)','Pre-market','After-hours'];
@@ -2135,7 +2226,7 @@ async function loadReportsTradier(forceRefresh) {
     window.histSort = function(col) {
       if (window._stratSortCol === col) window._stratSortAsc = !window._stratSortAsc;
       else { window._stratSortCol = col; window._stratSortAsc = false; }
-      ['openDate','closeDate','stratType','underlying','openValue','closeValue','pnl','durationDays','win'].forEach(c => {
+      ['openDate','closeDate','stratType','underlying','openValue','pnl','durationDays','win'].forEach(c => {
         const el = document.getElementById('hs-'+c);
         if (el) el.textContent = c === col ? (window._stratSortAsc ? ' ▲' : ' ▼') : '';
       });
@@ -2155,11 +2246,10 @@ async function loadReportsTradier(forceRefresh) {
       <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
       <td class="td-bright">${s.underlying||'—'}</td>
       <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
-      <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
       <td class="td-mono ${cc(s.pnl)}" style="font-weight:700">${f$(s.pnl)}</td>
       <td class="dim td-mono" style="font-size:10px;">${s.durationDays===0?'Intradía':s.durationDays===1?'1d':`${s.durationDays}d`}</td>
       <td><span class="badge ${s.pnl>0?'badge-green':'badge-red'}">${s.pnl>0?'✓ WIN':'✗ LOSS'}</span></td>
-    </tr>`).join('') : '<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
     }
     renderStratRowsTradier(stratList);
 
@@ -2393,7 +2483,7 @@ async function loadTodayTradier() {
 function sortTodayTradier(col) {
   if (window._todaySortColTradier === col) window._todaySortAscTradier = !window._todaySortAscTradier;
   else { window._todaySortColTradier = col; window._todaySortAscTradier = false; }
-  ['closeTime','underlying','stratType','durationDays','pnl','capPct','openValue','closeValue'].forEach(c => {
+  ['closeTime','underlying','stratType','durationDays','pnl','capPct','openValue'].forEach(c => {
     const el = document.getElementById('th-today-' + c);
     if (el) el.textContent = c === col ? (window._todaySortAscTradier ? '▲' : '▼') : '';
   });
@@ -2401,7 +2491,7 @@ function sortTodayTradier(col) {
 }
 
 function renderTodayRowsTradier(list, col, asc) {
-  const numCols = new Set(['durationDays','pnl','capPct','openValue','closeValue']);
+  const numCols = new Set(['durationDays','pnl','capPct','openValue']);
   const sorted = [...(list||[])].sort((a, b) => {
     const va = numCols.has(col) ? (a[col]||0) : (a[col]||'');
     const vb = numCols.has(col) ? (b[col]||0) : (b[col]||'');
@@ -2409,7 +2499,7 @@ function renderTodayRowsTradier(list, col, asc) {
     return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
   });
   $('today-tbody-tradier').innerHTML = !sorted.length
-    ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados hoy</td></tr>'
+    ? '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados hoy</td></tr>'
     : sorted.map(s => {
         const dur = s.durationDays===0 ? 'Intradía' : s.durationDays===1 ? '1 día' : `${s.durationDays}d`;
         return `<tr>
@@ -2420,7 +2510,6 @@ function renderTodayRowsTradier(list, col, asc) {
           <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
           <td>${s.capPct!==null?`<span class="${s.capPct>=0?'pos':'neg'}">${s.capPct>0?'+':''}${s.capPct}%</span>`:'—'}</td>
           <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
-          <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
         </tr>`;
       }).join('');
 }

@@ -38,10 +38,20 @@ function weekKey(dateStr) {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
+const { estimateSpxCommission, estimateWheelCommission } = require('./broker_fees');
+
 // tradier_executions.json — SPX 0DTE/1DTE (direccional/Iron Condor/Reversion).
 // Solo cerrados con pnl numerico ya asentado (pnlSource confirmado o
 // reconciliado) — 'pendiente_verificar' se excluye a proposito, mismo
 // criterio que ya usa el dashboard "Demo Tradier".
+//
+// 2026-07-28 (a pedido del usuario): se agregan strategyFamily (antes solo
+// vivia concatenado dentro de 'desc', sin poder agruparse/filtrarse por si
+// solo), flaggedError/flaggedErrorNote (trades marcados a mano como bug/error
+// de implementacion via POST /api/tradier/executions/:id/patch — permite
+// filtrarlos en Reportes para comparar win rate con/sin ellos) y
+// commissionEstimate (mismo calculo que ya usa Demo Tradier, ver
+// src/broker_fees.js — antes Reportes mostraba $0 fijo de comision).
 function mapSpxExecution(ex) {
   if (ex.status !== 'closed' || typeof ex.pnl !== 'number') return null;
   const contracts     = ex.contracts || 1;
@@ -52,20 +62,24 @@ function mapSpxExecution(ex) {
   const closeDate     = (ex.closedAt || ex.timestamp || '').slice(0, 10);
   if (!openDate || !closeDate) return null;
   return {
-    key:          ex.id,
-    underlying:   'SPX',
+    key:              ex.id,
+    underlying:       'SPX',
     openDate,
     closeDate,
-    closeExecAt:  ex.closedAt || null,
-    desc:         ex.strategyFamily ? `${ex.strategyFamily} · ${ex.direction || ''}`.trim() : null,
-    stratType:    ex.strategy || 'Otro',
-    openValue:    +openValue.toFixed(2),
+    closeExecAt:      ex.closedAt || null,
+    desc:             ex.strategyFamily ? `${ex.strategyFamily} · ${ex.direction || ''}`.trim() : null,
+    strategyFamily:   ex.strategyFamily || null,
+    stratType:        ex.strategy || 'Otro',
+    openValue:        +openValue.toFixed(2),
     closeValue,
-    pnl:          +ex.pnl.toFixed(2),
-    amPm:         getAmPm(ex.filledAt || ex.timestamp),
-    durationDays: Math.round((new Date(closeDate) - new Date(openDate)) / 86400000),
-    durationCat:  getDurationCat(openDate, closeDate),
-    win:          ex.pnl > 0,
+    pnl:              +ex.pnl.toFixed(2),
+    commissionEstimate: estimateSpxCommission(ex),
+    amPm:             getAmPm(ex.filledAt || ex.timestamp),
+    durationDays:     Math.round((new Date(closeDate) - new Date(openDate)) / 86400000),
+    durationCat:      getDurationCat(openDate, closeDate),
+    win:              ex.pnl > 0,
+    flaggedError:     !!ex.flaggedError,
+    flaggedErrorNote: ex.flaggedErrorNote || null,
   };
 }
 
@@ -110,20 +124,24 @@ function mapWheelExecution(ex) {
   const closeDate = lastEventDate || (reconciledMatch && reconciledMatch[1]) || (ex.leg && ex.leg.expiry) || openDate;
   if (!openDate) return null;
   return {
-    key:          ex.id,
-    underlying:   ex.symbol,
+    key:              ex.id,
+    underlying:       ex.symbol,
     openDate,
     closeDate,
-    closeExecAt:  null,
-    desc:         'Ciclo de La Rueda (Tradier) — P&L de solo prima, ver limitación en el código',
-    stratType:    'The Wheel',
-    openValue:    0,
-    closeValue:   0,
-    pnl:          +(+pnl).toFixed(2),
-    amPm:         null,
+    closeExecAt:      null,
+    desc:             'Ciclo de La Rueda (Tradier) — P&L de solo prima, ver limitación en el código',
+    strategyFamily:   null, // La Rueda no es parte de las 3 familias SPX — se identifica por stratType==='The Wheel'
+    stratType:        'The Wheel',
+    openValue:        0,
+    closeValue:       0,
+    pnl:              +(+pnl).toFixed(2),
+    commissionEstimate: estimateWheelCommission(ex),
+    amPm:             null,
     durationDays: Math.round((new Date(closeDate) - new Date(openDate)) / 86400000),
     durationCat:  getDurationCat(openDate, closeDate),
-    win:          pnl > 0,
+    win:              pnl > 0,
+    flaggedError:     !!ex.flaggedError,
+    flaggedErrorNote: ex.flaggedErrorNote || null,
   };
 }
 
