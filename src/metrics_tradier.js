@@ -74,13 +74,27 @@ function mapSpxExecution(ex) {
 // el pnl es SOLO la prima acumulada (totalCreditAccumulated) — no incluye la
 // variacion del precio de las acciones mientras se mantuvieron entre CSP y CC,
 // que el sistema hoy no trackea como P&L separado. Tampoco hay un campo
-// closedAt explicito — se usa el vencimiento del ultimo leg conocido como
-// mejor proxy disponible de fecha de cierre.
+// closedAt explicito.
+//
+// Fix real 2026-07-28: el proxy de fecha de cierre usaba SIEMPRE el
+// vencimiento nominal del ultimo leg (ex.leg.expiry) — correcto para un ciclo
+// que de verdad llego al vencimiento, pero HOOD/BE (reconciliados a mano el
+// 2026-07-11 por el bug de "roll cierra la pata vieja pero la reapertura
+// falla silenciosamente", posicion quedo flat desde el 2026-07-10) tenian
+// closeReason:'ROLL_REAPERTURA_FALLIDA' con leg.expiry:'2026-07-31' — el
+// calendario los mostraba el 31 de julio, 3 semanas despues del cierre real.
+// Ahora se prefiere la fecha del ULTIMO evento registrado (ROLL/ROLL_DEFENSIVO/
+// STO_CALL/ROLL_CALL) — esos eventos solo se agregan cuando algo realmente
+// ocurrio, nunca proyectan una fecha futura — y solo se cae a leg.expiry
+// cuando no hay ningun evento (ciclo sin rolls que si llego al vencimiento,
+// ahi el vencimiento nominal SI es la fecha de cierre real).
 function mapWheelExecution(ex) {
   if (ex.phase !== 'CERRADO') return null;
   const pnl      = ex.totalCreditAccumulated ?? ex.creditReceived ?? 0;
   const openDate = (ex.timestamp || '').slice(0, 10);
-  const closeDate = (ex.leg && ex.leg.expiry) || openDate;
+  const eventDates = (ex.events || []).map(e => (e.date || '').slice(0, 10)).filter(Boolean);
+  const lastEventDate = eventDates.length ? eventDates.sort().slice(-1)[0] : null;
+  const closeDate = lastEventDate || (ex.leg && ex.leg.expiry) || openDate;
   if (!openDate) return null;
   return {
     key:          ex.id,
