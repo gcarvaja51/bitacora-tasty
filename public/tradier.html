@@ -526,11 +526,28 @@
       <div style="font-size:10px;color:var(--muted);margin-top:6px;">Enter para enviar · Shift+Enter para nueva línea · Datos de la cuenta sandbox de Tradier completa (sin filtro de período, a diferencia de Bitácora Tasty)</div>
     </div>
 
-    <!-- ══ HOY (placeholder — sin etapa asignada, depende de Etapa 4) ══ -->
+    <!-- ══ HOY (2026-07-28 — reusa fetchTxnsTradier de Historial/Calendario) ══ -->
     <div id="panel-today" class="panel">
-      <div style="padding:60px 20px;text-align:center;color:var(--muted);">
-        <div style="font-size:32px;margin-bottom:12px;">🚧</div>
-        <div style="font-size:14px;">Próximamente — depende de que exista la Etapa 4 (Historial), casi gratis una vez esa esté lista.</div>
+      <div class="kpi-row cols-3" id="today-kpis-tradier" style="margin-bottom:16px;"></div>
+      <div class="card">
+        <div class="card-header">Operaciones de Hoy</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th onclick="sortTodayTradier('closeTime')"    style="cursor:pointer;user-select:none;">Hora Cierre <span id="th-today-closeTime">▼</span></th>
+              <th onclick="sortTodayTradier('underlying')"   style="cursor:pointer;user-select:none;">Símbolo <span id="th-today-underlying"></span></th>
+              <th onclick="sortTodayTradier('stratType')"    style="cursor:pointer;user-select:none;">Estrategia <span id="th-today-stratType"></span></th>
+              <th onclick="sortTodayTradier('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="th-today-durationDays"></span></th>
+              <th onclick="sortTodayTradier('pnl')"          style="cursor:pointer;user-select:none;">P&amp;L <span id="th-today-pnl"></span></th>
+              <th onclick="sortTodayTradier('capPct')"       style="cursor:pointer;user-select:none;">% Cap. <span id="th-today-capPct"></span></th>
+              <th onclick="sortTodayTradier('openValue')"    style="cursor:pointer;user-select:none;">Prima <span id="th-today-openValue"></span></th>
+              <th onclick="sortTodayTradier('closeValue')"   style="cursor:pointer;user-select:none;">Costo cierre <span id="th-today-closeValue"></span></th>
+            </tr></thead>
+            <tbody id="today-tbody-tradier">
+              <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -612,9 +629,9 @@ const TABS = {
   dashboard:   () => loadDashboardTradier(),
   positions:   () => loadPositionsTradier(),
   ai:          () => loadAITradier(),
-  // Los tabs sin loader todavía (watchlist, today) solo muestran su
-  // placeholder — no hay función que llamar hasta que se construyan en
-  // etapas futuras.
+  today:       () => loadTodayTradier(),
+  // El tab sin loader todavia (watchlist) solo muestra su placeholder — no
+  // hay funcion que llamar hasta que se construya en una etapa futura.
 };
 
 function nav(tab, el) {
@@ -2318,6 +2335,79 @@ function calShowTradeDetailTradier(tkey) {
 
 function calPrev(){ S.calMonth--; if(S.calMonth<0){S.calMonth=11;S.calYear--;} renderCalendarTradier(); }
 function calNext(){ S.calMonth++; if(S.calMonth>11){S.calMonth=0;S.calYear++;} renderCalendarTradier(); }
+
+// ══════════════════════════════════════════
+//  HOY (2026-07-28) — mismo patron que loadToday() de index.html: trades
+//  cerrados hoy, consolidados (un spread = una fila), con sort por columna.
+//  Fuerza un fetch fresco (fetchTxnsTradier(true)) en vez de reusar S.txns —
+//  "Hoy" cambia en vivo durante la sesion (trades que cierran), y S.txns es
+//  cache compartido con Historial/Calendario que piden otros rangos.
+// ══════════════════════════════════════════
+async function loadTodayTradier() {
+  $('today-tbody-tradier').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--muted);">Cargando...</td></tr>';
+  try {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/New_York' });
+    const data = await fetchTxnsTradier(true);
+    const legs = data.metrics?.strategies || [];
+
+    const todayLegs  = legs.filter(s => s.closeDate === today);
+    const strategies = consolidateStrategies(todayLegs);
+    strategies.forEach(s => {
+      s.capPct = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null;
+      s.closeTime = s.closeExecAt ? new Date(s.closeExecAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '—';
+    });
+    const wins     = strategies.filter(s => s.pnl > 0).length;
+    const totalPnl = strategies.reduce((a, b) => a + b.pnl, 0);
+
+    $('today-kpis-tradier').innerHTML = [
+      kpiCard('P&L Hoy',  f$(totalPnl), 'trades cerrados hoy', cc(totalPnl)),
+      kpiCard('Trades',   strategies.length, 'cerrados hoy', 'dim'),
+      kpiCard('Win Rate', strategies.length ? Math.round(wins / strategies.length * 100) + '%' : '—', 'hoy', wins > 0 && wins === strategies.length ? 'pos' : 'dim'),
+    ].join('');
+
+    window._todayDataTradier = strategies;
+    window._todaySortColTradier = 'closeTime';
+    window._todaySortAscTradier = false;
+    renderTodayRowsTradier(strategies, 'closeTime', false);
+  } catch(e) {
+    $('today-tbody-tradier').innerHTML = `<tr><td colspan="8"><div class="error-box">${e.message}</div></td></tr>`;
+  }
+}
+
+function sortTodayTradier(col) {
+  if (window._todaySortColTradier === col) window._todaySortAscTradier = !window._todaySortAscTradier;
+  else { window._todaySortColTradier = col; window._todaySortAscTradier = false; }
+  ['closeTime','underlying','stratType','durationDays','pnl','capPct','openValue','closeValue'].forEach(c => {
+    const el = document.getElementById('th-today-' + c);
+    if (el) el.textContent = c === col ? (window._todaySortAscTradier ? '▲' : '▼') : '';
+  });
+  renderTodayRowsTradier(window._todayDataTradier, window._todaySortColTradier, window._todaySortAscTradier);
+}
+
+function renderTodayRowsTradier(list, col, asc) {
+  const numCols = new Set(['durationDays','pnl','capPct','openValue','closeValue']);
+  const sorted = [...(list||[])].sort((a, b) => {
+    const va = numCols.has(col) ? (a[col]||0) : (a[col]||'');
+    const vb = numCols.has(col) ? (b[col]||0) : (b[col]||'');
+    if (typeof va === 'number') return asc ? va - vb : vb - va;
+    return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+  $('today-tbody-tradier').innerHTML = !sorted.length
+    ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados hoy</td></tr>'
+    : sorted.map(s => {
+        const dur = s.durationDays===0 ? 'Intradía' : s.durationDays===1 ? '1 día' : `${s.durationDays}d`;
+        return `<tr>
+          <td class="td-mono dim">${s.closeTime}</td>
+          <td class="td-bright">${s.underlying}</td>
+          <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td class="td-mono dim">${dur}</td>
+          <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+          <td>${s.capPct!==null?`<span class="${s.capPct>=0?'pos':'neg'}">${s.capPct>0?'+':''}${s.capPct}%</span>`:'—'}</td>
+          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+          <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
+        </tr>`;
+      }).join('');
+}
 
 // ══════════════════════════════════════════
 //  POSICIONES (Tradier) — Etapa 5. Sin Greeks/sector/OptionStrat (ver nota
