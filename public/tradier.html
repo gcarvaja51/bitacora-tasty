@@ -239,6 +239,19 @@
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Win Rate Semanal — Evolución del Algoritmo</div>
+        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Últimas 16 semanas con trades, de más antigua a más reciente — para ver si el win rate mejora, empeora o se mantiene semana a semana.</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Semana</th><th>Trades</th><th>Ganadoras</th><th>Win %</th><th>P&amp;L</th>
+            </tr></thead>
+            <tbody id="weekly-winrate-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="grid-2b" style="margin-bottom:16px;">
         <div class="card">
           <div class="card-header">Por Tipo de Estrategia</div>
@@ -2080,6 +2093,11 @@ async function loadReportsTradier(forceRefresh) {
       d.winRate = d.trades ? +((d.wins/d.trades)*100).toFixed(1) : 0;
     }
     const stratByDay = {}, strategyByMonth = {}, strategyByWeek = {};
+    // Win rate semana a semana (2026-07-28, a pedido del usuario — "para ver
+    // la evolucion del algoritmo") — mismo wkKey que strategyByWeek (ISO-ish,
+    // año+numero de semana), pero trackeando trades/wins ademas del P&L, para
+    // poder calcular el % de acierto de cada semana, no solo su resultado.
+    const winRateByWeek = {};
     filteredStrats.forEach(s => {
       if (!s.closeDate) return;
       stratByDay[s.closeDate] = (stratByDay[s.closeDate]||0) + s.pnl;
@@ -2090,7 +2108,12 @@ async function loadReportsTradier(forceRefresh) {
       const wk   = Math.ceil((((d - jan1) / 86400000) + jan1.getUTCDay() + 1) / 7);
       const wkKey = `${d.getUTCFullYear()}-W${String(wk).padStart(2,'0')}`;
       strategyByWeek[wkKey] = (strategyByWeek[wkKey]||0) + s.pnl;
+      if (!winRateByWeek[wkKey]) winRateByWeek[wkKey] = { trades:0, wins:0, pnl:0 };
+      winRateByWeek[wkKey].trades++;
+      if (s.pnl > 0) winRateByWeek[wkKey].wins++;
+      winRateByWeek[wkKey].pnl += s.pnl;
     });
+    Object.values(winRateByWeek).forEach(w => { w.winRate = w.trades ? +((w.wins/w.trades)*100).toFixed(1) : 0; });
     const m = {
       ...data.metrics,
       strategies:      filteredStrats,
@@ -2108,6 +2131,7 @@ async function loadReportsTradier(forceRefresh) {
       stratByDay,
       strategyByMonth,
       strategyByWeek,
+      winRateByWeek,
       // Comision estimada real (2026-07-28) — antes hardcoded en 0. Tradier
       // no la expone via API, se calcula sobre la tarifa publicada del plan
       // Lite (ver src/broker_fees.js) — no es un dato exacto de Tradier.
@@ -2174,6 +2198,21 @@ async function loadReportsTradier(forceRefresh) {
       <td class="td-mono pos">${fa$(d.avgWin)}</td>
       <td class="td-mono neg">-${fa$(Math.abs(d.avgLoss))}</td>
     </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--muted);">Sin datos</td></tr>';
+
+    // Win rate semanal (2026-07-28) — mismas semanas que el grafico de P&L de
+    // arriba (ultimas 16 con actividad), orden cronologico ascendente para
+    // leer la evolucion de izquierda a derecha / arriba a abajo.
+    const wrWeeks = Object.keys(m.winRateByWeek||{}).sort().slice(-16);
+    $('weekly-winrate-tbody').innerHTML = wrWeeks.length ? wrWeeks.map(wk=>{
+      const d = m.winRateByWeek[wk];
+      return `<tr>
+      <td class="td-bright">${wk}</td>
+      <td class="td-mono">${d.trades}</td>
+      <td class="td-mono pos">${d.wins}</td>
+      <td class="td-mono ${d.winRate>=50?'pos':'neg'}" style="font-weight:700">${d.winRate}%</td>
+      <td class="td-mono ${cc(d.pnl)}">${f$(d.pnl)}</td>
+    </tr>`;
+    }).join('') : '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--muted);">Sin datos</td></tr>';
 
     // P&L bruto (real, reconciliado con Tradier — NO incluye comision, Tradier
     // no la reporta por trade) menos la comision estimada (src/broker_fees.js)
