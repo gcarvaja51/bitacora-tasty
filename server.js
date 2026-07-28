@@ -3226,6 +3226,10 @@ const SPX_CONFIG_DEFAULTS = {
     volumen_rompimiento:       0, // 10->0 (2026-07-21) — retirado del score, ver nota arriba. Check sigue visible.
     macd_cruce_pendiente:     15, // 10->15 (2026-07-21) — único check "menor" con evidencia real, ver nota arriba
     confirmacion_algoritmica:  0, // Camino A (Trend Magic + SlingShot + MACD) — apoyo, no gatillo
+    macd_doble_marco:          0, // 2026-07-28 (nuevo, en observación) — alerta informativa cuando NI 15m NI 2m
+                                  // confirman el MACD; validado contra 42 trades reales (mediana -$340, 1/7
+                                  // ganadoras en ese caso) pero con muestra chica (7 casos) para bloquear
+                                  // operaciones — se deja en 0% a pedido explícito del usuario, solo registra.
   },
   // Parámetros de trading (compartidos con backtester)
   trading: {

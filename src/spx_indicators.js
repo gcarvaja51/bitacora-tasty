@@ -394,6 +394,39 @@ function calcPlaybookScore(indicators, config) {
   });
   if (algo_ok) score += w7;
 
+  // 8. MACD doble marco (15m + 2m) — SOLO INFORMATIVO, peso 0 (2026-07-28).
+  // Validado contra 42 trades reales de Camino B: cuando NI el MACD de 15m NI
+  // el de 2m confirman la dirección, el resultado es consistentemente malo
+  // (mediana -$340, 1 de 7 ganadoras — la mediana coincide con el promedio,
+  // no es un caso arrastrado por un outlier como sí lo fue la idea descartada
+  // de gradiente por pendiente de EMA20). Las otras 3 combinaciones (15m solo,
+  // 2m solo, ambos confirman) NO mostraron una diferencia confiable entre sí
+  // con esta muestra. A pedido explícito del usuario: se deja en observación
+  // (peso 0, se calcula y se guarda en cada señal vía checksSnapshot) sin
+  // bloquear ni restar puntos todavía — la muestra del caso "ambos fallan"
+  // es de solo 7 trades, poca para justificar un gate que bloquee operaciones
+  // reales. Revisar de nuevo cuando se acumulen más señales.
+  const w8 = weights.macd_doble_marco ?? 0;
+  totalWeight += w8;
+  const macd2 = indicators.m2?.macd || {};
+  const macd2Line = macd2.line ?? macd2.macd;
+  const macd2_ok = macd2.linePrev3 != null && macd2Line != null && (dir === 'BULLISH'
+    ? macd2.bullish && macd2Line > macd2.linePrev3
+    : macd2.bearish && macd2Line < macd2.linePrev3);
+  const ningunoConfirma = !macd_ok && !macd2_ok;
+  checks.push({
+    id:      'macd_doble_marco',
+    label:   'MACD 15m + 2m (alerta si ninguno confirma — informativo)',
+    mundo:   3,
+    weight:  w8,
+    points:  0, // w8 default 0 — nunca afecta el score mientras siga en observación
+    ok:      !ningunoConfirma,
+    value:   `15m:${macd_ok ? 'confirma' : 'no'} 2m:${macd2_ok ? 'confirma' : 'no'}`,
+    reason:  ningunoConfirma
+      ? 'Ni 15m ni 2m confirman — patrón históricamente malo (mediana -$340, 1/7 ganadoras en validación de 42 trades) ⚠️ (informativo, no afecta el score)'
+      : 'Al menos un marco (15m o 2m) confirma la dirección ✅',
+  });
+
   const pct = totalWeight > 0 ? +(score / totalWeight * 100).toFixed(1) : 0;
   const minScore = config.minScore ?? 75;
 
