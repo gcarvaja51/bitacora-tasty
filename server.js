@@ -5823,6 +5823,57 @@ app.get('/api/tradier/executions', async (req, res) => {
   res.json({ executions, account });
 });
 
+// ── Informes de Trade (PDF) ──────────────────────────────────
+// Generados localmente por el skill informe-trade (corre en la compu del usuario,
+// unico lugar con acceso a su disco) y subidos aca (2026-07-28, a pedido del
+// usuario) para poder verlos desde el dashboard Bitacora Tradier en cualquier
+// dispositivo — antes solo existian en el computador donde se generaban.
+const INFORMES_DIR = path.join(DATA_DIR, 'informes_trade');
+const INFORMES_MANIFEST_FILE = path.join(DATA_DIR, 'informes_trade_manifest.json');
+function loadInformesManifest() {
+  try { return JSON.parse(fs.readFileSync(INFORMES_MANIFEST_FILE, 'utf8')); } catch(e) { return {}; }
+}
+function saveInformesManifest(map) {
+  fs.writeFileSync(INFORMES_MANIFEST_FILE, JSON.stringify(map, null, 2), 'utf8');
+}
+
+// POST /api/informe-trade/upload — { executionId, filename, pdfBase64 }
+app.post('/api/informe-trade/upload', (req, res) => {
+  const { executionId, filename, pdfBase64 } = req.body || {};
+  if (!executionId || !filename || !pdfBase64) {
+    return res.status(400).json({ ok: false, error: 'faltan executionId/filename/pdfBase64' });
+  }
+  try {
+    if (!fs.existsSync(INFORMES_DIR)) fs.mkdirSync(INFORMES_DIR, { recursive: true });
+    // path.basename evita path traversal via un filename malicioso (../../etc)
+    const safeFilename = path.basename(filename);
+    fs.writeFileSync(path.join(INFORMES_DIR, safeFilename), Buffer.from(pdfBase64, 'base64'));
+    const manifest = loadInformesManifest();
+    manifest[executionId] = safeFilename;
+    saveInformesManifest(manifest);
+    res.json({ ok: true });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// GET /api/informe-trade — manifiesto completo {executionId: filename}, usado por
+// el dashboard para saber de antemano cuales ejecuciones ya tienen PDF antes de
+// mostrar el link (evita ofrecer un boton que va a dar 404 al clickear).
+app.get('/api/informe-trade', (req, res) => {
+  res.json(loadInformesManifest());
+});
+
+// GET /api/informe-trade/:executionId — sirve el PDF si existe.
+app.get('/api/informe-trade/:executionId', (req, res) => {
+  const manifest = loadInformesManifest();
+  const filename = manifest[req.params.executionId];
+  if (!filename) return res.status(404).json({ ok: false, error: 'Sin informe generado para este trade' });
+  const filePath = path.join(INFORMES_DIR, filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
+  res.sendFile(filePath);
+});
+
 // POST /api/spx/signals/:id/action — ejecutar o rechazar
 app.post('/api/spx/signals/:id/action', async (req, res) => {
   try {

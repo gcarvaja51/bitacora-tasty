@@ -343,7 +343,7 @@
       </div>
       <div class="card" style="margin-top:16px;">
         <div class="card-header">Historial de Ejecuciones</div>
-        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Incluye Bull Put/Bear Call e Iron Condor ejecutados automáticamente en el sandbox (débito manual, aún no conectado a Tradier). En Iron Condor, "Strikes" solo muestra la pata del put — ver detalle completo en Señales SPX.</div>
+        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Incluye Bull Put/Bear Call e Iron Condor ejecutados automáticamente en el sandbox (débito manual, aún no conectado a Tradier). En Iron Condor, "Strikes" solo muestra la pata del put. Columna "Checks" abre el detalle de score y checks del playbook que generó la señal (solo disponible para señales dentro de las últimas 50, historial de <code>spx_signals.json</code>).</div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -357,6 +357,8 @@
                 <th class="tdemo-sortable" data-col="cierre" onclick="sortTdemoBy('cierre')">Cierre<span class="tdemo-sort-arrow"></span></th>
                 <th class="tdemo-sortable" data-col="fill" onclick="sortTdemoBy('fill')">Fill entrada<span class="tdemo-sort-arrow"></span></th>
                 <th class="tdemo-sortable" data-col="pnl" onclick="sortTdemoBy('pnl')">P&amp;L<span class="tdemo-sort-arrow"></span></th>
+                <th>Checks</th>
+                <th>Informe</th>
               </tr>
             </thead>
             <tbody id="tdemo-tbody"></tbody>
@@ -642,8 +644,18 @@ async function loadTradierDemo() {
   const kpisEl = $('tdemo-kpis');
   if (kpisEl) kpisEl.innerHTML = '<div style="color:var(--muted);font-size:11px;">Cargando...</div>';
   try {
-    const r = await fetch('/api/tradier/executions');
+    const [r, signals, informes] = await Promise.all([
+      fetch('/api/tradier/executions'),
+      // Señales (con el detalle de checks/score del playbook) para cruzar por signalId
+      // en la tabla de abajo — si falla, la tabla igual carga, solo sin el boton "Checks".
+      fetch('/api/spx/signals').then(x=>x.json()).catch(()=>[]),
+      // Manifiesto {executionId: filename} de los PDFs subidos por el skill informe-trade
+      // (2026-07-28) — si falla, la tabla igual carga, solo sin el boton "Informe".
+      fetch('/api/informe-trade').then(x=>x.json()).catch(()=>({})),
+    ]);
     const data = await r.json();
+    window._tdemoSignalsById = new Map((signals||[]).map(s => [s.id, s]));
+    window._tdemoInformesMap = informes || {};
     renderTradierDemo(data.executions || [], data.account || null);
   } catch(e) {
     if (kpisEl) kpisEl.innerHTML = `<div style="color:var(--red);font-size:11px;">Error: ${e.message}</div>`;
@@ -836,6 +848,14 @@ function renderTdemoRows(execs) {
     const pnlCls = typeof e.pnl === 'number' ? cc(e.pnl) : typeof e.livePnl === 'number' ? cc(e.livePnl) : 'dim';
     const cierreLabel = e.status !== 'closed' ? '—' : (TDEMO_CIERRE_LABELS[e.closeReason] || e.closeReason || '❓ Sin dato');
     const origenLabel = TDEMO_ORIGEN_LABELS[e.strategyFamily] || e.strategyFamily || '—';
+    const sig = (window._tdemoSignalsById||new Map()).get(e.signalId);
+    const checksBtn = sig && sig.playbook
+      ? `<button onclick="showTdemoChecksDetail('${e.signalId}')" style="background:rgba(79,142,255,.12);border:1px solid rgba(79,142,255,.3);color:var(--blue);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🔍 ${sig.playbook.score}%</button>`
+      : `<span class="dim" style="font-size:10px;">—</span>`;
+    const tieneInforme = (window._tdemoInformesMap||{})[e.id];
+    const informeBtn = tieneInforme
+      ? `<a href="/api/informe-trade/${e.id}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
+      : `<span class="dim" style="font-size:10px;">—</span>`;
     return `<tr>
       <td class="td-mono" style="font-size:11px;">${fecha}</td>
       <td class="${e.direction==='BULLISH'?'pos':e.direction==='BEARISH'?'neg':'dim'}">${e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'—')}</td>
@@ -846,8 +866,66 @@ function renderTdemoRows(execs) {
       <td style="font-size:11px;">${cierreLabel}</td>
       <td class="td-mono">${e.entryFillPrice ? '$'+e.entryFillPrice : '—'}</td>
       <td class="td-mono ${pnlCls}">${pnlLabel}</td>
+      <td>${checksBtn}</td>
+      <td>${informeBtn}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
+  }).join('') : '<tr><td colspan="11" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
+}
+
+// Modal de detalle de checks/score del playbook que genero la senal (2026-07-28) —
+// cruza execution.signalId contra el registro completo de /api/spx/signals (cargado
+// junto con las ejecuciones en loadTradierDemo). Generico para las 3 familias
+// (Tendencia/Reversion/Neutral): cada check trae label/weight/ok/reason; "points"
+// solo existe en el playbook de Tendencia (Reversion no lo calcula por separado,
+// el matiz de puntaje parcial queda descrito en el texto de "reason").
+function showTdemoChecksDetail(signalId) {
+  const sig = (window._tdemoSignalsById||new Map()).get(signalId);
+  const existing = document.getElementById('tdemo-checks-modal');
+  if (existing) existing.remove();
+  if (!sig || !sig.playbook) {
+    alert('Sin detalle de checks disponible para esta señal (fuera de las últimas 50, o estrategia sin score ponderado).');
+    return;
+  }
+  const pb = sig.playbook;
+  const passColor = pb.passed ? 'var(--green)' : 'var(--red)';
+  const rows = (pb.checks||[]).map(c => {
+    const okIcon = c.ok ? '✅' : (c.weight === 0 ? '⚪' : '❌');
+    const pesoLabel = c.weight === 0 ? `${c.weight}% (informativo)` : `${c.weight}%`;
+    const ptsLabel = typeof c.points === 'number' ? c.points : (c.ok ? c.weight : 0);
+    return `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:7px 8px;font-size:11px;color:var(--bright);">${c.label}</td>
+      <td style="padding:7px 8px;text-align:center;font-size:10px;font-family:var(--mono);color:var(--muted);">${pesoLabel}</td>
+      <td style="padding:7px 8px;text-align:center;font-size:10px;font-family:var(--mono);color:var(--muted);">${ptsLabel}</td>
+      <td style="padding:7px 8px;text-align:center;font-size:13px;">${okIcon}</td>
+      <td style="padding:7px 8px;font-size:10px;color:var(--muted);line-height:1.4;">${c.reason || c.value || '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'tdemo-checks-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:660px;width:100%;max-height:85vh;overflow-y:auto;position:relative;">
+      <button onclick="document.getElementById('tdemo-checks-modal').remove()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,.08);border:none;color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+      <div style="font-size:15px;font-weight:700;color:var(--bright);padding-right:30px;">${sig.strategyName || sig.strategy} — ${sig.direction || ''}</div>
+      <div style="font-size:10px;color:var(--muted);margin:4px 0 14px;">${sig.timestamp ? new Date(sig.timestamp).toLocaleString('es-CO',{timeZone:'America/New_York'}) : ''} ET · SPX $${sig.context?.spxPrice ?? '—'} · ${TDEMO_ORIGEN_LABELS[sig.strategyFamily] || sig.strategyFamily || ''}</div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;">
+        <div style="font-size:26px;font-weight:800;color:${passColor};font-family:var(--mono);">${pb.score}%</div>
+        <div style="font-size:11px;color:var(--muted);">mínimo requerido: <strong style="color:var(--text);">${pb.minScore}%</strong> · ${pb.passed ? '✅ Pasó' : '❌ No pasó'}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="border-bottom:1px solid var(--border);">
+          <th style="padding:6px 8px;text-align:left;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Check</th>
+          <th style="padding:6px 8px;text-align:center;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Peso</th>
+          <th style="padding:6px 8px;text-align:center;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Pts</th>
+          <th style="padding:6px 8px;text-align:center;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Cumple</th>
+          <th style="padding:6px 8px;text-align:left;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Detalle</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target===modal) modal.remove(); });
 }
 // ══════════════════════════════════════════
 //  RUEDA AUTOMATIZADA (Fase 1: solo señales)
