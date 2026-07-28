@@ -3194,7 +3194,7 @@ const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtensio
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
 const { calcCaminoA, calcATR } = require('./src/camino_a');
-const { calcCaminoB } = require('./src/camino_b');
+const { calcCaminoB, markCaminoBFired } = require('./src/camino_b');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -4042,7 +4042,15 @@ async function checkDirectionalAutonomous() {
     if (r.bull || r.bear) {
       const direction = r.bull ? 'BULLISH' : 'BEARISH';
       console.log(`[SPX] ✅ Camino B ${direction} — ${r.reason}`);
-      await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r });
+      // El throttle de 10 min SOLO se consume si la señal realmente se
+      // construyo (SIGNAL_BUILT) -- 2026-07-28, bug real en vivo: un intento
+      // rechazado por score insuficiente (75%, faltaban 5 puntos) marcaba
+      // igual el timestamp del throttle, y el reintento legitimo (que 10 min
+      // despues si llego a 80% y se ejecuto) quedo esperando 10 minutos de mas
+      // sin ninguna posicion abierta que lo justificara. Ver markCaminoBFired
+      // en src/camino_b.js.
+      const built = await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r });
+      if (built) markCaminoBFired(caminoBState, direction);
     } else {
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_CAMINO_B', passed: false, reason: r.reason, snapshot: { coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
     }
@@ -4139,7 +4147,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       console.log(`[SPX] ❌ ${reason}`);
       console.log(`[SPX] Detalle checks: ${JSON.stringify(playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })))}`);
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, minScore: playbookResult.minScore, checks: playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })) }) });
-      return;
+      return false; // no se construyo señal -- el caller NO debe consumir el throttle de Camino B
     }
 
     // Detalle check-por-check (id/peso/ok/value) para los stages POSTERIORES al
@@ -4175,7 +4183,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       const reason = `Estrategia inválida: ${sel.reason}`;
       console.log(`[SPX] ❌ ${reason}`);
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, checks: checksSnapshot }) });
-      return;
+      return false; // no se construyo señal -- el caller NO debe consumir el throttle de Camino B
     }
 
     // Fijo en 1 contrato para todas las entradas (2026-07-27, a pedido explicito
@@ -4202,7 +4210,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       const reason = `No se encontraron strikes con delta ${targetDelta}`;
       console.log(`[SPX] ❌ ${reason}`);
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
-      return;
+      return false; // no se construyo señal -- el caller NO debe consumir el throttle de Camino B
     }
 
     // Stop técnico sugerido — el más conservador entre el último Fractal de
@@ -4408,8 +4416,10 @@ async function processDirectionalEntry(direction, meta = {}) {
     const successReason = `Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}${signal.tradierOrder?.orderId ? ' — auto-ejecutada en Tradier' : (signal.tradierOrder?.skipped ? ` — sugerencia (Tradier omitido: ${signal.tradierOrder.reason})` : '')}`;
     console.log(`[SPX] ✅ ${successReason}`);
     logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
+    return true; // señal construida de verdad -- el caller SI debe consumir el throttle de Camino B
   } catch(e) {
     console.error('[SPX] processDirectionalEntry error:', e.message);
+    return false;
   }
 }
 

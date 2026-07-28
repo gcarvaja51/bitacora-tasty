@@ -40,9 +40,11 @@ function calcFase15mSimple(closes15) {
 
 // bars2m: [{high,low,close}, ...] cronologico, ideal 40+ barras de warmup.
 // closes15m: array de cierres de 15m, cronologico.
-// state: {lastFireBullAt, lastFireBearAt} en ms epoch — mutado in-place, persistente
-// entre llamadas (equivalente a 'var lastFireBull_B' de Pine, pero por tiempo real
-// en vez de bar_index ya que este chequeo no corre exactamente una vez por vela).
+// state: {lastFireBullAt, lastFireBearAt} en ms epoch — SOLO LECTURA aca adentro
+// (2026-07-28: la mutacion se movio a markCaminoBFired(), llamada por el caller
+// solo cuando la señal se ejecuta de verdad, ver nota mas abajo). Equivalente a
+// 'var lastFireBull_B' de Pine, pero por tiempo real en vez de bar_index ya que
+// este chequeo no corre exactamente una vez por vela.
 // nowMs: opcional, para poder simular/backtestear (el throttle usaria Date.now()
 // real, que en un loop de simulacion rapido queda practicamente constante y
 // bloquea casi todo despues del primer disparo — bug de arnes de prueba
@@ -95,9 +97,16 @@ function calcCaminoB(bars2m, closes15m, state, gapMinutes = 10, nowMs = null) {
   const bull = coreAlignBull && enoughGapBull;
   const bear = coreAlignBear && enoughGapBear;
 
-  if (bull) state.lastFireBullAt = now;
-  if (bear) state.lastFireBearAt = now;
-
+  // 2026-07-28: el throttle YA NO se consume aca adentro (bug real encontrado el
+  // mismo dia con un caso en vivo: Camino B disparo a las 11:29am, el score dio
+  // 75% -- insuficiente, SCORE_FAIL, ningun trade -- pero como el timestamp ya
+  // habia quedado marcado, el sistema no pudo reintentar hasta las 11:39am,
+  // diez minutos despues, aunque en el medio no hubo ninguna posicion abierta
+  // que justificara esa espera. El proposito del throttle es evitar redisparar
+  // en cada vela DESPUES de una señal que si se convirtio en operacion, no
+  // penalizar un intento que nunca llego a ejecutarse. Ahora el caller decide
+  // cuando consumir el throttle, llamando a markCaminoBFired() SOLO si la señal
+  // realmente se construyo (ver processDirectionalEntry en server.js).
   return {
     bull, bear, coreAlignBull, coreAlignBear,
     reason: bull ? 'Camino B alcista — alineación fresca (Trend Magic + SlingShot + MACD + 15m)'
@@ -107,4 +116,15 @@ function calcCaminoB(bars2m, closes15m, state, gapMinutes = 10, nowMs = null) {
   };
 }
 
-module.exports = { calcCaminoB, calcFase15mSimple };
+// Consume el throttle -- llamar SOLO cuando la señal realmente se construyo
+// (processDirectionalEntry llego a SIGNAL_BUILT), nunca en un SCORE_FAIL/
+// STRATEGY_INVALID/NO_STRIKES. Antes esto vivia como efecto secundario dentro
+// de calcCaminoB() y se disparaba con solo detectar la alineacion, sin importar
+// si el score despues rechazaba la señal.
+function markCaminoBFired(state, direction, nowMs = null) {
+  const now = nowMs ?? Date.now();
+  if (direction === 'BULLISH') state.lastFireBullAt = now;
+  else if (direction === 'BEARISH') state.lastFireBearAt = now;
+}
+
+module.exports = { calcCaminoB, calcFase15mSimple, markCaminoBFired };
