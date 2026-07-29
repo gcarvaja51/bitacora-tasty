@@ -99,8 +99,19 @@ function calcGammaFlipSweep(expirations, spxPrice) {
 }
 
 // ── Calcula GEX por strike ────────────────────────────────────
+// netDex agregado 2026-07-29 (a pedido del usuario, para poder comparar contra
+// el DEX de Sigma Terminal igual que ya se hace con los muros de GEX — ver
+// skill comparacion-muros). Formula notional estandar: Σ(delta × OI × 100 ×
+// spot), SIN el flip de signo -1 que sí lleva el put en el cálculo de GEX de
+// arriba — el delta de un put ya es negativo por convención (Black-Scholes),
+// a diferencia de la gamma que siempre es positiva y por eso GEX necesita el
+// flip manual para reflejar la direccionalidad. Mismo criterio que describe
+// el tooltip de Sigma Terminal para su propio Net DEX. Es un campo aditivo —
+// no cambia netGex/callWall/putWall/gammaFlip/regime, que siguen calculándose
+// exactamente igual que antes.
 function calcGEX(expirations, spxPrice) {
   const gexByStrike = {};
+  let netDex = 0;
 
   for (const exp of expirations) {
     for (const s of (exp.strikes || [])) {
@@ -112,6 +123,9 @@ function calcGEX(expirations, spxPrice) {
       const putGex  = (p.gamma||0) * (p.oi||0) * 100 * spxPrice * spxPrice * 0.01 * -1;
 
       gexByStrike[strike] = (gexByStrike[strike] || 0) + callGex + putGex;
+
+      netDex += (c.delta||0) * (c.oi||0) * 100 * spxPrice;
+      netDex += (p.delta||0) * (p.oi||0) * 100 * spxPrice;
     }
   }
 
@@ -122,6 +136,7 @@ function calcGEX(expirations, spxPrice) {
 
   return {
     netGex,
+    netDex,
     regime:    netGex > 0 ? 'POSITIVO' : 'NEGATIVO',
     callWall,
     putWall,
