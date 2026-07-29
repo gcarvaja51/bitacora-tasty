@@ -3422,6 +3422,51 @@ app.post('/api/spx/config', (req, res) => {
   saveSPXConfig(cfg);
   res.json(cfg);
 });
+
+// ── Botón de pánico (2026-07-29, a pedido del usuario tras pausar a mano las
+// 3 estrategias tras un discurso de la Fed) — pausa/reactiva TODA la
+// ejecución automática en Tradier (Direccional, Iron Condor + Long Put Condor
+// de débito, Alejamiento de SMA) con un solo toggle. A diferencia de
+// POST /api/spx/config (merge superficial — mandar un objeto `trading`
+// parcial puede borrar campos anidados que no se incluyan, ej. `ironCondor`
+// completo si solo se manda `{tradierAutoExecute}`), este endpoint carga la
+// config real, modifica los 3 flags in-place sobre el objeto ya completo, y
+// guarda — no hay forma de que el caller pise algo por accidente, el body
+// solo acepta `{enabled: true|false}`. No toca posiciones ya abiertas (esas
+// siguen protegidas por sus propios monitores de TP/SL) — solo bloquea
+// entradas nuevas.
+app.post('/api/spx/panic', (req, res) => {
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled debe ser true o false' });
+  }
+  const cfg = loadSPXConfig();
+  cfg.trading.tradierAutoExecute = enabled;
+  cfg.trading.ironCondor.tradierAutoExecute = enabled;
+  cfg.trading.smaReversion.tradierAutoExecute = enabled;
+  saveSPXConfig(cfg);
+  console.log(`[SPX] Botón de pánico: ${enabled ? 'REACTIVADO' : 'PAUSADO'} (Direccional + Iron Condor + Alejamiento de SMA)`);
+  res.json({ ok: true, enabled, trading: cfg.trading });
+});
+
+// GET /api/spx/panic — estado actual, para pintar el botón en el dashboard.
+// `!== false` en vez de `=== true` porque asi es como el gating real trata
+// un flag ausente/undefined (ver checkIronCondor/checkAlejamientoSMA/webhook
+// direccional: "tradierAutoExecute !== false" => ausente = habilitado).
+app.get('/api/spx/panic', (req, res) => {
+  const cfg = loadSPXConfig();
+  const t = cfg.trading || {};
+  const flags = {
+    directional:  t.tradierAutoExecute !== false,
+    ironCondor:   (t.ironCondor||{}).tradierAutoExecute !== false,
+    smaReversion: (t.smaReversion||{}).tradierAutoExecute !== false,
+  };
+  const values = Object.values(flags);
+  const allOn  = values.every(v => v === true);
+  const allOff = values.every(v => v === false);
+  res.json({ enabled: allOn, mixed: !allOn && !allOff, flags });
+});
+
 const SPX_SIGNALS_FILE = path.join(DATA_DIR, 'spx_signals.json');
 
 function loadSPXSignals() {

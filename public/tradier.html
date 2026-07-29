@@ -56,6 +56,13 @@
       <span id="conn-status">Bitácora Tradier — sandbox</span>
     </div>
     <div style="margin-top:6px;">Etapa 1: Demo Tradier · Backtester · La Rueda (Automatizada) · Alejandro</div>
+    <div id="panic-box" style="margin-top:12px;padding:10px;border-radius:8px;border:1px solid var(--red);background:var(--red-dim);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.03em;">🤖 EJECUCIÓN AUTOMÁTICA SPX</div>
+        <span id="panic-badge" class="badge-green" style="font-size:9px;padding:2px 8px;border-radius:10px;font-weight:700;">…</span>
+      </div>
+      <button id="panic-btn" onclick="togglePanic()" style="margin-top:8px;width:100%;padding:8px;border-radius:6px;border:none;font-weight:700;font-size:11px;cursor:pointer;">…</button>
+    </div>
   </div>
 </aside>
 
@@ -683,7 +690,80 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
+  loadPanicStatus();
+  setInterval(loadPanicStatus, 60000); // refleja cambios hechos por afuera (ej. la reactivación automática de mañana)
 });
+
+// ── Botón de pánico (2026-07-29) — pausa/reactiva Direccional + Iron Condor +
+// Alejamiento de SMA con un click, visible desde cualquier pestaña (vive en
+// el sidebar-footer, fuera del switching de paneles). Ver POST/GET
+// /api/spx/panic en server.js — ese endpoint es el único que debería tocar
+// los 3 flags juntos (a mano vía /api/spx/config hay que mandar el objeto
+// `trading` completo o se pierden campos anidados, ver incidente 2026-07-29).
+async function loadPanicStatus() {
+  try {
+    const r = await fetch('/api/spx/panic');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    renderPanicStatus(await r.json());
+  } catch(e) {
+    const badge = $('panic-badge'), btn = $('panic-btn');
+    if (badge) { badge.textContent = 'SIN DATOS'; }
+    if (btn) { btn.textContent = 'Reintentar'; btn.onclick = loadPanicStatus; btn.style.background = 'var(--red)'; btn.style.color = '#fff'; }
+  }
+}
+
+function renderPanicStatus(d) {
+  const badge = $('panic-badge'), btn = $('panic-btn'), box = $('panic-box');
+  if (!badge || !btn || !box) return;
+  window._panicState = d.enabled;
+  if (d.mixed) {
+    // Caso raro: alguien cambió un solo flag por afuera del botón (ej. a
+    // mano vía /api/spx/config). Se muestra como alarma — no se asume
+    // "activo" ni "pausado", se fuerza al usuario a decidir explícitamente.
+    badge.textContent = 'MIXTO ⚠';
+    btn.textContent = '⏸ Pausar TODO';
+    btn.onclick = () => togglePanic(false);
+  } else if (d.enabled) {
+    badge.textContent = 'ACTIVO';
+    btn.textContent = '🛑 PARAR (botón de pánico)';
+    btn.onclick = () => togglePanic(false);
+  } else {
+    badge.textContent = 'PAUSADO';
+    btn.textContent = '▶ Reactivar';
+    btn.onclick = () => togglePanic(true);
+  }
+  box.style.borderColor = d.enabled && !d.mixed ? 'var(--green)' : 'var(--red)';
+  box.style.background  = d.enabled && !d.mixed ? 'var(--green-dim)' : 'var(--red-dim)';
+  badge.style.background = d.enabled && !d.mixed ? 'var(--green-dim)' : 'var(--red-dim)';
+  badge.style.color      = d.enabled && !d.mixed ? 'var(--green)' : 'var(--red)';
+  btn.style.background = (d.enabled || d.mixed) ? 'var(--red)' : 'var(--green)';
+  btn.style.color      = (d.enabled || d.mixed) ? '#fff' : '#04140d';
+}
+
+async function togglePanic(next) {
+  if (next === undefined) next = !window._panicState;
+  // Pausar (la dirección "segura") va directo, sin diálogo — un click y listo,
+  // es justamente el punto de un botón de pánico. Reactivar sí pide
+  // confirmación, porque vuelve a habilitar operaciones reales con dinero.
+  if (next === true && !confirm('¿Reactivar la ejecución automática (Direccional + Iron Condor + Alejamiento de SMA) en Tradier?')) return;
+  const btn = $('panic-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const r = await fetch('/api/spx/panic', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ enabled: next })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    await loadPanicStatus();
+  } catch(e) {
+    alert('Error cambiando el estado del robot: ' + e.message);
+    await loadPanicStatus();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 async function loadTradierDemo() {
   const kpisEl = $('tdemo-kpis');
