@@ -1313,6 +1313,89 @@ posición que sigue existiendo dentro de `processDirectionalEntry`, justo antes 
 orden, se dejó sin cambios — sigue siendo la última red de seguridad contra una condición de
 carrera en los segundos entre el gate temprano y el envío real de la orden.
 
+## gamma_daemon — refresco de Gamma sin agente (2026-07-30)
+
+**Nombre para el usuario: "Daemon Muros y Gamma"** — así se refiere el usuario a
+esto en conversación (ej. "revisa el Daemon Muros y Gamma"). El nombre técnico de
+la carpeta/proceso sigue siendo `gamma_daemon` (no renombrado a propósito — la
+Tarea Programada de Windows y `start.bat` referencian esa ruta literal).
+
+Reemplaza al mecanismo viejo (un agente de Claude invocado desde cero cada 2 min vía
+Tarea Programada + `run_gamma_refresh.ps1`, documentado como historial en el skill
+`premercado-spx`, Paso 3) por un **proceso de Node de vida larga, 100% código
+determinista, sin LLM en el loop caliente**. Vive en `gamma_daemon/` (subcarpeta del
+repo, con su propio `package.json` — Railway solo instala el `package.json` raíz, así
+que esto nunca se despliega a producción; es una herramienta local, corre en la
+máquina Windows del usuario, igual que el mecanismo que reemplaza).
+
+**Por qué el cambio**: invocar un agente de IA cada 2 minutos durante horas para una
+tarea repetitiva y mayormente determinista (leer un valor, empujarlo) generaba
+fallas silenciosas de horas (el agente no tenía memoria entre ciclos, no sabía que
+ya venía fallando) y costo/latencia innecesarios. El daemon mantiene su propio
+estado entre ciclos (contador de fallos, modo degradado) y solo usa el LLM (esta
+conversación) para trabajo puntual de calibración/edición, nunca en el ciclo en sí.
+
+**Arquitectura** (`gamma_daemon/index.js`, loop cada 2 min en horario 9:00-16:05 ET):
+- `sigma.js` — Puppeteer con perfil Chromium **dedicado y persistente**
+  (`sigma_profile/`, login manual una sola vez, gitignored) para Sigma Terminal
+  (`web.sigma.trade`) — separado del Chrome normal del usuario. Selectores CSS por
+  prefijo (`[class*="greeks_metricCard__"]` etc., no el hash completo) para
+  sobrevivir a un rebuild de Sigma Terminal. Extrae Spot, Net GEX, Net DEX, **Net
+  Vanna** (agregado 2026-07-30), Gamma Flip, Put Wall, Call Wall, MVS.
+- `tv.js` — CDP crudo (`chrome-remote-interface`) directo contra TradingView
+  Desktop, sin pasar por el servidor MCP `tradingview-mcp` (que sí sigue existiendo
+  para uso interactivo de Claude, pero es un proceso separado). La lógica de
+  `evaluate()` está calcada de ese mismo proyecto (`window.TradingViewApi`,
+  `study.getInputValues()/setInputValues()`), pero la selección de ventana es
+  propia: **prueba cada ventana candidata hasta encontrar una con SPX cargado de
+  verdad**, en vez de conectar a la primera que matchee (esa era la causa raíz del
+  bug histórico de deriva SPY/SPX). `pushGammaLevelsToAllWindows()` empuja a
+  **todas** las ventanas SPX abiertas, no solo una — necesario porque el usuario
+  puede tener 2 ventanas SPX simultáneas (su plan permite 2 "pantallas") y **no
+  están sincronizadas entre sí**: confirmado en vivo que pueden quedar en
+  versiones de script distintas del mismo indicador tras una edición manual.
+- Watchdog: si el push a TradingView falla, relanza TradingView (`tv.launch()`,
+  vía `Get-AppxPackage` para resolver la ruta del `.exe` — instalado por Microsoft
+  Store, la ruta versionada cambia con cada actualización) y reintenta una vez.
+  Tras 3 fallos seguidos manda un ntfy de alerta (mismo topic que el resto del
+  sistema) y baja el ritmo a cada 5 min ("modo degradado") hasta recuperarse.
+- `status.json`/`history.json` (gitignored) — estado del último ciclo y un
+  historial corto (cap 20 lecturas) para calcular "hace ~6 min" (3 ciclos atrás,
+  posicional, no por timestamp real) en la tabla de GEX/DEX/Vanna del indicador.
+- Arranque persistente: Tarea Programada de Windows **`GammaDaemon`** (trigger "al
+  iniciar sesión", `ExecutionTimeLimit` en `PT0S` — sin límite, el default de
+  Windows es 72h y mataría el proceso a mitad de semana si no se corrige a mano
+  tras crear la tarea) + `start.bat` (wrapper que relanza `node index.js` si
+  crashea). La tarea vieja `BitacoraGammaRefresh` (agente por ciclo) quedó
+  **deshabilitada, no borrada** — reversible si hiciera falta.
+
+**Límite real, sin resolver**: crear/modificar Tareas Programadas de Windows y usar
+`Set-ScheduledTask` requiere permisos que ni la sesión de Claude Code ni el usuario
+tienen vía la terminal embebida del chat — hace falta una terminal abierta como
+Administrador directo en Windows para esos dos comandos puntuales (una sola vez,
+no algo recurrente).
+
+**Editar el código Pine de CIARG_V1 sigue siendo manual** — no se automatizó (y se
+intentó bastante): abrir el editor de Pine, pegar el código, y click en el ícono
+de sincronizar ("Update on chart") son 3 pasos que requieren que el usuario los
+haga a mano en TradingView. Automatizarlos por CDP resultó frágil (coordenadas de
+click dependen de `devicePixelRatio`, "Update on chart" no siempre aplica el
+cambio a la instancia real aunque el clic se registre, "Add to chart" agrega una
+instancia NUEVA en vez de actualizar — choca con el límite de 5 indicadores del
+plan "Essential" del usuario). Además: **al aplicar un cambio de código, TradingView
+resetea todos los inputs a sus valores por defecto** (los muros quedan en 0 hasta
+el próximo push) — conviene forzar un ciclo manual (`gamma_daemon/push_gdv_now.js`,
+o simplemente esperar al siguiente ciclo del daemon) justo después de aplicar una
+edición al script.
+
+**Convención de versión del script**: el editor de Pine de TradingView puede abrir
+por default una **versión histórica** (no la última guardada) sin avisar de forma
+obvia más que un banner chico ("This is a historical version...") — confirmado en
+vivo el 2026-07-30, causó horas de confusión porque el código leído no coincidía
+con los inputs reales del estudio corriendo (`pineVersion` distinto). Antes de
+editar, verificar `Version history…` (menú del título del script) y confirmar que
+se está parado en la versión más reciente si hay dudas.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`

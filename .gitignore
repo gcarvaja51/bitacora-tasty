@@ -7,3 +7,8 @@ debug.log
 gamma_refresh_log.txt
 informe_trade_log.txt
 premercado_auto_log.txt
+gamma_daemon/node_modules/
+gamma_daemon/status.json
+gamma_daemon/history.json
+gamma_daemon/sigma_profile/
+gamma_daemon/daemon_crash_log.txt

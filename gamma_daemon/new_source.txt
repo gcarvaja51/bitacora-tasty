@@ -1,0 +1,283 @@
+﻿//@version=5
+indicator("CIARG_V1 — Combined Indicator with MACD Slope + Weinstein 15m", shorttitle="CIARG_V1", overlay=true, format=format.price, precision=2)
+
+// Trend Magic
+period_TM = input.int(20, "CCI period")
+coeff_TM = input.float(1, "ATR Multiplier")
+AP_TM = input.int(5, "ATR Period")
+ATR_TM = ta.sma(ta.tr, AP_TM)
+src_TM = input.source(close, "TM Source")
+upT_TM = low - ATR_TM * coeff_TM
+downT_TM = high + ATR_TM * coeff_TM
+var float MagicTrend = na
+MagicTrend := ta.cci(src_TM, period_TM) >= 0 ? (upT_TM < nz(MagicTrend[1]) ? nz(MagicTrend[1]) : upT_TM) : (downT_TM > nz(MagicTrend[1]) ? nz(MagicTrend[1]) : downT_TM)
+color_TM = ta.cci(src_TM, period_TM) >= 0 ? color.new(color.blue, 0) : color.new(color.red, 0)
+plot(MagicTrend, color=color_TM, linewidth=3)
+alertcondition(ta.cross(close, MagicTrend), title="Cross Alert", message="Price - MagicTrend Crossing!")
+alertcondition(ta.crossover(low, MagicTrend), title="CrossOver Alarm", message="BUY SIGNAL!")
+alertcondition(ta.crossunder(high, MagicTrend), title="CrossUnder Alarm", message="SELL SIGNAL!")
+
+// CM SlingShot System
+emaSlow_SS = ta.ema(close, 20)
+emaFast_SS = ta.ema(close, 10)
+sae_SS = input.bool(true, title="Show Aggressive Entry?")
+sce_SS = input.bool(true, title="Show Conservative Entry?")
+st_SS = input.bool(true, title="Show Trend Arrows?")
+
+pullbackUpT_SS = emaFast_SS > emaSlow_SS and close < emaFast_SS
+pullbackDnT_SS = emaFast_SS < emaSlow_SS and close > emaFast_SS
+entryUpT_SS = emaFast_SS > emaSlow_SS and close[1] < emaFast_SS and close > emaFast_SS
+entryDnT_SS = emaFast_SS < emaSlow_SS and close[1] > emaFast_SS and close < emaFast_SS
+upTrend_SS = emaFast_SS >= emaSlow_SS
+downTrend_SS = emaFast_SS < emaSlow_SS
+
+// Calcular pendiente manualmente
+slope_SS = emaFast_SS - emaFast_SS[1]
+
+// MACD
+fastLength_MACD = input.int(12, title="MACD Fast Length")
+slowLength_MACD = input.int(26, title="MACD Slow Length")
+signalSmoothing_MACD = input.int(9, title="MACD Signal Smoothing")
+
+[macdLine, signalLine, _] = ta.macd(close, fastLength_MACD, slowLength_MACD, signalSmoothing_MACD)
+macdSlope = macdLine - macdLine[1] // Pendiente del MACD
+
+// Condiciones adicionales para largos y cortos con pendiente del MACD y comparación entre línea rápida y lenta
+longCondition = slope_SS > 0 and close > MagicTrend and entryUpT_SS and macdSlope > 0 and macdLine > signalLine
+shortCondition = slope_SS < 0 and close < MagicTrend and entryDnT_SS and macdSlope < 0 and macdLine < signalLine
+
+// Mostrar solo las señales que estén alineadas con el MACD
+col_SS = emaFast_SS > emaSlow_SS ? color.new(color.lime, 40) : color.new(color.red, 40)
+p1_SS = plot(emaSlow_SS, title="Slow MA", style=plot.style_linebr, linewidth=4, color=col_SS)
+p2_SS = plot(emaFast_SS, title="Fast MA", style=plot.style_linebr, linewidth=2, color=col_SS)
+fill(p1_SS, p2_SS, color=color.silver, transp=50)
+
+barcolor(sae_SS and pullbackUpT_SS and macdSlope > 0 and macdLine > signalLine ? color.yellow : sae_SS and pullbackDnT_SS and macdSlope < 0 and macdLine < signalLine ? color.yellow : na)
+barcolor(sce_SS and longCondition ? color.aqua : sce_SS and shortCondition ? color.aqua : na)
+plotshape(st_SS and upTrend_SS and macdSlope > 0 and macdLine > signalLine ? upTrend_SS : na, title="Conservative Buy Entry Triangle", style=shape.triangleup, location=location.belowbar, color=color.lime, transp=0)
+plotshape(st_SS and downTrend_SS and macdSlope < 0 and macdLine < signalLine ? downTrend_SS : na, title="Conservative Short Entry Triangle", style=shape.triangledown, location=location.abovebar, color=color.red, transp=0)
+plotarrow(longCondition ? 1 : na, title="Up Entry Arrow", colorup=color.lime, maxheight=30, minheight=30, transp=0)
+plotarrow(shortCondition ? -1 : na, title="Down Entry Arrow", colordown=color.red, maxheight=30, minheight=30, transp=0)
+
+// Chandelier Exit
+length_CE = input.int(22, title="ATR Period")
+mult_CE = input.float(3.0, title="ATR Multiplier")
+showLabels_CE = input.bool(true, title="Show Buy/Sell Labels?")
+useClose_CE = input.bool(true, title="Use Close Price for Extremums?")
+highlightState_CE = input.bool(true, title="Highlight State?")
+
+atr_CE = mult_CE * ta.atr(length_CE)
+
+longStop_CE = (useClose_CE ? ta.highest(close, length_CE) : ta.highest(length_CE)) - atr_CE
+longStopPrev_CE = nz(longStop_CE[1], longStop_CE)
+longStop_CE := close[1] > longStopPrev_CE ? math.max(longStop_CE, longStopPrev_CE) : longStop_CE
+
+shortStop_CE = (useClose_CE ? ta.lowest(close, length_CE) : ta.lowest(length_CE)) + atr_CE
+shortStopPrev_CE = nz(shortStop_CE[1], shortStop_CE)
+shortStop_CE := close[1] < shortStopPrev_CE ? math.min(shortStop_CE, shortStopPrev_CE) : shortStop_CE
+
+var int dir_CE = 1
+dir_CE := close > shortStopPrev_CE ? 1 : close < longStopPrev_CE ? -1 : dir_CE
+
+longStopPlot_CE = plot(dir_CE == 1 ? longStop_CE : na, title="Long Stop", style=plot.style_linebr, linewidth=2, color=color.green)
+buySignal_CE = dir_CE == 1 and dir_CE[1] == -1
+plotshape(buySignal_CE ? longStop_CE : na, title="Long Stop Start", location=location.absolute, style=shape.circle, size=size.tiny, color=color.green, transp=0)
+plotshape(buySignal_CE and showLabels_CE ? longStop_CE : na, title="Buy Label", text="Buy", location=location.absolute, style=shape.labelup, size=size.tiny, color=color.green, textcolor=color.white, transp=0)
+
+shortStopPlot_CE = plot(dir_CE == 1 ? na : shortStop_CE, title="Short Stop", style=plot.style_linebr, linewidth=2, color=color.red)
+sellSignal_CE = dir_CE == -1 and dir_CE[1] == 1
+plotshape(sellSignal_CE ? shortStop_CE : na, title="Short Stop Start", location=location.absolute, style=shape.circle, size=size.tiny, color=color.red, transp=0)
+plotshape(sellSignal_CE and showLabels_CE ? shortStop_CE : na, title="Sell Label", text="Sell", location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.red, textcolor=color.white, transp=0)
+
+midPricePlot_CE = plot(ohlc4, title="", style=plot.style_circles, linewidth=0, display=display.none, editable=false)
+
+longFillColor_CE = highlightState_CE ? (dir_CE == 1 ? color.new(color.green, 85) : na) : na
+shortFillColor_CE = highlightState_CE ? (dir_CE == -1 ? color.new(color.red, 85) : na) : na
+fill(midPricePlot_CE, longStopPlot_CE, title="Long State Filling", color=longFillColor_CE)
+fill(midPricePlot_CE, shortStopPlot_CE, title="Short State Filling", color=shortFillColor_CE)
+
+changeCond_CE = dir_CE != dir_CE[1]
+alertcondition(changeCond_CE, title="Alert: CE Direction Change", message="Chandelier Exit has changed direction!")
+alertcondition(buySignal_CE, title="Alert: CE Buy", message="Chandelier Exit Buy!")
+alertcondition(sellSignal_CE, title="Alert: CE Sell", message="Chandelier Exit Sell!")
+
+// ══════════════════════════════════════════════════════════════════
+// ── Bitacora Tasty — Integracion SPX 0DTE ──────────────────────────
+// El indicador del mentor (Trend Magic + SlingShot + MACD slope) ya
+// combina Trigger (Mundo 2: pullback-y-recuperacion sobre EMA10/20,
+// el "Ideal Buy Point") + Fuerza (Mundo 3: MACD pendiente positiva
+// y cruce) en el marco de ejecucion. Lo unico que le falta es el
+// marco maestro de Direccion (Mundo 1, 15m) que manda sobre todo:
+// si hay patron en 15m, se afina la entrada aqui en el marco actual.
+// El Chandelier Exit del mentor sirve como stop tecnico real-time.
+// ══════════════════════════════════════════════════════════════════
+grpB1 = "Bitacora — Direccion 15m (marco maestro)"
+ema_fast15_B = input.int(10, "EMA Rapida 15m", group=grpB1)
+ema_slow15_B = input.int(20, "EMA Lenta 15m",  group=grpB1)
+
+c15_B    = request.security(syminfo.tickerid, "15", close, lookahead=barmerge.lookahead_off)
+e10_15_B = ta.ema(c15_B, ema_fast15_B)
+e20_15_B = ta.ema(c15_B, ema_slow15_B)
+e20_15_B_prev = e20_15_B[1]
+
+fase2_15m_B = c15_B > e20_15_B and e10_15_B > e20_15_B and e20_15_B > e20_15_B_prev
+fase4_15m_B = c15_B < e20_15_B and e10_15_B < e20_15_B and e20_15_B < e20_15_B_prev
+
+// Alineacion base (sin el patron de retroceso): tendencia + fuerza + marco maestro 15m.
+// Usa el ESTADO del MACD (linea vs señal) y no su pendiente bar-a-bar, que oscila de
+// signo constantemente incluso dentro de una tendencia sostenida y volvia a "formar"
+// la alineacion decenas de veces al dia (ruido, no señal real).
+coreAlign_bull_B = close > MagicTrend and emaFast_SS > emaSlow_SS and macdLine > signalLine and fase2_15m_B
+coreAlign_bear_B = close < MagicTrend and emaFast_SS < emaSlow_SS and macdLine < signalLine and fase4_15m_B
+
+// Camino B: mientras la alineacion este activa (no exige que el precio haya
+// retrocedido bajo la EMA10, a diferencia del retroceso clasico de SlingShot),
+// respetando un tiempo minimo entre señales para no repetir en cada barra.
+// Ajuste 2026-07-22 (a pedido del usuario): bajado de 20 a 10 min — la ventaja real
+// es que hasOpenPosition ya impide 2 trades simultaneos, asi que el gap solo necesita
+// evitar spam entre barras, no suplir la exclusividad de posicion.
+gapMinutes_B = input.int(10, "Camino B — minutos minimos entre señales", group=grpB1)
+gapBars_B = math.round(gapMinutes_B / (timeframe.multiplier))
+var int lastFireBull_B = -999
+var int lastFireBear_B = -999
+enoughGapBull_B = (bar_index - lastFireBull_B) >= gapBars_B
+enoughGapBear_B = (bar_index - lastFireBear_B) >= gapBars_B
+freshAlign_bull_B = coreAlign_bull_B and enoughGapBull_B
+freshAlign_bear_B = coreAlign_bear_B and enoughGapBear_B
+if freshAlign_bull_B
+    lastFireBull_B := bar_index
+if freshAlign_bear_B
+    lastFireBear_B := bar_index
+
+// Senal final: solo Camino B (confluencia recien formada) — Camino A (retroceso
+// clasico) se desactivo tras el backtest de 58 dias: 48.8% WR y -$130 P&L en 41
+// señales, vs 67.8% WR y +$975 del Camino B. longCondition/shortCondition se
+// dejan calculados (siguen visibles en la tabla de info) pero ya no disparan la señal.
+sig_bull_B = freshAlign_bull_B
+sig_bear_B = freshAlign_bear_B
+
+show_bg_marco15_B = input.bool(false, "Mostrar tinte de fondo Marco 15m", group=grpB1)
+bgcolor(show_bg_marco15_B and fase2_15m_B ? color.new(color.green, 97) : show_bg_marco15_B and fase4_15m_B ? color.new(color.red, 97) : na, title="Marco 15m")
+
+grpB2 = "Bitacora — Alertas webhook"
+send_alerts_B = input.bool(true, "Enviar alertas al webhook", group=grpB2)
+
+// Unica salida hacia la bitacora: la senal de entrada (compra/venta).
+// El servidor calcula su propia fase 15m de forma independiente,
+// no necesita que Pine se la mande. Sin contexto 15m ni stop tecnico
+// saliendo de aqui — solo BULLISH/BEARISH cuando hay entrada real.
+if send_alerts_B and barstate.isconfirmed and sig_bull_B
+    alert('{"direction":"BULLISH","timeframe":"2m","source":"CIARG_V1","price":' + str.tostring(close) + '}', alert.freq_once_per_bar)
+
+if send_alerts_B and barstate.isconfirmed and sig_bear_B
+    alert('{"direction":"BEARISH","timeframe":"2m","source":"CIARG_V1","price":' + str.tostring(close) + '}', alert.freq_once_per_bar)
+
+// ══════════════════════════════════════════════════════════════════
+// ── Niveles Gamma (Sigma Terminal) — Call Wall / Put Wall / Gamma Flip
+// Se actualizan externamente (cada ~2 min) via indicator_set_inputs,
+// leyendo Sigma Terminal (web.sigma.trade).
+// ══════════════════════════════════════════════════════════════════
+grpG = "Bitacora — Niveles Gamma (Sigma Terminal)"
+show_gamma_G = input.bool(true, "Mostrar niveles Gamma", group=grpG)
+call_wall_G = input.float(0.0, "Call Wall", group=grpG)
+put_wall_G = input.float(0.0, "Put Wall", group=grpG)
+gamma_flip_G = input.float(0.0, "Gamma Flip", group=grpG)
+mvs_G = input.float(0.0, "MVS", group=grpG)
+// Ajustado 2026-07-30 — de signo (bool) a valor real (float) con historial corto,
+// a pedido del usuario: ahora se muestra el valor de GEX/DEX/Vanna actual y el de
+// hace ~6 min (3 ciclos de 2 min), no solo el signo. Vienen de Sigma Terminal (mismo
+// gamma_daemon que ya alimenta Call/Put Wall arriba), no del calculo interno del
+// servidor -- decision explicita del usuario. IDs posicionales: son los 6 ultimos
+// input.* del script (in_25..in_30) -- si se agrega un input.* nuevo en algun punto
+// ANTERIOR del archivo, hay que re-contar (mismo gotcha ya documentado arriba para
+// in_20-in_24).
+gex_now_G    = input.float(0.0, "GEX Actual", group=grpG)
+gex_prev_G   = input.float(0.0, "GEX Hace ~6min", group=grpG)
+dex_now_G    = input.float(0.0, "DEX Actual", group=grpG)
+dex_prev_G   = input.float(0.0, "DEX Hace ~6min", group=grpG)
+vanna_now_G  = input.float(0.0, "Vanna Actual", group=grpG)
+vanna_prev_G = input.float(0.0, "Vanna Hace ~6min", group=grpG)
+
+// Solo dibujar en SPX — evita que estos niveles (escala ~7500) distorsionen
+// el chart al abrir otro activo de precio muy distinto (ej. UBER, SOFI): la
+// linea vertical/horizontal se salia de rango y forzaba un auto-escalado
+// enorme. Con este guard, en cualquier otro simbolo simplemente no se dibuja
+// nada, sin que el usuario tenga que desactivar el toggle a mano cada vez.
+is_spx_G = str.contains(syminfo.ticker, "SPX")
+show_gamma_active_G = show_gamma_G and is_spx_G
+
+// hline() exige que su argumento 'price' sea input-qualified (const/input) —
+// no acepta un valor que dependa de syminfo.ticker (qualified como "simple"),
+// asi que el guard de simbolo rompia la compilacion combinado con hline().
+// Se usan objetos dinamicos (line.new/label.new, igual que ya se usaba para
+// el texto) en vez de hline() — sin esa restriccion, y mismo estilo visual
+// (dashed/dotted) via line.style_dashed/dotted.
+x1_G = math.max(bar_index - 300, 0)
+
+var line callWallLine_G = na
+var line putWallLine_G = na
+var line gammaFlipLine_G = na
+var line mvsLine_G = na
+var label callWallLbl_G = na
+var label putWallLbl_G = na
+var label gammaFlipLbl_G = na
+var label mvsLbl_G = na
+if barstate.islast
+    line.delete(callWallLine_G)
+    line.delete(putWallLine_G)
+    line.delete(gammaFlipLine_G)
+    line.delete(mvsLine_G)
+    label.delete(callWallLbl_G)
+    label.delete(putWallLbl_G)
+    label.delete(gammaFlipLbl_G)
+    label.delete(mvsLbl_G)
+    if show_gamma_active_G and call_wall_G > 0
+        callWallLine_G := line.new(x1_G, call_wall_G, bar_index, call_wall_G, extend=extend.both, color=color.new(color.green, 0), style=line.style_dashed, width=2)
+        callWallLbl_G := label.new(bar_index, call_wall_G, "CALL WALL " + str.tostring(call_wall_G, "#.##"), style=label.style_label_left, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+    if show_gamma_active_G and put_wall_G > 0
+        putWallLine_G := line.new(x1_G, put_wall_G, bar_index, put_wall_G, extend=extend.both, color=color.new(color.red, 0), style=line.style_dashed, width=2)
+        putWallLbl_G := label.new(bar_index, put_wall_G, "PUT WALL " + str.tostring(put_wall_G, "#.##"), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+    if show_gamma_active_G and gamma_flip_G > 0
+        gammaFlipLine_G := line.new(x1_G, gamma_flip_G, bar_index, gamma_flip_G, extend=extend.both, color=color.new(color.purple, 0), style=line.style_dotted, width=2)
+        gammaFlipLbl_G := label.new(bar_index, gamma_flip_G, "GAMMA FLIP " + str.tostring(gamma_flip_G, "#.##"), style=label.style_label_left, color=color.new(color.purple, 0), textcolor=color.white, size=size.small)
+    if show_gamma_active_G and mvs_G > 0
+        mvsLine_G := line.new(x1_G, mvs_G, bar_index, mvs_G, extend=extend.both, color=color.new(color.orange, 0), style=line.style_dotted, width=2)
+        mvsLbl_G := label.new(bar_index, mvs_G, "MVS " + str.tostring(mvs_G, "#.##"), style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)
+
+// ══════════════════════════════════════════════════════════════════
+// ── Tabla GEX/DEX/Vanna — actual vs hace ~6min (2026-07-30) ─────────
+// Reemplaza la tabla de escenarios (GRIND ALCISTA/etc — ver Version history
+// de este script si hace falta volver a eso). A pedido explicito del usuario:
+// valores reales de Sigma Terminal (mismo gamma_daemon que ya alimenta Call/
+// Put Wall arriba) en vez de solo el signo, con columna de comparacion
+// (~3 ciclos / 6 min atras), color verde/rojo segun signo, y una flecha que
+// compara el valor actual contra el anterior (sube/baja/igual).
+grpB3 = "Bitacora — Info"
+
+fmtGDV(v) =>
+    av = math.abs(v)
+    av >= 1000000000 ? str.tostring(v / 1000000000, "#.##") + "B" : av >= 1000000 ? str.tostring(v / 1000000, "#.##") + "M" : str.tostring(v, "#.##")
+
+arrowGDV(now, prev) =>
+    now > prev ? " ▲" : now < prev ? " ▼" : " ─"
+
+var table infoB = table.new(position.top_right, 3, 4, bgcolor=color.new(color.black,70), border_color=color.new(color.gray,50), border_width=1)
+if barstate.islast
+    posB = color.new(color.lime, 65)
+    negB = color.new(color.red,  65)
+
+    table.cell(infoB, 0, 0, "GEX/DEX/VANNA", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoB, 1, 0, "ACTUAL",        text_color=color.gray, text_size=size.tiny)
+    table.cell(infoB, 2, 0, "HACE ~6MIN",    text_color=color.gray, text_size=size.tiny)
+
+    table.cell(infoB, 0, 1, "GEX", text_color=color.white, text_size=size.tiny)
+    table.cell(infoB, 1, 1, fmtGDV(gex_now_G) + arrowGDV(gex_now_G, gex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=gex_now_G >= 0 ? posB : negB)
+    table.cell(infoB, 2, 1, fmtGDV(gex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=gex_prev_G >= 0 ? posB : negB)
+
+    table.cell(infoB, 0, 2, "DEX", text_color=color.white, text_size=size.tiny)
+    table.cell(infoB, 1, 2, fmtGDV(dex_now_G) + arrowGDV(dex_now_G, dex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=dex_now_G >= 0 ? posB : negB)
+    table.cell(infoB, 2, 2, fmtGDV(dex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=dex_prev_G >= 0 ? posB : negB)
+
+    table.cell(infoB, 0, 3, "VANNA", text_color=color.white, text_size=size.tiny)
+    table.cell(infoB, 1, 3, fmtGDV(vanna_now_G) + arrowGDV(vanna_now_G, vanna_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=vanna_now_G >= 0 ? posB : negB)
+    table.cell(infoB, 2, 3, fmtGDV(vanna_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=vanna_prev_G >= 0 ? posB : negB)

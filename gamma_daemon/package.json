@@ -1,0 +1,16 @@
+{
+  "name": "gamma-daemon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Proceso local de vida larga que reemplaza al agente de Claude en el refresco de Gamma cada 2 min (Sigma Terminal -> TradingView + servidor). No se despliega a Railway.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test:tv": "node test_tv.js"
+  },
+  "dependencies": {
+    "chrome-remote-interface": "^0.33.2",
+    "puppeteer": "^23.0.0"
+  }
+}
