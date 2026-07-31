@@ -1388,6 +1388,15 @@ el próximo push) — conviene forzar un ciclo manual (`gamma_daemon/push_gdv_no
 o simplemente esperar al siguiente ciclo del daemon) justo después de aplicar una
 edición al script.
 
+**MVS = Absoluto, no Neto (ajuste 2026-07-31):** Sigma Terminal tiene un toggle
+("MVS Neto" / "MVS Abs", sección del gráfico "Net GEX por strike") que **también
+controla la tarjeta principal "MVS"** de arriba — confirmado en vivo alternando
+ambos: Neto dio 7400, Absoluto dio 7450, mismo momento exacto. A pedido explícito
+del usuario, `sigma.js` (`ensureMvsAbsolute()`) fuerza un clic en "MVS Abs" en
+cada lectura si no está ya activo — no se confía en que el toggle quede así solo
+(puede resetear en un reload de la página, o si el usuario lo cambia a mano
+mirando el gráfico).
+
 **Convención de versión del script**: el editor de Pine de TradingView puede abrir
 por default una **versión histórica** (no la última guardada) sin avisar de forma
 obvia más que un banner chico ("This is a historical version...") — confirmado en

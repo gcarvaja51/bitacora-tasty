@@ -64,6 +64,21 @@ async function readSymbol(p) {
   });
 }
 
+// El toggle "MVS Neto" / "MVS Abs" (seccion del grafico "Net GEX por strike")
+// tambien controla el valor de la tarjeta principal "MVS" -- confirmado en vivo
+// el 2026-07-31 (Neto y Abs dieron strikes distintos, 7400 vs 7450). A pedido
+// del usuario se usa SIEMPRE el Absoluto -- se fuerza el click en cada lectura
+// en vez de confiar en que el toggle haya quedado asi (puede resetear solo en
+// un reload de la pagina, o si el usuario clickea el otro modo a mano mirando
+// el chart).
+async function ensureMvsAbsolute(p) {
+  await p.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent.trim() === 'MVS Abs');
+    if (btn && !btn.className.includes('active')) btn.click();
+  });
+  await new Promise((r) => setTimeout(r, 500));
+}
+
 async function readRawMetrics(p) {
   return p.evaluate(() => {
     const cards = document.querySelectorAll('[class*="greeks_metricCard__"]');
@@ -91,6 +106,8 @@ export async function readLevels() {
   if (!symbol || !/^SPX$/i.test(symbol)) {
     throw new Error(`Sigma Terminal no esta en SPX (simbolo actual: "${symbol}") -- cambiar a mano y reintentar`);
   }
+
+  await ensureMvsAbsolute(p);
 
   const raw = await readRawMetrics(p);
   const missing = Object.keys(LABEL_MAP).filter((k) => !(k in raw));
