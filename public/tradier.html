@@ -82,7 +82,7 @@
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:8px;" title="Trades marcados a mano (columna Error, en Historial) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
           <input type="checkbox" id="dash-incluir-errores" onchange="loadDashboardTradier()"> Incluir trades con error de implementación
         </label>
-        <span style="font-size:10px;color:var(--muted);margin-left:8px;">Filtra P&amp;L Realizado, Win Rate y Últimas Operaciones — Net Equity/BP/P&amp;L No Realizado/Curva de Capital siguen mostrando la cuenta completa (son valores reales de la cuenta, no separables por estrategia).</span>
+        <span style="font-size:10px;color:var(--muted);margin-left:8px;">Estrategia filtra P&amp;L Realizado, Win Rate y Últimas Operaciones — Net Equity/BP/P&amp;L No Realizado siguen mostrando la cuenta completa (no separables por estrategia). La Curva de Capital sí respeta el checkbox de errores (afecta plata real de la cuenta) pero no el filtro de Estrategia (sigue mostrando la cuenta completa, una familia sola no es "el capital").</span>
       </div>
       <div class="kpi-row cols-6" id="dash-kpis">
         <div class="loader"><div class="spinner"></div> Cargando...</div>
@@ -808,6 +808,39 @@ const ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', N
 // Wheel', mismo criterio que ya usaba el fallback de origenLabel).
 function getFamilia(s) {
   return s.strategyFamily || (s.stratType === 'The Wheel' ? 'RUEDA' : null);
+}
+
+// weekKey cliente-side (2026-08-01) — mismo calculo ISO-ish que weekKey() en
+// server.js, para poder reconstruir byWeek/byMonth/curve del lado del cliente
+// a partir de un subset de estrategias ya filtrado (familia + errores de
+// implementacion) — /api/curve-tradier no sabe nada de esos dos filtros
+// (son client-side), asi que su curve/byWeek/byMonth SIEMPRE reflejan TODAS
+// las estrategias sin excluir nada; la curva de capital de Dashboard tiene
+// que recalcularse aca para no mostrar un numero distinto al de los KPIs.
+function weekKeyTradier(dateStr) {
+  if (!dateStr) return '';
+  const d    = new Date(dateStr + 'T12:00:00Z');
+  const jan1 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((d - jan1) / 86400000) + jan1.getUTCDay() + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+// Reconstruye {curve, byWeek, byMonth} desde una lista de estrategias YA
+// filtrada (familia + errores) — mismo patron que /api/curve-tradier (server)
+// pero sobre el subset filtrado en vez de todas.
+function buildCurveFromStrategies(strategies, initial) {
+  const stratByDay = {};
+  strategies.forEach(s => { if (s.closeDate) stratByDay[s.closeDate] = (stratByDay[s.closeDate]||0) + s.pnl; });
+  const labels = Object.keys(stratByDay).sort();
+  let running = initial;
+  const values = labels.map(d => { running += stratByDay[d]; return +running.toFixed(2); });
+  const byWeek = {}, byMonth = {};
+  labels.forEach(d => {
+    const wk = weekKeyTradier(d), mo = d.slice(0,7);
+    byWeek[wk]  = (byWeek[wk]  || 0) + stratByDay[d];
+    byMonth[mo] = (byMonth[mo] || 0) + stratByDay[d];
+  });
+  return { curve: { labels, values, initial }, byWeek, byMonth };
 }
 const CIERRE_LABELS = {
   TP: '🤖 Auto (TP)', SL: '🤖 Auto (SL)',
@@ -2961,9 +2994,8 @@ async function loadDashboardTradier() {
 
     // Filtro Estrategia (2026-08-01) — solo afecta P&L Realizado/Win Rate/
     // Ultimas Operaciones (metricas por estrategia cerrada); Net Equity/BP/
-    // P&L No Realizado/Curva de Capital son valores REALES de la cuenta
-    // completa, no tiene sentido "filtrarlos" por familia (ver nota en el
-    // HTML del filtro).
+    // P&L No Realizado son valores REALES de la cuenta completa, no tiene
+    // sentido "filtrarlos" por familia (ver nota en el HTML del filtro).
     const familia = $('dash-familia')?.value || '';
     const incluirErrores = !!$('dash-incluir-errores')?.checked;
     const allStrats = (m.strategies || []).filter(s => incluirErrores || !s.flaggedError);
@@ -2979,6 +3011,28 @@ async function loadDashboardTradier() {
     const dd = curveData.curve?.maxDD || 0;
     const ddPct = curveData.curve?.maxDDPct || 0;
 
+    // Curva de Capital (2026-08-01) — /api/curve-tradier no sabe nada del
+    // checkbox de errores de implementacion (es client-side, agregado
+    // despues) — su curve/byWeek/byMonth SIEMPRE incluyen los trades
+    // marcados como bug, mostrando un numero distinto al de "P&L Realizado"
+    // de arriba cuando el checkbox esta desmarcado. Se reconstruye aca desde
+    // allStrats (con el filtro de errores YA aplicado, SIN el de familia —
+    // la curva sigue representando la cuenta completa, como ya se explica
+    // en la nota de arriba, la familia no le aplica).
+    const curveFiltrada = buildCurveFromStrategies(allStrats, TRADIER_STARTING_BALANCE_UI);
+    const dashCurveData = {
+      ...curveData,
+      curve: { ...curveFiltrada.curve, maxDD: curveData.curve?.maxDD, maxDDPct: curveData.curve?.maxDDPct },
+      byWeek: curveFiltrada.byWeek,
+      byMonth: curveFiltrada.byMonth,
+    };
+    // El ultimo punto se ancla al NLV real solo cuando no se esta excluyendo
+    // nada (el "todo incluido" es el unico caso donde el acumulado deberia
+    // coincidir exactamente con el balance real de la cuenta).
+    if (incluirErrores && dashCurveData.curve.values.length && nlv > 0) {
+      dashCurveData.curve.values[dashCurveData.curve.values.length - 1] = +nlv.toFixed(2);
+    }
+
     $('dash-kpis').innerHTML = [
       kpiCard('Net Equity (Tradier)', fa$(nlv), fp(pctPnL), cc(totalPnL)),
       kpiCard('BP Opciones Disp.', fa$(bp.derivAvail||0), 'ver Buying Power', 'dim'),
@@ -2988,7 +3042,7 @@ async function loadDashboardTradier() {
       kpiCard('Max Drawdown', f$(-dd), `-${ddPct.toFixed(1)}% desde pico`, 'neg'),
     ].join('');
 
-    _cDataT = curveData; _chRedrawTradier();
+    _cDataT = dashCurveData; _chRedrawTradier();
 
     if (!groups.length) { $('dash-positions').innerHTML = '<div class="dim" style="font-size:12px;padding:4px 0;">Sin posiciones abiertas</div>'; }
     else {
