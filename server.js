@@ -5543,19 +5543,28 @@ async function checkAlejamientoSMA() {
     // buildSPXContext para un solo consumidor). Si falla, compasMedias5m queda
     // con ok:false — el check simplemente no puntua, no rompe el resto del score.
     let compasMedias5m = { ok: false, value: '—', reason: 'Sin datos 5m' };
+    // Fase Weinstein movida de 15m a 5m (2026-08-01, a pedido explicito del
+    // usuario, citando a Luis Sigma: "5 minutos decide, 2 minutos afina") —
+    // antes este check leia indicators.m15.weinstein.fase (calculado en
+    // buildSPXContext); ahora se calcula sobre las MISMAS velas de 5m que ya
+    // se traen para el compas de medias (mismo fetch, sin costo adicional),
+    // via wheelTrading.calcWeinstein (misma formula que la version 15m,
+    // extraida en src/wheel_trading.js, timeframe-agnostica).
+    let weinstein5m = { fase: null, label: '—' };
     try {
       const r5 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=5d',
         { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const j5 = await r5.json();
       const closes5 = (j5.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(v => v != null);
       compasMedias5m = calcCompasMedias5m(closes5, direction);
+      weinstein5m = wheelTrading.calcWeinstein(closes5);
     } catch(e) {
-      console.error('[SPX-REV] Error trayendo velas 5m para compás de medias:', e.message);
+      console.error('[SPX-REV] Error trayendo velas 5m para compás de medias/fase Weinstein:', e.message);
     }
 
     const scoreResult = calcReversionScore({
       direction, ext8, patronReversion, rsi,
-      m15: ctx.indicators?.m15 || {},
+      weinstein5m,
       gammaRegime: effectiveGex.regime,
       spxPrice: ctx.spxPrice,
       callWall: effectiveGex.callWall,

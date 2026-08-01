@@ -528,19 +528,30 @@ function calcReversionScore(indicators, config) {
   });
   if (rsi_ok) score += w3;
 
-  // 4. Fase Weinstein 15m a favor de la reversión (2 para compras, 4 para ventas)
+  // 4. Fase Weinstein 5m a favor de la reversión (2 para compras, 4 para ventas)
+  // Movida de 15m a 5m (2026-08-01, a pedido explicito del usuario, citando a
+  // Luis Sigma: "5 minutos decide, 2 minutos afina" — el marco de 5m es el
+  // que valida si hay una reversion real, no el de 15m). Ya se habia
+  // investigado antes (2026-07-09, caso real del rebote en V del 8-jul) si 5m
+  // llegaba a tiempo donde 15m no — confirmaba solo 5 min antes que 15m para
+  // ESE caso puntual (11:25 vs 13:30), no una solucion garantizada, pero el
+  // usuario decidio el cambio igual tras revisar la evidencia. NOTA: solo se
+  // cambio este check — alejamiento_sma8 (el disparador de la senal en si)
+  // sigue midiendose en 2m, ese es un cambio de arquitectura mas grande,
+  // todavia no implementado, discutido por separado. Antes este check leia
+  // indicators.m15.weinstein.fase.
   const w4 = weights.fase_weinstein ?? 15;
   totalWeight += w4;
-  const fase15m = indicators.m15?.weinstein?.fase;
+  const fase5m = indicators.weinstein5m?.fase;
   const faseObjetivo = dir === 'BULLISH' ? 2 : 4;
-  const fase_ok = fase15m === faseObjetivo;
+  const fase_ok = fase5m === faseObjetivo;
   checks.push({
     id:      'fase_weinstein',
-    label:   'Fase Weinstein 15m a favor',
+    label:   'Fase Weinstein 5m a favor',
     weight:  w4,
     ok:      fase_ok,
-    value:   `Fase${fase15m ?? '—'}`,
-    reason:  fase_ok ? `Fase ${faseObjetivo} confirma la tendencia de fondo ✅` : `Fase 15m (${fase15m ?? '—'}) no favorece esta reversión ❌`,
+    value:   `Fase${fase5m ?? '—'}`,
+    reason:  fase_ok ? `Fase ${faseObjetivo} confirma la tendencia de fondo ✅` : `Fase 5m (${fase5m ?? '—'}) no favorece esta reversión ❌`,
   });
   if (fase_ok) score += w4;
 
