@@ -24,6 +24,7 @@
 // Funcion pura, sin I/O.
 
 const { parseOccSymbol } = require('./bp_tradier_adapter');
+const { SPX_FEE_PER_CONTRACT_PER_LEG, EQUITY_FEE_PER_CONTRACT_PER_LEG } = require('./broker_fees');
 
 // Claves "symbol|closeDate" ya cubiertas por ejecuciones trackeadas — para
 // no duplicar su P&L al reconciliar. Mismo criterio de conteo (no de
@@ -53,12 +54,58 @@ function classifySpread(optType, shortStrike, longStrike) {
   return shortStrike < longStrike ? 'Bear Call Spread' : 'Bull Call Spread';
 }
 
+// Direccion inferida del tipo de estrategia (2026-08-01, a pedido del usuario
+// — "hay datos vacios, traelos todos") — a diferencia del strategyFamily real
+// (TENDENCIA/NEUTRAL/REVERSION, indistinguible sin el signalId original, ver
+// comentario en reconcileClosedPnl), la direccion SI se puede inferir del
+// tipo de spread/leg sin ambiguedad: vender un put o comprar un call es
+// alcista, vender un call o comprar un put es bajista.
+const DIRECCION_POR_TIPO = {
+  'Bull Call Spread': 'BULLISH', 'Bull Put Spread': 'BULLISH',
+  'Bear Call Spread': 'BEARISH', 'Bear Put Spread': 'BEARISH',
+  'Long Call': 'BULLISH', 'Short Put': 'BULLISH',
+  'Long Put': 'BEARISH', 'Short Call': 'BEARISH',
+};
+
 function buildStrategyEntry(underlying, closeDate, rows, stratType) {
   const pnl = +rows.reduce((s, r) => s + (r.gain_loss || 0), 0).toFixed(2);
   const openDates = rows.map(r => (r.open_date || '').slice(0, 10)).filter(Boolean).sort();
   const openDate = openDates[0] || closeDate;
   const openValue = +rows.reduce((s, r) => s + (r.quantity < 0 ? (r.proceeds || 0) : -(r.cost || 0)), 0).toFixed(2);
   const closeValue = +(pnl - openValue).toFixed(2);
+  // Strikes reales (2026-08-01) — ya vienen parseados del symbol OCC (row.parsed,
+  // armado en reconcileClosedPnl vía parseOccSymbol) para toda fila que no sea
+  // "Acciones"; se arma {shortStrike, longStrike} igual forma que usa el resto
+  // del sistema (findStrikesByDelta, etc.) para poder reusar el mismo render.
+  const short = rows.find(r => r.quantity < 0);
+  const long  = rows.find(r => r.quantity > 0);
+  const strikes = (short?.parsed || long?.parsed)
+    ? { shortStrike: short?.parsed?.strike ?? null, longStrike: long?.parsed?.strike ?? null }
+    : null;
+  // Comision estimada (2026-08-01, misma idea que estimateSpxCommission de
+  // src/broker_fees.js, pero calculada directo sobre las patas REALES de esta
+  // reconciliacion en vez de asumir "legsForStrategy() x contracts uniforme"
+  // — mas preciso porque ya tenemos la cantidad real de cada pata (row.quantity)
+  // y no hay forma de que estas estrategias reconciliadas tengan un ex.contracts
+  // guardado en ningun lado. Se omite para acciones (Tradier no cobra comision
+  // por acciones en este plan, a diferencia de opciones).
+  const esSpx = underlying === 'SPXW' || underlying === 'SPX';
+  const feePerContrato = esSpx ? SPX_FEE_PER_CONTRACT_PER_LEG : EQUITY_FEE_PER_CONTRACT_PER_LEG;
+  const totalContratos = rows.reduce((s, r) => s + Math.abs(r.quantity || 0), 0);
+  const commissionEstimate = strikes ? +(feePerContrato * totalContratos * 2).toFixed(2) : 0;
+  // strategyFamily (2026-08-01, a pedido del usuario: "necesito que se defina
+  // si es reversion, direccional, neutral, rueda... traelo de donde sea") —
+  // solo se puede inferir con certeza en un caso: cualquier ticker que NO sea
+  // SPX/SPXW SOLO lo opera el pipeline de la Rueda (los otros 3 — Direccional/
+  // Neutral/Reversion — son exclusivos de SPX/SPXW, ver CLAUDE.md). Para
+  // SPX/SPXW reconciliado sin registro local, Direccional/Reversion/Neutral
+  // usan el MISMO literal de estrategia (BULL_PUT_SPREAD, etc. — documentado
+  // explicitamente) y esta reconciliacion no agrupa las 4 patas de un Iron
+  // Condor como una sola entidad (cada lado, P y C, cae en su propio bucket
+  // de vertical) — no hay forma honesta de distinguir entre esas 3 sin la
+  // senal original (spx_signals.json solo guarda las ultimas 50, no alcanza
+  // para historial viejo). Se deja null en ese caso — no se inventa.
+  const strategyFamily = esSpx ? null : 'RUEDA';
   return {
     key: `broker-${underlying}-${closeDate}-${rows.map(r => r.symbol).join('_')}`,
     underlying,
@@ -67,6 +114,10 @@ function buildStrategyEntry(underlying, closeDate, rows, stratType) {
     closeExecAt: null,
     desc: 'Reconciliado del historial real de Tradier (sin order-id — agrupado por cercanía de strike, ver src/tradier_closed_pnl_adapter.js)',
     stratType,
+    direction: DIRECCION_POR_TIPO[stratType] || null,
+    strikes,
+    strategyFamily,
+    commissionEstimate,
     openValue,
     closeValue,
     pnl,

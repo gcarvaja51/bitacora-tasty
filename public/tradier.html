@@ -35,14 +35,13 @@
   </div>
   <nav class="sidebar-nav">
     <div class="nav-section-label">Principal</div>
-    <div class="nav-item" onclick="nav('dashboard',this)"><span class="icon">◈</span> Dashboard</div>
+    <div class="nav-item active" onclick="nav('dashboard',this)"><span class="icon">◈</span> Dashboard</div>
     <div class="nav-item" onclick="nav('calendar',this)"><span class="icon">◷</span> Calendario</div>
     <div class="nav-item" onclick="nav('positions',this)"><span class="icon">◉</span> Posiciones</div>
     <div class="nav-section-label">Análisis</div>
     <div class="nav-item" onclick="nav('history',this)"><span class="icon">≡</span> Historial</div>
     <div class="nav-item" onclick="nav('reports',this)"><span class="icon">◑</span> Reportes</div>
     <div class="nav-item" onclick="nav('watchlist',this)"><span class="icon">👁</span> Watchlist</div>
-    <div class="nav-item active" onclick="nav('tradierdemo',this)"><span class="icon">🧪</span> Demo Tradier</div>
     <div class="nav-item" onclick="nav('backtester',this)"><span class="icon">🔬</span> Backtester SPX</div>
     <div class="nav-item" onclick="nav('wheel',this)"><span class="icon">🔄</span> La Rueda</div>
     <div class="nav-item" onclick="nav('bp',this)"><span class="icon">⚖</span> Buying Power</div>
@@ -55,7 +54,7 @@
       <div class="dot" id="dot"></div>
       <span id="conn-status">Bitácora Tradier — sandbox</span>
     </div>
-    <div style="margin-top:6px;">Etapa 1: Demo Tradier · Backtester · La Rueda (Automatizada) · Alejandro</div>
+    <div style="margin-top:6px;">Etapa 1: Reportes · Backtester · La Rueda (Automatizada) · Alejandro</div>
     <div id="panic-box" style="margin-top:12px;padding:10px;border-radius:8px;border:1px solid var(--red);background:var(--red-dim);">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="font-size:10px;font-weight:700;letter-spacing:.03em;">🤖 EJECUCIÓN AUTOMÁTICA SPX</div>
@@ -70,7 +69,7 @@
 <div class="main">
   <div class="content">
     <!-- ══ DASHBOARD (placeholder — Etapa 5) ══ -->
-    <div id="panel-dashboard" class="panel">
+    <div id="panel-dashboard" class="panel active">
       <div class="kpi-row cols-6" id="dash-kpis">
         <div class="loader"><div class="spinner"></div> Cargando...</div>
       </div>
@@ -202,20 +201,28 @@
         <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);" id="hist-summary">—</span>
       </div>
       <div class="card">
+        <div style="font-size:10px;color:var(--muted);padding:12px 16px 0;">Fusión 2026-08-01 de la antigua página "Demo Tradier" — columnas de detalle (dirección, origen, strikes, esquema de cierre, fill de entrada, checks del playbook, informe PDF, marca de error) sobre el set completo de estrategias del período filtrado. En Iron Condor, "Strikes" solo muestra la pata del put. Columnas "Checks"/"Informe"/dirección/strikes/esquema de cierre solo están disponibles para estrategias con registro local (no para las reconciliadas directo del broker).</div>
         <div class="table-wrap">
           <table>
             <thead><tr>
               <th onclick="sortHist('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hh-closeDate">▼</span></th>
               <th onclick="sortHist('openDate')"    style="cursor:pointer;user-select:none;">Apertura <span id="hh-openDate"></span></th>
+              <th onclick="sortHist('direction')"   style="cursor:pointer;user-select:none;">Dirección <span id="hh-direction"></span></th>
+              <th onclick="sortHist('strategyFamily')" style="cursor:pointer;user-select:none;">Origen <span id="hh-strategyFamily"></span></th>
               <th onclick="sortHist('underlying')"  style="cursor:pointer;user-select:none;">Símbolo <span id="hh-underlying"></span></th>
               <th onclick="sortHist('stratType')"   style="cursor:pointer;user-select:none;">Estrategia <span id="hh-stratType"></span></th>
+              <th>Strikes</th>
+              <th>Esquema de Cierre</th>
               <th onclick="sortHist('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hh-durationDays"></span></th>
+              <th>Fill entrada</th>
               <th onclick="sortHist('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hh-pnl"></span></th>
-              <th onclick="sortHist('capPct')"      style="cursor:pointer;user-select:none;">% Capturado <span id="hh-capPct"></span></th>
-              <th onclick="sortHist('openValue')"   style="cursor:pointer;user-select:none;">Prima cobrada <span id="hh-openValue"></span></th>
+              <th onclick="sortHist('commissionEstimate')" title="Estimada — Tradier no la expone via API, ver src/broker_fees.js" style="cursor:pointer;user-select:none;">Comisión (est.) <span id="hh-commissionEstimate"></span></th>
+              <th>Checks</th>
+              <th>Informe</th>
+              <th title="Marca una estrategia como bug/error de implementación (no un resultado real)">Error</th>
             </tr></thead>
             <tbody id="hist-tbody">
-              <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
+              <tr><td colspan="15"><div class="loader"><div class="spinner"></div></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -231,7 +238,7 @@
         <input type="date" id="rep-to">
         <button class="btn btn-primary" onclick="loadReportsTradier(true)">Aplicar</button>
         <button class="btn" onclick="resetRepFilterTradier()">Todo el período</button>
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:12px;" title="Trades marcados a mano en Demo Tradier como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:12px;" title="Trades marcados a mano (columna Error, en la tabla de abajo) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
           <input type="checkbox" id="rep-incluir-errores" onchange="loadReportsTradier(true)"> Incluir trades con error de implementación
         </label>
         <span id="rep-period-label" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);"></span>
@@ -332,17 +339,27 @@
 
       <div class="card">
         <div class="card-header">Estrategias Cerradas (Round-trips)</div>
+        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Fusión 2026-08-01 de la antigua página "Demo Tradier" — mismas columnas de detalle (dirección, origen, strikes, razón de cierre, fill de entrada, checks del playbook, informe PDF, marca de error), ahora sobre el set completo de estrategias (incluye reconciliadas directo con el broker, no solo las trackeadas localmente). En Iron Condor, "Strikes" solo muestra la pata del put. Columna "Checks"/"Informe"/dirección/strikes/razón de cierre solo están disponibles para estrategias con registro local (no para las reconciliadas directo del broker, que no tienen ese detalle). "Comisión" es un <strong>cálculo</strong>, no un dato real de Tradier — ver <code>src/broker_fees.js</code>.</div>
         <div class="table-wrap">
           <table id="strat-table">
             <thead><tr>
               <th onclick="histSort('openDate')"    style="cursor:pointer;user-select:none;">Apertura <span id="hs-openDate"></span></th>
               <th onclick="histSort('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hs-closeDate"></span></th>
+              <th onclick="histSort('direction')"   style="cursor:pointer;user-select:none;">Dirección <span id="hs-direction"></span></th>
+              <th onclick="histSort('strategyFamily')" style="cursor:pointer;user-select:none;">Origen <span id="hs-strategyFamily"></span></th>
               <th onclick="histSort('stratType')"   style="cursor:pointer;user-select:none;">Tipo <span id="hs-stratType"></span></th>
               <th onclick="histSort('underlying')"  style="cursor:pointer;user-select:none;">Símbolo <span id="hs-underlying"></span></th>
+              <th>Strikes</th>
+              <th>Razón Cierre</th>
               <th onclick="histSort('openValue')"   style="cursor:pointer;user-select:none;">Recibido <span id="hs-openValue"></span></th>
+              <th>Fill entrada</th>
               <th onclick="histSort('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hs-pnl"></span></th>
+              <th onclick="histSort('commissionEstimate')" title="Estimada — Tradier no la expone via API, ver src/broker_fees.js" style="cursor:pointer;user-select:none;">Comisión (est.) <span id="hs-commissionEstimate"></span></th>
               <th onclick="histSort('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hs-durationDays"></span></th>
               <th onclick="histSort('win')"         style="cursor:pointer;user-select:none;">Resultado <span id="hs-win"></span></th>
+              <th>Checks</th>
+              <th>Informe</th>
+              <th title="Marca una estrategia como bug/error de implementación (no un resultado real) — se puede excluir arriba con el checkbox de errores de implementación">Error</th>
             </tr></thead>
             <tbody id="strat-tbody"></tbody>
           </table>
@@ -367,70 +384,6 @@
       <div style="padding:60px 20px;text-align:center;color:var(--muted);">
         <div style="font-size:32px;margin-bottom:12px;">🚧</div>
         <div style="font-size:14px;">Próximamente. Nota: al investigar resultó ser broker-agnóstica (como Playbook Alejandro) — candidata a moverse sin trabajo de backend nuevo en una futura iteración chica, no incluida en el alcance aprobado de esta Etapa 1.</div>
-      </div>
-    </div>
-    <div id="panel-tradierdemo" class="panel active">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <div style="font-size:18px;font-weight:700;color:var(--bright);">🧪 Demo Tradier — Seguimiento</div>
-        <button onclick="loadTradierDemo()" class="btn btn-primary" style="padding:8px 18px;font-size:12px;">🔄 Actualizar</button>
-      </div>
-      <div class="kpi-row cols-5" id="tdemo-kpis" style="margin-bottom:16px;"></div>
-      <div class="grid-3">
-        <div class="card">
-          <div class="card-header">Win Rate</div>
-          <div class="card-body">
-            <div class="gauge-wrap">
-              <div class="gauge-ring" id="tdemo-gauge-ring" style="--pct:0%">
-                <div class="gauge-inner">
-                  <div class="gauge-pct" id="tdemo-gauge-pct">—</div>
-                  <div class="gauge-lbl">WIN RATE</div>
-                </div>
-              </div>
-            </div>
-            <div id="tdemo-wr-detail" style="margin-top:8px;"></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header">P&amp;L por Estrategia</div>
-          <div class="card-body" id="tdemo-by-strategy"></div>
-        </div>
-        <div class="card">
-          <div class="card-header">P&amp;L por Semana</div>
-          <div class="card-body chart-wrap">
-            <canvas id="tdemoWeeklyChart"></canvas>
-          </div>
-        </div>
-      </div>
-      <div class="card" style="margin-top:16px;">
-        <div class="card-header">Análisis por Familia de Estrategia — Tendencia / Neutral / Reversión</div>
-        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Cada familia se ajusta y calibra por separado — separarlas acá ayuda a ver cuál está funcionando y cuál necesita revisión.</div>
-        <div class="card-body" id="tdemo-by-family" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;"></div>
-      </div>
-      <div class="card" style="margin-top:16px;">
-        <div class="card-header">Historial de Ejecuciones</div>
-        <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Incluye Bull Put/Bear Call e Iron Condor ejecutados automáticamente en el sandbox (débito manual, aún no conectado a Tradier). En Iron Condor, "Strikes" solo muestra la pata del put. Columna "Checks" abre el detalle de score y checks del playbook que generó la señal (solo disponible para señales dentro de las últimas 50, historial de <code>spx_signals.json</code>). Columna "Comisión (est.)" es un <strong>cálculo</strong>, no un dato real de Tradier — la API no expone comisión por orden; se estima con la tarifa publicada del plan Lite ($1.05/contrato/pata SPX, ida y vuelta), ver <code>src/broker_fees.js</code>.</div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr id="tdemo-sort-row">
-                <th class="tdemo-sortable" data-col="fecha" onclick="sortTdemoBy('fecha')">Fecha<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="direccion" onclick="sortTdemoBy('direccion')">Dirección<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="origen" onclick="sortTdemoBy('origen')">Origen<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="estrategia" onclick="sortTdemoBy('estrategia')">Estrategia<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="strikes" onclick="sortTdemoBy('strikes')">Strikes<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="estado" onclick="sortTdemoBy('estado')">Estado<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="cierre" onclick="sortTdemoBy('cierre')">Cierre<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="fill" onclick="sortTdemoBy('fill')">Fill entrada<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="pnl" onclick="sortTdemoBy('pnl')">P&amp;L<span class="tdemo-sort-arrow"></span></th>
-                <th class="tdemo-sortable" data-col="comision" onclick="sortTdemoBy('comision')" title="Estimada — Tradier no la expone via API, ver src/broker_fees.js">Comisión (est.)<span class="tdemo-sort-arrow"></span></th>
-                <th>Checks</th>
-                <th>Informe</th>
-                <th title="Marca un trade como bug/error de implementación (no un resultado real de la estrategia) — se puede excluir en Reportes">Error</th>
-              </tr>
-            </thead>
-            <tbody id="tdemo-tbody"></tbody>
-          </table>
-        </div>
       </div>
     </div>
 <div id="panel-backtester" class="panel">
@@ -684,7 +637,6 @@ async function api(path, method='GET', body=null) {
 //  de index.html (evita heredar ese acoplamiento al copiar).
 // ══════════════════════════════════════════
 const TABS = {
-  tradierdemo: () => loadTradierDemo(),
   backtester:  () => loadBacktester(),
   wheel:       () => loadWheelTrading(),
   bp:          () => loadBPTradier(),
@@ -796,161 +748,16 @@ async function togglePanic(next) {
   }
 }
 
-async function loadTradierDemo() {
-  const kpisEl = $('tdemo-kpis');
-  if (kpisEl) kpisEl.innerHTML = '<div style="color:var(--muted);font-size:11px;">Cargando...</div>';
-  try {
-    const [r, signals, informes] = await Promise.all([
-      fetch('/api/tradier/executions'),
-      // Señales (con el detalle de checks/score del playbook) para cruzar por signalId
-      // en la tabla de abajo — si falla, la tabla igual carga, solo sin el boton "Checks".
-      fetch('/api/spx/signals').then(x=>x.json()).catch(()=>[]),
-      // Manifiesto {executionId: filename} de los PDFs subidos por el skill informe-trade
-      // (2026-07-28) — si falla, la tabla igual carga, solo sin el boton "Informe".
-      fetch('/api/informe-trade').then(x=>x.json()).catch(()=>({})),
-    ]);
-    const data = await r.json();
-    window._tdemoSignalsById = new Map((signals||[]).map(s => [s.id, s]));
-    window._tdemoInformesMap = informes || {};
-    renderTradierDemo(data.executions || [], data.account || null);
-  } catch(e) {
-    if (kpisEl) kpisEl.innerHTML = `<div style="color:var(--red);font-size:11px;">Error: ${e.message}</div>`;
-    console.error('Tradier demo error:', e);
-  }
-}
-
-function renderTradierDemo(execs, account) {
-  const total   = execs.length;
-  // "Cerrado" es por status, no por si ya se conoce el pnl — un trade recien cerrado
-  // puede tener pnl:null unos minutos mientras Tradier asienta el gain_loss
-  // (pnlSource:'pendiente_verificar'); antes esto lo contaba como "en curso" aunque
-  // ya estuviera cerrado, inflando ese contador y desinflando "cerradas".
-  const closed        = execs.filter(e => e.status === 'closed');
-  const closedConPnl  = closed.filter(e => typeof e.pnl === 'number');
-  const wins    = closedConPnl.filter(e => e.pnl > 0);
-  const losers  = closedConPnl.filter(e => e.pnl <= 0);
-  const winRate = closedConPnl.length ? +((wins.length / closedConPnl.length) * 100).toFixed(1) : 0;
-  const avgWin  = wins.length ? wins.reduce((s,e)=>s+e.pnl,0)/wins.length : 0;
-  const avgLoss = losers.length ? losers.reduce((s,e)=>s+e.pnl,0)/losers.length : 0;
-
-  // Comision estimada (2026-07-28) — Tradier no la expone via API, se calcula
-  // sobre la tarifa publicada (src/broker_fees.js, ex.commissionEstimate ya
-  // viene calculado desde el servidor). Suma sobre TODO lo que ya tuvo al
-  // menos una transaccion real (filled o closed), no solo lo cerrado — la
-  // comision de entrada ya se pagó aunque el trade siga abierto.
-  const totalComisiones = execs.reduce((s,e) => s + (e.commissionEstimate || 0), 0);
-  const pnlBrutoClosed  = closed.reduce((s,e) => s + (e.pnl || 0), 0);
-  const comisionesClosed = closed.reduce((s,e) => s + (e.commissionEstimate || 0), 0);
-  const pnlNeto = pnlBrutoClosed - comisionesClosed;
-
-  // KPIs principales — balance REAL de la cuenta Tradier, no calculado por nosotros
-  if (account) {
-    $('tdemo-kpis').innerHTML = [
-      kpiCard('Net Liq (Tradier)', f$(account.netLiq), `Cta. sandbox real`),
-      kpiCard('P&L Total', f$(account.pnlTotal), `vs $${account.startingBalance.toLocaleString()} inicial`, cc(account.pnlTotal)),
-      kpiCard('Buying Power', f$(account.buyingPower), 'disponible en Tradier'),
-      kpiCard('Ejecutadas', total, `${closed.length} cerradas, ${total-closed.length} en curso`),
-      kpiCard('P&L Neto (post-comisión)', f$(pnlNeto), `-${fa$(totalComisiones)} comisión est. total`, cc(pnlNeto)),
-    ].join('');
-  } else {
-    $('tdemo-kpis').innerHTML = [
-      kpiCard('Ejecutadas', total, `${closed.length} cerradas, ${total-closed.length} en curso`),
-      kpiCard('P&L Acumulado (interno)', f$(closed.reduce((s,e)=>s+(e.pnl||0),0)), `${closed.length} trades cerrados`),
-      kpiCard('Net Liq (Tradier)', '—', 'no disponible ahora'),
-      kpiCard('Buying Power', '—', 'no disponible ahora'),
-      kpiCard('P&L Neto (post-comisión)', f$(pnlNeto), `-${fa$(totalComisiones)} comisión est. total`, cc(pnlNeto)),
-    ].join('');
-  }
-
-  $('tdemo-gauge-ring').style.setProperty('--pct', winRate.toFixed(1)+'%');
-  $('tdemo-gauge-pct').textContent = winRate+'%';
-  $('tdemo-wr-detail').innerHTML = `
-    <div class="stat-row"><span class="stat-lbl">Ganadoras</span><span class="stat-val pos">${wins.length}</span></div>
-    <div class="stat-row"><span class="stat-lbl">Perdedoras</span><span class="stat-val neg">${losers.length}</span></div>
-    <div class="stat-row"><span class="stat-lbl">Sin cerrar</span><span class="stat-val dim">${total-closed.length}</span></div>
-    <div class="stat-row"><span class="stat-lbl">Ganancia Prom.</span><span class="stat-val pos">${fa$(avgWin)}</span></div>
-    <div class="stat-row"><span class="stat-lbl">Pérdida Prom.</span><span class="stat-val neg">-${fa$(Math.abs(avgLoss))}</span></div>
-  `;
-
-  // Analisis por familia de estrategia (Tendencia/Neutral/Reversion) — separado del
-  // desglose por "strategy" literal de mas abajo, para poder ajustar cada familia
-  // (pesos, minScore, TP/SL) mirando sus propios resultados sin que las otras dos
-  // le laven la cara o le carguen la mano al promedio general.
-  const FAMILIA_LABEL = { TENDENCIA: '📈 Tendencia (Direccional)', NEUTRAL: '🦅 Neutral (Iron Condor)', REVERSION: '🔄 Reversión (Alejamiento SMA)' };
-  const inferirFamilia = e => e.strategyFamily || (e.strategy === 'IRON_CONDOR' ? 'NEUTRAL' : 'TENDENCIA');
-  const familias = ['TENDENCIA', 'NEUTRAL', 'REVERSION'];
-  $('tdemo-by-family').innerHTML = familias.map(fam => {
-    const execsFam = execs.filter(e => inferirFamilia(e) === fam);
-    const closedFam = execsFam.filter(e => e.status === 'closed');
-    const closedFamPnl = closedFam.filter(e => typeof e.pnl === 'number');
-    const winsFam = closedFamPnl.filter(e => e.pnl > 0);
-    const lossesFam = closedFamPnl.filter(e => e.pnl <= 0);
-    const wrFam = closedFamPnl.length ? +((winsFam.length/closedFamPnl.length)*100).toFixed(1) : null;
-    const pnlTotalFam = closedFam.reduce((s,e)=>s+(e.pnl||0),0);
-    if (!execsFam.length) {
-      return `<div class="card" style="margin:0;"><div class="card-header" style="font-size:12px;">${FAMILIA_LABEL[fam]}</div><div class="card-body dim" style="font-size:11px;padding:12px;">Sin trades todavía</div></div>`;
-    }
-    return `<div class="card" style="margin:0;">
-      <div class="card-header" style="font-size:12px;">${FAMILIA_LABEL[fam]}</div>
-      <div class="card-body" style="padding:10px 14px;">
-        <div class="stat-row"><span class="stat-lbl">Trades</span><span class="stat-val">${execsFam.length}</span></div>
-        <div class="stat-row"><span class="stat-lbl">Cerrados</span><span class="stat-val">${closedFam.length}</span></div>
-        <div class="stat-row"><span class="stat-lbl">Win Rate</span><span class="stat-val ${wrFam!=null && wrFam>=55?'pos':'dim'}">${wrFam!=null?wrFam+'%':'—'}</span></div>
-        <div class="stat-row"><span class="stat-lbl">Ganadoras</span><span class="stat-val pos">${winsFam.length}</span></div>
-        <div class="stat-row"><span class="stat-lbl">Perdedoras</span><span class="stat-val neg">${lossesFam.length}</span></div>
-        <div class="stat-row"><span class="stat-lbl">P&amp;L Total</span><span class="stat-val ${cc(pnlTotalFam)}">${f$(pnlTotalFam)}</span></div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // P&L por estrategia
-  const byStrat = {};
-  for (const e of closed) {
-    const k = e.strategy || '—';
-    if (!byStrat[k]) byStrat[k] = { trades: 0, pnl: 0 };
-    byStrat[k].trades++;
-    byStrat[k].pnl += e.pnl || 0;
-  }
-  const stratEntries = Object.entries(byStrat).sort((a,b)=>Math.abs(b[1].pnl)-Math.abs(a[1].pnl));
-  $('tdemo-by-strategy').innerHTML = stratEntries.length ? stratEntries.map(([k,d])=>`
-    <div class="stat-row">
-      <div><span class="td-bright" style="font-size:12px;">${k}</span><span class="dim" style="font-size:10px;margin-left:6px;">${d.trades} trades</span></div>
-      <span class="td-mono ${cc(d.pnl)}" style="font-size:12px;">${f$(d.pnl)}</span>
-    </div>`).join('') : '<div class="dim">Sin trades cerrados aún</div>';
-
-  // Weekly P&L chart
-  const byWeek = {};
-  for (const e of closed) {
-    const d = new Date(e.closedAt || e.timestamp);
-    const weekStart = new Date(d);
-    weekStart.setDate(d.getDate() - d.getDay());
-    const wk = weekStart.toISOString().slice(0,10);
-    byWeek[wk] = (byWeek[wk]||0) + (e.pnl||0);
-  }
-  const weeks = Object.keys(byWeek).sort();
-  const wVals = weeks.map(w=>byWeek[w]);
-  const ctx = $('tdemoWeeklyChart').getContext('2d');
-  if (S.charts.tdemoWeekly) S.charts.tdemoWeekly.destroy();
-  S.charts.tdemoWeekly = new Chart(ctx, {
-    type: 'bar',
-    data: { labels: weeks.map(w=>w.slice(5)), datasets: [{ data: wVals, backgroundColor: wVals.map(v=>v>=0?'rgba(19,214,143,.7)':'rgba(240,79,90,.7)'), borderColor: wVals.map(v=>v>=0?'#13d68f':'#f04f5a'), borderWidth:1, borderRadius:3 }] },
-    options: {
-      responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}}},
-      scales:{x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9}},grid:{display:false}},y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.5)'}}}
-    }
-  });
-
-  // Tabla historial — guarda el set completo para que el sort por columna
-  // (2026-07-23) pueda reordenar sobre los datos originales.
-  window._tdemoExecs = execs;
-  window._tdemoSort = null; // {col, dir} — se resetea con cada carga (orden natural: mas reciente primero)
-  updateTdemoSortArrows();
-  renderTdemoRows(execs);
-}
-
-const TDEMO_ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor' };
-const TDEMO_CIERRE_LABELS = {
+// Fusion 2026-08-01: la pagina "Demo Tradier" se elimino (duplicaba KPIs/Win
+// Rate/P&L por semana/familia que Reportes ya calcula sobre el set completo,
+// incluyendo estrategias reconciliadas directo con Tradier que Demo Tradier
+// nunca vio) — sus columnas de detalle (direccion, origen, strikes, razon de
+// cierre, fill de entrada, checks del playbook, informe PDF, marca de error)
+// se portaron a la tabla "Estrategias Cerradas" de Reportes, ver
+// ORIGEN_LABELS/CIERRE_LABELS/toggleTradeError/showChecksDetail mas
+// abajo y loadReportsTradier() (fetch de executions/signals/informes).
+const ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor', RUEDA: 'La Rueda' };
+const CIERRE_LABELS = {
   TP: '🤖 Auto (TP)', SL: '🤖 Auto (SL)',
   // Reversión a la Media cierra por nivel de precio del SPX (toca la SMA8 objetivo /
   // rompe la vela de entrada), no por P&L del spread — a diferencia de TP/SL arriba
@@ -961,122 +768,45 @@ const TDEMO_CIERRE_LABELS = {
   MANUAL: '👤 Manual', PARTIAL_FILL_EMERGENCY: '🚨 Emergencia',
 };
 
-// Valor comparable de cada columna para una ejecucion dada — usado por el sort.
-function tdemoSortValue(e, col) {
-  switch (col) {
-    case 'fecha':      return new Date(e.timestamp).getTime();
-    case 'direccion':  return e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'');
-    case 'origen':     return TDEMO_ORIGEN_LABELS[e.strategyFamily] || e.strategyFamily || '';
-    case 'estrategia': return e.strategy || '';
-    case 'strikes':    return e.strikes ? e.strikes.shortStrike : -Infinity;
-    case 'estado':     return e.status || '';
-    case 'cierre':     return e.closeReason || '';
-    case 'fill':       return typeof e.entryFillPrice === 'number' ? e.entryFillPrice : -Infinity;
-    case 'pnl':        return typeof e.pnl === 'number' ? e.pnl : typeof e.livePnl === 'number' ? e.livePnl : -Infinity;
-    case 'comision':   return typeof e.commissionEstimate === 'number' ? e.commissionEstimate : -Infinity;
-    default:           return '';
-  }
-}
-
-// Clic en un encabezado: primer clic ascendente, segundo clic en la MISMA columna
-// invierte a descendente, clic en OTRA columna vuelve a empezar en ascendente.
-function sortTdemoBy(col) {
-  const cur = window._tdemoSort;
-  const dir = (cur && cur.col === col && cur.dir === 'asc') ? 'desc' : 'asc';
-  window._tdemoSort = { col, dir };
-  const sorted = [...(window._tdemoExecs || [])].sort((a, b) => {
-    const va = tdemoSortValue(a, col), vb = tdemoSortValue(b, col);
-    let cmp;
-    if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
-    else cmp = String(va).localeCompare(String(vb), 'es');
-    return dir === 'asc' ? cmp : -cmp;
-  });
-  updateTdemoSortArrows();
-  renderTdemoRows(sorted);
-}
-
-function updateTdemoSortArrows() {
-  document.querySelectorAll('#tdemo-sort-row .tdemo-sort-arrow').forEach(el => el.textContent = '');
-  const s = window._tdemoSort;
-  if (!s) return;
-  const th = document.querySelector(`#tdemo-sort-row [data-col="${s.col}"] .tdemo-sort-arrow`);
-  if (th) th.textContent = s.dir === 'asc' ? '▲' : '▼';
-}
-
-function renderTdemoRows(execs) {
-  $('tdemo-tbody').innerHTML = execs.length ? execs.map(e => {
-    const fecha = new Date(e.timestamp).toLocaleString('es-CO',{timeZone:'America/New_York', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
-    const strikesLabel = e.strikes ? `${e.strikes.shortStrike}/${e.strikes.longStrike}` : '—';
-    const estadoLabel = e.status === 'closed' ? '✅ Cerrado' : e.status === 'filled' ? '🟢 Llenado' : '⏳ Pendiente';
-    // Si todavia no cerro, mostrar P&L NO REALIZADO en vivo (ex.livePnl, calculado en
-    // el servidor con cotizaciones reales cada vez que se carga esta vista) en vez de
-    // "—" — con un "~" adelante para que quede claro que es no realizado, no el final.
-    const pnlLabel = typeof e.pnl === 'number' ? f$(e.pnl)
-      : typeof e.livePnl === 'number' ? `~${f$(e.livePnl)}`
-      : (e.status==='closed' ? '⚠️ Verificar manual' : '—');
-    const pnlCls = typeof e.pnl === 'number' ? cc(e.pnl) : typeof e.livePnl === 'number' ? cc(e.livePnl) : 'dim';
-    const cierreLabel = e.status !== 'closed' ? '—' : (TDEMO_CIERRE_LABELS[e.closeReason] || e.closeReason || '❓ Sin dato');
-    const origenLabel = TDEMO_ORIGEN_LABELS[e.strategyFamily] || e.strategyFamily || '—';
-    const sig = (window._tdemoSignalsById||new Map()).get(e.signalId);
-    const checksBtn = sig && sig.playbook
-      ? `<button onclick="showTdemoChecksDetail('${e.signalId}')" style="background:rgba(79,142,255,.12);border:1px solid rgba(79,142,255,.3);color:var(--blue);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🔍 ${sig.playbook.score}%</button>`
-      : `<span class="dim" style="font-size:10px;">—</span>`;
-    const tieneInforme = (window._tdemoInformesMap||{})[e.id];
-    const informeBtn = tieneInforme
-      ? `<a href="/api/informe-trade/${e.id}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
-      : `<span class="dim" style="font-size:10px;">—</span>`;
-    const comisionLabel = typeof e.commissionEstimate === 'number' ? `-${fa$(e.commissionEstimate)}` : '—';
-    const errorBtn = e.flaggedError
-      ? `<button onclick="toggleTdemoError('${e.id}', true)" title="${(e.flaggedErrorNote||'').replace(/"/g,'&quot;')} — clic para desmarcar" style="background:rgba(240,79,90,.15);border:1px solid rgba(240,79,90,.4);color:var(--red);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🐛 Error</button>`
-      : `<button onclick="toggleTdemoError('${e.id}', false)" title="Marcar como bug/error de implementación" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 9px;font-size:10px;cursor:pointer;">🐛</button>`;
-    return `<tr>
-      <td class="td-mono" style="font-size:11px;">${fecha}</td>
-      <td class="${e.direction==='BULLISH'?'pos':e.direction==='BEARISH'?'neg':'dim'}">${e.direction || (e.strategy==='IRON_CONDOR'?'NEUTRAL':'—')}</td>
-      <td style="font-size:11px;">${origenLabel}</td>
-      <td>${e.strategy}</td>
-      <td class="td-mono">${strikesLabel}</td>
-      <td>${estadoLabel}</td>
-      <td style="font-size:11px;">${cierreLabel}</td>
-      <td class="td-mono">${e.entryFillPrice ? '$'+e.entryFillPrice : '—'}</td>
-      <td class="td-mono ${pnlCls}">${pnlLabel}</td>
-      <td class="td-mono neg" style="font-size:11px;">${comisionLabel}</td>
-      <td>${checksBtn}</td>
-      <td>${informeBtn}</td>
-      <td>${errorBtn}</td>
-    </tr>`;
-  }).join('') : '<tr><td colspan="13" style="text-align:center;padding:16px;color:var(--muted);">Sin ejecuciones todavía</td></tr>';
-}
-
-// Marcar/desmarcar un trade como bug/error de implementacion (2026-07-28) —
-// permite excluirlo del win rate real en Reportes sin borrar el registro.
-async function toggleTdemoError(id, currentlyFlagged) {
+// Marcar/desmarcar una estrategia como bug/error de implementacion (2026-07-28,
+// portado de Demo Tradier el 2026-08-01) — permite excluirla del win rate real
+// en Reportes sin borrar el registro. Solo aplica a estrategias con registro
+// local propio (key sin prefijo "broker-") — las reconciliadas directo del
+// broker no tienen un id local contra el cual hacer PATCH.
+async function toggleTradeError(key, currentlyFlagged, stratType) {
   let note = '';
   if (!currentlyFlagged) {
     note = prompt('Nota breve (opcional) — ¿qué bug/error causó este resultado?', '') || '';
-  } else if (!confirm('¿Desmarcar este trade como error de implementación?')) {
+  } else if (!confirm('¿Desmarcar esta estrategia como error de implementación?')) {
     return;
   }
+  const endpoint = stratType === 'The Wheel'
+    ? `/api/wheel-trading/executions/${key}/patch`
+    : `/api/tradier/executions/${key}/patch`;
   try {
-    await fetch(`/api/tradier/executions/${id}/patch`, {
+    await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ flaggedError: !currentlyFlagged, flaggedErrorNote: currentlyFlagged ? null : note }),
     });
-    loadTradierDemo();
+    // Usado tanto desde Historial como desde Reportes — recarga la que este activa.
+    if ($('panel-history')?.classList.contains('active')) loadHistoryTradier();
+    else loadReportsTradier(true);
   } catch(e) {
     alert('Error: ' + e.message);
   }
 }
 
-// Modal de detalle de checks/score del playbook que genero la senal (2026-07-28) —
-// cruza execution.signalId contra el registro completo de /api/spx/signals (cargado
-// junto con las ejecuciones en loadTradierDemo). Generico para las 3 familias
-// (Tendencia/Reversion/Neutral): cada check trae label/weight/ok/reason; "points"
-// solo existe en el playbook de Tendencia (Reversion no lo calcula por separado,
-// el matiz de puntaje parcial queda descrito en el texto de "reason").
-function showTdemoChecksDetail(signalId) {
-  const sig = (window._tdemoSignalsById||new Map()).get(signalId);
-  const existing = document.getElementById('tdemo-checks-modal');
+// Modal de detalle de checks/score del playbook que genero la senal (2026-07-28,
+// portado de Demo Tradier el 2026-08-01) — cruza signalId contra el registro
+// completo de /api/spx/signals (cargado junto con las estrategias en
+// loadReportsTradier). Generico para las 3 familias (Tendencia/Reversion/Neutral):
+// cada check trae label/weight/ok/reason; "points" solo existe en el playbook de
+// Tendencia (Reversion no lo calcula por separado, el matiz de puntaje parcial
+// queda descrito en el texto de "reason").
+function showChecksDetail(signalId) {
+  const sig = (window._repSignalsById||new Map()).get(signalId);
+  const existing = document.getElementById('rep-checks-modal');
   if (existing) existing.remove();
   if (!sig || !sig.playbook) {
     alert('Sin detalle de checks disponible para esta señal (fuera de las últimas 50, o estrategia sin score ponderado).');
@@ -1098,13 +828,13 @@ function showTdemoChecksDetail(signalId) {
   }).join('');
 
   const modal = document.createElement('div');
-  modal.id = 'tdemo-checks-modal';
+  modal.id = 'rep-checks-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
   modal.innerHTML = `
     <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:660px;width:100%;max-height:85vh;overflow-y:auto;position:relative;">
-      <button onclick="document.getElementById('tdemo-checks-modal').remove()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,.08);border:none;color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
+      <button onclick="document.getElementById('rep-checks-modal').remove()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,.08);border:none;color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;">✕</button>
       <div style="font-size:15px;font-weight:700;color:var(--bright);padding-right:30px;">${sig.strategyName || sig.strategy} — ${sig.direction || ''}</div>
-      <div style="font-size:10px;color:var(--muted);margin:4px 0 14px;">${sig.timestamp ? new Date(sig.timestamp).toLocaleString('es-CO',{timeZone:'America/New_York'}) : ''} ET · SPX $${sig.context?.spxPrice ?? '—'} · ${TDEMO_ORIGEN_LABELS[sig.strategyFamily] || sig.strategyFamily || ''}</div>
+      <div style="font-size:10px;color:var(--muted);margin:4px 0 14px;">${sig.timestamp ? new Date(sig.timestamp).toLocaleString('es-CO',{timeZone:'America/New_York'}) : ''} ET · SPX $${sig.context?.spxPrice ?? '—'} · ${ORIGEN_LABELS[sig.strategyFamily] || sig.strategyFamily || ''}</div>
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;">
         <div style="font-size:26px;font-weight:800;color:${passColor};font-family:var(--mono);">${pb.score}%</div>
         <div style="font-size:11px;color:var(--muted);">mínimo requerido: <strong style="color:var(--text);">${pb.minScore}%</strong> · ${pb.passed ? '✅ Pasó' : '❌ No pasó'}</div>
@@ -2040,7 +1770,18 @@ function consolidateStrategies(legs) {
       map.set(key, { underlying:leg.underlying, openDate:leg.openDate,
         closeDate:leg.closeDate, closeExecAt:leg.closeExecAt, stratType:leg.stratType,
         durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0,
-        amPm:leg.amPm, win:leg.win, key:leg.key });
+        amPm:leg.amPm, win:leg.win, key:leg.key,
+        // Fusion 2026-08-01 (Demo Tradier -> Reportes/Historial): campos que ya
+        // venian en metrics.strategies pero que este consolidador no pasaba antes.
+        strategyFamily:leg.strategyFamily, commissionEstimate:leg.commissionEstimate,
+        flaggedError:leg.flaggedError, flaggedErrorNote:leg.flaggedErrorNote,
+        // direction/strikes: para estrategias reconciliadas del broker (sin
+        // registro local) vienen inferidos aca mismo, desde el symbol OCC real
+        // (ver buildStrategyEntry, src/tradier_closed_pnl_adapter.js) — el
+        // enriquecimiento con el registro RAW de mas abajo los sobreescribe con
+        // el dato exacto cuando existe registro local (mas preciso que inferir
+        // del stratType).
+        direction:leg.direction, strikes:leg.strikes });
     }
     const s = map.get(key);
     s.openValue  += leg.openValue  || 0;
@@ -2068,12 +1809,37 @@ async function loadHistoryTradier() {
   initHistFiltersTradier();
   try {
     const sd = $('hist-from').value, ed = $('hist-to').value;
-    const data = await fetchTxnsTradier();
+    // Fusion 2026-08-01 (portado de la extinta pagina Demo Tradier): trae en
+    // paralelo el registro RAW de ejecuciones SPX (direccion, strikes, esquema
+    // de cierre, fill de entrada, signalId — ninguno vive en metrics.strategies)
+    // + las senales (checks/score del playbook) + el manifiesto de informes PDF.
+    const [data, rawExecs, signals, informes] = await Promise.all([
+      fetchTxnsTradier(),
+      fetch('/api/tradier/executions').then(x=>x.json()).then(d=>d.executions||[]).catch(()=>[]),
+      fetch('/api/spx/signals').then(x=>x.json()).catch(()=>[]),
+      fetch('/api/informe-trade').then(x=>x.json()).catch(()=>({})),
+    ]);
+    window._repRawById = new Map(rawExecs.map(e => [e.id, e]));
+    window._repSignalsById = new Map((signals||[]).map(s => [s.id, s]));
+    window._repInformesMap = informes || {};
     const legs = data.metrics?.strategies || [];
     const strategies = consolidateStrategies(legs)
       .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
 
-    strategies.forEach(s => { s.capPct = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null; });
+    // Enriquecer con el registro RAW — solo existe para estrategias con
+    // registro local propio (key sin prefijo "broker-"); las reconciliadas
+    // directo del broker se quedan con estos campos en null ("—" en la tabla).
+    strategies.forEach(s => {
+      const raw = window._repRawById.get(s.key);
+      if (raw) {
+        s.direction      = raw.direction || (raw.strategy === 'IRON_CONDOR' ? 'NEUTRAL' : null);
+        s.strikes        = raw.strikes || null;
+        s.closeReason    = raw.closeReason || null;
+        s.entryFillPrice = typeof raw.entryFillPrice === 'number' ? raw.entryFillPrice : null;
+        s.signalId       = raw.signalId || null;
+      }
+    });
+
     const wins     = strategies.filter(s => s.pnl > 0).length;
     const totalPnl = strategies.reduce((a,b) => a + b.pnl, 0);
     $('hist-summary').textContent =
@@ -2086,7 +1852,7 @@ async function loadHistoryTradier() {
     window.sortHist = function(col) {
       if (window._histSortCol === col) window._histSortAsc = !window._histSortAsc;
       else { window._histSortCol = col; window._histSortAsc = false; }
-      ['closeDate','openDate','underlying','stratType','durationDays','pnl','capPct','openValue'].forEach(c => {
+      ['closeDate','openDate','direction','strategyFamily','underlying','stratType','durationDays','pnl','commissionEstimate'].forEach(c => {
         const el = document.getElementById('hh-'+c);
         if (el) el.textContent = c === col ? (window._histSortAsc ? '▲' : '▼') : '';
       });
@@ -2094,7 +1860,7 @@ async function loadHistoryTradier() {
     };
 
     window.renderHistRows = function(list, col, asc) {
-      const numCols = new Set(['durationDays','pnl','capPct','openValue']);
+      const numCols = new Set(['durationDays','pnl','commissionEstimate']);
       const sorted = [...list].sort((a,b) => {
         const va = numCols.has(col) ? (a[col]||0) : (a[col]||'');
         const vb = numCols.has(col) ? (b[col]||0) : (b[col]||'');
@@ -2102,20 +1868,45 @@ async function loadHistoryTradier() {
         return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
       });
       $('hist-tbody').innerHTML = !sorted.length
-        ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
+        ? '<tr><td colspan="15" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
         : sorted.map(s => {
-            const capHtml = s.capPct !== null && s.capPct !== undefined
-              ? `<span class="${s.capPct >= 0 ? 'pos' : 'neg'}">${s.capPct > 0 ? '+' : ''}${s.capPct}%</span>` : '—';
             const durLabel = s.durationDays === 0 ? 'Intradía' : s.durationDays === 1 ? '1 día' : `${s.durationDays}d`;
+            const origenLabel = ORIGEN_LABELS[s.strategyFamily] || s.strategyFamily || (s.stratType === 'The Wheel' ? 'La Rueda' : '—');
+            const strikesLabel = !s.strikes ? '—'
+          : (s.strikes.shortStrike != null && s.strikes.longStrike != null) ? `${s.strikes.shortStrike}/${s.strikes.longStrike}`
+          : String(s.strikes.shortStrike ?? s.strikes.longStrike);
+            const cierreLabel = s.closeReason ? (CIERRE_LABELS[s.closeReason] || s.closeReason) : '—';
+            const fillLabel = s.entryFillPrice != null ? '$'+s.entryFillPrice : '—';
+            const comisionLabel = typeof s.commissionEstimate === 'number' ? '-'+fa$(s.commissionEstimate) : '—';
+            const sig = s.signalId ? window._repSignalsById.get(s.signalId) : null;
+            const checksBtn = sig && sig.playbook
+              ? `<button onclick="showChecksDetail('${s.signalId}')" style="background:rgba(79,142,255,.12);border:1px solid rgba(79,142,255,.3);color:var(--blue);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🔍 ${sig.playbook.score}%</button>`
+              : `<span class="dim" style="font-size:10px;">—</span>`;
+            const tieneInforme = s.key ? window._repInformesMap[s.key] : null;
+            const informeBtn = tieneInforme
+              ? `<a href="/api/informe-trade/${s.key}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
+              : `<span class="dim" style="font-size:10px;">—</span>`;
+            const esLocal = s.key && !s.key.startsWith('broker-');
+            const errorBtn = !esLocal ? `<span class="dim" style="font-size:10px;">—</span>`
+              : s.flaggedError
+              ? `<button onclick="toggleTradeError('${s.key}', true, '${s.stratType}')" title="${(s.flaggedErrorNote||'').replace(/"/g,'&quot;')} — clic para desmarcar" style="background:rgba(240,79,90,.15);border:1px solid rgba(240,79,90,.4);color:var(--red);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🐛 Error</button>`
+              : `<button onclick="toggleTradeError('${s.key}', false, '${s.stratType}')" title="Marcar como bug/error de implementación" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 9px;font-size:10px;cursor:pointer;">🐛</button>`;
             return `<tr>
               <td class="td-mono dim">${s.closeDate||'—'}</td>
               <td class="td-mono dim">${s.openDate||'—'}</td>
+              <td class="${s.direction==='BULLISH'?'pos':s.direction==='BEARISH'?'neg':'dim'}">${s.direction||'—'}</td>
+              <td style="font-size:11px;">${origenLabel}</td>
               <td class="td-bright">${s.underlying||'—'}</td>
               <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType||'—'}</span></td>
+              <td class="td-mono">${strikesLabel}</td>
+              <td style="font-size:11px;">${cierreLabel}</td>
               <td class="td-mono dim">${durLabel}</td>
+              <td class="td-mono">${fillLabel}</td>
               <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
-              <td>${capHtml}</td>
-              <td class="td-mono pos">${s.openValue ? '+'+fa$(Math.abs(s.openValue)) : '—'}</td>
+              <td class="td-mono neg" style="font-size:11px;">${comisionLabel}</td>
+              <td>${checksBtn}</td>
+              <td>${informeBtn}</td>
+              <td>${errorBtn}</td>
             </tr>`;
           }).join('');
     };
@@ -2141,7 +1932,22 @@ async function loadReportsTradier(forceRefresh) {
     if (!$('rep-to').value) $('rep-to').value = ed;
     $('rep-period-label').textContent = `${sd} → ${ed}`;
 
-    const data = await fetchTxnsTradier(forceRefresh);
+    // Fusion 2026-08-01 (portado de la extinta pagina Demo Tradier): trae en
+    // paralelo el registro RAW de ejecuciones SPX (direccion, strikes, razon
+    // de cierre, fill de entrada, signalId — ninguno de estos vive en
+    // metrics.strategies, que es la forma reducida/broker-agnostica que ya
+    // usaba Reportes) + las senales (detalle de checks/score del playbook) +
+    // el manifiesto de informes PDF. Si cualquiera de las 3 falla, la tabla
+    // igual carga, solo sin esas columnas de detalle.
+    const [data, rawExecs, signals, informes] = await Promise.all([
+      fetchTxnsTradier(forceRefresh),
+      fetch('/api/tradier/executions').then(x=>x.json()).then(d=>d.executions||[]).catch(()=>[]),
+      fetch('/api/spx/signals').then(x=>x.json()).catch(()=>[]),
+      fetch('/api/informe-trade').then(x=>x.json()).catch(()=>({})),
+    ]);
+    window._repRawById = new Map(rawExecs.map(e => [e.id, e]));
+    window._repSignalsById = new Map((signals||[]).map(s => [s.id, s]));
+    window._repInformesMap = informes || {};
     const allStrats = data.metrics?.strategies || [];
     // Filtro de errores de implementacion (2026-07-28, a pedido del usuario) —
     // trades marcados a mano (flaggedError, seteado desde Demo Tradier via
@@ -2370,13 +2176,29 @@ async function loadReportsTradier(forceRefresh) {
       .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
       .slice(0, 50);
 
+    // Fusion 2026-08-01 (portado de Demo Tradier): enriquecer con el registro
+    // RAW (direccion, strikes, razon de cierre, fill de entrada, signalId) —
+    // solo existe para estrategias con registro local propio (key sin prefijo
+    // "broker-"); las reconciliadas directo del broker se quedan sin estos
+    // campos (se muestran como "—" en la tabla, no hay de donde traerlos).
+    stratList.forEach(s => {
+      const raw = (window._repRawById||new Map()).get(s.key);
+      if (raw) {
+        s.direction      = raw.direction || (raw.strategy === 'IRON_CONDOR' ? 'NEUTRAL' : null);
+        s.strikes        = raw.strikes || null;
+        s.closeReason    = raw.closeReason || null;
+        s.entryFillPrice = typeof raw.entryFillPrice === 'number' ? raw.entryFillPrice : null;
+        s.signalId       = raw.signalId || null;
+      }
+    });
+
     window._stratList = stratList;
     window._stratSortCol = 'closeDate';
     window._stratSortAsc = false;
     window.histSort = function(col) {
       if (window._stratSortCol === col) window._stratSortAsc = !window._stratSortAsc;
       else { window._stratSortCol = col; window._stratSortAsc = false; }
-      ['openDate','closeDate','stratType','underlying','openValue','pnl','durationDays','win'].forEach(c => {
+      ['openDate','closeDate','direction','strategyFamily','stratType','underlying','openValue','pnl','commissionEstimate','durationDays','win'].forEach(c => {
         const el = document.getElementById('hs-'+c);
         if (el) el.textContent = c === col ? (window._stratSortAsc ? ' ▲' : ' ▼') : '';
       });
@@ -2390,16 +2212,49 @@ async function loadReportsTradier(forceRefresh) {
     };
 
     function renderStratRowsTradier(list) {
-      $('strat-tbody').innerHTML = list.length ? list.map(s=>`<tr>
+      $('strat-tbody').innerHTML = list.length ? list.map(s=>{
+        const origenLabel = ORIGEN_LABELS[s.strategyFamily] || s.strategyFamily || (s.stratType === 'The Wheel' ? 'La Rueda' : '—');
+        const strikesLabel = !s.strikes ? '—'
+          : (s.strikes.shortStrike != null && s.strikes.longStrike != null) ? `${s.strikes.shortStrike}/${s.strikes.longStrike}`
+          : String(s.strikes.shortStrike ?? s.strikes.longStrike);
+        const cierreLabel = s.closeReason ? (CIERRE_LABELS[s.closeReason] || s.closeReason) : '—';
+        const fillLabel = s.entryFillPrice != null ? '$'+s.entryFillPrice : '—';
+        const comisionLabel = typeof s.commissionEstimate === 'number' ? '-'+fa$(s.commissionEstimate) : '—';
+        const sig = s.signalId ? (window._repSignalsById||new Map()).get(s.signalId) : null;
+        const checksBtn = sig && sig.playbook
+          ? `<button onclick="showChecksDetail('${s.signalId}')" style="background:rgba(79,142,255,.12);border:1px solid rgba(79,142,255,.3);color:var(--blue);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🔍 ${sig.playbook.score}%</button>`
+          : `<span class="dim" style="font-size:10px;">—</span>`;
+        const tieneInforme = s.key ? (window._repInformesMap||{})[s.key] : null;
+        const informeBtn = tieneInforme
+          ? `<a href="/api/informe-trade/${s.key}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
+          : `<span class="dim" style="font-size:10px;">—</span>`;
+        // Broker-only (reconciliadas directo con Tradier, sin registro local) no
+        // tienen un id local contra el cual hacer PATCH — sin boton en ese caso.
+        const esLocal = s.key && !s.key.startsWith('broker-');
+        const errorBtn = !esLocal ? `<span class="dim" style="font-size:10px;">—</span>`
+          : s.flaggedError
+          ? `<button onclick="toggleTradeError('${s.key}', true, '${s.stratType}')" title="${(s.flaggedErrorNote||'').replace(/"/g,'&quot;')} — clic para desmarcar" style="background:rgba(240,79,90,.15);border:1px solid rgba(240,79,90,.4);color:var(--red);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🐛 Error</button>`
+          : `<button onclick="toggleTradeError('${s.key}', false, '${s.stratType}')" title="Marcar como bug/error de implementación" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 9px;font-size:10px;cursor:pointer;">🐛</button>`;
+        return `<tr>
       <td class="td-mono dim">${s.openDate||'—'}</td>
       <td class="td-mono dim">${s.closeDate||'—'}</td>
+      <td class="${s.direction==='BULLISH'?'pos':s.direction==='BEARISH'?'neg':'dim'}">${s.direction||'—'}</td>
+      <td style="font-size:11px;">${origenLabel}</td>
       <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
       <td class="td-bright">${s.underlying||'—'}</td>
+      <td class="td-mono">${strikesLabel}</td>
+      <td style="font-size:11px;">${cierreLabel}</td>
       <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+      <td class="td-mono">${fillLabel}</td>
       <td class="td-mono ${cc(s.pnl)}" style="font-weight:700">${f$(s.pnl)}</td>
+      <td class="td-mono neg" style="font-size:11px;">${comisionLabel}</td>
       <td class="dim td-mono" style="font-size:10px;">${s.durationDays===0?'Intradía':s.durationDays===1?'1d':`${s.durationDays}d`}</td>
       <td><span class="badge ${s.pnl>0?'badge-green':'badge-red'}">${s.pnl>0?'✓ WIN':'✗ LOSS'}</span></td>
-    </tr>`).join('') : '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
+      <td>${checksBtn}</td>
+      <td>${informeBtn}</td>
+      <td>${errorBtn}</td>
+    </tr>`;
+      }).join('') : '<tr><td colspan="17" style="text-align:center;padding:20px;color:var(--muted);">Sin estrategias cerradas</td></tr>';
     }
     renderStratRowsTradier(stratList);
 
@@ -2824,18 +2679,22 @@ function _chRedrawTradier() {
       var run = initial;
       vals = (curve.values||[]).map(function(v){ run = +(run + (v||0)).toFixed(2); return run; });
     } else if (_cTipoT === 'periodo') {
-      var byDay = {};
-      (nlvSnaps||[]).forEach(function(e){ byDay[e[0].slice(0,10)] = e[1]; });
+      // Cambio diario real: curve.values ya es el capital acumulado (desde
+      // stratByDay, historial completo de trades cerrados) — restar contra
+      // el dia anterior directo, sin depender de nlvSnaps (solo 3 fechas
+      // reales guardadas hoy — cualquier otro dia real, como el 14 de jul,
+      // caia siempre en 0 con el metodo viejo aunque si hubo P&L ese dia).
       var prev = initial;
-      vals = labels.map(function(l) {
-        var v = byDay[l.slice(0,10)];
-        if (v != null) { var d=+(v-prev).toFixed(2); prev=v; return d; }
-        return 0;
-      });
+      vals = (curve.values||[]).map(function(v){ var d=+(v-prev).toFixed(2); prev=v; return d; });
       snaps = null;
     }
   } else if (_cPeriodT === 'weekly') {
-    var src = Object.keys(nlvByWeek).length ? nlvByWeek : byWeek;
+    // A diferencia de Tasty (donde nlvByWeek, basado en snapshots reales de NLV,
+    // es la fuente MAS completa), en Tradier es al reves: nlv_history_tradier.json
+    // recien arranca el 24-jul, mientras que byWeek (basado en P&L real de
+    // estrategias cerradas, ver getTransactionsTradierData en server.js) cubre
+    // el historial completo desde el 7-jul — se prioriza byWeek aqui.
+    var src = Object.keys(byWeek).length ? byWeek : nlvByWeek;
     var weeks = Object.keys(src).sort();
     labels = weeks;
     var run = initial;
@@ -2843,7 +2702,7 @@ function _chRedrawTradier() {
     vals  = _cTipoT==='acumulado' ? accum : weeks.map(function(w){ return +(src[w]||0).toFixed(2); });
     snaps = null;
   } else if (_cPeriodT === 'monthly') {
-    var src = Object.keys(nlvByMonth).length ? nlvByMonth : byMonth;
+    var src = Object.keys(byMonth).length ? byMonth : nlvByMonth;
     var months = Object.keys(src).sort();
     labels = months.map(function(m){ return m+'-15'; });
     var run = initial;
@@ -5601,8 +5460,8 @@ function resizeBTCanvas() {
 }
 
 
-// ══ INIT — arranca en Demo Tradier (Dashboard todavía no existe, Etapa 5) ══
-loadTradierDemo();
+// ══ INIT — arranca en Dashboard ══
+loadDashboardTradier();
 </script>
 </body>
 </html>

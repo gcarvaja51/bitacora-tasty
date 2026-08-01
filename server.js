@@ -79,37 +79,43 @@ function saveNlvSnapshot(dateStr, nlv) {
   fs.writeFileSync(NLV_FILE, JSON.stringify(history, null, 2), 'utf8');
 }
 
+// Bug real (2026-08-01, encontrado a partir de un reporte del usuario: "la curva
+// semanal de Tradier solo muestra la ultima semana"): el loop anterior arrancaba en
+// i=1 y solo acumulaba el CAMBIO entre snapshots consecutivos en el bucket de la
+// semana del snapshot MAS RECIENTE del par -- la semana del primer snapshot nunca
+// recibia su propio bucket (no hay "anterior" con el que restar), asi que
+// desaparecia por completo del resultado. computeMonthlyNlv (debajo) ya tenia el
+// patron correcto (cada entrada recibe su propio mes, comparado contra el ultimo
+// valor del mes anterior) desde antes -- se porta el mismo patron aca, solo
+// cambiando mes por semana.
 function computeWeeklyNlv(nlvHistory, currentNlv) {
   const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
   const today = new Date().toISOString().slice(0,10);
-  const allEntries = [...entries, [today, currentNlv]];
+  const allEntries = (isWeekdayET() ? [...entries, [today, currentNlv]] : entries).map(([d, v]) => [d, v, weekKey(d)]);
 
-  const byWeek = {};
-  for (let i = 1; i < allEntries.length; i++) {
-    const [prevDate, prevNlv] = allEntries[i-1];
-    const [curDate,  curNlv]  = allEntries[i];
-    const prevWk = weekKey(prevDate);
-    const curWk  = weekKey(curDate);
-    if (prevWk !== curWk) {
-      // Cruce de semana — asignar el cambio completo a la semana actual
-      if (!byWeek[curWk]) byWeek[curWk] = 0;
-      byWeek[curWk] += curNlv - prevNlv;
-    } else {
-      // Misma semana
-      if (!byWeek[curWk]) byWeek[curWk] = 0;
-      byWeek[curWk] += curNlv - prevNlv;
+  const weeklyMap = {};
+  const prevNlvByWeek = {};
+  for (let i = 0; i < allEntries.length; i++) {
+    const [, nlv, wk] = allEntries[i];
+    if (!(wk in prevNlvByWeek)) {
+      // Primer dato de esta semana: el punto de partida es el ULTIMO valor
+      // conocido de una semana anterior (o el propio valor, si es la primera
+      // semana con datos -- esa primera entrada queda en 0, igual que
+      // computeMonthlyNlv para el primer mes).
+      const prevWkEntries = allEntries.filter(([, , w]) => w < wk);
+      prevNlvByWeek[wk] = prevWkEntries.length ? prevWkEntries[prevWkEntries.length-1][1] : nlv;
     }
+    weeklyMap[wk] = +(nlv - prevNlvByWeek[wk]).toFixed(2);
   }
-  // Redondear
-  Object.keys(byWeek).forEach(k => { byWeek[k] = +byWeek[k].toFixed(2); });
-  return byWeek;
+  return weeklyMap;
 }
 
 function computeMonthlyNlv(nlvHistory, currentNlv) {
   const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
-  // Agregar snapshot de hoy
+  // Agregar snapshot de hoy -- solo si hoy es dia habil (ver isWeekdayET),
+  // mismo criterio que computeWeeklyNlv.
   const today = new Date().toISOString().slice(0,10);
-  const allEntries = [...entries, [today, currentNlv]];
+  const allEntries = isWeekdayET() ? [...entries, [today, currentNlv]] : entries;
 
   const byMonth = {};
   for (let i = 1; i < allEntries.length; i++) {
@@ -163,6 +169,21 @@ function cached(k, s, fn) {
 function bustCache() { _cache.clear(); }
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
+// Bug real (2026-08-01, encontrado por el usuario: "hay reportes de agosto,
+// algo esta mal" -- un sabado, sin mercado abierto, ya aparecia un bucket de
+// agosto en la curva de capital de Tradier): ni el snapshot programado
+// (scheduleDaily/scheduleDailyTradier) ni el snapshot que se guarda AL
+// ARRANCAR el servidor tenian un chequeo de dia habil -- cada reinicio del
+// proceso (nodemon, redeploy de Railway, o simplemente un fin de semana
+// donde igual corre el timer diario) escribia un snapshot con la fecha de
+// HOY, incluso sabado/domingo, ensuciando computeWeeklyNlv/computeMonthlyNlv
+// con un "cambio" que en realidad no corresponde a ningun dia de mercado
+// real. Se usa la fecha ET (no la del servidor) para decidir, mismo criterio
+// que el resto del sistema (ver gamma_daemon/isMarketWindow).
+function isWeekdayET() {
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(new Date());
+  return weekday !== 'Sat' && weekday !== 'Sun';
+}
 const daysAgo  = n  => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 
 app.use(express.json({ limit: '25mb', type: ['application/json', 'text/plain'] }));
@@ -6724,19 +6745,26 @@ app.get('/api/nlv-history-tradier', (req, res) => {
 // locales. startDate/endDate se aceptan por paridad de firma con
 // /api/transactions pero no filtran aca — el filtrado por rango de fechas
 // ya lo hace el frontend (loadHistory/loadReports) sobre closeDate.
+// Extraido para que /api/curve-tradier pueda reusar exactamente los mismos
+// datos (mismo cache key 'transactions-tradier') sin duplicar la logica de
+// reconciliacion ni pagar 2 veces el fetch real a tradier.getClosedPnl.
+function getTransactionsTradierData() {
+  return cached('transactions-tradier', 300, async () => {
+    const { buildMetricsTradier } = require('./src/metrics_tradier');
+    const { reconcileClosedPnl, trackedLegKeys } = require('./src/tradier_closed_pnl_adapter');
+    const spxExecutions   = loadTradierExecutions();
+    const wheelExecutions = loadWheelTradingExecutions();
+    const closedPnl = await tradier.getClosedPnl('2026-01-01');
+    const tracked = trackedLegKeys(spxExecutions, wheelExecutions);
+    const brokerOnlyStrategies = reconcileClosedPnl(closedPnl, tracked);
+    const metrics = buildMetricsTradier(spxExecutions, wheelExecutions, brokerOnlyStrategies);
+    return { metrics, ts: new Date().toISOString() };
+  });
+}
+
 app.get('/api/transactions-tradier', async (req, res) => {
   try {
-    const data = await cached('transactions-tradier', 300, async () => {
-      const { buildMetricsTradier } = require('./src/metrics_tradier');
-      const { reconcileClosedPnl, trackedLegKeys } = require('./src/tradier_closed_pnl_adapter');
-      const spxExecutions   = loadTradierExecutions();
-      const wheelExecutions = loadWheelTradingExecutions();
-      const closedPnl = await tradier.getClosedPnl('2026-01-01');
-      const tracked = trackedLegKeys(spxExecutions, wheelExecutions);
-      const brokerOnlyStrategies = reconcileClosedPnl(closedPnl, tracked);
-      const metrics = buildMetricsTradier(spxExecutions, wheelExecutions, brokerOnlyStrategies);
-      return { metrics, ts: new Date().toISOString() };
-    });
+    const data = await getTransactionsTradierData();
     res.json(data);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -6775,29 +6803,61 @@ app.get('/api/positions-tradier', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Bitacora Tradier — Etapa 5 (Dashboard): mismo shape que /api/curve pero
-// construido desde nlv_history_tradier.json (Etapa 3) en vez del historial
-// de transacciones de TastyTrade — reusa buildEquityCurve() (src/metrics.js)
-// y computeMonthlyNlv/computeWeeklyNlv (arriba, linea ~82) SIN modificarlos,
-// ya que ambos son funciones puras que solo esperan {time, close} y un
-// historial {fecha: nlv} respectivamente — nada de esto es TastyTrade-especifico.
+// Bitacora Tradier — Etapa 5 (Dashboard). Reescrito 2026-08-01: la version
+// original armaba `curve`/`byWeek`/`byMonth` solo desde nlv_history_tradier.json
+// (snapshots diarios de balance) -- ese archivo recien empieza el 24-jul (la
+// fecha del primer snapshot guardado), asi que el usuario nunca veia las
+// semanas de trading real anteriores (7 al 23 de jul) que SI se ven bien en
+// Reportes (construido desde metrics.strategies, con historial completo via
+// tradier.getClosedPnl). Ahora `curve`/`byWeek`/`byMonth` se arman igual que
+// /api/curve (Tasty): acumulado de P&L REAL por dia de cierre (metrics.stratByDay/
+// strategyByWeek/strategyByMonth, misma fuente que ya usa Reportes, ver
+// getTransactionsTradierData arriba) sobre TRADIER_STARTING_BALANCE -- no desde
+// transacciones brutas (Tradier no expone ese ledger, ver metrics_tradier.js),
+// pero el resultado cubre el mismo rango real. Los campos nlvByMonth/nlvByWeek/
+// nlvSnapshots (snapshots de NLV real) se mantienen como referencia secundaria
+// -- el frontend (tradier.html) ahora prioriza byWeek/byMonth (mas completo)
+// sobre nlvByWeek/nlvByMonth (mas sparse), al reves que en Tasty.
 app.get('/api/curve-tradier', async (req, res) => {
   try {
     const data = await cached('curve-tradier', 300, async () => {
-      const { buildEquityCurve } = require('./src/metrics');
+      const { metrics } = await getTransactionsTradierData();
       const nlvHistory = loadNlvHistoryTradier();
       const currentNlv = await tradier.getBalances().then(b => parseFloat(b?.total_equity || 0)).catch(() => 0);
-      const nlvEntries = Object.entries(nlvHistory).sort((a, b) => a[0].localeCompare(b[0]));
-      const nlvItems = nlvEntries.map(([time, close]) => ({ time, close }));
-      // Evitar duplicar el punto de hoy si el snapshot diario ya lo guardo
-      const yaTieneHoy = nlvEntries.some(([d]) => d === todayStr());
-      if (currentNlv > 0 && !yaTieneHoy) nlvItems.push({ time: todayStr(), close: currentNlv });
-      const curve = buildEquityCurve(nlvItems);
+
+      const labels  = Object.keys(metrics.stratByDay).sort();
+      let running   = TRADIER_STARTING_BALANCE;
+      const values  = labels.map(d => {
+        running += metrics.stratByDay[d];
+        return +running.toFixed(2);
+      });
+      if (values.length > 0 && currentNlv > 0) {
+        values[values.length - 1] = +currentNlv.toFixed(2);
+      }
+
+      // Drawdown sobre NLV real (snapshots) cuando hay suficientes puntos,
+      // igual criterio que /api/curve (Tasty) — si no, cae al acumulado de P&L.
+      let peak = TRADIER_STARTING_BALANCE, maxDD = 0, maxDDPct = 0;
+      const nlvPoints = Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).map(([,v])=>v);
+      if (currentNlv > 0) nlvPoints.push(currentNlv);
+      const ddSource = nlvPoints.length >= 2 ? nlvPoints : values;
+      ddSource.forEach(v => {
+        if (v > peak) peak = v;
+        const dd = peak - v;
+        if (dd > maxDD) { maxDD = dd; maxDDPct = dd / peak * 100; }
+      });
+
       const nlvByMonth = computeMonthlyNlv(nlvHistory, currentNlv);
       const nlvByWeek  = computeWeeklyNlv(nlvHistory, currentNlv);
+      const nlvEntries = Object.entries(nlvHistory).sort((a, b) => a[0].localeCompare(b[0]));
+      const yaTieneHoy = nlvEntries.some(([d]) => d === todayStr());
+      const agregarHoy = currentNlv > 0 && !yaTieneHoy && isWeekdayET();
+
       return {
-        curve, nlvByMonth, nlvByWeek,
-        nlvSnapshots: yaTieneHoy ? nlvEntries : nlvEntries.concat(currentNlv > 0 ? [[todayStr(), currentNlv]] : []),
+        curve: { labels, values, initial: TRADIER_STARTING_BALANCE, maxDD: +maxDD.toFixed(2), maxDDPct: +maxDDPct.toFixed(2) },
+        byMonth: metrics.strategyByMonth, byWeek: metrics.strategyByWeek,
+        nlvByMonth, nlvByWeek,
+        nlvSnapshots: agregarHoy ? nlvEntries.concat([[todayStr(), currentNlv]]) : nlvEntries,
         ts: new Date().toISOString(),
       };
     });
@@ -6809,6 +6869,7 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 
 // ── Guardado automático diario de NLV ─────────────────────────
 async function snapshotNlv() {
+  if (!isWeekdayET()) return;
   try {
     const bal = await tt.getBalances();
     const nlv = parseFloat(bal?.['net-liquidating-value'] || 0);
@@ -6844,8 +6905,10 @@ app.listen(PORT, async () => {
     const bal = await tt.getBalances();
     const nlv = parseFloat(bal?.['net-liquidating-value'] || 0);
     console.log(`✅  Conectado — Cuenta: ${tt.accountNumber} | Net Liq: $${nlv.toFixed(2)}\n`);
-    // Guardar snapshot de hoy al arrancar
-    saveNlvSnapshot(todayStr(), nlv);
+    // Guardar snapshot de hoy al arrancar -- solo si hoy es dia habil (ver
+    // isWeekdayET arriba); un restart de fin de semana no debe crear un
+    // snapshot falso para ese dia.
+    if (isWeekdayET()) saveNlvSnapshot(todayStr(), nlv);
     // Programar guardado diario a las 4:35 PM ET
     scheduleDaily();
   } catch (e) {
@@ -6857,11 +6920,13 @@ app.listen(PORT, async () => {
   // fallo aca (ej. .env sin credenciales Tradier) nunca debe impedir que
   // termine de arrancar la autenticacion/snapshot de Tasty de arriba.
   try {
-    const balT = await tradier.getBalances();
-    const nlvT = parseFloat(balT?.total_equity || 0);
-    if (nlvT > 0) {
-      saveNlvSnapshotTradier(todayStr(), nlvT);
-      console.log(`[NLV-TRADIER] Snapshot guardado: ${todayStr()} = $${nlvT.toFixed(2)}`);
+    if (isWeekdayET()) {
+      const balT = await tradier.getBalances();
+      const nlvT = parseFloat(balT?.total_equity || 0);
+      if (nlvT > 0) {
+        saveNlvSnapshotTradier(todayStr(), nlvT);
+        console.log(`[NLV-TRADIER] Snapshot guardado: ${todayStr()} = $${nlvT.toFixed(2)}`);
+      }
     }
     scheduleDailyTradier();
   } catch (e) {
@@ -6876,6 +6941,7 @@ function scheduleDailyTradier() {
   if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
   const ms = target - now;
   setTimeout(async () => {
+    if (!isWeekdayET()) { scheduleDailyTradier(); return; }
     try {
       const bal = await tradier.getBalances();
       const nlv = parseFloat(bal?.total_equity || 0);
