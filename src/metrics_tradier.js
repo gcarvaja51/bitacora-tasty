@@ -24,10 +24,18 @@ function getDurationCat(openDate, closeDate) {
   return '> 1 mes';
 }
 
+// Bug real encontrado el 2026-08-01 (el usuario reporto que "Horario de
+// Cierre" en Reportes mostraba TODOS los trades como PM): esta funcion
+// comparaba directo la hora UTC del timestamp contra el umbral (h<13) sin
+// convertir a hora de mercado (America/New_York) -- filledAt/timestamp se
+// guardan en UTC real (ej. "...T17:34:57.656Z"), y durante EDT (verano) el
+// mercado 9:30am-4pm ET cae en 13:30-20:00 UTC. Como ese rango entero es
+// >=13, absolutamente ningun trade real podia clasificar como AM. Corregido
+// convirtiendo a hora ET real (mismo patron que isWeekdayET(), server.js).
 function getAmPm(isoStr) {
   if (!isoStr) return null;
-  const h = new Date(isoStr).getUTCHours();
-  return h < 13 ? 'AM (9-12h)' : 'PM (12-16h)';
+  const h = +new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }).format(new Date(isoStr));
+  return h < 12 ? 'AM (9-12h)' : 'PM (12-16h)';
 }
 
 function weekKey(dateStr) {

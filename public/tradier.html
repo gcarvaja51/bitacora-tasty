@@ -380,6 +380,16 @@
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Día de la Semana (Lunes a Viernes)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Día</th><th>Trades</th><th>Win %</th><th>P&amp;L Total</th></tr></thead>
+            <tbody id="weekday-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header">Estrategias Cerradas (Round-trips)</div>
         <div style="font-size:10px;color:var(--muted);padding:0 16px 10px;">Fusión 2026-08-01 de la antigua página "Demo Tradier" — mismas columnas de detalle (dirección, origen, strikes, razón de cierre, fill de entrada, checks del playbook, informe PDF, marca de error), ahora sobre el set completo de estrategias (incluye reconciliadas directo con el broker, no solo las trackeadas localmente). En Iron Condor, "Strikes" solo muestra la pata del put. Columna "Checks"/"Informe"/dirección/strikes/razón de cierre solo están disponibles para estrategias con registro local (no para las reconciliadas directo del broker, que no tienen ese detalle). "Comisión" es un <strong>cálculo</strong>, no un dato real de Tradier — ver <code>src/broker_fees.js</code>.</div>
@@ -2047,7 +2057,8 @@ async function loadReportsTradier(forceRefresh) {
     const losers = filteredStrats.filter(s => s.pnl <= 0);
     const totalGain = wins.reduce((a,b) => a+b.pnl, 0);
     const totalLoss = Math.abs(losers.reduce((a,b) => a+b.pnl, 0));
-    const byUnd = {}, bySt = {}, byTime = {}, byDur = {}, byFam = {};
+    const byUnd = {}, bySt = {}, byTime = {}, byDur = {}, byFam = {}, byWeekday = {};
+    const WEEKDAY_NAMES = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     // Familia (2026-07-28, a pedido del usuario): las 3 familias SPX
     // (TENDENCIA/REVERSION/NEUTRAL, ya vienen en s.strategyFamily) mas "RUEDA"
     // como cuarto segmento (s.stratType==='The Wheel', que no tiene
@@ -2070,6 +2081,14 @@ async function loadReportsTradier(forceRefresh) {
       if (fam) {
         if (!byFam[fam]) byFam[fam] = {pnl:0,trades:0,wins:0,avgWin:0,avgLoss:0,winRate:0};
         byFam[fam].pnl += s.pnl; byFam[fam].trades++; if(s.pnl>0) byFam[fam].wins++;
+      }
+      // Dia de la semana (2026-08-01, a pedido del usuario) — desde closeDate
+      // (fecha, sin hora), mismo patron UTC-mediodia que ya usa weekKey en
+      // server.js para evitar corrimientos de dia por zona horaria.
+      if (s.closeDate) {
+        const wd = WEEKDAY_NAMES[new Date(s.closeDate + 'T12:00:00Z').getUTCDay()];
+        if (!byWeekday[wd]) byWeekday[wd] = {pnl:0,trades:0,wins:0};
+        byWeekday[wd].pnl += s.pnl; byWeekday[wd].trades++; if(s.pnl>0) byWeekday[wd].wins++;
       }
     }
     for (const [type,d] of Object.entries(bySt)) {
@@ -2122,6 +2141,7 @@ async function loadReportsTradier(forceRefresh) {
       byStrategy:      bySt,
       byFamily:        byFam,
       byTimeSlot:      byTime,
+      byWeekday,
       byDuration:      byDur,
       stratByDay,
       strategyByMonth,
@@ -2244,6 +2264,19 @@ async function loadReportsTradier(forceRefresh) {
       const wr2 = d.trades ? ((d.wins/d.trades)*100).toFixed(1) : 0;
       return `<tr>
         <td class="td-bright">${dur}</td>
+        <td class="td-mono">${d.trades}</td>
+        <td class="td-mono ${wr2>=50?'pos':'neg'}">${wr2}%</td>
+        <td class="td-mono ${cc(d.pnl)}" style="font-weight:700">${f$(d.pnl)}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--muted);">Sin datos</td></tr>';
+
+    const weekdayOrder = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+    const weekdays = weekdayOrder.filter(w => m.byWeekday?.[w]);
+    $('weekday-tbody').innerHTML = weekdays.length ? weekdays.map(w=>{
+      const d = m.byWeekday[w];
+      const wr2 = d.trades ? ((d.wins/d.trades)*100).toFixed(1) : 0;
+      return `<tr>
+        <td class="td-bright">${w}</td>
         <td class="td-mono">${d.trades}</td>
         <td class="td-mono ${wr2>=50?'pos':'neg'}">${wr2}%</td>
         <td class="td-mono ${cc(d.pnl)}" style="font-weight:700">${f$(d.pnl)}</td>
