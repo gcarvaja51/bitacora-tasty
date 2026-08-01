@@ -70,6 +70,17 @@
   <div class="content">
     <!-- ══ DASHBOARD (placeholder — Etapa 5) ══ -->
     <div id="panel-dashboard" class="panel active">
+      <div class="filters">
+        <span class="filter-label">Estrategia</span>
+        <select id="dash-familia" onchange="loadDashboardTradier()">
+          <option value="">Todas</option>
+          <option value="TENDENCIA">Direccional</option>
+          <option value="REVERSION">Reversión</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="RUEDA">La Rueda</option>
+        </select>
+        <span style="font-size:10px;color:var(--muted);margin-left:8px;">Filtra P&amp;L Realizado, Win Rate y Últimas Operaciones — Net Equity/BP/P&amp;L No Realizado/Curva de Capital siguen mostrando la cuenta completa (son valores reales de la cuenta, no separables por estrategia).</span>
+      </div>
       <div class="kpi-row cols-6" id="dash-kpis">
         <div class="loader"><div class="spinner"></div> Cargando...</div>
       </div>
@@ -122,6 +133,16 @@
     </div>
     <!-- ══ CALENDARIO ══════════════════════ -->
     <div id="panel-calendar" class="panel">
+      <div class="filters">
+        <span class="filter-label">Estrategia</span>
+        <select id="cal-familia" onchange="renderCalendarTradier()">
+          <option value="">Todas</option>
+          <option value="TENDENCIA">Direccional</option>
+          <option value="REVERSION">Reversión</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="RUEDA">La Rueda</option>
+        </select>
+      </div>
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header">
           <div class="cal-nav">
@@ -2322,9 +2343,24 @@ async function loadCalendarTradier() {
 }
 
 function renderCalendarTradier() {
-  const m      = S.txns?.metrics;
-  const cal    = m?.stratByDay || {};
-  const opens  = m?.openByDay  || {};
+  const m       = S.txns?.metrics;
+  const familia = $('cal-familia')?.value || '';
+  // Filtro Estrategia (2026-08-01) — m.stratByDay/openByDay vienen ya
+  // agregados server-side sobre TODAS las familias; si hay filtro, se
+  // recalculan client-side desde m.strategies (misma logica que
+  // buildMetricsTradier, src/metrics_tradier.js) solo sobre el subset
+  // filtrado — no hay forma de "desmezclar" el agregado ya sumado.
+  let cal, opens;
+  if (familia) {
+    cal = {}; opens = {};
+    (m?.strategies || []).filter(s => getFamilia(s) === familia).forEach(s => {
+      if (s.openDate && s.openValue > 0) opens[s.openDate] = (opens[s.openDate] || 0) + s.openValue;
+      if (s.closeDate) cal[s.closeDate] = (cal[s.closeDate] || 0) + s.pnl;
+    });
+  } else {
+    cal   = m?.stratByDay || {};
+    opens = m?.openByDay  || {};
+  }
 
   const y=S.calYear, mo=S.calMonth;
   const monthName = new Date(y,mo,1).toLocaleDateString('es-CO',{month:'long',year:'numeric'});
@@ -2375,7 +2411,9 @@ async function calDayClickTradier(dateStr, pnl) {
 
   try {
     await fetchTxnsTradier();
-    const legs = S.txns.metrics?.strategies || [];
+    const familia = $('cal-familia')?.value || '';
+    const allLegs = S.txns.metrics?.strategies || [];
+    const legs = familia ? allLegs.filter(s => getFamilia(s) === familia) : allLegs;
     const closedLegs = legs.filter(s => s.closeDate === dateStr);
     const closed      = consolidateStrategies(closedLegs);
     const openLegs = legs.filter(s => s.openDate === dateStr && s.closeDate !== dateStr);
@@ -2927,6 +2965,18 @@ async function loadDashboardTradier() {
     const totalUnreal = groups.reduce((s,g)=>s+g.unrealizedPnL, 0);
     const m = txData.metrics || {};
 
+    // Filtro Estrategia (2026-08-01) — solo afecta P&L Realizado/Win Rate/
+    // Ultimas Operaciones (metricas por estrategia cerrada); Net Equity/BP/
+    // P&L No Realizado/Curva de Capital son valores REALES de la cuenta
+    // completa, no tiene sentido "filtrarlos" por familia (ver nota en el
+    // HTML del filtro).
+    const familia = $('dash-familia')?.value || '';
+    const allStrats = m.strategies || [];
+    const stratsFiltrados = familia ? allStrats.filter(s => getFamilia(s) === familia) : allStrats;
+    const winsF = stratsFiltrados.filter(s => s.pnl > 0);
+    const totalPnLF = +stratsFiltrados.reduce((a,b)=>a+b.pnl,0).toFixed(2);
+    const winRateF = stratsFiltrados.length ? +((winsF.length/stratsFiltrados.length)*100).toFixed(2) : 0;
+
     const nlv = bp.nlv || 0;
     const initial = curveData.curve?.initial || nlv;
     const totalPnL = nlv - initial;
@@ -2938,8 +2988,8 @@ async function loadDashboardTradier() {
       kpiCard('Net Equity (Tradier)', fa$(nlv), fp(pctPnL), cc(totalPnL)),
       kpiCard('BP Opciones Disp.', fa$(bp.derivAvail||0), 'ver Buying Power', 'dim'),
       kpiCard('P&L No Realizado', f$(totalUnreal), `${groups.length} posiciones`, cc(totalUnreal)),
-      kpiCard('P&L Realizado', f$(m.totalPnL||0), `${m.totalStrategies||0} estrategias`, cc(m.totalPnL||0)),
-      kpiCard('Win Rate', (m.winRate||0)+'%', benchmark(m.winRate||0,'≥55% ✓','<55% ✗',55), (m.winRate||0)>=55?'pos':'neg'),
+      kpiCard('P&L Realizado', f$(totalPnLF), `${stratsFiltrados.length} estrategias`, cc(totalPnLF)),
+      kpiCard('Win Rate', winRateF+'%', benchmark(winRateF,'≥55% ✓','<55% ✗',55), winRateF>=55?'pos':'neg'),
       kpiCard('Max Drawdown', f$(-dd), `-${ddPct.toFixed(1)}% desde pico`, 'neg'),
     ].join('');
 
@@ -2958,7 +3008,7 @@ async function loadDashboardTradier() {
         </div>`).join('');
     }
 
-    const recent = consolidateStrategies(m.strategies||[])
+    const recent = consolidateStrategies(stratsFiltrados)
       .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
       .slice(0, 8);
     $('dash-recent').innerHTML = recent.length ? recent.map(s => `
