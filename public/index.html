@@ -25,6 +25,7 @@
     <span></span><span></span><span></span>
   </button>
   <div class="mob-title">Bitácora Tasty</div>
+  <button class="btn-refresh" id="btn-refresh-mobile" onclick="refreshAll()" style="margin-left:auto;padding:6px 10px;">↺</button>
 </div>
 
 
@@ -5545,9 +5546,13 @@ setInterval(checkExtrinsicAlerts, 60000);
 //  REFRESH
 // ══════════════════════════════════════════
 async function refreshAll() {
-  const btn=$('btn-refresh');
-  btn.classList.add('loading');
-  btn.textContent='↺ Actualizando...';
+  const btns=document.querySelectorAll('.btn-refresh');
+  const originalText=new Map();
+  btns.forEach(btn=>{
+    originalText.set(btn, btn.textContent);
+    btn.classList.add('loading');
+    btn.textContent = btn.id==='btn-refresh-mobile' ? '↺' : '↺ Actualizando...';
+  });
   try {
     await fetch('/api/refresh',{method:'POST'});
     S.overview=null; S.curve=null; S.txns=null; S.today=null;
@@ -5560,8 +5565,10 @@ async function refreshAll() {
     else if(tab==='reports') await loadReports();
     else if(tab==='today') { S.today=null; await loadToday(); }
   } catch(e) { console.error(e); }
-  btn.classList.remove('loading');
-  btn.textContent='↺ Actualizar';
+  btns.forEach(btn=>{
+    btn.classList.remove('loading');
+    btn.textContent=originalText.get(btn);
+  });
 }
 
 function showError(id,msg){ $(id).innerHTML=`<div class="error-box">Error: ${msg}</div>`; }
