@@ -75,7 +75,33 @@
         <div class="loader"><div class="spinner"></div> Cargando...</div>
       </div>
       <div class="card" style="margin-bottom:16px;">
-        <div class="card-header">Curva de Capital (Tradier)</div>
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span>Curva de Capital (Tradier) <span id="curve-period-t" style="color:var(--blue);font-size:10px;margin-left:6px;"></span></span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <div class="c-dd" id="dd-chart-t">
+              <button class="c-dd-btn" onclick="cddToggleTradier('dd-chart-t')"><span id="dd-chart-t-lbl">Bar</span> &#9662;</button>
+              <div class="c-dd-menu" id="dd-chart-t-menu">
+                <div class="c-dd-item" onclick="setChTypeTradier('bar');cddToggleTradier('dd-chart-t')"><span id="chk-bar-t" class="c-dd-chk">&#10003;</span>BAR</div>
+                <div class="c-dd-item" onclick="setChTypeTradier('line');cddToggleTradier('dd-chart-t')"><span id="chk-line-t" class="c-dd-chk" style="opacity:0">&#10003;</span>LINE</div>
+              </div>
+            </div>
+            <div class="c-dd" id="dd-period-t">
+              <button class="c-dd-btn" onclick="cddToggleTradier('dd-period-t')"><span id="dd-period-t-lbl">By Daily</span> &#9662;</button>
+              <div class="c-dd-menu" id="dd-period-t-menu">
+                <div class="c-dd-item" onclick="setChPeriodTradier('daily');cddToggleTradier('dd-period-t')"><span id="chk-daily-t" class="c-dd-chk">&#10003;</span>DAILY</div>
+                <div class="c-dd-item" onclick="setChPeriodTradier('weekly');cddToggleTradier('dd-period-t')"><span id="chk-weekly-t" class="c-dd-chk" style="opacity:0">&#10003;</span>WEEKLY</div>
+                <div class="c-dd-item" onclick="setChPeriodTradier('monthly');cddToggleTradier('dd-period-t')"><span id="chk-monthly-t" class="c-dd-chk" style="opacity:0">&#10003;</span>MONTHLY</div>
+              </div>
+            </div>
+            <div class="c-dd" id="dd-tipo-t">
+              <button class="c-dd-btn" onclick="cddToggleTradier('dd-tipo-t')"><span id="dd-tipo-t-lbl">Acumulado</span> &#9662;</button>
+              <div class="c-dd-menu" id="dd-tipo-t-menu">
+                <div class="c-dd-item" onclick="setChTipoTradier('acumulado');cddToggleTradier('dd-tipo-t')"><span id="chk-acum-t" class="c-dd-chk">&#10003;</span>ACUMULADO</div>
+                <div class="c-dd-item" onclick="setChTipoTradier('periodo');cddToggleTradier('dd-tipo-t')"><span id="chk-per-t" class="c-dd-chk" style="opacity:0">&#10003;</span>PERIODO</div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="card-body chart-wrap">
           <canvas id="equityChartTradier" height="240"></canvas>
         </div>
@@ -133,6 +159,11 @@
       <div class="card">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
           <span>Posiciones Abiertas <span id="pos-count" style="color:var(--blue);"></span></span>
+          <div style="display:flex;gap:6px;">
+            <button id="pos-filter-all"     onclick="setPosFilterTradier('all')"     style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--green);color:#000;">Todos</button>
+            <button id="pos-filter-options" onclick="setPosFilterTradier('options')" style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--card2);color:var(--text);">📊 Opciones</button>
+            <button id="pos-filter-stocks"  onclick="setPosFilterTradier('stocks')"  style="font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);cursor:pointer;background:var(--card2);color:var(--text);">📈 Acciones</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -2641,6 +2672,21 @@ function renderTodayRowsTradier(list, col, asc) {
 // ══════════════════════════════════════════
 let _posSortTradier = { col: 'sym', asc: true };
 let _posGroupsTradier = [];
+let _posFilterTradier = 'all';
+
+// Filtro Opciones/Acciones (2026-08-01) -- mismo patron que setPosFilter() de
+// index.html. g.isStock ya existia en el dato (lo usan STRAT_TYPE_LABEL y la
+// columna Strike), solo faltaba exponerlo como filtro en esta pantalla.
+function setPosFilterTradier(f) {
+  _posFilterTradier = f;
+  ['all','options','stocks'].forEach(k => {
+    const btn = document.getElementById('pos-filter-'+k);
+    if (!btn) return;
+    if (k === f) { btn.style.background='var(--green)'; btn.style.color='#000'; }
+    else         { btn.style.background='var(--card2)'; btn.style.color='var(--text)'; }
+  });
+  renderPosRowsTradier(_posGroupsTradier);
+}
 
 function buildPosRowTradier(g) {
   const strat = STRAT_TYPE_LABEL(g);
@@ -2704,8 +2750,13 @@ function posSortTradier(col) {
 
 function renderPosRowsTradier(groups) {
   _posGroupsTradier = groups;
+
+  let filtered = groups;
+  if (_posFilterTradier === 'options') filtered = groups.filter(g => !g.isStock);
+  if (_posFilterTradier === 'stocks')  filtered = groups.filter(g =>  g.isStock);
+
   const col = _posSortTradier.col, asc = _posSortTradier.asc;
-  const sorted = [...groups].sort((a,b) => {
+  const sorted = [...filtered].sort((a,b) => {
     let va, vb;
     if      (col==='sym')    { va=a.underlying;  vb=b.underlying; }
     else if (col==='tipo')   { va=a.stratType||''; vb=b.stratType||''; }
@@ -2744,14 +2795,236 @@ async function loadPositionsTradier() {
   }
 }
 
+// ══ CURVA (Tradier) — CONTROLES ═════════
+// Port directo del mismo mecanismo de index.html (Bar/Line, Daily/Weekly/
+// Monthly, Acumulado/Periodo) — a pedido del usuario (2026-08-01), que antes
+// quedaba simplificado a un line chart fijo. /api/curve-tradier ya devuelve
+// el mismo shape que /api/curve (curve, nlvByMonth, nlvByWeek, nlvSnapshots),
+// asi que no hizo falta tocar el backend, solo portar la logica de render.
+var _cDataT   = null;
+var _cTipoT   = 'acumulado';
+var _cPeriodT = 'daily';
+var _cTypeT   = 'bar';
+
+function _chRedrawTradier() {
+  if (!_cDataT) return;
+  var curve       = _cDataT.curve;
+  var nlvSnaps    = _cDataT.nlvSnapshots;
+  var byWeek      = _cDataT.byWeek      || {};
+  var byMonth     = _cDataT.byMonth     || {};
+  var nlvByMonth  = _cDataT.nlvByMonth  || byMonth;
+  var nlvByWeek   = _cDataT.nlvByWeek   || byWeek;
+  var initial     = curve.initial || 10644;
+  var labels, vals, snaps;
+
+  if (_cPeriodT === 'daily') {
+    labels = curve.labels;
+    snaps  = nlvSnaps;
+    if (_cTipoT === 'acumulado') {
+      var run = initial;
+      vals = (curve.values||[]).map(function(v){ run = +(run + (v||0)).toFixed(2); return run; });
+    } else if (_cTipoT === 'periodo') {
+      var byDay = {};
+      (nlvSnaps||[]).forEach(function(e){ byDay[e[0].slice(0,10)] = e[1]; });
+      var prev = initial;
+      vals = labels.map(function(l) {
+        var v = byDay[l.slice(0,10)];
+        if (v != null) { var d=+(v-prev).toFixed(2); prev=v; return d; }
+        return 0;
+      });
+      snaps = null;
+    }
+  } else if (_cPeriodT === 'weekly') {
+    var src = Object.keys(nlvByWeek).length ? nlvByWeek : byWeek;
+    var weeks = Object.keys(src).sort();
+    labels = weeks;
+    var run = initial;
+    var accum = weeks.map(function(w){ run += (src[w]||0); return +run.toFixed(2); });
+    vals  = _cTipoT==='acumulado' ? accum : weeks.map(function(w){ return +(src[w]||0).toFixed(2); });
+    snaps = null;
+  } else if (_cPeriodT === 'monthly') {
+    var src = Object.keys(nlvByMonth).length ? nlvByMonth : byMonth;
+    var months = Object.keys(src).sort();
+    labels = months.map(function(m){ return m+'-15'; });
+    var run = initial;
+    var accum = months.map(function(m){ run += (src[m]||0); return +run.toFixed(2); });
+    vals  = _cTipoT==='acumulado' ? accum : months.map(function(m){ return +(src[m]||0).toFixed(2); });
+    snaps = null;
+  }
+
+  renderEquityChartTradier(
+    { labels:labels, values:vals, initial:initial, maxDD:curve.maxDD, maxDDPct:curve.maxDDPct },
+    snaps, _cTipoT, _cTypeT
+  );
+}
+
+function cddToggleTradier(id) {
+  var menu = $(id+'-menu');
+  if (!menu) return;
+  ['dd-chart-t','dd-period-t','dd-tipo-t'].forEach(function(d){
+    if (d!==id) { var m=$(d+'-menu'); if(m) m.style.display='none'; }
+  });
+  menu.style.display = menu.style.display==='block' ? 'none' : 'block';
+}
+document.addEventListener('click', function(e){
+  if (!e.target.closest || !e.target.closest('.c-dd')) {
+    ['dd-chart-t','dd-period-t','dd-tipo-t'].forEach(function(d){
+      var m=$(d+'-menu'); if(m) m.style.display='none';
+    });
+  }
+});
+
+function setChTypeTradier(t) {
+  _cTypeT = t;
+  var lbl=$('dd-chart-t-lbl'); if(lbl) lbl.textContent=t==='bar'?'Bar':'Line';
+  ['bar','line'].forEach(function(x){ var c=$('chk-'+x+'-t'); if(c) c.style.opacity=x===t?'1':'0'; });
+  _chRedrawTradier();
+}
+function setChPeriodTradier(p) {
+  _cPeriodT = p;
+  var map={daily:'By Daily',weekly:'By Weekly',monthly:'By Monthly'};
+  var lbl=$('dd-period-t-lbl'); if(lbl) lbl.textContent=map[p]||p;
+  ['daily','weekly','monthly'].forEach(function(x){ var c=$('chk-'+x+'-t'); if(c) c.style.opacity=x===p?'1':'0'; });
+  _chRedrawTradier();
+}
+function setChTipoTradier(t) {
+  _cTipoT = t;
+  var lbl=$('dd-tipo-t-lbl'); if(lbl) lbl.textContent=t==='acumulado'?'Acumulado':'Periodo';
+  var ca=$('chk-acum-t'), cp=$('chk-per-t');
+  if(ca) ca.style.opacity=t==='acumulado'?'1':'0';
+  if(cp) cp.style.opacity=t==='periodo'?'1':'0';
+  _chRedrawTradier();
+}
+
+function renderEquityChartTradier(curve, nlvSnapshots, _tipo, _chtype) {
+  _tipo   = _tipo   || 'acumulado';
+  _chtype = _chtype || 'bar';
+  if (!curve || !curve.values || !curve.values.length) return;
+  var ctxEl = $('equityChartTradier');
+  if (!ctxEl) return;
+  var ctx = ctxEl.getContext('2d');
+  if (S.charts && S.charts.equityTradier) S.charts.equityTradier.destroy();
+  var initial = curve.initial || 10644;
+
+  var p0 = curve.labels[0] || '', pN = curve.labels[curve.labels.length-1] || '';
+  var perEl = $('curve-period-t'); if (perEl) perEl.textContent = p0.slice(0,10) + ' → ' + pN.slice(0,10);
+
+  var mainData = curve.values;
+  var snapPts = [];
+  if (_tipo === 'acumulado' && nlvSnapshots && nlvSnapshots.length) {
+    var byDay = {};
+    nlvSnapshots.forEach(function(e) { byDay[e[0].slice(0,10)] = e[1]; });
+    var snArr = Array(curve.labels.length).fill(null);
+    snArr[0] = initial;
+    curve.labels.forEach(function(l,i) {
+      var v = byDay[l.slice(0,10)];
+      if (v != null) snArr[i] = +v.toFixed(2);
+    });
+    var pts = snArr.map(function(v,i){ return v!=null?{i:i,v:v}:null; }).filter(Boolean);
+    if (pts.length >= 2) {
+      var interp = Array(curve.labels.length).fill(null);
+      for (var k=0; k<pts.length-1; k++) {
+        var a=pts[k], b=pts[k+1];
+        for (var ii=a.i; ii<=b.i; ii++) interp[ii] = +(a.v+(b.v-a.v)*(ii-a.i)/(b.i-a.i)).toFixed(2);
+      }
+      for (var ii=0; ii<pts[0].i; ii++) interp[ii] = pts[0].v;
+      for (var ii=pts[pts.length-1].i; ii<interp.length; ii++) interp[ii] = pts[pts.length-1].v;
+      mainData = interp;
+    }
+    snapPts = pts;
+  }
+
+  var fmtL = function(l) {
+    if (/\d{4}-W\d{2}/.test(l)) {
+      var parts = l.split('-W');
+      var yr=+parts[0], wk=+parts[1];
+      var d = new Date(yr, 0, 1+(wk-1)*7);
+      return 'W'+wk+' '+d.toLocaleDateString('es-CO',{month:'short'});
+    }
+    var d = new Date(l+'T12:00:00');
+    if (isNaN(d.getTime())) return l;
+    if (l.length===10 && l.slice(7)==='-15') return d.toLocaleDateString('es-CO',{month:'short',year:'2-digit'});
+    return d.toLocaleDateString('es-CO',{month:'short',day:'numeric'});
+  };
+
+  var getBg = _chtype==='line' ? 'rgba(19,214,143,.15)' : function(ctx2) {
+    var v = mainData[ctx2.dataIndex];
+    if (_tipo==='acumulado') return v>=initial ? 'rgba(19,214,143,.8)' : 'rgba(240,79,90,.8)';
+    return v>=0 ? 'rgba(19,214,143,.8)' : 'rgba(240,79,90,.8)';
+  };
+  var getBorder = _chtype==='line' ? '#13d68f' : function(ctx2) {
+    var v = mainData[ctx2.dataIndex];
+    if (_tipo==='acumulado') return v>=initial ? '#13d68f' : '#f04f5a';
+    return v>=0 ? '#13d68f' : '#f04f5a';
+  };
+
+  var datasets = [{
+    label: 'Net Equity',
+    data: mainData,
+    backgroundColor: getBg,
+    borderColor: getBorder,
+    borderWidth: _chtype==='line' ? 2 : 0,
+    borderRadius: _chtype==='bar' ? 3 : 0,
+    fill: _chtype==='line',
+    tension: 0.3,
+    pointRadius: 0,
+    pointHoverRadius: 5,
+    type: _chtype
+  }];
+
+  if (_tipo==='acumulado') {
+    datasets.push({ label:'Capital Inicial', data:Array(mainData.length).fill(initial),
+      borderColor:'rgba(245,200,66,.35)', borderWidth:1, borderDash:[6,4],
+      fill:false, pointRadius:0, type:'line' });
+  }
+
+  S.charts.equityTradier = new Chart(ctx, {
+    type: _chtype,
+    data: { labels: curve.labels.map(fmtL), datasets: datasets },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{ display:true, position:'top', labels:{color:'#4e5a70',font:{size:10},boxWidth:10,
+          filter: function(item){ return item.datasetIndex===0; }
+        }},
+        tooltip:{
+          backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
+          titleColor:'#8b96a8', bodyColor:'#c9d3e0',
+          callbacks:{
+            label: function(c) {
+              if (c.datasetIndex!==0 || c.parsed.y==null) return null;
+              var v = c.parsed.y;
+              if (_tipo==='acumulado') {
+                var diff = v-initial;
+                var sign = diff>=0?'+':'-';
+                return ' $'+v.toLocaleString('es-CO',{minimumFractionDigits:2})+
+                  '  ('+sign+'$'+Math.abs(diff).toLocaleString('es-CO',{minimumFractionDigits:2})+')';
+              } else {
+                return ' '+(v>=0?'+':'')+v.toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2});
+              }
+            }
+          }
+        }
+      },
+      scales:{
+        x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},maxTicksLimit:12},
+            grid:{color:'rgba(255,255,255,.04)'} },
+        y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:10},
+                   callback:function(v){return '$'+Math.round(v).toLocaleString();}},
+            grid:{color:'rgba(255,255,255,.04)'} }
+      }
+    }
+  });
+}
+
 // ══════════════════════════════════════════
 //  DASHBOARD (Tradier) — Etapa 5. Compone Buying Power (Etapa 3), La Rueda/
-//  Historial (Etapa 2/4) y Posiciones de arriba. Simplificaciones
-//  deliberadas frente a index.html: sin topbar propia (sus métricas se
-//  plegaron al kpi-row del dashboard) y curva de capital como line chart
-//  simple de Chart.js — sin los dropdowns de tipo/período/acumulado (mismo
-//  costo/beneficio que decidimos para "La Rueda" en la Etapa 2: reusar el
-//  dato, no la interactividad completa).
+//  Historial (Etapa 2/4) y Posiciones de arriba. Curva de capital ahora con
+//  los mismos controles Bar/Line + Daily/Weekly/Monthly + Acumulado/Periodo
+//  que index.html (portado 2026-08-01, ver _chRedrawTradier arriba) —
+//  /api/curve-tradier ya devolvia el mismo shape de datos, no hizo falta
+//  tocar el backend.
 // ══════════════════════════════════════════
 async function loadDashboardTradier() {
   try {
@@ -2781,18 +3054,7 @@ async function loadDashboardTradier() {
       kpiCard('Max Drawdown', f$(-dd), `-${ddPct.toFixed(1)}% desde pico`, 'neg'),
     ].join('');
 
-    const curve = curveData.curve || {labels:[],values:[]};
-    const ctx = $('equityChartTradier').getContext('2d');
-    if (S.charts.equityTradier) S.charts.equityTradier.destroy();
-    S.charts.equityTradier = new Chart(ctx, {
-      type: 'line',
-      data: { labels: curve.labels, datasets: [{ data: curve.values, borderColor:'#4f8eff', backgroundColor:'rgba(79,142,255,.1)', fill:true, tension:.2, pointRadius:0 }] },
-      options: { responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false}, tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+fa$(c.parsed.y)}} },
-        scales:{ x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:10},grid:{display:false}},
-                 y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v).toLocaleString()},grid:{color:'rgba(31,36,51,.5)'}} }
-      }
-    });
+    _cDataT = curveData; _chRedrawTradier();
 
     if (!groups.length) { $('dash-positions').innerHTML = '<div class="dim" style="font-size:12px;padding:4px 0;">Sin posiciones abiertas</div>'; }
     else {
