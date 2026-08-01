@@ -107,7 +107,18 @@ function buildStrategyEntry(underlying, closeDate, rows, stratType) {
   // para historial viejo). Se deja null en ese caso — no se inventa.
   const strategyFamily = esSpx ? null : 'RUEDA';
   return {
-    key: `broker-${underlying}-${closeDate}-${rows.map(r => r.symbol).join('_')}`,
+    // Bug real encontrado el 2026-08-01 (el usuario reporto un "trade de
+    // -$5,550" que no existia): esta key solo incluia el/los symbol(s), sin
+    // el gain_loss -- cuando el MISMO symbol se cierra varias veces el mismo
+    // dia con resultados DISTINTOS (ej. 4 cierres reales de
+    // SPXW260731C07460000 con -$2,560/-$2,710/-$60/-$220, comprado 4 veces al
+    // mismo precio y cerrado en 4 momentos distintos), las 4 estrategias
+    // generaban la MISMA key -- consolidateStrategies (frontend) las
+    // deduplicaba por key y SUMABA sus pnl en una sola fila (-$5,550),
+    // mostrando un "trade" que nunca existio. Se agrega gain_loss de cada
+    // fila a la key para que cierres distintos del mismo symbol/dia nunca
+    // colisionen.
+    key: `broker-${underlying}-${closeDate}-${rows.map(r => `${r.symbol}:${r.gain_loss}`).join('_')}`,
     underlying,
     openDate,
     closeDate,
