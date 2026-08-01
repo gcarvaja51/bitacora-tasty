@@ -79,6 +79,9 @@
           <option value="NEUTRAL">Neutral</option>
           <option value="RUEDA">La Rueda</option>
         </select>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:8px;" title="Trades marcados a mano (columna Error, en Historial) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
+          <input type="checkbox" id="dash-incluir-errores" onchange="loadDashboardTradier()"> Incluir trades con error de implementación
+        </label>
         <span style="font-size:10px;color:var(--muted);margin-left:8px;">Filtra P&amp;L Realizado, Win Rate y Últimas Operaciones — Net Equity/BP/P&amp;L No Realizado/Curva de Capital siguen mostrando la cuenta completa (son valores reales de la cuenta, no separables por estrategia).</span>
       </div>
       <div class="kpi-row cols-6" id="dash-kpis">
@@ -142,6 +145,9 @@
           <option value="NEUTRAL">Neutral</option>
           <option value="RUEDA">La Rueda</option>
         </select>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:8px;" title="Trades marcados a mano (columna Error, en Historial) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
+          <input type="checkbox" id="cal-incluir-errores" onchange="renderCalendarTradier()"> Incluir trades con error de implementación
+        </label>
       </div>
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header">
@@ -226,6 +232,9 @@
           <option value="NEUTRAL">Neutral</option>
           <option value="RUEDA">La Rueda</option>
         </select>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;" title="Trades marcados a mano (columna Error, en la tabla de abajo) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
+          <input type="checkbox" id="hist-incluir-errores" onchange="loadHistoryTradier()"> Incluir trades con error de implementación
+        </label>
         <button class="btn btn-primary" onclick="loadHistoryTradier()">Filtrar</button>
         <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);" id="hist-summary">—</span>
       </div>
@@ -1856,6 +1865,7 @@ async function loadHistoryTradier() {
   try {
     const sd = $('hist-from').value, ed = $('hist-to').value;
     const familia = $('hist-familia').value;
+    const incluirErrores = !!$('hist-incluir-errores')?.checked;
     // Fusion 2026-08-01 (portado de la extinta pagina Demo Tradier): trae en
     // paralelo el registro RAW de ejecuciones SPX (direccion, strikes, esquema
     // de cierre, fill de entrada, signalId — ninguno vive en metrics.strategies)
@@ -1869,7 +1879,7 @@ async function loadHistoryTradier() {
     window._repRawById = new Map(rawExecs.map(e => [e.id, e]));
     window._repSignalsById = new Map((signals||[]).map(s => [s.id, s]));
     window._repInformesMap = informes || {};
-    const legs = data.metrics?.strategies || [];
+    const legs = (data.metrics?.strategies || []).filter(s => incluirErrores || !s.flaggedError);
     const strategies = consolidateStrategies(legs)
       .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed)
       .filter(s => !familia || getFamilia(s) === familia);
@@ -2345,22 +2355,21 @@ async function loadCalendarTradier() {
 function renderCalendarTradier() {
   const m       = S.txns?.metrics;
   const familia = $('cal-familia')?.value || '';
-  // Filtro Estrategia (2026-08-01) — m.stratByDay/openByDay vienen ya
-  // agregados server-side sobre TODAS las familias; si hay filtro, se
-  // recalculan client-side desde m.strategies (misma logica que
-  // buildMetricsTradier, src/metrics_tradier.js) solo sobre el subset
-  // filtrado — no hay forma de "desmezclar" el agregado ya sumado.
-  let cal, opens;
-  if (familia) {
-    cal = {}; opens = {};
-    (m?.strategies || []).filter(s => getFamilia(s) === familia).forEach(s => {
+  const incluirErrores = !!$('cal-incluir-errores')?.checked;
+  // Filtro Estrategia + errores de implementacion (2026-08-01) —
+  // m.stratByDay/openByDay vienen ya agregados server-side sobre TODAS las
+  // familias Y sin excluir flaggedError (ese filtro es cliente-side, igual
+  // que en Reportes) — siempre se recalculan aca desde m.strategies (misma
+  // logica que buildMetricsTradier, src/metrics_tradier.js) para que el
+  // checkbox de errores tenga efecto incluso sin filtro de familia.
+  const cal = {}, opens = {};
+  (m?.strategies || [])
+    .filter(s => incluirErrores || !s.flaggedError)
+    .filter(s => !familia || getFamilia(s) === familia)
+    .forEach(s => {
       if (s.openDate && s.openValue > 0) opens[s.openDate] = (opens[s.openDate] || 0) + s.openValue;
       if (s.closeDate) cal[s.closeDate] = (cal[s.closeDate] || 0) + s.pnl;
     });
-  } else {
-    cal   = m?.stratByDay || {};
-    opens = m?.openByDay  || {};
-  }
 
   const y=S.calYear, mo=S.calMonth;
   const monthName = new Date(y,mo,1).toLocaleDateString('es-CO',{month:'long',year:'numeric'});
@@ -2412,7 +2421,8 @@ async function calDayClickTradier(dateStr, pnl) {
   try {
     await fetchTxnsTradier();
     const familia = $('cal-familia')?.value || '';
-    const allLegs = S.txns.metrics?.strategies || [];
+    const incluirErrores = !!$('cal-incluir-errores')?.checked;
+    const allLegs = (S.txns.metrics?.strategies || []).filter(s => incluirErrores || !s.flaggedError);
     const legs = familia ? allLegs.filter(s => getFamilia(s) === familia) : allLegs;
     const closedLegs = legs.filter(s => s.closeDate === dateStr);
     const closed      = consolidateStrategies(closedLegs);
@@ -2971,7 +2981,8 @@ async function loadDashboardTradier() {
     // completa, no tiene sentido "filtrarlos" por familia (ver nota en el
     // HTML del filtro).
     const familia = $('dash-familia')?.value || '';
-    const allStrats = m.strategies || [];
+    const incluirErrores = !!$('dash-incluir-errores')?.checked;
+    const allStrats = (m.strategies || []).filter(s => incluirErrores || !s.flaggedError);
     const stratsFiltrados = familia ? allStrats.filter(s => getFamilia(s) === familia) : allStrats;
     const winsF = stratsFiltrados.filter(s => s.pnl > 0);
     const totalPnLF = +stratsFiltrados.reduce((a,b)=>a+b.pnl,0).toFixed(2);
