@@ -82,7 +82,7 @@
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:8px;" title="Trades marcados a mano (columna Error, en Historial) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
           <input type="checkbox" id="dash-incluir-errores" onchange="loadDashboardTradier()"> Incluir trades con error de implementación
         </label>
-        <span style="font-size:10px;color:var(--muted);margin-left:8px;">Estrategia filtra P&amp;L Realizado, Win Rate y Últimas Operaciones — Net Equity/BP/P&amp;L No Realizado siguen mostrando la cuenta completa (no separables por estrategia). La Curva de Capital sí respeta el checkbox de errores (afecta plata real de la cuenta) pero no el filtro de Estrategia (sigue mostrando la cuenta completa, una familia sola no es "el capital").</span>
+        <span style="font-size:10px;color:var(--muted);margin-left:8px;">Estrategia filtra P&amp;L Realizado, Win Rate, Últimas Operaciones y Posiciones Abiertas/P&amp;L No Realizado (una posición SPX/SPXW abierta no se puede clasificar por familia con certeza, así que solo se filtra al elegir "La Rueda") — Net Equity/BP siguen mostrando la cuenta completa. La Curva de Capital sí respeta el checkbox de errores (afecta plata real de la cuenta) pero no el filtro de Estrategia (sigue mostrando la cuenta completa, una familia sola no es "el capital").</span>
       </div>
       <div class="kpi-row cols-6" id="dash-kpis">
         <div class="loader"><div class="spinner"></div> Cargando...</div>
@@ -3032,16 +3032,28 @@ async function loadDashboardTradier() {
       fetchTxnsTradier(),
       api('/api/positions-tradier'),
     ]);
-    const groups = (posData.groups||[]).map(annotatePosGroupTradier);
-    const totalUnreal = groups.reduce((s,g)=>s+g.unrealizedPnL, 0);
     const m = txData.metrics || {};
-
-    // Filtro Estrategia (2026-08-01) — solo afecta P&L Realizado/Win Rate/
-    // Ultimas Operaciones (metricas por estrategia cerrada); Net Equity/BP/
-    // P&L No Realizado son valores REALES de la cuenta completa, no tiene
-    // sentido "filtrarlos" por familia (ver nota en el HTML del filtro).
     const familia = $('dash-familia')?.value || '';
     const incluirErrores = !!$('dash-incluir-errores')?.checked;
+
+    // Posiciones abiertas (2026-08-01, a pedido del usuario): igual que las
+    // estrategias cerradas, se filtran por familia — la unica clasificacion
+    // confiable para una posicion EN VIVO (sin senal/registro cruzado a
+    // mano) es: cualquier ticker que no sea SPX/SPXW solo lo opera La Rueda
+    // (mismo criterio ya usado para las estrategias reconciliadas del
+    // broker, ver tradier_closed_pnl_adapter.js). Una posicion SPX/SPXW
+    // abierta se deja sin clasificar (null) — no hay forma honesta de saber
+    // si es Direccional/Neutral/Reversion solo con los datos de la posicion.
+    function getFamiliaPosicion(g) {
+      return (g.underlying === 'SPX' || g.underlying === 'SPXW') ? null : 'RUEDA';
+    }
+    const allGroups = (posData.groups||[]).map(annotatePosGroupTradier);
+    const groups = familia ? allGroups.filter(g => getFamiliaPosicion(g) === familia) : allGroups;
+    const totalUnreal = groups.reduce((s,g)=>s+g.unrealizedPnL, 0);
+
+    // Filtro Estrategia (2026-08-01) — Net Equity/BP siguen mostrando la
+    // cuenta completa (son valores reales, no separables por estrategia);
+    // P&L No Realizado/Posiciones Abiertas ya se filtraron arriba.
     const allStrats = (m.strategies || []).filter(s => incluirErrores || !s.flaggedError);
     const stratsFiltrados = familia ? allStrats.filter(s => getFamilia(s) === familia) : allStrats;
     const winsF = stratsFiltrados.filter(s => s.pnl > 0);
