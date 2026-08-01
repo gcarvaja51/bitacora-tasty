@@ -3341,6 +3341,14 @@ const SPX_CONFIG_DEFAULTS = {
       wallProximityPts:   15,  // "cerca" de un muro de gamma para la confluencia del score
       riskPctPerTrade:    1,   // (2026-07-14) % del capital arriesgado por trade — sizing "division sagrada" de Luis Sigma, ver sizeContractsByRisk
       tradierAutoExecute: true, // kill-switch propio, independiente de IC y direccionales
+      earlyExitPct: 0.6, // (2026-08-01, a pedido del usuario, citando a Luis Sigma: "salgo
+                         // antecitos de que me toque la media movil 8, a la mitad de la vela")
+                         // — antes el TP exigia que el precio TOQUE/CRUCE la SMA8 objetivo
+                         // (100% de la distancia); ahora cierra al alcanzar este % de la
+                         // distancia recorrida entre el precio de entrada y la SMA8 objetivo,
+                         // sin esperar el toque completo. Caso real que lo motivo: un trade
+                         // cerro en -$30 pese a "tocar" el objetivo, porque el spread ya habia
+                         // perdido valor en el camino antes de que el cierre se ejecutara.
     },
   }
 };
@@ -3411,6 +3419,13 @@ function loadSPXConfig() {
     if (saved?.trading && saved.trading.closeSlippageBufferPts === undefined) {
       console.log('[SPX] Sumando closeSlippageBufferPts (no existía)');
       saved.trading.closeSlippageBufferPts = SPX_CONFIG_DEFAULTS.trading.closeSlippageBufferPts;
+      saveSPXConfig(saved);
+    }
+    // Suma earlyExitPct a un smaReversion ya guardado que no lo tenga (salida
+    // anticipada antes de tocar la SMA8 objetivo, 2026-08-01).
+    if (saved?.trading?.smaReversion && saved.trading.smaReversion.earlyExitPct === undefined) {
+      console.log('[SPX] Sumando earlyExitPct a Alejamiento de SMA (no existía)');
+      saved.trading.smaReversion.earlyExitPct = SPX_CONFIG_DEFAULTS.trading.smaReversion.earlyExitPct;
       saveSPXConfig(saved);
     }
     // Migra volumen_rompimiento -> 0% (2026-07-21, ver nota junto a SPX_CONFIG_DEFAULTS.weights)
@@ -5647,6 +5662,7 @@ async function checkAlejamientoSMA() {
             // despues del curso con Luis Silva).
             entryCandleLow:  entryBar.low,
             entryCandleHigh: entryBar.high,
+            entryPrice:      price, // precio SPX al momento de la señal (close de entryBar) — ancla para el % de salida anticipada hacia smaTarget
             smaTarget:       sma8,
             pattern:         patronReversion.pattern,
             filledAt:   null,
@@ -5756,9 +5772,21 @@ async function checkAlejamientoSMATPSLImpl() {
       // garantizo. Renombrado a PRECIO_OBJETIVO/PRECIO_INVALIDACION para que el
       // nombre describa el evento real (nivel de precio tocado), no un resultado
       // de P&L que no controla. La logica de CUANDO cerrar no cambia en nada.
+      // Salida anticipada (2026-08-01, a pedido del usuario, citando a Luis Sigma:
+      // "salgo antecitos de que me toque la media movil 8") — en vez de exigir que
+      // el precio TOQUE la SMA8 objetivo (100% de la distancia desde la entrada),
+      // cierra al alcanzar earlyExitPct (default 0.6 = 60%) de esa distancia.
+      // ex.entryPrice no existe en ejecuciones creadas antes de este cambio -- para
+      // esas cae al comportamiento anterior (objetivo = smaTarget completo) en vez
+      // de romper con un calculo sin ancla real.
+      const earlyExitPct = cfg.earlyExitPct ?? 1.0;
+      const objetivoAjustado = (ex.entryPrice != null)
+        ? ex.entryPrice + (ex.smaTarget - ex.entryPrice) * earlyExitPct
+        : ex.smaTarget;
+
       let cerrarPor = null;
-      if      (isBullish  && price >= ex.smaTarget)      cerrarPor = 'PRECIO_OBJETIVO';
-      else if (!isBullish && price <= ex.smaTarget)       cerrarPor = 'PRECIO_OBJETIVO';
+      if      (isBullish  && price >= objetivoAjustado)  cerrarPor = 'PRECIO_OBJETIVO';
+      else if (!isBullish && price <= objetivoAjustado)  cerrarPor = 'PRECIO_OBJETIVO';
       else if (isBullish  && price < ex.entryCandleLow)  cerrarPor = 'PRECIO_INVALIDACION';
       else if (!isBullish && price > ex.entryCandleHigh) cerrarPor = 'PRECIO_INVALIDACION';
       else if (candlesElapsed >= (cfg.maxCandlesTimeStop || 5)) cerrarPor = 'TIME_STOP';
