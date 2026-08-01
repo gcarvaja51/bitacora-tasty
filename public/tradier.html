@@ -2802,10 +2802,21 @@ function _chRedrawTradier() {
 
   if (_cPeriodT === 'daily') {
     labels = curve.labels;
-    snaps  = nlvSnaps;
+    // Los snapshots de NLV son el balance REAL de la cuenta (incluye
+    // absolutamente todo, no sabe nada del checkbox de errores de
+    // implementacion) — si _cDataT.esCompleta es false (checkbox
+    // desmarcado, viendo un acumulado hipotetico "sin esos trades"), no
+    // hay que pisar el acumulado ya filtrado con el balance real completo.
+    snaps  = (_cDataT.esCompleta === false) ? null : nlvSnaps;
     if (_cTipoT === 'acumulado') {
-      var run = initial;
-      vals = (curve.values||[]).map(function(v){ run = +(run + (v||0)).toFixed(2); return run; });
+      // Bug real encontrado el 2026-08-01 (quedo expuesto recien al dejar de
+      // pisar este acumulado con los snapshots reales de NLV cuando el
+      // checkbox de errores esta desmarcado): curve.values YA es el capital
+      // acumulado (viene de buildCurveFromStrategies/stratByDay, corrido
+      // desde TRADIER_STARTING_BALANCE) -- volver a sumarlo contra "run"
+      // duplicaba la cuenta en cada punto (numeros de millones). Se usa tal
+      // cual, sin re-acumular.
+      vals = (curve.values||[]).slice();
     } else if (_cTipoT === 'periodo') {
       // Cambio diario real: curve.values ya es el capital acumulado (desde
       // stratByDay, historial completo de trades cerrados) — restar contra
@@ -3058,6 +3069,11 @@ async function loadDashboardTradier() {
       curve: { ...curveFiltrada.curve, maxDD: curveData.curve?.maxDD, maxDDPct: curveData.curve?.maxDDPct },
       byWeek: curveFiltrada.byWeek,
       byMonth: curveFiltrada.byMonth,
+      // esCompleta (2026-08-01) — false cuando el checkbox de errores esta
+      // desmarcado (se esta excluyendo trades reales): _chRedrawTradier lo
+      // usa para NO pisar el acumulado diario ya filtrado con los snapshots
+      // de NLV real (que no saben nada de este filtro).
+      esCompleta: incluirErrores,
     };
     // El ultimo punto se ancla al NLV real solo cuando no se esta excluyendo
     // nada (el "todo incluido" es el unico caso donde el acumulado deberia
