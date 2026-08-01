@@ -6708,9 +6708,14 @@ function _chRedraw() {
     labels = curve.labels;
     snaps  = nlvSnaps;
     if (_cTipo === 'acumulado') {
-      // acumulado diario: usar curve.values acumulados desde initial
-      var run = initial;
-      vals = (curve.values||[]).map(function(v){ run = +(run + (v||0)).toFixed(2); return run; });
+      // Bug real (2026-08-01, encontrado y corregido primero en Bitacora
+      // Tradier — mismo codigo portado): curve.values (/api/curve) YA viene
+      // acumulado (running total desde initial, ver server.js) — volver a
+      // sumarlo contra "run" duplicaba el balance en cada punto. Se quedaba
+      // sin notar porque los snapshots reales de NLV (mas densos aca que en
+      // Tradier) casi siempre tapan este acumulado en la vista Daily —
+      // sigue siendo un bug real, corregido en la fuente.
+      vals = (curve.values||[]).slice();
       // snaps sigue activo para que renderEquityChart dibuje los puntos reales de NLV encima
     } else if (_cTipo === 'periodo') {
       var byDay = {};
