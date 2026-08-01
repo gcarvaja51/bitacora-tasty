@@ -197,6 +197,14 @@
         <input type="date" id="hist-from">
         <span class="filter-label">Hasta</span>
         <input type="date" id="hist-to">
+        <span class="filter-label">Estrategia</span>
+        <select id="hist-familia" onchange="loadHistoryTradier()">
+          <option value="">Todas</option>
+          <option value="TENDENCIA">Direccional</option>
+          <option value="REVERSION">Reversión</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="RUEDA">La Rueda</option>
+        </select>
         <button class="btn btn-primary" onclick="loadHistoryTradier()">Filtrar</button>
         <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);" id="hist-summary">—</span>
       </div>
@@ -236,6 +244,14 @@
         <input type="date" id="rep-from" value="2026-02-01">
         <span class="filter-label">al</span>
         <input type="date" id="rep-to">
+        <span class="filter-label">Estrategia</span>
+        <select id="rep-familia" onchange="loadReportsTradier(true)">
+          <option value="">Todas</option>
+          <option value="TENDENCIA">Direccional</option>
+          <option value="REVERSION">Reversión</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="RUEDA">La Rueda</option>
+        </select>
         <button class="btn btn-primary" onclick="loadReportsTradier(true)">Aplicar</button>
         <button class="btn" onclick="resetRepFilterTradier()">Todo el período</button>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:12px;" title="Trades marcados a mano (columna Error, en la tabla de abajo) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
@@ -757,6 +773,15 @@ async function togglePanic(next) {
 // ORIGEN_LABELS/CIERRE_LABELS/toggleTradeError/showChecksDetail mas
 // abajo y loadReportsTradier() (fetch de executions/signals/informes).
 const ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor', RUEDA: 'La Rueda' };
+
+// Familia normalizada de una estrategia (2026-08-01, filtro Estrategia en
+// Historial/Reportes) — s.strategyFamily ya viene de metrics.strategies para
+// SPX (local o inferido para reconciliadas, ver tradier_closed_pnl_adapter.js)
+// pero La Rueda LOCAL nunca lo seteo (se identifica por stratType==='The
+// Wheel', mismo criterio que ya usaba el fallback de origenLabel).
+function getFamilia(s) {
+  return s.strategyFamily || (s.stratType === 'The Wheel' ? 'RUEDA' : null);
+}
 const CIERRE_LABELS = {
   TP: '🤖 Auto (TP)', SL: '🤖 Auto (SL)',
   // Reversión a la Media cierra por nivel de precio del SPX (toca la SMA8 objetivo /
@@ -1809,6 +1834,7 @@ async function loadHistoryTradier() {
   initHistFiltersTradier();
   try {
     const sd = $('hist-from').value, ed = $('hist-to').value;
+    const familia = $('hist-familia').value;
     // Fusion 2026-08-01 (portado de la extinta pagina Demo Tradier): trae en
     // paralelo el registro RAW de ejecuciones SPX (direccion, strikes, esquema
     // de cierre, fill de entrada, signalId — ninguno vive en metrics.strategies)
@@ -1824,7 +1850,8 @@ async function loadHistoryTradier() {
     window._repInformesMap = informes || {};
     const legs = data.metrics?.strategies || [];
     const strategies = consolidateStrategies(legs)
-      .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+      .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed)
+      .filter(s => !familia || getFamilia(s) === familia);
 
     // Enriquecer con el registro RAW — solo existe para estrategias con
     // registro local propio (key sin prefijo "broker-"); las reconciliadas
@@ -1957,8 +1984,11 @@ async function loadReportsTradier(forceRefresh) {
     // de cada estrategia; marcar el checkbox los vuelve a incluir para
     // comparar el win rate con/sin ellos.
     const incluirErrores = !!$('rep-incluir-errores')?.checked;
+    const familia = $('rep-familia')?.value || '';
     const baseStrats = incluirErrores ? allStrats : allStrats.filter(s => !s.flaggedError);
-    const filteredStrats = baseStrats.filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+    const filteredStrats = baseStrats
+      .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed)
+      .filter(s => !familia || getFamilia(s) === familia);
     const errorTradesEnPeriodo = allStrats.filter(s => s.flaggedError && s.closeDate && s.closeDate >= sd && s.closeDate <= ed).length;
     if (errorTradesEnPeriodo) {
       $('rep-period-label').textContent += incluirErrores
