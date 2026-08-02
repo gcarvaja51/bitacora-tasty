@@ -5619,25 +5619,40 @@ async function checkAlejamientoSMA() {
       : { regime: ctx.gex?.regime, netDex: undefined, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, source: 'interno' };
     console.log(`[SPX-REV] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source}) DEX: ${effectiveGex.netDex ?? 'sin dato'}`);
 
-    const bars = ctx.indicators?.m2?.bars || [];
-    if (bars.length < 25) {
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'INSUFFICIENT_BARS', passed: false, reason: `Solo ${bars.length} velas de 2m disponibles (mínimo 25)`, snapshot: buildStrategySnapshot(ctx) });
+    // Velas de 5m — el "Juez" (2026-08-02, a pedido explicito del usuario,
+    // citando el material completo de Luis Sigma: "5 minutos decide, 2 minutos
+    // afina"). ANTES alejamiento_sma8 y RSI se medían en 2m, el mismo marco que
+    // Vela García — Luis es explícito en que el marco de 2m NUNCA debe decidir
+    // el setup (relación señal/ruido mucho más baja, "te ahogás en falsos
+    // positivos"), solo afinar el timing una vez que 5m ya validó que la
+    // ineficiencia es real. Mismo fetch que ya se usaba solo para
+    // compás_medias_5m/fase_weinstein — ahora también decide alejamiento/RSI/
+    // dirección, sin fetch adicional.
+    let closes5 = [];
+    try {
+      const r5 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=5d',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const j5 = await r5.json();
+      closes5 = (j5.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(v => v != null);
+    } catch(e) {
+      console.error('[SPX-REV] Error trayendo velas 5m:', e.message);
+    }
+    if (closes5.length < 25) {
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'INSUFFICIENT_5M_BARS', passed: false, reason: `Solo ${closes5.length} velas de 5m disponibles (mínimo 25) — el "Juez" no tiene suficiente historia`, snapshot: buildStrategySnapshot(ctx) });
       return;
     }
 
-    const closes = bars.map(b => b.close);
-    const price  = closes[closes.length - 1];
-    const sma8Arr = calcSMAArray(closes, 8);
-    const sma8 = sma8Arr[sma8Arr.length - 1];
+    const sma8Arr5m = calcSMAArray(closes5, 8);
+    const sma8 = sma8Arr5m[sma8Arr5m.length - 1]; // SMA8 "Juez" (5m) — tambien el objetivo de salida (smaTarget mas abajo)
     if (sma8 == null) {
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SMA8_NULL', passed: false, reason: 'SMA8 no calculable con las velas disponibles', snapshot: buildStrategySnapshot(ctx) });
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SMA8_NULL', passed: false, reason: 'SMA8 (5m) no calculable con las velas disponibles', snapshot: buildStrategySnapshot(ctx) });
       return;
     }
-
-    const ext8 = priceExtension(price, sma8);
-    const rsi  = calcRSI(closes);
-    // Direccion candidata: precio debajo de SMA8 -> reversion alcista; arriba -> bajista
-    const direction = price < sma8 ? 'BULLISH' : 'BEARISH';
+    const price5m = closes5[closes5.length - 1];
+    const ext8 = priceExtension(price5m, sma8);
+    const rsi  = calcRSI(closes5);
+    // Direccion candidata: precio (5m) debajo de SMA8 (5m) -> reversion alcista; arriba -> bajista
+    const direction = price5m < sma8 ? 'BULLISH' : 'BEARISH';
 
     // Veto angosto GEX Negativo + Alcista: probado el 2026-08-01, revertido el
     // 2026-08-02 a pedido explicito del usuario tras revisar todo en detalle
@@ -5646,31 +5661,24 @@ async function checkAlejamientoSMA() {
     // Negativo+Alcista dio 9.5% WR / -$555 en 21 trades reales, el peor bucket
     // del dataset) por si se retoma mas adelante con mas datos.
 
+    // Velas de 2m — el "Bisturí": SOLO timing de entrada (Vela García/Tiburón/9)
+    // y precisión del stop/precio de ejecución real (entryCandleLow/High,
+    // entryPrice mas abajo). Nunca decide el setup, solo afina — por eso
+    // direction viene del juez (5m) de arriba, no se recalcula aca.
+    const bars = ctx.indicators?.m2?.bars || [];
+    if (bars.length < 25) {
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'INSUFFICIENT_BARS', passed: false, reason: `Solo ${bars.length} velas de 2m disponibles (mínimo 25)`, snapshot: buildStrategySnapshot(ctx) });
+      return;
+    }
+    const closes = bars.map(b => b.close);
+    const price  = closes[closes.length - 1]; // precio de ejecución real (2m) -- distinto de price5m, que solo decide el setup
+
     const patronReversion = evaluateReversionPattern(bars, direction);
 
-    // Compás de Medias 8/20 en 5m — v2 (2026-07-14). Fetch propio, autocontenido
-    // a este pipeline (nadie mas usa 5m todavia, no vale la pena sumarlo a
-    // buildSPXContext para un solo consumidor). Si falla, compasMedias5m queda
-    // con ok:false — el check simplemente no puntua, no rompe el resto del score.
-    let compasMedias5m = { ok: false, value: '—', reason: 'Sin datos 5m' };
-    // Fase Weinstein movida de 15m a 5m (2026-08-01, a pedido explicito del
-    // usuario, citando a Luis Sigma: "5 minutos decide, 2 minutos afina") —
-    // antes este check leia indicators.m15.weinstein.fase (calculado en
-    // buildSPXContext); ahora se calcula sobre las MISMAS velas de 5m que ya
-    // se traen para el compas de medias (mismo fetch, sin costo adicional),
-    // via wheelTrading.calcWeinstein (misma formula que la version 15m,
-    // extraida en src/wheel_trading.js, timeframe-agnostica).
-    let weinstein5m = { fase: null, label: '—' };
-    try {
-      const r5 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=5d',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const j5 = await r5.json();
-      const closes5 = (j5.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(v => v != null);
-      compasMedias5m = calcCompasMedias5m(closes5, direction);
-      weinstein5m = wheelTrading.calcWeinstein(closes5);
-    } catch(e) {
-      console.error('[SPX-REV] Error trayendo velas 5m para compás de medias/fase Weinstein:', e.message);
-    }
+    // Compás de Medias 8/20 (5m) y Fase Weinstein (5m) — mismas velas closes5
+    // ya traidas arriba, sin fetch adicional.
+    const compasMedias5m = calcCompasMedias5m(closes5, direction);
+    const weinstein5m = wheelTrading.calcWeinstein(closes5);
 
     const scoreResult = calcReversionScore({
       direction, ext8, patronReversion, rsi,
