@@ -3327,20 +3327,27 @@ const SPX_CONFIG_DEFAULTS = {
         // datos reales (fase_weinstein: 35.6% WR con el check OK vs 5.6% con
         // NO, n=45/18; GEX cruzado con direccion mostro el peor bucket de todo
         // el dataset en GEX Negativo+Alcista, ver veto angosto en
-        // checkAlejamientoSMA). alejamiento_sma8 y patron_confirmacion bajan
-        // para liberar ese espacio — patron_confirmacion en particular rindio
-        // PEOR cuando el check daba OK (19.4% WR, n=36) que cuando no habia
-        // patron (37.0%, n=27) en los datos reales, pese a ser la regla mas
-        // citada por Luis — contradiccion senalada, no resuelta, se baja el
-        // peso en vez de eliminarlo. rsi se mantiene en 0 (sin cambio, Luis
-        // en el fondo si insiste en RSI pero no hay evidencia real que
-        // justifique reactivarlo todavia).
-        alejamiento_sma8:    35, // 45->35 (2026-08-01)
-        patron_confirmacion: 15, // 20->15 (2026-08-01) — ver nota de contradiccion arriba
-        rsi:                 0,  // sin cambio — eliminado del score desde 2026-07-14
+        // checkAlejamientoSMA). alejamiento_sma8 baja para liberar ese
+        // espacio. patron_confirmacion rindio PEOR cuando el check daba OK
+        // (19.4% WR, n=36) que cuando no habia patron (37.0%, n=27) en los
+        // datos reales, pese a ser la regla mas citada por Luis — contradiccion
+        // senalada, no resuelta, se baja el peso en vez de eliminarlo.
+        // v4 (2026-08-02, mismo dia siguiente, a pedido del usuario) — RSI
+        // reactivado en 15% (Luis lo exige como confluencia obligatoria junto
+        // al alejamiento en 10+ videos del analisis inductivo, pese a no tener
+        // evidencia propia todavia). alejamiento_sma8 se dejo fijo en 35
+        // (decision explicita del usuario, no bajar mas ese check) — los 15
+        // puntos de RSI salen enteros de patron_confirmacion (15->5, ya era el
+        // check mas contradictorio) y compas_medias_5m (10->5, evidencia mas
+        // debil: su lado "NO" solo tiene 5 casos reales). fase_weinstein y
+        // regimen_gex_dex se protegen sin cambios por ser los discriminadores
+        // mas limpios en datos reales.
+        alejamiento_sma8:    35, // 45->35 (2026-08-01), fijo en 35 (2026-08-02, decision explicita)
+        patron_confirmacion: 5,  // 20->15 (2026-08-01) -> 5 (2026-08-02) — ver nota de contradiccion arriba
+        rsi:                 15, // 0->15 (2026-08-02) — reactivado, ver nota v4 arriba
         fase_weinstein:      20, // 10->20 (2026-08-01) — discriminador mas limpio en datos reales
         regimen_gex_dex:     20, // 10->20 (2026-08-01), renombrado de regimen_gex — ahora incluye DEX (tabla de 4 cuadrantes, ver calcReversionScore)
-        compas_medias_5m:    10, // 15->10 (2026-08-01) — libera espacio, su lado "NO" solo tiene 5 casos reales
+        compas_medias_5m:    5,  // 15->10 (2026-08-01) -> 5 (2026-08-02) — libera espacio para RSI
       },
       minScore:    75,   // 70->80 (2026-07-08), luego 80->75 (2026-07-09) tras revisar caso real 8-jul: con tabla escalonada llegaba a 75, se bajo el piso para no perder ese tipo de entrada
       targetDelta: 0.30,
@@ -3443,6 +3450,16 @@ function loadSPXConfig() {
     // clave nueva, mismo patron que las migraciones anteriores de weights.
     if (saved?.trading?.smaReversion && saved.trading.smaReversion.weights?.regimen_gex_dex === undefined) {
       console.log('[SPX] Migrando pesos de Alejamiento de SMA a v3 (regimen_gex -> regimen_gex_dex, repesaje)');
+      saved.trading.smaReversion.weights = SPX_CONFIG_DEFAULTS.trading.smaReversion.weights;
+      saveSPXConfig(saved);
+    }
+    // Migra los pesos de smaReversion a v4 (2026-08-02): RSI reactivado en
+    // 15%, tomado de patron_confirmacion y compas_medias_5m (ver nota v4 en
+    // SPX_CONFIG_DEFAULTS). Se detecta por el valor viejo de patron_confirmacion
+    // (15, el de v3) en vez de la ausencia de una clave nueva, porque v4 no
+    // agrega ninguna clave -- solo reajusta valores ya existentes.
+    if (saved?.trading?.smaReversion?.weights?.patron_confirmacion === 15 && saved.trading.smaReversion.weights?.rsi === 0) {
+      console.log('[SPX] Migrando pesos de Alejamiento de SMA a v4 (RSI reactivado en 15%)');
       saved.trading.smaReversion.weights = SPX_CONFIG_DEFAULTS.trading.smaReversion.weights;
       saveSPXConfig(saved);
     }
