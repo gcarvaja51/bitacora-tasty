@@ -3349,13 +3349,15 @@ const SPX_CONFIG_DEFAULTS = {
       wallProximityPts:   15,  // "cerca" de un muro de gamma para la confluencia del score
       riskPctPerTrade:    1,   // (2026-07-14) % del capital arriesgado por trade — sizing "division sagrada" de Luis Sigma, ver sizeContractsByRisk
       tradierAutoExecute: true, // kill-switch propio, independiente de IC y direccionales
-      earlyExitPct: 0.6, // (2026-08-01, a pedido del usuario, citando a Luis Sigma: "salgo
-                         // antecitos de que me toque la media movil 8, a la mitad de la vela")
-                         // — antes el TP exigia que el precio TOQUE/CRUCE la SMA8 objetivo
-                         // (100% de la distancia); ahora cierra al alcanzar este % de la
-                         // distancia recorrida entre el precio de entrada y la SMA8 objetivo,
-                         // sin esperar el toque completo. Caso real que lo motivo: un trade
-                         // cerro en -$30 pese a "tocar" el objetivo, porque el spread ya habia
+      earlyExitPct: 0.9, // 0.6->0.9 (2026-08-02, a pedido explicito del usuario -- deja solo
+                         // un 10% de la distancia sin cubrir, en vez de un 40%). Originalmente
+                         // (2026-08-01, citando a Luis Sigma: "salgo antecitos de que me toque
+                         // la media movil 8, a la mitad de la vela") — antes el TP exigia que
+                         // el precio TOQUE/CRUCE la SMA8 objetivo (100% de la distancia); ahora
+                         // cierra al alcanzar este % de la distancia recorrida entre el precio
+                         // de entrada y la SMA8 objetivo, sin esperar el toque completo. Caso
+                         // real que lo motivo originalmente: un trade cerro en -$30 pese a "tocar"
+                         // el objetivo, porque el spread ya habia
                          // perdido valor en el camino antes de que el cierre se ejecutara.
     },
   }
@@ -3433,6 +3435,14 @@ function loadSPXConfig() {
     // anticipada antes de tocar la SMA8 objetivo, 2026-08-01).
     if (saved?.trading?.smaReversion && saved.trading.smaReversion.earlyExitPct === undefined) {
       console.log('[SPX] Sumando earlyExitPct a Alejamiento de SMA (no existía)');
+      saved.trading.smaReversion.earlyExitPct = SPX_CONFIG_DEFAULTS.trading.smaReversion.earlyExitPct;
+      saveSPXConfig(saved);
+    }
+    // Sube earlyExitPct de 0.6 a 0.9 (2026-08-02, a pedido explicito del
+    // usuario) -- se detecta por el valor viejo especifico (0.6), mismo
+    // patron que las migraciones de weights basadas en valor.
+    if (saved?.trading?.smaReversion?.earlyExitPct === 0.6) {
+      console.log('[SPX] Subiendo earlyExitPct de 0.6 a 0.9 en Alejamiento de SMA');
       saved.trading.smaReversion.earlyExitPct = SPX_CONFIG_DEFAULTS.trading.smaReversion.earlyExitPct;
       saveSPXConfig(saved);
     }
@@ -5898,7 +5908,8 @@ async function checkAlejamientoSMATPSLImpl() {
       // Salida anticipada (2026-08-01, a pedido del usuario, citando a Luis Sigma:
       // "salgo antecitos de que me toque la media movil 8") — en vez de exigir que
       // el precio TOQUE la SMA8 objetivo (100% de la distancia desde la entrada),
-      // cierra al alcanzar earlyExitPct (default 0.6 = 60%) de esa distancia.
+      // cierra al alcanzar earlyExitPct (default 0.9 = 90%, subido de 0.6 el
+      // 2026-08-02 a pedido explicito del usuario) de esa distancia.
       // ex.entryPrice no existe en ejecuciones creadas antes de este cambio -- para
       // esas cae al comportamiento anterior (objetivo = smaTarget completo) en vez
       // de romper con un calculo sin ancla real.
