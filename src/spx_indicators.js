@@ -555,79 +555,42 @@ function calcReversionScore(indicators, config) {
   });
   if (fase_ok) score += w4;
 
-  // 5. Régimen GEX + DEX (tabla de 4 cuadrantes, adaptada a Reversión —
-  // 2026-08-01) — antes este check solo miraba el signo de GEX + proximidad a
-  // un muro de gamma. Se agrega DEX como segunda dimensión, reusando la MISMA
-  // fuente de dato que ya usa regimen_institucional del playbook Direccional
-  // (netDex de Sigma Terminal, mismo loop de 2 min), pero con una tabla
-  // INVERTIDA: Direccional apuesta a que el precio CONTINÚE, Reversión apuesta
-  // a que NO continúe (que vuelva a la media) — un cuadrante que "confirma"
-  // continuidad ahí puede ser justo lo contrario de favorable acá.
-  //
-  // El caso GEX Negativo + Alcista (el peor de los 4, 9.5% WR / -$555 en 63
-  // trades reales) ya se corta ANTES de llegar acá con un veto angosto en
-  // checkAlejamientoSMA (server.js) — por eso este check nunca ve esa
-  // combinación para BULLISH. El resto de la tabla queda como factor de score
-  // graduado, no bloqueante (evita repetir el incidente del gate amplio de
-  // GEX-solo del 17-20 jul):
-  //   BULLISH (GEX ya viene Positivo siempre, por el veto de arriba):
-  //     Grind (DEX+) y Rango (DEX-) son ambos favorables -> 1.0 los dos.
-  //   BEARISH (GEX puede ser cualquier signo, nunca se vetea):
-  //     Rango       (GEX+/DEX-) -> 1.0 (mejor combinación, sin "gravedad" direccional)
-  //     Grind       (GEX+/DEX+) -> 0.6 (cauteloso — el sesgo alcista de fondo puede
-  //                                     ganarle a la reversión bajista)
-  //     Pánico      (GEX-/DEX-) -> 0.6 (cauteloso — drift a favor pero sin freno de gamma)
-  //     ShortSqueeze(GEX-/DEX+) -> 0.2 (el más peligroso para reversión bajista — sin
-  //                                     freno Y con flujo alcista en contra; sin datos
-  //                                     reales todavia para vetearlo del todo, solo
-  //                                     factor bajo)
-  // Sin netDex fresco, cae exactamente al comportamiento viejo (GEX + muro),
-  // sin romper nada de lo que ya corria en produccion.
-  const w5 = weights.regimen_gex_dex ?? weights.regimen_gex ?? 10;
+  // 5. Régimen GEX + Confluencia con Muro de Gamma — el "setup dorado" de Luis
+  // Silva es estiramiento extremo + gamma positivo + precio cerca del muro
+  // (Call/Put Wall) que frena el movimiento contrario.
+  // Se probo el 2026-08-01 una version con DEX (tabla de 4 cuadrantes) + un
+  // veto angosto GEX Negativo+Alcista en checkAlejamientoSMA -- revertido el
+  // 2026-08-02 a pedido explicito del usuario tras revisar todo en detalle,
+  // volviendo a esta version original (solo GEX + muro, sin DEX, sin veto).
+  // netDex se sigue guardando en el registro de la señal (server.js) sin
+  // usarse aca, para poder medir su correlacion real con el resultado antes
+  // de reconsiderar incluirlo.
+  // GEX negativo resta el peso completo de este check (ok:false, 0.5 de w5)
+  // pero NO anula la entrada — el resto del score puede compensar si es lo
+  // bastante fuerte (ver incidente del gate amplio de GEX-solo, 17-20 jul).
+  const w5 = weights.regimen_gex ?? 10;
   totalWeight += w5;
   const regimenPositivo = indicators.gammaRegime === 'POSITIVO';
-  const netDex = indicators.netDex;
   const muroRelevante = dir === 'BULLISH' ? indicators.putWall : indicators.callWall;
   const distanciaMuro = (muroRelevante != null && indicators.spxPrice != null)
     ? Math.abs(indicators.spxPrice - muroRelevante) : null;
   const wallProximityPts = indicators.wallProximityPts ?? 15;
   const cercaDelMuro = distanciaMuro != null && distanciaMuro <= wallProximityPts;
-  let fracRegimen, regimen_ok, regimen_value, regimen_reason;
-  if (netDex != null && indicators.gammaRegime != null) {
-    const dexPos = netDex > 0;
-    const quadrant = regimenPositivo && dexPos  ? 'Grind'
-                    : !regimenPositivo && dexPos  ? 'Short Squeeze'
-                    : regimenPositivo && !dexPos  ? 'Rango lateral'
-                    : 'Pánico/Crash';
-    if (dir === 'BULLISH') {
-      // GEX siempre Positivo acá (el veto angosto ya cortó GEX Negativo+Alcista)
-      fracRegimen = 1.0;
-    } else {
-      fracRegimen = quadrant === 'Rango lateral' ? 1.0
-                  : quadrant === 'Short Squeeze'  ? 0.2
-                  : 0.6; // Grind o Pánico/Crash
-    }
-    regimen_ok = fracRegimen >= 0.6;
-    regimen_value = `${quadrant} (GEX${regimenPositivo ? '+' : '-'}/DEX${dexPos ? '+' : '-'})`;
-    regimen_reason = `${quadrant} — ${(fracRegimen*100).toFixed(0)}% del peso para reversión ${dir === 'BULLISH' ? 'alcista' : 'bajista'} ${fracRegimen >= 0.6 ? '✅' : '⚠️'}`;
-  } else {
-    // Fallback sin DEX fresco — comportamiento viejo (GEX + muro), sin cambios
-    fracRegimen = regimenPositivo ? (cercaDelMuro ? 1.0 : 0.8) : 0.5;
-    regimen_ok = regimenPositivo;
-    regimen_value = `${indicators.gammaRegime || 'desconocido'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''} (sin DEX fresco)`;
-    regimen_reason = !regimenPositivo
-      ? `GEX ${indicators.gammaRegime || 'desconocido'} — resta puntos, sin DEX fresco para el cuadrante completo ❌`
-      : cercaDelMuro
-        ? `Precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte (sin DEX fresco) ✅`
-        : `Sin muro de gamma cerca (sin DEX fresco) — confluencia parcial ⚠️`;
-  }
+  // GEX Negativo pasa de 0 a 0.5 (piso de 5pts sobre 10) — sigue restando
+  // frente a Positivo, pero deja de ser un 0 absoluto dentro del propio check.
+  // Positivo+lejos del muro tambien sube de 0.5 a 0.8 (8pts).
+  const fracRegimen = regimenPositivo ? (cercaDelMuro ? 1.0 : 0.8) : 0.5;
   checks.push({
-    id:      'regimen_gex_dex',
-    label:   'Régimen GEX + DEX',
+    id:      'regimen_gex',
+    label:   'Régimen GEX + Confluencia con Muro de Gamma',
     weight:  w5,
-    ok:      regimen_ok,
-    value:   regimen_value,
-    reason:  regimen_reason,
+    ok:      regimenPositivo,
+    value:   `${indicators.gammaRegime || 'desconocido'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''}`,
+    reason:  !regimenPositivo
+      ? `GEX ${indicators.gammaRegime || 'desconocido'} — la reversión pierde su hábitat, resta puntos (5/10) pero ya no bloquea la entrada ❌`
+      : cercaDelMuro
+        ? `Precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte (setup dorado) ✅`
+        : `Sin muro de gamma cerca (${distanciaMuro != null ? distanciaMuro.toFixed(1) + 'pts' : 'sin datos'}) — confluencia parcial ⚠️`,
   });
   score += w5 * fracRegimen;
 

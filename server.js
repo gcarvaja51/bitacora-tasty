@@ -3319,35 +3319,27 @@ const SPX_CONFIG_DEFAULTS = {
     // usuario con Luis Silva, por eso todo vive en config y no hardcodeado).
     smaReversion: {
       weights: {
-        // v3 (2026-08-01, a pedido del usuario) — repesaje tras cruzar 300
-        // reglas inductivas extraidas de videos de Luis Silva (skill
-        // actualizacion-videos, notebook CEREBRO SIGMA) contra los 63 trades
-        // reales de produccion. fase_weinstein y regimen_gex_dex (antes
-        // regimen_gex) suben porque fueron los discriminadores mas limpios en
-        // datos reales (fase_weinstein: 35.6% WR con el check OK vs 5.6% con
-        // NO, n=45/18; GEX cruzado con direccion mostro el peor bucket de todo
-        // el dataset en GEX Negativo+Alcista, ver veto angosto en
-        // checkAlejamientoSMA). alejamiento_sma8 baja para liberar ese
-        // espacio. patron_confirmacion rindio PEOR cuando el check daba OK
-        // (19.4% WR, n=36) que cuando no habia patron (37.0%, n=27) en los
-        // datos reales, pese a ser la regla mas citada por Luis — contradiccion
-        // senalada, no resuelta, se baja el peso en vez de eliminarlo.
-        // v4 (2026-08-02, mismo dia siguiente, a pedido del usuario) — RSI
-        // reactivado en 15% (Luis lo exige como confluencia obligatoria junto
-        // al alejamiento en 10+ videos del analisis inductivo, pese a no tener
-        // evidencia propia todavia). alejamiento_sma8 se dejo fijo en 35
-        // (decision explicita del usuario, no bajar mas ese check) — los 15
-        // puntos de RSI salen enteros de patron_confirmacion (15->5, ya era el
-        // check mas contradictorio) y compas_medias_5m (10->5, evidencia mas
-        // debil: su lado "NO" solo tiene 5 casos reales). fase_weinstein y
-        // regimen_gex_dex se protegen sin cambios por ser los discriminadores
-        // mas limpios en datos reales.
-        alejamiento_sma8:    35, // 45->35 (2026-08-01), fijo en 35 (2026-08-02, decision explicita)
-        patron_confirmacion: 5,  // 20->15 (2026-08-01) -> 5 (2026-08-02) — ver nota de contradiccion arriba
-        rsi:                 15, // 0->15 (2026-08-02) — reactivado, ver nota v4 arriba
-        fase_weinstein:      20, // 10->20 (2026-08-01) — discriminador mas limpio en datos reales
-        regimen_gex_dex:     20, // 10->20 (2026-08-01), renombrado de regimen_gex — ahora incluye DEX (tabla de 4 cuadrantes, ver calcReversionScore)
-        compas_medias_5m:    5,  // 15->10 (2026-08-01) -> 5 (2026-08-02) — libera espacio para RSI
+        // v3/v4 (2026-08-01/02): se probo un repesaje completo (alejamiento 45->35,
+        // fase_weinstein/regimen_gex_dex 10->20, RSI reactivado en 15%, patron_confirmacion
+        // y compas_medias_5m recortados) mas un veto angosto GEX Negativo+Alcista, tras
+        // cruzar 300 reglas inductivas de videos de Luis Silva contra los 63 trades reales.
+        // v5 (2026-08-02, mismo dia, a pedido explicito del usuario tras revisar todo en
+        // detalle) — REVERTIDO a los porcentajes originales ("como estabamos"). RSI vuelve
+        // a 0% (se sigue calculando y guardando por cada señal, para medir su correlacion
+        // real con el resultado antes de decidir si algun dia debe puntuar) y el veto
+        // angosto se quita del todo (regimen_gex vuelve a ser solo señal suave, nunca
+        // bloquea). Los UNICOS 3 cambios que se mantienen de toda esa ronda de analisis:
+        // (1) fase_weinstein se sigue midiendo en 5m, no 15m (ver mas abajo, mismo peso
+        // 10% de antes); (2) la salida sigue siendo anticipada al 60% del recorrido hacia
+        // la SMA8 (earlyExitPct, no cambia con este revert); (3) el fix real de la vela de
+        // entrada degenerada (Tradier en vez de Yahoo para bars2m) tampoco se toca, es un
+        // bug corregido, no un criterio de scoring.
+        alejamiento_sma8:    45, // vuelve a 45 (2026-08-02) — revert completo del repesaje
+        patron_confirmacion: 20, // vuelve a 20 (2026-08-02) — revert completo
+        rsi:                 0,  // vuelve a 0 (2026-08-02) — se mide y se guarda, no puntua
+        fase_weinstein:      10, // vuelve a 10 (2026-08-02) — el peso revierte, la temporalidad 5m SI se mantiene (ver calcReversionScore)
+        regimen_gex:         10, // vuelve a 10 y al nombre original (2026-08-02) — sin DEX, sin veto, solo señal suave GEX+muro
+        compas_medias_5m:    15, // vuelve a 15 (2026-08-02) — revert completo
       },
       minScore:    75,   // 70->80 (2026-07-08), luego 80->75 (2026-07-09) tras revisar caso real 8-jul: con tabla escalonada llegaba a 75, se bajo el piso para no perder ese tipo de entrada
       targetDelta: 0.30,
@@ -3458,8 +3450,25 @@ function loadSPXConfig() {
     // SPX_CONFIG_DEFAULTS). Se detecta por el valor viejo de patron_confirmacion
     // (15, el de v3) en vez de la ausencia de una clave nueva, porque v4 no
     // agrega ninguna clave -- solo reajusta valores ya existentes.
+    // NOTA: esta migracion ya no puede dispararse en instalaciones nuevas (v5
+    // revirtio regimen_gex_dex -> regimen_gex, ver migracion de abajo, que
+    // corre primero en la practica si el volumen todavia tiene v3/v4 guardado)
+    // -- se deja documentada, no se borra, por si hace falta reconstruir el
+    // historial de versiones.
     if (saved?.trading?.smaReversion?.weights?.patron_confirmacion === 15 && saved.trading.smaReversion.weights?.rsi === 0) {
       console.log('[SPX] Migrando pesos de Alejamiento de SMA a v4 (RSI reactivado en 15%)');
+      saved.trading.smaReversion.weights = SPX_CONFIG_DEFAULTS.trading.smaReversion.weights;
+      saveSPXConfig(saved);
+    }
+    // Migra los pesos de smaReversion a v5 (2026-08-02, mismo dia) — REVERT
+    // completo del repesaje v3/v4 a los porcentajes originales, a pedido
+    // explicito del usuario tras revisar todo en detalle (ver nota completa
+    // junto a SPX_CONFIG_DEFAULTS.trading.smaReversion.weights). Se detecta
+    // por la PRESENCIA de regimen_gex_dex (la clave de v3/v4, que ya no existe
+    // en los defaults nuevos) -- si un volumen todavia la tiene, esta en v3/v4
+    // y hay que revertirlo.
+    if (saved?.trading?.smaReversion?.weights?.regimen_gex_dex !== undefined) {
+      console.log('[SPX] Migrando pesos de Alejamiento de SMA a v5 (revert a porcentajes originales, sin veto GEX)');
       saved.trading.smaReversion.weights = SPX_CONFIG_DEFAULTS.trading.smaReversion.weights;
       saveSPXConfig(saved);
     }
@@ -5596,11 +5605,14 @@ async function checkAlejamientoSMA() {
     // calcReversionScore), permitiendo que el resto del score compense si es
     // muy fuerte.
     // netDex se propaga igual que ya hace el webhook Direccional (2026-08-01,
-    // antes se descartaba aca aunque getFreshSigmaLevels() ya lo trae) —
-    // alimenta el check regimen_gex_dex de calcReversionScore y el veto
-    // angosto de mas abajo. Sin dato fresco de Sigma Terminal, netDex queda
-    // undefined (el fallback interno tampoco lo calcula todavia) y el check
-    // cae a su comportamiento viejo GEX-solo, sin romper nada.
+    // antes se descartaba aca aunque getFreshSigmaLevels() ya lo trae). Se
+    // probo un veto angosto (GEX Negativo+Alcista bloqueado del todo) y un
+    // check regimen_gex_dex con tabla de 4 cuadrantes el 2026-08-01/02, pero
+    // se revirtio el mismo dia 02 a pedido del usuario -- volviendo el score a
+    // los porcentajes originales sin veto (ver SPX_CONFIG_DEFAULTS). netDex se
+    // sigue guardando aca de todos modos, sin usarse todavia en ningun check,
+    // para poder medir su correlacion real con el resultado antes de decidir
+    // si algun dia vuelve a pesar en el score.
     const sigmaLevels = getFreshSigmaLevels();
     const effectiveGex = sigmaLevels
       ? { regime: sigmaLevels.regime, netDex: sigmaLevels.netDex, callWall: sigmaLevels.callWall, putWall: sigmaLevels.putWall, source: 'sigma_terminal' }
@@ -5627,24 +5639,12 @@ async function checkAlejamientoSMA() {
     // Direccion candidata: precio debajo de SMA8 -> reversion alcista; arriba -> bajista
     const direction = price < sma8 ? 'BULLISH' : 'BEARISH';
 
-    // Veto angosto GEX Negativo + Alcista (2026-08-01, a pedido del usuario) —
-    // NO es el gate amplio "GEX debe ser Positivo" que ya se probo y bloqueo
-    // los 4 dias completos del 17-20 jul (ver nota de arriba); es una sola
-    // celda especifica de la tabla GEX x Direccion. Justificacion con los 63
-    // trades reales (analisis 2026-08-01): GEX Negativo + Alcista dio 9.5% WR
-    // (n=21, -$555 neto) — el peor bucket de todo el dataset, muy por debajo
-    // incluso de GEX Negativo + Bajista (36.7% WR, n=30, +$355 neto, que NO se
-    // toca). Coincide con la advertencia explicita de Luis Silva ("el error es
-    // comprar barato esperando rebote en un mercado sin freno diseñado para
-    // seguir cayendo"). Fail-open: si no hay regimen calculable (ni Sigma
-    // Terminal ni interno, effectiveGex.regime null/undefined), NO bloquea —
-    // la ausencia de dato nunca debe traducirse en un veto.
-    if (direction === 'BULLISH' && effectiveGex.regime === 'NEGATIVO') {
-      const reason = `Veto GEX Negativo + Alcista — peor combinación medida en datos reales (9.5% WR, -$555 en 21 trades), no se opera`;
-      console.log(`[SPX-REV] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GEX_VETO_ALCISTA', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, gex: effectiveGex }) });
-      return;
-    }
+    // Veto angosto GEX Negativo + Alcista: probado el 2026-08-01, revertido el
+    // 2026-08-02 a pedido explicito del usuario tras revisar todo en detalle
+    // (vuelve a ser solo señal suave dentro de calcReversionScore, ver
+    // SPX_CONFIG_DEFAULTS). No se borra la evidencia que lo motivo (GEX
+    // Negativo+Alcista dio 9.5% WR / -$555 en 21 trades reales, el peor bucket
+    // del dataset) por si se retoma mas adelante con mas datos.
 
     const patronReversion = evaluateReversionPattern(bars, direction);
 
