@@ -3319,19 +3319,28 @@ const SPX_CONFIG_DEFAULTS = {
     // usuario con Luis Silva, por eso todo vive en config y no hardcodeado).
     smaReversion: {
       weights: {
-        // v2 (2026-07-14, a pedido del usuario, tras revisar el material de Luis
-        // Sigma): RSI eliminado del score (Luis es explicito en no usar
-        // osciladores, "simple como las medias moviles") — se deja el check en
-        // 0% en vez de borrarlo (mismo patron que confirmacion_algoritmica en el
-        // playbook direccional): se sigue calculando y mostrando, solo no puntua.
-        // Su 10% se repartio: 5 a alejamiento_sma8 (el motor real) y el nuevo
-        // check compas_medias_5m se lleva el resto del espacio liberado.
-        alejamiento_sma8:    45, // 50->45 (2026-07-14) — cede espacio al nuevo compas_medias_5m
-        patron_confirmacion: 20, // Vela Garcia / Vela Tiburon / Vela 9 Secuencial
-        rsi:                 0,  // 10->0 (2026-07-14) — eliminado del score, ver nota arriba
-        fase_weinstein:      10, // Fase 15m a favor de la reversion (2 compras, 4 ventas)
-        regimen_gex:         10, // GEX Positivo + Muro de Gamma
-        compas_medias_5m:    15, // nuevo (2026-07-14) — SMA8/20 en 5m no "trenzadas" y a favor de la reversion
+        // v3 (2026-08-01, a pedido del usuario) — repesaje tras cruzar 300
+        // reglas inductivas extraidas de videos de Luis Silva (skill
+        // actualizacion-videos, notebook CEREBRO SIGMA) contra los 63 trades
+        // reales de produccion. fase_weinstein y regimen_gex_dex (antes
+        // regimen_gex) suben porque fueron los discriminadores mas limpios en
+        // datos reales (fase_weinstein: 35.6% WR con el check OK vs 5.6% con
+        // NO, n=45/18; GEX cruzado con direccion mostro el peor bucket de todo
+        // el dataset en GEX Negativo+Alcista, ver veto angosto en
+        // checkAlejamientoSMA). alejamiento_sma8 y patron_confirmacion bajan
+        // para liberar ese espacio — patron_confirmacion en particular rindio
+        // PEOR cuando el check daba OK (19.4% WR, n=36) que cuando no habia
+        // patron (37.0%, n=27) en los datos reales, pese a ser la regla mas
+        // citada por Luis — contradiccion senalada, no resuelta, se baja el
+        // peso en vez de eliminarlo. rsi se mantiene en 0 (sin cambio, Luis
+        // en el fondo si insiste en RSI pero no hay evidencia real que
+        // justifique reactivarlo todavia).
+        alejamiento_sma8:    35, // 45->35 (2026-08-01)
+        patron_confirmacion: 15, // 20->15 (2026-08-01) — ver nota de contradiccion arriba
+        rsi:                 0,  // sin cambio — eliminado del score desde 2026-07-14
+        fase_weinstein:      20, // 10->20 (2026-08-01) — discriminador mas limpio en datos reales
+        regimen_gex_dex:     20, // 10->20 (2026-08-01), renombrado de regimen_gex — ahora incluye DEX (tabla de 4 cuadrantes, ver calcReversionScore)
+        compas_medias_5m:    10, // 15->10 (2026-08-01) — libera espacio, su lado "NO" solo tiene 5 casos reales
       },
       minScore:    75,   // 70->80 (2026-07-08), luego 80->75 (2026-07-09) tras revisar caso real 8-jul: con tabla escalonada llegaba a 75, se bajo el piso para no perder ese tipo de entrada
       targetDelta: 0.30,
@@ -3426,6 +3435,15 @@ function loadSPXConfig() {
     if (saved?.trading?.smaReversion && saved.trading.smaReversion.earlyExitPct === undefined) {
       console.log('[SPX] Sumando earlyExitPct a Alejamiento de SMA (no existía)');
       saved.trading.smaReversion.earlyExitPct = SPX_CONFIG_DEFAULTS.trading.smaReversion.earlyExitPct;
+      saveSPXConfig(saved);
+    }
+    // Migra los pesos de smaReversion a v3 (2026-08-01): repesaje tras cruzar
+    // reglas de Luis Silva contra trades reales + renombre regimen_gex ->
+    // regimen_gex_dex (ahora incluye DEX). Se detecta por la ausencia de la
+    // clave nueva, mismo patron que las migraciones anteriores de weights.
+    if (saved?.trading?.smaReversion && saved.trading.smaReversion.weights?.regimen_gex_dex === undefined) {
+      console.log('[SPX] Migrando pesos de Alejamiento de SMA a v3 (regimen_gex -> regimen_gex_dex, repesaje)');
+      saved.trading.smaReversion.weights = SPX_CONFIG_DEFAULTS.trading.smaReversion.weights;
       saveSPXConfig(saved);
     }
     // Migra volumen_rompimiento -> 0% (2026-07-21, ver nota junto a SPX_CONFIG_DEFAULTS.weights)
@@ -5526,11 +5544,17 @@ async function checkAlejamientoSMA() {
     // bloquea la entrada — solo resta puntos en el check regimen_gex (ver
     // calcReversionScore), permitiendo que el resto del score compense si es
     // muy fuerte.
+    // netDex se propaga igual que ya hace el webhook Direccional (2026-08-01,
+    // antes se descartaba aca aunque getFreshSigmaLevels() ya lo trae) —
+    // alimenta el check regimen_gex_dex de calcReversionScore y el veto
+    // angosto de mas abajo. Sin dato fresco de Sigma Terminal, netDex queda
+    // undefined (el fallback interno tampoco lo calcula todavia) y el check
+    // cae a su comportamiento viejo GEX-solo, sin romper nada.
     const sigmaLevels = getFreshSigmaLevels();
     const effectiveGex = sigmaLevels
-      ? { regime: sigmaLevels.regime, callWall: sigmaLevels.callWall, putWall: sigmaLevels.putWall, source: 'sigma_terminal' }
-      : { regime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, source: 'interno' };
-    console.log(`[SPX-REV] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source})`);
+      ? { regime: sigmaLevels.regime, netDex: sigmaLevels.netDex, callWall: sigmaLevels.callWall, putWall: sigmaLevels.putWall, source: 'sigma_terminal' }
+      : { regime: ctx.gex?.regime, netDex: undefined, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, source: 'interno' };
+    console.log(`[SPX-REV] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source}) DEX: ${effectiveGex.netDex ?? 'sin dato'}`);
 
     const bars = ctx.indicators?.m2?.bars || [];
     if (bars.length < 25) {
@@ -5551,6 +5575,26 @@ async function checkAlejamientoSMA() {
     const rsi  = calcRSI(closes);
     // Direccion candidata: precio debajo de SMA8 -> reversion alcista; arriba -> bajista
     const direction = price < sma8 ? 'BULLISH' : 'BEARISH';
+
+    // Veto angosto GEX Negativo + Alcista (2026-08-01, a pedido del usuario) —
+    // NO es el gate amplio "GEX debe ser Positivo" que ya se probo y bloqueo
+    // los 4 dias completos del 17-20 jul (ver nota de arriba); es una sola
+    // celda especifica de la tabla GEX x Direccion. Justificacion con los 63
+    // trades reales (analisis 2026-08-01): GEX Negativo + Alcista dio 9.5% WR
+    // (n=21, -$555 neto) — el peor bucket de todo el dataset, muy por debajo
+    // incluso de GEX Negativo + Bajista (36.7% WR, n=30, +$355 neto, que NO se
+    // toca). Coincide con la advertencia explicita de Luis Silva ("el error es
+    // comprar barato esperando rebote en un mercado sin freno diseñado para
+    // seguir cayendo"). Fail-open: si no hay regimen calculable (ni Sigma
+    // Terminal ni interno, effectiveGex.regime null/undefined), NO bloquea —
+    // la ausencia de dato nunca debe traducirse en un veto.
+    if (direction === 'BULLISH' && effectiveGex.regime === 'NEGATIVO') {
+      const reason = `Veto GEX Negativo + Alcista — peor combinación medida en datos reales (9.5% WR, -$555 en 21 trades), no se opera`;
+      console.log(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GEX_VETO_ALCISTA', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, gex: effectiveGex }) });
+      return;
+    }
+
     const patronReversion = evaluateReversionPattern(bars, direction);
 
     // Compás de Medias 8/20 en 5m — v2 (2026-07-14). Fetch propio, autocontenido
@@ -5581,6 +5625,7 @@ async function checkAlejamientoSMA() {
       direction, ext8, patronReversion, rsi,
       weinstein5m,
       gammaRegime: effectiveGex.regime,
+      netDex: effectiveGex.netDex,
       spxPrice: ctx.spxPrice,
       callWall: effectiveGex.callWall,
       putWall: effectiveGex.putWall,
