@@ -3873,16 +3873,37 @@ async function buildSPXContext() {
           { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const j2 = await r2.json();
         const result2 = j2.chart?.result?.[0];
-        // Yahoo se mantiene para rango de apertura/fractal2m/Camino A (necesitan
-        // highs2/lows2/opens2 alineados con result2, no solo cierres) — pero el
-        // array de cierres que alimenta calcWeinstein/calcMACD sale de Tradier
-        // primero (2026-07-24, misma razon que el bloque 15m de arriba).
+        // Yahoo se mantiene para rango de apertura/fractal2m (necesitan highs2/
+        // lows2/opens2 alineados con result2) — pero el array de cierres que
+        // alimenta calcWeinstein/calcMACD sale de Tradier primero (2026-07-24,
+        // misma razon que el bloque 15m de arriba).
         let closes2 = result2?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+        // bars2mTradier (2026-08-02, fix real): antes bars2m (Camino A + TODO lo
+        // que usa Alejamiento de SMA -- alejamiento_sma8, RSI, patrones, y
+        // entryCandleLow/High, el nivel del stop) se armaba siempre desde Yahoo.
+        // Bug encontrado analizando graficamente los 63 trades reales: la ULTIMA
+        // vela que devuelve Yahoo (la que todavia se esta formando en el momento
+        // del fetch) viene con Open=High=Low=Close IDENTICOS -- confirmado en
+        // vivo, y confirmado que afectaba al 100% (63/63) de las ejecuciones
+        // reales. Eso dejaba entryCandleLow/entryCandleHigh fijado en un solo
+        // precio en vez de un rango real, haciendo que PRECIO_INVALIDACION
+        // disparara con cualquier micro-movimiento en contra -- stop mucho mas
+        // sensible de lo que el diseño (base de la vela de entrada) pretendia.
+        // Fix: reusar el mismo fetch de Tradier (bróker real donde se ejecutan
+        // los trades, ya se llamaba para closes2) trayendo Open/High/Low
+        // completos, no solo Close -- una fuente menos (Yahoo solo queda de
+        // respaldo si Tradier no responde), y son velas ya liquidadas por el
+        // propio bróker, no un placeholder de la vela en curso.
+        let bars2mTradier = null;
         try {
           const { start: start2, end: end2 } = tradierRangeParams(7);
           const tBars2 = await tradier.getTimesales('SPX', '2min', start2, end2);
           const tCloses2 = tBars2.map(b => b.close).filter(v => v != null);
           if (tCloses2.length >= 20) closes2 = tCloses2;
+          const tBarsOhlc = tBars2.filter(b => b.high != null && b.low != null && b.close != null && b.high !== b.low);
+          if (tBarsOhlc.length >= 20) {
+            bars2mTradier = tBarsOhlc.map(b => ({ high: b.high, low: b.low, close: b.close, open: b.open ?? null }));
+          }
         } catch(eT2) { console.error('[SPX] Tradier 2m error, usando Yahoo:', eT2.message); }
         if (closes2.length >= 20) {
           const price2 = closes2[closes2.length - 1];
@@ -3941,23 +3962,36 @@ async function buildSPXContext() {
           high: lastFractalHigh != null ? +lastFractalHigh.toFixed(2) : null,
         };
 
-        // Confirmación Algorítmica (Camino A) — necesita high/low/close alineados
-        // por índice (closes2 de arriba viene filtrado de nulls, highs2/lows2 no,
-        // así que se arma un array propio filtrando las 3 series juntas para no
-        // desalinear las barras).
-        const rawCloses2 = result2?.indicators?.quote?.[0]?.close || [];
-        const bars2m = [];
-        for (let i = 0; i < rawCloses2.length; i++) {
-          if (rawCloses2[i] == null || highs2[i] == null || lows2[i] == null) continue;
-          // open puede faltar en alguna barra puntual sin que el resto (high/low/close)
-          // este afectado -- se deja null en vez de descartar la barra completa, los
-          // consumidores (Vela Tiburon) ya saben tratar open==null como "sin cuerpo medible".
-          bars2m.push({ high: highs2[i], low: lows2[i], close: rawCloses2[i], open: opens2[i] ?? null });
+        // Confirmación Algorítmica (Camino A) + bars2m para Alejamiento de SMA.
+        // Preferir Tradier (bars2mTradier, ver arriba) cuando hay suficiente
+        // historia -- son velas reales del bróker, no el placeholder degenerado
+        // de Yahoo. Fallback a Yahoo solo si Tradier no respondio o vino corto,
+        // igual que ya hacia closes2 (mismo criterio, sin romper nada si
+        // Tradier tiene un mal dia).
+        let bars2m;
+        if (bars2mTradier) {
+          bars2m = bars2mTradier;
+        } else {
+          // necesita high/low/close alineados por indice (closes2 de arriba
+          // viene filtrado de nulls, highs2/lows2 no, asi que se arma un array
+          // propio filtrando las 3 series juntas para no desalinear las barras).
+          // Filtro defensivo high!==low: descarta la vela en formacion de Yahoo
+          // (Open=High=Low=Close identicos), ver nota del fix arriba.
+          const rawCloses2 = result2?.indicators?.quote?.[0]?.close || [];
+          bars2m = [];
+          for (let i = 0; i < rawCloses2.length; i++) {
+            if (rawCloses2[i] == null || highs2[i] == null || lows2[i] == null) continue;
+            if (highs2[i] === lows2[i]) continue;
+            // open puede faltar en alguna barra puntual sin que el resto (high/low/close)
+            // este afectado -- se deja null en vez de descartar la barra completa, los
+            // consumidores (Vela Tiburon) ya saben tratar open==null como "sin cuerpo medible".
+            bars2m.push({ high: highs2[i], low: lows2[i], close: rawCloses2[i], open: opens2[i] ?? null });
+          }
         }
         if (indicators.m2) {
           indicators.m2.caminoA = calcCaminoA(bars2m);
           // Velas 2m crudas {high,low,close} — reusadas por Alejamiento de SMA
-          // (SMA8/20, RSI, patrones García/Tiburón/9) para no repetir el fetch a Yahoo.
+          // (SMA8/20, RSI, patrones García/Tiburón/9, entryCandleLow/High).
           indicators.m2.bars = bars2m;
         }
       } catch(e2) { console.error('[SPX] 2m error:', e2.message); }
@@ -5668,7 +5702,15 @@ async function checkAlejamientoSMA() {
       return;
     }
 
-    const entryBar = bars[bars.length - 1];
+    // Defensa extra (2026-08-02): evitar tomar una vela degenerada (high===low,
+    // un placeholder de vela en formacion) como base del stop, aunque bars2m ya
+    // venga de Tradier -- si por lo que sea la ultima vela real todavia no
+    // acumulo rango (recien empezo el periodo de 2min), cae a la anterior en
+    // vez de fijar el stop en un solo precio. bars.length>=25 ya esta
+    // garantizado mas arriba, asi que retroceder 1-2 posiciones es seguro.
+    let entryBarIdx = bars.length - 1;
+    while (entryBarIdx > 0 && bars[entryBarIdx].high === bars[entryBarIdx].low) entryBarIdx--;
+    const entryBar = bars[entryBarIdx];
 
     // Fijo en 1 contrato para todas las entradas (2026-07-27, a pedido explicito
     // del usuario) -- reemplaza el sizing por riesgo en dolares ("division sagrada"
@@ -5727,6 +5769,17 @@ async function checkAlejamientoSMA() {
             entryPrice:      price, // precio SPX al momento de la señal (close de entryBar) — ancla para el % de salida anticipada hacia smaTarget
             smaTarget:       sma8,
             pattern:         patronReversion.pattern,
+            // Checklist completo congelado al momento de entrar (2026-08-02, a
+            // pedido del usuario) -- antes esto solo vivia en spx_signals.json,
+            // que guarda nada mas las ultimas 50 señales; una vez que una
+            // ejecucion envejecia fuera de ese cupo, el detalle de checks (RSI
+            // incluido) se perdia para siempre. Confirmado con datos reales: de
+            // 63 trades de Reversion, solo 27 tenian el detalle completo al
+            // hacer un backtest retroactivo del nuevo esquema de pesos. Guardar
+            // esto directo en el registro permanente de la ejecucion evita que
+            // vuelva a pasar.
+            entryScore:      scoreResult.score,
+            entryChecks:     scoreResult.checks,
             filledAt:   null,
             closedAt:   null,
             closeReason: null,
