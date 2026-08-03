@@ -28,7 +28,40 @@ let browser = null;
 let page = null;
 
 export async function ensurePage() {
-  if (browser && page && !page.isClosed()) return page;
+  // isClosed() NO alcanza: una pagina puede quedar con su frame "detached"
+  // (renderer recargado/navegado por fuera) y seguir reportando isClosed()
+  // === false -- ahi cada evaluate() tira "Attempted to use detached Frame" y
+  // el daemon se queda reintentando con la misma referencia rota para siempre.
+  // Caso real: 2026-08-03, el daemon acumulo fallos consecutivos toda la
+  // apertura sin recuperarse solo. Se prueba la pagina con un evaluate()
+  // trivial; si falla, se descarta y se reconstruye.
+  if (browser && page && !page.isClosed()) {
+    try {
+      await page.evaluate(() => true);
+      return page;
+    } catch (e) {
+      console.error('[sigma] Pagina cacheada invalida (%s) -- reconstruyendo', e.message);
+      try { await page.close(); } catch { /* noop */ }
+      page = null;
+      // Si el browser sigue vivo, se reusa abriendo una pestaña nueva (mas
+      // barato que relanzar Chrome y re-loguear).
+      if (browser && browser.connected) {
+        try {
+          page = await browser.newPage();
+          await page.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded' });
+          await new Promise((r) => setTimeout(r, 6000));
+          return page;
+        } catch (e2) {
+          console.error('[sigma] No se pudo abrir pestaña nueva (%s) -- relanzando browser', e2.message);
+          try { await browser.close(); } catch { /* noop */ }
+          browser = null;
+          page = null;
+        }
+      } else {
+        browser = null;
+      }
+    }
+  }
   browser = await puppeteer.launch({
     headless: false,
     userDataDir: PROFILE_DIR,
