@@ -571,7 +571,12 @@
         <div id="mon-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
 
         <div style="position:relative;">
-          <div id="mon-chart" style="width:100%;height:520px;"></div>
+          <div id="mon-chart" style="width:100%;height:420px;"></div>
+          <!-- Panel propio para GEX/DEX/Vanna. Antes compartian el chart del
+               precio con una escala aparte, pero las velas y los muros seguian
+               dibujandose sobre esa zona y se superponian. Van en su propio
+               chart, con el eje de tiempo sincronizado al de arriba. -->
+          <div id="mon-chart-flujos" style="width:100%;height:170px;border-top:1px solid var(--border);"></div>
           <div id="mon-tooltip" style="display:none;position:absolute;pointer-events:none;z-index:5;background:rgba(19,23,34,.96);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;line-height:1.6;min-width:200px;box-shadow:0 6px 20px rgba(0,0,0,.5);"></div>
         </div>
 
@@ -737,12 +742,20 @@ async function api(path, method='GET', body=null) {
 // el nivel dibujado es el que estaba vigente en ese momento, no uno interpolado
 // que nunca existio.
 
-let _monChart = null, _monData = null, _monSeries = {};
+let _monChart = null, _monChartFlujos = null, _monData = null, _monSeries = {};
+// Colores alineados al codigo de Sigma Terminal (2026-08-03, a pedido del
+// usuario). No se eligieron a ojo: son los mismos que ya usa el indicador
+// CIARG_V1 en TradingView para dibujar estos niveles — color.purple para el
+// Gamma Flip, color.orange para el MVS, green/red para los muros (ver
+// CIARG_V1_nuevo.pine, lineas 235-245). Antes el Gamma Flip iba en amarillo y
+// el MVS en violeta, o sea que el violeta apuntaba al nivel equivocado: mirar
+// el mismo dato en dos pantallas con colores cruzados es una fuente de error
+// real, no un detalle estetico.
 const MON_OVERLAYS = [
-  { id:'gammaFlip', label:'Gamma Flip', color:'#f5c842', on:true,  tipo:'nivel' },
-  { id:'callWall',  label:'Call Wall',  color:'#13d68f', on:true,  tipo:'nivel' },
-  { id:'putWall',   label:'Put Wall',   color:'#f04f5a', on:true,  tipo:'nivel' },
-  { id:'mvs',       label:'MVS',        color:'#a78bfa', on:false, tipo:'nivel' },
+  { id:'gammaFlip', label:'Gamma Flip', color:'#a855f7', on:true,  tipo:'nivel' },
+  { id:'callWall',  label:'Call Wall',  color:'#22c55e', on:true,  tipo:'nivel' },
+  { id:'putWall',   label:'Put Wall',   color:'#ef4444', on:true,  tipo:'nivel' },
+  { id:'mvs',       label:'MVS',        color:'#f59e0b', on:false, tipo:'nivel' },
   { id:'ema10',     label:'EMA 10',     color:'#5b82e6', on:true,  tipo:'ema'   },
   { id:'ema20',     label:'EMA 20',     color:'#e879a0', on:true,  tipo:'ema'   },
   { id:'netGex',    label:'GEX',        color:'#13d68f', on:true,  tipo:'barra' },
@@ -818,7 +831,10 @@ function renderMonitorSPX() {
   const cont = document.getElementById('mon-chart');
   const st   = document.getElementById('mon-status');
   if (!cont) return;
-  if (_monChart) { _monChart.remove(); _monChart = null; _monSeries = {}; }
+  const contFlujos = document.getElementById('mon-chart-flujos');
+  if (_monChart)       { _monChart.remove();       _monChart = null; }
+  if (_monChartFlujos) { _monChartFlujos.remove(); _monChartFlujos = null; }
+  _monSeries = {};
 
   const dia  = document.getElementById('mon-dia')?.value || '';
   const bars = dia
@@ -883,47 +899,135 @@ function renderMonitorSPX() {
     _monSeries[o.id] = s;
   }
 
+  const emaData = {};
   for (const o of MON_OVERLAYS.filter(x => x.tipo === 'ema')) {
     if (!_monOn[o.id]) continue;
+    const datos = monEMA(bars, o.id === 'ema10' ? 10 : 20);
+    emaData[o.id] = datos;
     const s = _monChart.addLineSeries({ color:o.color, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
-    s.setData(monEMA(bars, o.id === 'ema10' ? 10 : 20));
+    s.setData(datos);
     _monSeries[o.id] = s;
   }
 
-  // GEX / DEX / Vanna abajo, en su propia escala (priceScaleId propio +
-  // scaleMargins). Van como LINEAS, no como histograma: con barras, prender dos
-  // o tres a la vez las dibuja una encima de otra y la ultima tapa a las demas
-  // — problema real que se vio al comparar contra la referencia, donde cada
-  // flujo se distingue y trae su propia etiqueta de valor a la derecha.
-  // El formateador agrega la "B" de billones: una etiqueta que solo dice
-  // "62.47" no dice de que serie es ni en que unidad esta.
-  const fmtB = { priceFormat: { type:'custom', minMove:0.01, formatter: v => (v >= 0 ? '' : '-') + Math.abs(v).toFixed(2) + 'B' } };
-  let hayFlujo = false;
-  for (const o of MON_OVERLAYS.filter(x => x.tipo === 'barra')) {
-    if (!_monOn[o.id]) continue;
-    const datos = [];
-    bars.forEach((b, i) => {
-      const v = porVela[i] ? porVela[i][o.id] : null;
-      if (v != null) datos.push({ time:b.time, value:+(v / 1e9).toFixed(2) });
+  // ── Nube entre EMA 10 y EMA 20 ───────────────────────────────────────────
+  // La brecha entre las dos medias es la que se lee de un vistazo: cuando se
+  // abre, la tendencia empuja; cuando se cierra, se esta trenzando. Con dos
+  // lineas sueltas hay que medirla a ojo. Se rellena, y se colorea segun cual
+  // este arriba (verde = EMA10 sobre EMA20).
+  //
+  // Lightweight Charts no sabe rellenar entre dos series, asi que va como un
+  // "series primitive" (API de la v4.1) que pinta en drawBackground — o sea
+  // DETRAS de las velas, para no taparlas. Las coordenadas se recalculan en
+  // cada dibujado a partir del eje, asi que la nube acompaña el zoom y el
+  // desplazamiento sin quedar desfasada.
+  if (emaData.ema10 && emaData.ema20 && typeof velas.attachPrimitive === 'function') {
+    const por10 = new Map(emaData.ema10.map(d => [d.time, d.value]));
+    const por20 = new Map(emaData.ema20.map(d => [d.time, d.value]));
+    const tiempos = emaData.ema20.map(d => d.time).filter(t => por10.has(t));
+
+    const renderer = {
+      draw: () => {},
+      drawBackground: (target) => {
+        if (!_monChart || tiempos.length < 2) return;
+        target.useMediaCoordinateSpace(scope => {
+          const ctx = scope.context;
+          const ts  = _monChart.timeScale();
+          const pts = tiempos.map(t => {
+            const x = ts.timeToCoordinate(t);
+            const a = velas.priceToCoordinate(por10.get(t));
+            const b = velas.priceToCoordinate(por20.get(t));
+            return (x == null || a == null || b == null) ? null
+              : { x, a, b, alcista: por10.get(t) >= por20.get(t) };
+          });
+          for (let i = 1; i < pts.length; i++) {
+            const p0 = pts[i - 1], p1 = pts[i];
+            if (!p0 || !p1) continue;
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.a);
+            ctx.lineTo(p1.x, p1.a);
+            ctx.lineTo(p1.x, p1.b);
+            ctx.lineTo(p0.x, p0.b);
+            ctx.closePath();
+            ctx.fillStyle = p1.alcista ? 'rgba(38,166,154,0.20)' : 'rgba(239,83,80,0.20)';
+            ctx.fill();
+          }
+        });
+      },
+    };
+
+    velas.attachPrimitive({
+      updateAllViews: () => {},
+      paneViews: () => [{ renderer: () => renderer, zOrder: () => 'bottom' }],
     });
-    if (!datos.length) continue;
-    const s = _monChart.addLineSeries(Object.assign({
-      priceScaleId:'flujos', color:o.color, lineWidth:2,
-      priceLineVisible:false, lastValueVisible:true, title:o.label,
-    }, fmtB));
-    s.setData(datos);
-    _monSeries[o.id] = s;
-    hayFlujo = true;
   }
-  // Linea de cero: separa regimen positivo de negativo de un vistazo — sin
-  // ella, una serie que cruza a negativo no se distingue de una que solo baja.
-  if (hayFlujo) {
-    const cero = _monChart.addLineSeries(Object.assign({
-      priceScaleId:'flujos', color:'#4e5a70', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed,
+
+  // ── Panel propio para GEX / DEX / Vanna ──────────────────────────────────
+  // Antes vivian en el chart del precio con un priceScaleId aparte y
+  // scaleMargins, pero eso solo los EMPUJA hacia abajo: las velas y las
+  // escaleras de muros se siguen dibujando sobre esa franja y se superponen.
+  // Lightweight Charts v4 no tiene paneles nativos, asi que se usa un segundo
+  // chart y se sincronizan los ejes de tiempo en ambos sentidos.
+  const flujosActivos = MON_OVERLAYS.filter(o => o.tipo === 'barra' && _monOn[o.id]);
+  contFlujos.style.display = flujosActivos.length ? 'block' : 'none';
+
+  if (flujosActivos.length) {
+    const fmtB = { priceFormat: { type:'custom', minMove:0.01, formatter: v => (v >= 0 ? '' : '-') + Math.abs(v).toFixed(2) + 'B' } };
+    _monChartFlujos = LightweightCharts.createChart(contFlujos, {
+      width: contFlujos.clientWidth || 900,
+      height: 170,
+      layout: { background:{color:'#131722'}, textColor:'#b2b5be' },
+      grid:   { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      // Misma anchura de escala que el chart de arriba, si no los dos ejes de
+      // tiempo quedan desalineados aunque el rango sea identico.
+      rightPriceScale: { borderColor:'#2a2e39', minimumWidth:72, scaleMargins:{ top:0.15, bottom:0.15 } },
+      timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false,
+        tickMarkFormatter: (time) => new Date(time * 1000).toLocaleTimeString('en-US',
+          { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hour12:false }),
+      },
+    });
+
+    for (const o of flujosActivos) {
+      const datos = [];
+      bars.forEach((b, i) => {
+        const v = porVela[i] ? porVela[i][o.id] : null;
+        if (v != null) datos.push({ time:b.time, value:+(v / 1e9).toFixed(2) });
+      });
+      if (!datos.length) continue;
+      const serie = _monChartFlujos.addLineSeries(Object.assign({
+        color:o.color, lineWidth:2, priceLineVisible:false, lastValueVisible:true, title:o.label,
+      }, fmtB));
+      serie.setData(datos);
+      _monSeries[o.id] = serie;
+    }
+
+    // Linea de cero: separa regimen positivo de negativo de un vistazo — sin
+    // ella, una serie que cruza a negativo no se distingue de una que solo baja.
+    const cero = _monChartFlujos.addLineSeries(Object.assign({
+      color:'#4e5a70', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed,
       priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false,
     }, fmtB));
     cero.setData(bars.map(b => ({ time:b.time, value:0 })));
-    _monChart.priceScale('flujos').applyOptions({ scaleMargins:{ top:0.74, bottom:0 } });
+
+    // Sincronizacion del eje de tiempo, en los dos sentidos. El flag evita el
+    // rebote infinito (A avisa a B, B avisa a A, ...).
+    let sincronizando = false;
+    const enlazar = (origen, destino) => {
+      origen.timeScale().subscribeVisibleLogicalRangeChange(rango => {
+        if (sincronizando || !rango) return;
+        sincronizando = true;
+        destino.timeScale().setVisibleLogicalRange(rango);
+        sincronizando = false;
+      });
+    };
+    enlazar(_monChart, _monChartFlujos);
+    enlazar(_monChartFlujos, _monChart);
+    _monChartFlujos.timeScale().setVisibleLogicalRange(_monChart.timeScale().getVisibleLogicalRange());
+
+    // El eje de tiempo visible queda solo en el panel de abajo — repetirlo en
+    // los dos es ruido, y el de arriba gana altura util para las velas.
+    _monChart.applyOptions({ timeScale: { visible: false } });
+    _monChart.applyOptions({ rightPriceScale: { minimumWidth: 72 } });
   }
 
   // Popup por vela — equivalente al "Info popup" de la referencia.
@@ -958,7 +1062,10 @@ function renderMonitorSPX() {
     tip.style.top  = Math.min(Math.max(0, param.point.y - h / 2), 520 - h) + 'px';
   });
 
-  new ResizeObserver(() => { if (_monChart) _monChart.applyOptions({ width: cont.clientWidth }); }).observe(cont);
+  new ResizeObserver(() => {
+    if (_monChart)       _monChart.applyOptions({ width: cont.clientWidth });
+    if (_monChartFlujos) _monChartFlujos.applyOptions({ width: cont.clientWidth });
+  }).observe(cont);
 
   if (st) {
     const desde = niveles.length ? new Date(niveles[0].t * 1000).toLocaleDateString('en-CA', { timeZone:'America/New_York' }) : null;
