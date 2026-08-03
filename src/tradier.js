@@ -33,6 +33,80 @@ class TradierClient {
     return `${root}${yymmdd}${optType}${strikeStr}`;
   }
 
+  // ── Chequeo de capacidad de ORDENAR (2026-08-03) ───────────────────
+  // Valida la ruta completa de colocacion de ordenes SIN colocar ninguna,
+  // usando el modo `preview=true` de Tradier (valida y devuelve el costo
+  // estimado, pero no ejecuta). Nace de un incidente real: el 3-ago el
+  // sandbox empezo a rechazar TODA orden con "Application key is not defined
+  // or does not exist" mientras las lecturas seguian dando 200 -- se
+  // descubrio recien con el mercado abierto, tras 50 señales perdidas,
+  // porque nada verificaba la capacidad de ESCRIBIR (el unico health check
+  // que existia, checkDirectionalMonitorHealth, solo mira que el proceso
+  // monitor este vivo).
+  //
+  // Devuelve { ok:true } si Tradier acepta la orden de prueba, o
+  // { ok:false, status, error } con el detalle para poder alertar.
+  // IMPORTANTE (aprendido en el mismo incidente): Tradier puede devolver
+  // HTTP 200 con el error adentro del cuerpo (`{"errors":{"error":"..."}}`),
+  // asi que NO alcanza con que _req() no tire excepcion -- hay que inspeccionar
+  // la respuesta. Un primer intento de este chequeo daba falso OK por eso.
+  //
+  // Tambien prueba el SPREAD de 2 patas (lo que realmente operan las
+  // estrategias), no una pata suelta: un `sell_to_open` solo es una call
+  // desnuda y exige el nivel de permiso de opciones mas alto de la cuenta, asi
+  // que podia fallar por permisos aunque el spread (riesgo definido, nivel mas
+  // bajo) funcionara perfecto -- otro falso positivo evitado.
+  async checkOrderCapability() {
+    if (!this.accountNumber) return { ok: false, status: 0, error: 'Falta TRADIER_ACCOUNT_NUMBER en .env' };
+    // Vencimiento de prueba: el proximo viernes (siempre existe en SPXW).
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + ((5 - d.getUTCDay() + 7) % 7 || 7));
+    const expiry = d.toISOString().slice(0, 10);
+
+    // Los strikes NO se inventan: se toman dos consecutivos reales de la
+    // cadena. Un primer intento hardcodeaba 9000/9010 y fallaba con
+    // "Undefined symbol" -- lejos del dinero SPX no usa incrementos de 10, asi
+    // que el chequeo reportaba un problema que no existia (falso negativo, tan
+    // malo como el falso positivo que ya se corrigio arriba).
+    let shortSym, longSym;
+    try {
+      const chain = await this._req(`/markets/options/chains?symbol=SPX&expiration=${expiry}`);
+      const opts = (chain?.options?.option || []).filter(o => o.option_type === 'call' && o.symbol?.startsWith('SPXW'));
+      if (opts.length < 2) return { ok: false, status: 0, error: `Cadena de SPXW vacia para ${expiry} — no se pudo armar la orden de prueba` };
+      opts.sort((a, b) => a.strike - b.strike);
+      const i = Math.max(0, opts.length - 2); // dos strikes reales consecutivos, bien OTM
+      shortSym = opts[i].symbol;
+      longSym  = opts[i + 1].symbol;
+    } catch (e) {
+      return { ok: false, status: 0, error: `No se pudo leer la cadena para armar la prueba: ${e.message}` };
+    }
+
+    const body = new URLSearchParams({
+      class: 'multileg', symbol: 'SPXW', type: 'market', duration: 'day',
+      'option_symbol[0]': shortSym, 'side[0]': 'sell_to_open', 'quantity[0]': '1',
+      'option_symbol[1]': longSym,  'side[1]': 'buy_to_open',  'quantity[1]': '1',
+      preview: 'true', // <- valida y devuelve costo estimado, NO coloca nada
+    });
+
+    try {
+      const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+      // Error embebido en un 200
+      const err = data?.errors?.error;
+      if (err) return { ok: false, status: 200, error: Array.isArray(err) ? err.join(' | ') : String(err) };
+      if (data?.order?.status !== 'ok') {
+        return { ok: false, status: 200, error: `Respuesta inesperada: ${JSON.stringify(data).slice(0, 200)}` };
+      }
+      return { ok: true };
+    } catch (e) {
+      const m = /Tradier API (\d+)/.exec(e.message || '');
+      return { ok: false, status: m ? Number(m[1]) : 0, error: e.message };
+    }
+  }
+
   // Balance real de la cuenta (Net Liq, cash, buying power)
   async getBalances() {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');

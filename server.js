@@ -5550,6 +5550,52 @@ async function checkDirectionalMonitorHealth() {
 }
 setInterval(checkDirectionalMonitorHealth, 60 * 1000);
 
+// ── Chequeo PRE-MERCADO de capacidad de ordenar en Tradier (2026-08-03) ──
+// Nace de un incidente real del mismo dia: el sandbox de Tradier empezo a
+// rechazar TODA orden con "Application key is not defined or does not exist"
+// (HTTP 500 en produccion) mientras TODAS las lecturas seguian devolviendo
+// 200 -- cotizaciones, balances, posiciones, cadena de opciones. Como nada
+// verificaba la capacidad de ESCRIBIR, el problema se descubrio recien con
+// el mercado abierto, despues de 50 señales validas que no se pudieron
+// ejecutar. Resolverlo con el mercado abierto es mucho peor que hacerlo la
+// noche anterior: hay que esperar a soporte de Tradier igual, pero encima se
+// pierde la sesion.
+//
+// Usa tradier.checkOrderCapability(), que valida la ruta completa con
+// `preview=true` -- Tradier valida credenciales/permisos/formato y devuelve
+// el costo estimado SIN colocar nada en el libro de ordenes. Riesgo cero.
+//
+// Corre a las 8:00am ET (1h45m antes de la primera ventana operativa, las
+// 9:45am) para dejar margen real de reaccion, y de nuevo a las 20:00 ET del
+// domingo a viernes -- ese chequeo nocturno es el que habria detectado este
+// caso el domingo, con toda la noche por delante en vez de perder el lunes.
+let tradierCapabilityAlertedOn = null; // 'YYYY-MM-DD' — una alerta por dia, no spam
+async function checkTradierOrderCapability() {
+  const et = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+  const [fecha, hora] = [new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10), Number(et.split(', ')[1].split(':')[0])];
+  const dia = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+  if (dia === 'Sat') return;                      // sabado no: Tradier no responde igual
+  if (hora !== 8 && hora !== 20) return;          // 8am (pre-apertura) y 8pm (noche anterior)
+  if (tradierCapabilityAlertedOn === fecha + '-' + hora) return; // ya se corrio en esta franja
+
+  const r = await tradier.checkOrderCapability();
+  tradierCapabilityAlertedOn = fecha + '-' + hora;
+  if (r.ok) {
+    console.log(`[TRADIER-HEALTH] ✅ Capacidad de ordenar OK (${hora}:00 ET)`);
+    return;
+  }
+
+  console.error(`[TRADIER-HEALTH] 🚨 Tradier NO acepta ordenes: ${r.error}`);
+  try {
+    await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+      method: 'POST',
+      headers: { 'Title': '🚨 Tradier no acepta órdenes', 'Priority': 'urgent', 'Tags': 'warning,rotating_light', 'Content-Type': 'text/plain' },
+      body: `Chequeo ${hora}:00 ET — Tradier rechaza la orden de prueba (preview, no se colocó nada).\n\n${r.error}\n\nLas lecturas pueden seguir funcionando igual. Si esto no se resuelve, el sistema va a generar señales que NO se van a poder ejecutar.`,
+    });
+  } catch(e) { console.error('[TRADIER-HEALTH] Error enviando ntfy:', e.message); }
+}
+setInterval(checkTradierOrderCapability, 15 * 60 * 1000); // cada 15 min; el guard horario decide si corre
+
 // ══════════════════════════════════════════════════════════════
 // ── Alejamiento de SMA — reversión a la media (playbook Luis Silva) ──
 // ══════════════════════════════════════════════════════════════
