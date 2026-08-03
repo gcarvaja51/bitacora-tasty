@@ -6106,6 +6106,22 @@ app.get('/api/tradier/gainloss-raw', async (req, res) => {
   }
 });
 
+// Diagnostico crudo de las ordenes de Tradier (2026-08-03) — contraparte de
+// gainloss-raw. Cuando el gainloss reconcilia un P&L sospechoso, la fuente de
+// verdad son los fills reales de la orden de apertura y la de cierre; hasta
+// ahora habia que reconstruirlos a mano fuera de la app. Solo lectura.
+// ?id=36425318 filtra una orden puntual (acepta varias separadas por coma).
+app.get('/api/tradier/orders-raw', async (req, res) => {
+  try {
+    const orders = await tradier.getOrders();
+    const ids = String(req.query.id || '').split(',').map(s => s.trim()).filter(Boolean);
+    const list = ids.length ? orders.filter(o => ids.includes(String(o.id))) : orders;
+    res.json({ ok: true, count: list.length, orders: list });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/tradier/executions', async (req, res) => {
   const executions = loadTradierExecutions();
   let account = null;
@@ -6520,12 +6536,60 @@ async function checkTradierExecutions() {
 // Si no hay closeOrderId disponible (registros viejos de antes de este fix, o
 // cierres puramente manuales donde nosotros nunca mandamos la orden), cae al
 // metodo viejo basado en /gainloss.
+// Fix 2026-08-03 (caso real del mismo dia): un BULL_CALL_SPREAD de 1 contrato
+// con $315 de debito pagado -- pérdida máxima estructural $315 -- quedó grabado
+// con -$645, y encima con closeReason 'TP' (o sea, había cerrado en ganancia).
+// Causa: SI tenía orderId y closeOrderId, pero en el instante exacto de la
+// reconciliación la orden de cierre todavía no figuraba 'filled', así que
+// resolverPnlDesdeOrdenes() devolvió null y el codigo caia INMEDIATAMENTE a
+// /gainloss -- el camino ambiguo que el comentario de arriba explica que
+// mezcla operaciones cuando una pata se reutiliza el mismo dia (ese dia hubo
+// 4 spreads con strikes encadenados: 7585/7595, 7590/7600, 7595/7605,
+// 7600/7610, o sea CADA pata se repite en dos operaciones distintas). Una vez
+// que graba, queda grabado.
+//
+// Ahora, si nuestras dos ordenes existen, el fallback a /gainloss NO se usa:
+// se devuelve null y el registro queda 'pendiente_verificar' hasta el proximo
+// reintento, cuando el fill ya este asentado y el camino exacto funcione. El
+// fallback sigue existiendo para el caso que siempre justifico su existencia:
+// cierres donde nunca mandamos una orden (manuales, vencimiento) o registros
+// viejos sin closeOrderId.
 async function intentarResolverPnl(ex, executions) {
   if (ex.orderId && ex.closeOrderId) {
     const porOrdenes = await resolverPnlDesdeOrdenes(ex);
     if (porOrdenes) return porOrdenes;
+    console.log(`[TRADIER-TRACK] ⏳ ${ex.orderId}: ordenes de entrada/cierre todavia sin fill asentado — se espera al proximo reintento en vez de caer a /gainloss (ambiguo).`);
+    return null;
   }
   return intentarResolverPnlPorGainloss(ex, executions);
+}
+
+// Rango de P&L estructuralmente posible de una posicion de riesgo definido.
+// Segunda red de seguridad, independiente de la de arriba: /gainloss sigue en
+// uso para cierres manuales, y ahi la ambiguedad de patas compartidas tambien
+// existe. Un debito no puede perder mas de lo pagado; un credito no puede
+// ganar mas de lo cobrado ni perder mas que (ancho - credito). Si el numero
+// reconciliado cae fuera de ese rango, es un error de asignacion — se descarta
+// en vez de grabarlo. Devuelve null si no hay datos para acotar (no se inventa
+// un limite).
+function rangoPnlPosible(ex) {
+  const contracts = ex.contracts || 1;
+  const prima = Math.abs(ex.entryFillPrice ?? ex.creditReceived ?? 0);
+  if (!prima) return null;
+  const s = ex.strikes || {};
+  const anchos = [
+    (s.shortStrike != null && s.longStrike != null) ? Math.abs(s.shortStrike - s.longStrike) : null,
+    (s.callShortStrike != null && s.callLongStrike != null) ? Math.abs(s.callShortStrike - s.callLongStrike) : null,
+    (s.innerHighStrike != null && s.outerHighStrike != null) ? Math.abs(s.innerHighStrike - s.outerHighStrike) : null,
+  ].filter(v => v != null && v > 0);
+  if (!anchos.length) return null;
+  const ancho = Math.max(...anchos);
+  if (prima >= ancho) return null; // dato incoherente: no acotar con basura
+  const esDebito = ex.isCredit === false;
+  const escala = 100 * contracts;
+  return esDebito
+    ? { min: -prima * escala,            max: (ancho - prima) * escala }
+    : { min: -(ancho - prima) * escala,  max: prima * escala };
 }
 
 // Calcula el P&L real sumando los fills reales de la orden de entrada y la de
@@ -6608,7 +6672,18 @@ async function intentarResolverPnlPorGainloss(ex, executions) {
     console.log(`[TRADIER-TRACK] ⏳ ${ex.orderId}: pnlList=${pnlList == null ? 'null (error API)' : simbolosEnTradier.length + ' entradas'}. Buscando ${JSON.stringify(legSymbols)}. En Tradier: ${JSON.stringify(simbolosEnTradier.slice(0, 10))}`);
     return null;
   }
-  return { pnl: +pnlTotal.toFixed(2), pnlSource: 'gainloss' };
+  const pnl = +pnlTotal.toFixed(2);
+  // Guard de rango (2026-08-03) — ver rangoPnlPosible(). Se deja un 5% de
+  // holgura por comisiones/redondeo antes de declarar imposible un numero.
+  const rango = rangoPnlPosible(ex);
+  if (rango) {
+    const holgura = Math.max(Math.abs(rango.min), Math.abs(rango.max)) * 0.05;
+    if (pnl < rango.min - holgura || pnl > rango.max + holgura) {
+      console.error(`[TRADIER-TRACK] ⛔ ${ex.orderId}: /gainloss dio $${pnl}, fuera del rango posible [$${rango.min.toFixed(0)}, $${rango.max.toFixed(0)}] para esta estructura — casi seguro mezclo patas de otra operacion del mismo dia. Se descarta y queda pendiente de verificar.`);
+      return null;
+    }
+  }
+  return { pnl, pnlSource: 'gainloss' };
 }
 
 // Reintento automático (a pedido del usuario, 2026-07-14): antes, una ejecucion
