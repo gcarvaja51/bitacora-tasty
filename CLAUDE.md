@@ -109,8 +109,18 @@ costó dinero salía con flecha hacia arriba al lado de un monto negativo — *"
 $20 07-17 · −$267.36 ⬆️"*. Ahora hay un helper `evIconFor(e)` en ambos renderers que **deriva
 la flecha del signo del monto**, así no puede volver a contradecirlo; `ROLL` y los eventos de
 acciones/dividendo mantienen su ícono propio (el roll es un neto que puede dar para cualquier
-lado). Junto con eso, `evLabelFor(e)` etiqueta el `DIVIDENDO` negativo como *"Retención
+lado). Junto con eso, `evLabelFor(e)` etiqueta un `DIVIDENDO` negativo suelto como *"Retención
 dividendo"* para que no se lea como un dividendo en contra.
+
+**Dividendos: un pago = un evento (2026-08-03, reportado por el usuario "en GAP aparecen 2
+pagos de dividendo").** Tastytrade parte cada dividendo en **dos asientos** con el mismo
+`transaction-sub-type: "Dividend"` — el bruto (Credit) y la retención de impuesto (Debit, 30%
+para no residentes). Verificado contra los 31 `Money Movement` de la cuenta: hay un solo
+dividendo en toda la historia (GAP, 29-jul: +17.50 bruto = $0.175 × 100 acc., −5.25 retención
+= exactamente el 30%), y salía en dos renglones como si se hubiera cobrado dos veces. Ahora
+`buildWheelData` los consolida por fecha en un único evento con `amount` neto (12.25) más
+`bruto` y `retencion` como campos aparte para el detalle. `totalPremium` **no** cambia: ya se
+calculaba sumando el neto de cada asiento en el loop — esto es solo presentación.
 
 **Feature 2026-07-09 — dividendos ahora aparecen en la Rueda:** antes `buildWheelData`
 solo procesaba `transaction-type` `'Trade'`/`'Receive Deliver'` — un dividendo de Tastytrade

@@ -190,8 +190,34 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       }
     }
 
+    // ── Consolidar dividendos: bruto + retención del mismo día = UN pago ──
+    // Tastytrade parte cada dividendo en DOS asientos con el mismo
+    // `transaction-sub-type: "Dividend"`: el bruto (Credit) y la retención de
+    // impuesto (Debit, 30% para no residentes). Es un solo pago — mostrarlo en dos
+    // renglones se lee como si hubieras cobrado dos veces (reportado por el usuario
+    // 2026-08-03). `totalPremium` no cambia: ya se calculó sumando los netos de cada
+    // asiento en el loop, esto es solo la presentación del timeline.
+    const divsPorFecha = {};
+    const sinDividendos = [];
+    for (const ev of nonRollEvents) {
+      if (ev.type === 'DIVIDENDO') (divsPorFecha[ev.date] = divsPorFecha[ev.date] || []).push(ev);
+      else sinDividendos.push(ev);
+    }
+    const divEvents = Object.entries(divsPorFecha).map(([date, list]) => {
+      const bruto     = list.reduce((s, e) => s + Math.max(0, e.amount || 0), 0);
+      const retencion = list.reduce((s, e) => s + Math.min(0, e.amount || 0), 0); // negativo
+      return {
+        date, type: 'DIVIDENDO',
+        amount:    +(bruto + retencion).toFixed(2),
+        bruto:     +bruto.toFixed(2),
+        retencion: +Math.abs(retencion).toFixed(2),
+        // La base ya trae aplicados ambos asientos: el último del día es el vigente.
+        costBasis: list[list.length - 1].costBasis,
+      };
+    });
+
     // Reconstruir timeline ordenado por fecha
-    const finalEvents = [...nonRollEvents, ...rollEvents]
+    const finalEvents = [...sinDividendos, ...divEvents, ...rollEvents]
       .sort((a, b) => a.date.localeCompare(b.date));
 
     // ── Posiciones abiertas ────────────────────────────────────────

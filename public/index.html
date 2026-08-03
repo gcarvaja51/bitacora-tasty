@@ -3892,6 +3892,7 @@ async function loadWheel() {
             : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
             : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
             : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+            : e.type === 'DIVIDENDO' && e.retencion ? `Bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
             : `${evLabelFor(e)}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
           const amt = e.amount||0;
           const amtCls = amt>=0?'pos':'neg';
@@ -3980,6 +3981,7 @@ async function loadWheel() {
           : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
           : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+          : e.type === 'DIVIDENDO' && e.retencion ? `Dividendo: bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
           : `${evLabelFor(e)}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
         const amt = e.amount||0;
         return `<div class="wheel-event">
