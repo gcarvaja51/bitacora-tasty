@@ -100,8 +100,50 @@ así incluye los `clearing-fees` de la asignación (GAP: $27.05 real vs $27.00 q
 JBLU no tenía patas largas ni dividendos: su base cambió solo por el error 3 (las puts
 vendidas con acciones en mano ahora sí reducen la base) — se movió **a favor**.
 
-`src/wheel_tradier_adapter.js` **no** necesitó cambios: proyecta la máquina de estados de la
-Rueda automatizada, que solo opera patas cortas y no registra dividendos.
+`src/wheel_tradier_adapter.js` no tenía los errores 1-3 (solo opera patas cortas y no registra
+dividendos) — pero al buscarlos ahí aparecieron **dos suyos, del mismo tipo**, ver abajo.
+
+### Auditoría 2026-08-03 (bis) — las mismas clases de error en el lado Tradier
+
+A pedido del usuario ("busca los mismos errores y los resuelves"). Los siete de arriba no se
+repetían tal cual, pero la búsqueda destapó **un error de unidades en dos lugares**, de la
+misma familia (plata que no llega al costo base):
+
+**Unidades: precio por acción vs dólares totales.** El motor de la Rueda automatizada guarda
+todas las primas como **precio de la opción por acción** (`entryFillPrice` 1.27, `netCredit`,
+`quote.bid`), y las usa así de forma consistente — p.ej. `strike - totalCreditAccumulated` en
+server.js. Pero dos consumidores las trataban como si fueran dólares totales:
+
+1. **`src/wheel_tradier_adapter.js`** — acumulaba `totalPremium` en precio por acción y después
+   dividía por las acciones (`avgCost - totalPremium / shares`), o sea que la prima entraba al
+   costo base **dividida por 100 dos veces**. Con el único ciclo real (SOFI, Put 18 cobrada a
+   1.27) la base proyectada daba **17.9873** cuando la correcta es **16.73**, y la card mostraba
+   "Prima $1.27" en vez de $127.
+2. **`src/metrics_tradier.js` → `mapWheelExecution`** — `ex.pnl` viene de `gain_loss` de Tradier
+   (dólares totales), pero el fallback `totalCreditAccumulated ?? creditReceived` es por acción.
+   Un ciclo cerrado sin `pnl` resuelto reportaba **100× menos** por contrato: uno que cobró $127
+   de prima y expiró OTM figuraba como **$1.27** en Reportes, Historial, calendario y curva.
+
+Ambos convierten ahora con `precio * 100 * contratos`, igual que ya hacía `mapSpxExecution`
+(que tenía las unidades bien — por eso el error no se notaba en las estrategias de SPX).
+
+**Prima de la Covered Call inicial que no se contaba.** Era una "limitación conocida"
+documentada: `server.js` empujaba el evento `STO_CALL` sin monto (la prima solo iba a
+`ex.totalCreditAccumulated`), así que el adaptador lo reconstruía con `amount: 0` y **no lo
+sumaba a `totalPremium`**. Mismo efecto que el error 1 de la auditoría de Tasty: prima real que
+nunca llegaba al costo base. Ahora el evento guarda `credit: quote.bid` y el adaptador lo suma.
+Los registros anteriores a este cambio no lo traen y quedan en 0 — no hay de dónde
+reconstruirlo sin adivinar.
+
+**Lo que NO estaba en el lado Tradier** (verificado, no asumido): la tabla Desglose Mensual de
+`tradier.html` ya usaba `strategyByMonth` en las dos ramas del ternario, así que no tenía la
+mezcla realizado/NLV; el costo base del adaptador ya usaba la fórmula completa en un solo paso,
+sin el ajuste incremental asimétrico; y no hay dividendos ni patas largas en el modelo.
+
+**Gaps conocidos que quedan** (sin dato para resolverlos, no son bugs): el `avgCost` de la Rueda
+Tradier es el strike de asignación pelado, sin los fees de asignación — el modelo de ejecuciones
+no los guarda. Y si una acción paga dividendo mientras se la tiene entre el CSP y la CC, no baja
+el costo base: las ejecuciones de Tradier no registran dividendos.
 
 **Bug de display detectado por el usuario en el mismo pase:** el mapa `evIcon` marcaba la
 dirección de la *operación* (`BTC_*: '⬆️'`, porque comprás para cerrar), así que un cierre que

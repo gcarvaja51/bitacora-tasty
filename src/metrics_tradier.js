@@ -152,9 +152,21 @@ function mapSpxExecution(ex) {
 //    HOOD/BE que si). Se agrega un fallback nuevo: si pnlSource sigue el
 //    patron 'reconciliado_manual_YYYY-MM-DD', esa fecha (el dia real de la
 //    reconciliacion) se usa antes de caer al vencimiento nominal.
+// 3) UNIDADES (2026-08-03, mismo pase que el fix del adaptador de la Rueda):
+//    ex.pnl viene de gain_loss de Tradier — DOLARES TOTALES. El fallback
+//    (totalCreditAccumulated / creditReceived) es precio de la opcion POR
+//    ACCION, las mismas unidades en que lo usa el motor de la Rueda cuando
+//    hace `strike - totalCreditAccumulated` (server.js). Se mezclaban: un
+//    ciclo cerrado sin pnl resuelto reportaba, por contrato, 100 veces menos
+//    de lo real — un ciclo que cobro $127 de prima y expiro OTM figuraba como
+//    $1.27 en Reportes, Historial, calendario y curva. Se convierte igual que
+//    ya hacia mapSpxExecution unas lineas mas arriba (`* 100 * contracts`).
 function mapWheelExecution(ex) {
   if (ex.phase !== 'CERRADO') return null;
-  const pnl      = typeof ex.pnl === 'number' ? ex.pnl : (ex.totalCreditAccumulated ?? ex.creditReceived ?? 0);
+  const wheelContracts = (ex.leg && ex.leg.contracts) || 1;
+  const pnl      = typeof ex.pnl === 'number'
+    ? ex.pnl
+    : (ex.totalCreditAccumulated ?? ex.creditReceived ?? 0) * 100 * wheelContracts;
   const openDate = (ex.timestamp || '').slice(0, 10);
   const eventDates = (ex.events || []).map(e => (e.date || '').slice(0, 10)).filter(Boolean);
   const lastEventDate = eventDates.length ? eventDates.sort().slice(-1)[0] : null;

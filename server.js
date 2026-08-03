@@ -3170,7 +3170,12 @@ async function checkWheelExpiryImpl() {
         const order = await tradier.placeSingleLegOrder({
           underlyingRoot: ex.symbol, optionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: quote.bid,
         });
-        ex.events.push({ date: new Date().toISOString(), type: 'STO_CALL', strike: best.strike, expiry: best.expiry, fase: weinsteinD.fase });
+        // `credit` (2026-08-03): la prima de esta venta inicial de Call solo vivia
+        // en ex.totalCreditAccumulated — el evento iba sin monto, asi que la Rueda
+        // de la bitacora la reconstruia con amount:0 y no la sumaba a totalPremium.
+        // Se guarda aca, en las mismas unidades que netCredit de los rolls (precio
+        // por accion), para que wheel_tradier_adapter la pueda contar.
+        ex.events.push({ date: new Date().toISOString(), type: 'STO_CALL', strike: best.strike, expiry: best.expiry, fase: weinsteinD.fase, credit: quote.bid });
         ex.leg = { optionSymbol, strike: best.strike, expiry: best.expiry, side: 'sell_to_open', contracts: ex.leg.contracts };
         ex.orderId = order.orderId;
         ex.status = 'submitted';
