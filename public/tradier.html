@@ -55,6 +55,7 @@
       <span id="conn-status">Bitácora Tradier — sandbox</span>
     </div>
     <div style="margin-top:6px;">Etapa 1: Reportes · Backtester · La Rueda (Automatizada) · Alejandro</div>
+    <button id="refresh-btn" onclick="refreshCurrentTab()" style="margin-top:12px;width:100%;padding:8px;border-radius:6px;border:1px solid var(--border2);background:var(--card2);color:var(--bright);font-weight:700;font-size:11px;cursor:pointer;">🔄 Actualizar</button>
     <div id="panic-box" style="margin-top:12px;padding:10px;border-radius:8px;border:1px solid var(--red);background:var(--red-dim);">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="font-size:10px;font-weight:700;letter-spacing:.03em;">🤖 EJECUCIÓN AUTOMÁTICA SPX</div>
@@ -705,12 +706,48 @@ const TABS = {
   // hay funcion que llamar hasta que se construya en una etapa futura.
 };
 
+// Pestaña activa — la arranca en 'dashboard' porque ese panel viene con
+// class="active" en el HTML y su loader se llama al final del archivo.
+let currentTab = 'dashboard';
+
 function nav(tab, el) {
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
   $(`panel-${tab}`).classList.add('active');
+  currentTab = tab;
   if (TABS[tab]) TABS[tab]();
+}
+
+// ── Botón Actualizar global (2026-08-03, a pedido del usuario) — vive en el
+// sidebar-footer igual que el de pánico, fuera del switching de paneles, así
+// que sirve para las 11 pestañas sin duplicar un botón en cada panel.
+// Invalida primero la caché del servidor (POST /api/refresh, TTL de 120s en
+// memoria — sin esto el reload traeria los mismos datos cacheados y el boton
+// pareceria no hacer nada) y recién después vuelve a cargar la pestaña activa.
+async function refreshCurrentTab() {
+  const btn = $('refresh-btn');
+  const textoOriginal = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Actualizando…'; }
+  try {
+    try {
+      await fetch('/api/refresh', { method: 'POST' });
+    } catch(e) {
+      // Si falla invalidar la caché igual se recarga la vista — es mejor
+      // mostrar datos (aunque sean de hasta 120s atrás) que no hacer nada.
+      console.warn('No se pudo invalidar la caché del servidor:', e.message);
+    }
+    const loader = TABS[currentTab];
+    if (loader) await loader();
+    if (btn) btn.textContent = '✅ Actualizado';
+  } catch(e) {
+    console.error('Error actualizando:', e);
+    if (btn) btn.textContent = '⚠️ Error al actualizar';
+  } finally {
+    if (btn) {
+      setTimeout(() => { btn.disabled = false; btn.textContent = textoOriginal || '🔄 Actualizar'; }, 1500);
+    }
+  }
 }
 
 function toggleSidebar() {
