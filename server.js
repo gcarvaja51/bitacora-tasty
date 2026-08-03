@@ -4915,9 +4915,98 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   }
   const entry = { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
   const history = loadSigmaLevelsHistory();
+
+  // Filtro de cordura (2026-08-03, a pedido del usuario tras verlo en el
+  // Monitor SPX): el 3-ago a las 12:03 ET entro una lectura con GEX 0.96B
+  // cuando las de antes y despues rondaban los 65B, con Call Wall saltando de
+  // 7590 a 7700 y volviendo. Fue una lectura sucia de Sigma Terminal que quedo
+  // guardada como si fuera real — ensuciaba el grafico y, mas grave, la lee el
+  // pipeline de Reversion para decidir el regimen.
+  //
+  // La regla compara contra la MEDIANA de las ultimas lecturas, no contra la
+  // anterior suelta: una mediana no se deja arrastrar por un solo valor raro.
+  // Solo se aplica con suficiente historial reciente, asi que en la apertura
+  // (cuando el GEX crece rapido y de forma legitima, ej. 5.7B → 14.3B → 19.8B
+  // en 4 min) no hay nada contra que comparar y la lectura pasa.
+  const rechazo = lecturaSigmaSospechosa(entry, history);
+  if (rechazo) {
+    console.error(`[SIGMA] ⛔ Lectura descartada: ${rechazo}`);
+    return res.json({ ok: true, saved: null, descartada: true, motivo: rechazo });
+  }
+
   history.unshift(entry);
   saveSigmaLevelsHistory(history.slice(0, SIGMA_LEVELS_MAX_ENTRIES));
   res.json({ ok: true, saved: entry });
+});
+
+// Devuelve el motivo del rechazo, o null si la lectura parece sana.
+//
+// PRIMER INTENTO DESCARTADO, vale documentarlo: la regla original comparaba
+// |netGex| contra la MEDIANA reciente y rechazaba lo que bajara del 15%. Al
+// correrla sobre las 613 lecturas reales marco 6, pero al mirar las vecinas de
+// cada una resulto que 5 eran LEGITIMAS: el 29 y 31 de julio el GEX venia
+// cruzando el flip de gamma (-3.84 → -0.63 → 0.45 → 1.31 → 1.10), una
+// progresion suave, con los muros quietos. Una regla por magnitud relativa
+// castiga por diseño todo cruce por cero, que es justo el momento que MAS
+// importa no perder. Se descarto y se reemplazo por lo de abajo.
+//
+// La firma real de una lectura rota (3-ago 12:03) es otra: la pagina se leyo a
+// medias, asi que TODOS los campos saltan a la vez de forma imposible y vuelven
+// en el ciclo siguiente — GEX 76.22B → 0.96B → 76.06B mientras los muros iban
+// 7590/7580 → 7700/7475 → 7590/7580. Ningun mercado mueve los muros 100+ puntos
+// en 2 minutos y los devuelve. Por eso se exigen las DOS condiciones juntas, y
+// solo cuando el GEX previo es lo bastante grande como para que un derrumbe del
+// 85% signifique algo (cerca de cero, cualquier cambio es 100% en relativo).
+const SIGMA_SANIDAD_GEX_MIN_PREV   = 10e9; // el GEX previo debe ser material
+const SIGMA_SANIDAD_GEX_MAX_FRAC   = 0.15; // caer por debajo del 15% del previo
+const SIGMA_SANIDAD_MUROS_MAX_SALTO = 100; // pts de cambio en el ancho de muros
+const SIGMA_SANIDAD_VENTANA_MS      = 5 * 60 * 1000;
+function lecturaSigmaSospechosa(entry, history) {
+  const prev = history.find(h => typeof h.netGex === 'number' && Number.isFinite(h.netGex));
+  if (!prev) return null;
+  if (typeof entry.netGex !== 'number' || !Number.isFinite(entry.netGex)) return null;
+  if (Date.parse(entry.updatedAt) - Date.parse(prev.updatedAt) > SIGMA_SANIDAD_VENTANA_MS) return null;
+  if (Math.abs(prev.netGex) < SIGMA_SANIDAD_GEX_MIN_PREV) return null;
+
+  const frac = Math.abs(entry.netGex) / Math.abs(prev.netGex);
+  if (frac >= SIGMA_SANIDAD_GEX_MAX_FRAC) return null;
+
+  const ancho = x => (typeof x.callWall === 'number' && typeof x.putWall === 'number')
+    ? Math.abs(x.callWall - x.putWall) : null;
+  const a1 = ancho(prev), a2 = ancho(entry);
+  if (a1 == null || a2 == null) return null;
+  const salto = Math.abs(a2 - a1);
+  if (salto < SIGMA_SANIDAD_MUROS_MAX_SALTO) return null;
+
+  return `GEX ${(entry.netGex / 1e9).toFixed(2)}B es ${(frac * 100).toFixed(0)}% del anterior (${(prev.netGex / 1e9).toFixed(2)}B) y el ancho de muros salto ${salto}pts (${a1}→${a2}) — lectura incompleta de Sigma Terminal`;
+}
+
+// Borra lecturas del historial (2026-08-03). Sin filtros no borra nada — hay
+// que pedir explicitamente que borrar:
+//   ?updatedAt=<iso>  una lectura puntual
+//   ?sanidad=true     todas las que no pasen el filtro de cordura de arriba
+// Siempre devuelve lo que borro, para poder revisarlo.
+app.delete('/api/spx/sigma-levels', (req, res) => {
+  const { updatedAt, sanidad } = req.query;
+  if (!updatedAt && sanidad !== 'true') {
+    return res.status(400).json({ ok: false, error: 'especificar ?updatedAt=<iso> o ?sanidad=true' });
+  }
+  const history = loadSigmaLevelsHistory();
+  const borradas = [];
+  const quedan = [];
+  // Se recorre de la mas vieja a la mas nueva para que cada lectura se juzgue
+  // contra las que REALMENTE la precedieron, igual que en el ingreso.
+  const cronologico = [...history].reverse();
+  const acumulado = [];
+  for (const h of cronologico) {
+    const esLaPedida = updatedAt && h.updatedAt === updatedAt;
+    const noPasaSanidad = sanidad === 'true' && !!lecturaSigmaSospechosa(h, [...acumulado].reverse());
+    if (esLaPedida || noPasaSanidad) { borradas.push(h); continue; }
+    acumulado.push(h);
+    quedan.push(h);
+  }
+  if (borradas.length) saveSigmaLevelsHistory(quedan.reverse());
+  res.json({ ok: true, borradas: borradas.length, restantes: quedan.length, detalle: borradas });
 });
 
 // Por defecto devuelve el ultimo valor (compatibilidad con lo que ya consumia
