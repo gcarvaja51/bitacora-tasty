@@ -2,6 +2,34 @@
 
 const DEFAULT_BASE = 'https://sandbox.tradier.com/v1';
 
+// ── Precios de orden: 2 decimales, y en la direccion correcta ───────────────
+// Tradier rechaza con HTTP 400 "must use up to 2 decimal place(s)", asi que
+// redondear es obligatorio. Pero redondear NO es neutro, y esto se me paso en
+// el primer arreglo: un toFixed() a secas puede mover el precio hasta medio
+// centavo ($0.50 por contrato) en cualquier direccion.
+//
+// La direccion correcta depende de si estamos ABRIENDO o CERRANDO:
+//   - Abriendo: conviene ser estricto. No entrar por menos credito del exigido
+//     ni pagar mas debito del previsto; si no llena, no pasa nada, no entramos.
+//   - Cerrando: conviene ser permisivo. Un stop que no llena por medio centavo
+//     es mucho peor que salir medio centavo mas barato — el riesgo de quedarse
+//     dentro no tiene techo.
+//
+// El toFixed(6) previo NO es decorativo: sin el, el ruido binario se cuela en
+// el redondeo direccional y lo arruina. Math.ceil(0.8500000000000001*100) da 86
+// (0.86, cuando el valor real es 0.85) y Math.floor(1.0499999999999998*100) da
+// 104 (1.04, cuando es 1.05). Cualquiera de los dos mueve el precio un centavo
+// entero en la direccion equivocada — mas de lo que el redondeo direccional
+// venia a evitar. Normalizar a 6 decimales primero elimina esa basura sin tocar
+// ningun precio real (ningun precio de opcion tiene 6 decimales significativos).
+// La normalizacion va DESPUES de pasar a centavos, no antes: la propia
+// multiplicacion por 100 vuelve a meter ruido. Limpiar el valor en dolares y
+// recien despues multiplicar no alcanza — 0.29 limpio sigue dando
+// 28.999999999999996 al multiplicar, y el floor lo baja a 0.28.
+const _centavos = v => Number((Math.abs(v) * 100).toFixed(6));
+const precioAbajo  = v => (Math.floor(_centavos(v)) / 100).toFixed(2); // permisivo p/ credito, estricto p/ debito
+const precioArriba = v => (Math.ceil(_centavos(v))  / 100).toFixed(2); // estricto p/ credito, permisivo p/ debito
+
 class TradierClient {
   constructor({ accessToken, accountNumber, baseUrl } = {}) {
     this.accessToken   = accessToken   || process.env.TRADIER_ACCESS_TOKEN   || null;
@@ -246,7 +274,11 @@ class TradierClient {
       symbol:   underlyingRoot,
       type:     worstNetPrice == null ? 'market' : (worstNetPrice >= 0 ? 'credit' : 'debit'),
       duration: 'day',
-      ...(worstNetPrice == null ? {} : { price: Number(Math.abs(worstNetPrice)).toFixed(2) }),
+      // Cierre -> permisivo: si es credito minimo se redondea HACIA ABAJO, si es
+      // debito maximo hacia ARRIBA. Antes un toFixed() podia subir el credito
+      // minimo medio centavo y volver el stop mas dificil de llenar, que es
+      // exactamente lo contrario de lo que uno quiere en un stop.
+      ...(worstNetPrice == null ? {} : { price: worstNetPrice >= 0 ? precioAbajo(worstNetPrice) : precioArriba(worstNetPrice) }),
       'option_symbol[0]': shortSym,
       'side[0]':          'buy_to_close',
       'quantity[0]':      String(quantity),
@@ -365,7 +397,7 @@ class TradierClient {
       // price: must be greater than 0", confirmado con preview el 2026-08-03).
       // netCreditMin puede dar 0.00 perfectamente (roll a la par), asi que el
       // piso real es $0.01: sigue siendo "no pagar por rolar", que es la regla.
-      price:              Math.max(0.01, netCreditMin).toFixed(2),
+      price:              precioArriba(Math.max(0.01, netCreditMin)), // estricto: nunca pagar por rolar
       'option_symbol[0]': oldOptionSymbol,
       'side[0]':          'buy_to_close',
       'quantity[0]':      String(quantity),
@@ -463,7 +495,7 @@ class TradierClient {
       symbol:   underlyingRoot,
       type:     minCreditPrice != null ? 'credit' : 'market',
       duration: 'day',
-      ...(minCreditPrice != null ? { price: Number(minCreditPrice).toFixed(2) } : {}),
+      ...(minCreditPrice != null ? { price: precioArriba(minCreditPrice) } : {}), // apertura: estricto
       'option_symbol[0]': putShortSym,  'side[0]': 'sell_to_open', 'quantity[0]': String(quantity),
       'option_symbol[1]': putLongSym,   'side[1]': 'buy_to_open',  'quantity[1]': String(quantity),
       'option_symbol[2]': callShortSym, 'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),
@@ -535,7 +567,7 @@ class TradierClient {
       symbol:   underlyingRoot,
       type:     maxDebitPrice != null ? 'debit' : 'market',
       duration: 'day',
-      ...(maxDebitPrice != null ? { price: Number(maxDebitPrice).toFixed(2) } : {}),
+      ...(maxDebitPrice != null ? { price: precioAbajo(maxDebitPrice) } : {}), // apertura: estricto
       'option_symbol[0]': outerHighSym, 'side[0]': 'buy_to_open',  'quantity[0]': String(quantity),
       'option_symbol[1]': innerHighSym, 'side[1]': 'sell_to_open', 'quantity[1]': String(quantity),
       'option_symbol[2]': innerLowSym,  'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),
