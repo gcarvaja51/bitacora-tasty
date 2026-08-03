@@ -6338,6 +6338,35 @@ app.get('/api/tradier/gainloss-raw', async (req, res) => {
 // verdad son los fills reales de la orden de apertura y la de cierre; hasta
 // ahora habia que reconstruirlos a mano fuera de la app. Solo lectura.
 // ?id=36425318 filtra una orden puntual (acepta varias separadas por coma).
+// Preview de un roll — valida la estructura multileg contra Tradier SIN colocar
+// nada (2026-08-03). Sirve para confirmar que la orden que arma el sistema es la
+// misma que arma el boton "Roll" de la interfaz de Tradier.
+// ?id=<execId> usa la posicion de un registro de la Rueda; ?expiry=YYYY-MM-DD
+// para elegir el vencimiento destino (default: el que elegiria el monitor).
+app.post('/api/wheel-trading/roll-preview', async (req, res) => {
+  try {
+    const { execId, expiry, strike } = req.body || {};
+    const ex = loadWheelTradingExecutions().find(e => e.id === execId);
+    if (!ex) return res.status(404).json({ ok: false, error: 'execId no encontrado' });
+    const optType = ex.phase === 'CC_ACTIVA' ? 'C' : 'P';
+    const targetStrike = strike ?? ex.leg.strike;
+    if (!expiry) return res.status(400).json({ ok: false, error: 'falta expiry (YYYY-MM-DD)' });
+    const newOptionSymbol = tradier.buildOccSymbol(ex.symbol, expiry, optType, targetStrike);
+    const preview = await tradier.placeRollOrder({
+      underlyingRoot: ex.symbol,
+      oldOptionSymbol: ex.leg.optionSymbol,
+      newOptionSymbol,
+      quantity: ex.leg.contracts,
+      optType,
+      netCreditMin: 0,
+      preview: true,
+    });
+    res.json({ ok: true, de: ex.leg.optionSymbol, a: newOptionSymbol, preview: preview.raw });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/tradier/orders-raw', async (req, res) => {
   try {
     const orders = await tradier.getOrders();

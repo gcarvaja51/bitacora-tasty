@@ -343,7 +343,11 @@ class TradierClient {
   // netCreditMin: crédito neto mínimo aceptado (>=0 = nunca pagar por rolar).
   // Si el mercado no lo da, la orden no llena y la posicion vieja sigue INTACTA
   // — que es justamente el punto de hacerlo atomico.
-  async placeRollOrder({ underlyingRoot, oldOptionSymbol, newOptionSymbol, quantity, optType = 'P', netCreditMin = 0 }) {
+  // preview=true valida credenciales, permisos, formato y devuelve el credito
+  // neto y la comision SIN colocar nada — mismo mecanismo que ya usa
+  // checkOrderCapability(). Riesgo cero, sirve para confirmar que la estructura
+  // multileg es la que Tradier acepta para un roll.
+  async placeRollOrder({ underlyingRoot, oldOptionSymbol, newOptionSymbol, quantity, optType = 'P', netCreditMin = 0, preview = false }) {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
     const params = {
       class:              'multileg',
@@ -358,11 +362,17 @@ class TradierClient {
       'side[1]':          'sell_to_open',
       'quantity[1]':      String(quantity),
     };
+    if (preview) params.preview = 'true';
     const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body:    new URLSearchParams(params).toString(),
     });
+    // Tradier puede responder HTTP 200 con {errors:{error:...}} — ya mordio antes
+    // (ver checkOrderCapability), asi que se inspecciona el cuerpo, no solo el status.
+    const err = data?.errors?.error;
+    if (err) throw new Error(Array.isArray(err) ? err.join(' | ') : String(err));
+    if (preview) return { preview: true, raw: data.order || data };
     return { orderId: data.order?.id ?? null, status: data.order?.status ?? 'unknown', raw: data };
   }
 
