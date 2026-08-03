@@ -6596,13 +6596,61 @@ function rangoPnlPosible(ex) {
 // cierre -- cada orden de Tradier es un objeto propio con fills reales por
 // pata (side/quantity/avg_fill_price), sin mezclarse entre operaciones aunque
 // una misma pata se haya reutilizado en otro spread ese dia.
+// Busca, entre las ordenes reales de la cuenta, la que efectivamente cerro esta
+// ejecucion: llena, posterior a la orden de entrada, y con EXACTAMENTE el mismo
+// conjunto de option_symbols que la entrada, todas con side de cierre. Exigir el
+// conjunto exacto es lo que evita confundirse con otra operacion del mismo dia
+// que comparta UNA pata (el error que arrastra /gainloss). Si hay varias
+// candidatas se toma la mas antigua: es la que realmente cerro la posicion, las
+// posteriores son reintentos que Tradier rechaza o llena en cero.
+async function buscarOrdenDeCierreReal(ex, entryOrder) {
+  try {
+    const legsDe = (o) => {
+      const l = Array.isArray(o.leg) ? o.leg : (o.leg ? [o.leg] : []);
+      return l.map(x => x.option_symbol).filter(Boolean).sort();
+    };
+    const claveEntrada = JSON.stringify(legsDe(entryOrder));
+    if (claveEntrada === '[]') return null;
+    const desde = new Date(entryOrder.create_date).getTime();
+
+    const candidatas = (await tradier.getOrders() || []).filter(o => {
+      if (o.status !== 'filled' || String(o.id) === String(ex.orderId)) return false;
+      if (new Date(o.create_date).getTime() <= desde) return false;
+      if (JSON.stringify(legsDe(o)) !== claveEntrada) return false;
+      const l = Array.isArray(o.leg) ? o.leg : (o.leg ? [o.leg] : []);
+      return l.length > 0 && l.every(x => (x.side || '').endsWith('_to_close'));
+    });
+    candidatas.sort((a, b) => new Date(a.create_date) - new Date(b.create_date));
+    return candidatas[0] || null;
+  } catch(e) {
+    console.error('[TRADIER-TRACK] Error buscando la orden de cierre real:', e.message);
+    return null;
+  }
+}
+
 async function resolverPnlDesdeOrdenes(ex) {
   try {
-    const [entryOrder, closeOrder] = await Promise.all([
+    const [entryOrder, closeOrderGuardada] = await Promise.all([
       tradier.getOrder(ex.orderId),
       tradier.getOrder(ex.closeOrderId),
     ]);
     if (!entryOrder || entryOrder.status !== 'filled') return null;
+
+    // La orden de cierre GUARDADA puede no ser la que realmente cerro la
+    // posicion. Caso real 2026-08-03: el monitor mando un cierre a las 18:18
+    // (36424952) que lleno, y 2.5 min despues mando otro (36425318) que Tradier
+    // rechazo porque ya no habia posicion — pero ese segundo, rechazado, quedo
+    // como closeOrderId del registro. Resultado: este camino devolvia null y
+    // todo caia a /gainloss, que asigno mal las patas y grabo -$645 en un
+    // spread cuya perdida maxima era $315 (el real fue +$90).
+    // Si la guardada no esta 'filled', se busca entre las ordenes de la cuenta
+    // una que SI haya llenado, posterior a la entrada, cerrando exactamente
+    // estas mismas patas.
+    let closeOrder = closeOrderGuardada;
+    if (!closeOrder || closeOrder.status !== 'filled') {
+      closeOrder = await buscarOrdenDeCierreReal(ex, entryOrder);
+      if (closeOrder) console.log(`[TRADIER-TRACK] ↺ ${ex.orderId}: closeOrderId ${ex.closeOrderId} no lleno (${closeOrderGuardada?.status || 'inexistente'}); se uso la orden ${closeOrder.id}, que si cerro la posicion.`);
+    }
     if (!closeOrder || closeOrder.status !== 'filled') return null;
 
     // Flujo de caja neto de una orden: sell_to_open/sell_to_close = entra
