@@ -2725,8 +2725,10 @@ async function checkWheelPutManagementImpl() {
     // miraba. Ahora entran al loop, pero abajo solo se les permite actuar por
     // el trigger de ganancia, nunca por los defensivos.
     const abiertas = executions.filter(e => e.phase === 'CSP_ACTIVA' && e.status === 'filled');
-    if (!abiertas.length) return;
     let cambios = false;
+    // OJO: el corte por lista vacia va DESPUES de la adopcion automatica de
+    // abajo, no aca — si no, una cuenta con posiciones reales pero sin ningun
+    // registro local nunca llegaria a adoptarlas.
 
     // Posiciones REALES en la cuenta — para detectar registros huerfanos.
     // Bug real 2026-08-03: el registro de PDD quedo en CSP_ACTIVA con la nota
@@ -2739,9 +2741,24 @@ async function checkWheelPutManagementImpl() {
     try {
       const posiciones = await tradier.getPositions();
       simbolosEnCuenta = new Set((posiciones || []).map(p => p.symbol));
+
+      // Huerfano en la direccion inversa: la posicion existe en la cuenta pero
+      // no tiene registro local, asi que ningun monitor la ve. Se adopta sola
+      // (decision del usuario, 2026-08-03: "automatico") y entra a gestionarse
+      // en este mismo ciclo, no en el siguiente. Caso real que lo motivo: BAC
+      // (put 55, 21-ago) al 90% de ganancia, invisible para el sistema.
+      for (const { p, parsed } of detectarPutsHuerfanas(posiciones, executions)) {
+        const nuevo = construirRegistroAdoptado(p, parsed);
+        executions.push(nuevo);
+        abiertas.push(nuevo);
+        cambios = true;
+        console.log(`[WHEEL-MGMT] ➕ ${nuevo.symbol}: posicion sin registro local, adoptada automaticamente (${p.symbol}, credito $${nuevo.creditReceived}).`);
+      }
     } catch(e) {
-      console.error('[WHEEL-MGMT] No se pudieron leer posiciones para detectar huerfanos:', e.message);
+      console.error('[WHEEL-MGMT] No se pudieron leer posiciones para detectar/adoptar huerfanos:', e.message);
     }
+
+    if (!abiertas.length) return;
 
     for (const ex of abiertas) {
       try {
@@ -2846,7 +2863,13 @@ async function checkWheelPutManagementImpl() {
         // logica de siempre (todos los vencimientos) en vez de no rolar.
         const porNorma = rollObligatorio && !esDefensivo && !triggerDelta;
         if (porNorma) {
-          const ventana = expirations.filter(e => e.dte != null && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX);
+          // La ventana es 1-3 semanas PERO nunca hacia atras: un roll lleva la
+          // posicion hacia ADELANTE en el tiempo. Bug real 2026-08-03: BAC rolo
+          // del 21-ago al 14-ago porque el vencimiento mas corto daba mejor
+          // credito/dia — matematicamente cierto, conceptualmente al reves.
+          const ventana = expirations.filter(e => e.dte != null
+            && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX
+            && e.expiry > ex.leg.expiry);
           rollDate = wheelTrading.findBestRollDate(ventana, ex.leg.strike);
           const motivo = triggerProfit ? `${(pnlPct*100).toFixed(0)}% capturado` : `extrinseco ${extrPct.toFixed(1)}% de la prima`;
           if (rollDate) console.log(`[WHEEL-MGMT] ${ex.symbol}: roll por norma (${motivo}) — mejor vencimiento entre 1-3 semanas: ${rollDate.expiry} (${rollDate.dte} DTE, $${rollDate.premium}, ${rollDate.creditPerDay}/dia).`);
@@ -2937,52 +2960,46 @@ async function checkWheelPutManagementImpl() {
         }
 
         const newOptionSymbol = tradier.buildOccSymbol(ex.symbol, rollDate.expiry, 'P', targetStrike);
-        const closeOrder = await tradier.closeSingleLeg({
-          underlyingRoot: ex.symbol, optionSymbol: ex.leg.optionSymbol, side: 'buy_to_close', quantity: ex.leg.contracts,
-        });
-        const closeConfirm = await tradier.getOrder(closeOrder.orderId);
-        const closeFill = verificarFillPorPata(closeConfirm, ex.leg.contracts);
-        if (!closeFill.completo) {
-          ex.notes = `Roll abortado: no se confirmó el cierre de la pata vieja (orden ${closeOrder.orderId}) — requiere atención manual.`;
-          cambios = true;
-          console.error(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
-          continue;
-        }
-        let openOrder;
+
+        // Roll ATOMICO en UNA sola orden multileg (2026-08-03) — antes eran dos
+        // ordenes separadas: cerrar y despues abrir. Cuando la segunda fallaba o
+        // no llenaba, la posicion quedaba FLAT y sin proteccion. Le paso a 7
+        // posiciones (RIO, NBIS, HOOD, RKLB, BE, IBIT, ANET): era el modo de
+        // falla dominante del pipeline, no un caso raro. Con multileg, o llenan
+        // las dos patas o no llena ninguna y la posicion vieja sigue intacta.
+        const costoCerrar = quote.mark || 0;
+        const netCreditMin = Math.max(0, +(rollDate.premium - costoCerrar).toFixed(2));
+        let rollOrder;
         try {
-          openOrder = await placeSingleLegOrderWithRetry({
-            underlyingRoot: ex.symbol, optionSymbol: newOptionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: rollDate.premium,
+          rollOrder = await tradier.placeRollOrder({
+            underlyingRoot: ex.symbol,
+            oldOptionSymbol: ex.leg.optionSymbol,
+            newOptionSymbol,
+            quantity: ex.leg.contracts,
+            optType: 'P',
+            netCreditMin,
           });
-        } catch (openError) {
-          // La pata vieja YA se cerro (closeFill.completo=true) pero la reapertura
-          // fallo tras 3 intentos — la posicion real en Tradier quedo FLAT. No dejar
-          // ex.leg apuntando al contrato viejo (el monitor lo reintentaria cerrar
-          // para siempre, rechazado por Tradier, en silencio). Se marca huerfano y
-          // se saca del ciclo (phase='CERRADO') para que deje de evaluarse.
-          ex.phase = 'CERRADO';
-          ex.status = 'orphaned_roll_failed';
-          ex.closeReason = 'ROLL_REAPERTURA_FALLIDA';
-          ex.notes = `ALERTA: se cerró la pata vieja (${ex.leg.optionSymbol}, costo $${closeConfirm.avg_fill_price}) pero la reapertura del roll falló tras 3 intentos (${openError.message}) — posición quedó FLAT sin protección. Revisar manualmente si conviene re-entrar.`;
+        } catch (rollError) {
+          // Nada se ejecuto: la posicion vieja sigue viva y protegida. Se anota y
+          // se reintenta en el proximo ciclo, sin marcar el registro como roto.
+          ex.notes = `Roll no enviado (${rollError.message}) — la posición vieja sigue intacta, se reintenta en el próximo ciclo.`;
           cambios = true;
           console.error(`[WHEEL-MGMT] ${ex.symbol}: ${ex.notes}`);
-          try {
-            await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
-              method: 'POST',
-              headers: { 'Title': `🚨 ${ex.symbol}: roll falló a mitad de camino`, 'Priority': 'urgent', 'Tags': 'rotating_light', 'Content-Type': 'text/plain' },
-              body: `${ex.symbol}: se cerró el put viejo pero no se pudo reabrir el nuevo tras 3 intentos. Posición quedó flat, sin protección. Error: ${openError.message}`,
-            });
-          } catch(e) {}
           continue;
         }
 
-        const netCredit = rollDate.premium - Math.abs(parseFloat(closeConfirm.avg_fill_price || 0));
+        // El credito neto real se confirma cuando la orden llene
+        // (checkWheelExecutionFills); aca se registra el minimo exigido, que es
+        // el piso garantizado por el tipo de orden 'credit'.
+        const netCredit = netCreditMin;
         ex.events.push({
           date: new Date().toISOString(), type: esDefensivo ? 'ROLL_DEFENSIVO' : 'ROLL',
           fromStrike: ex.leg.strike, fromExpiry: ex.leg.expiry,
           toStrike: targetStrike, toExpiry: rollDate.expiry, netCredit: +netCredit.toFixed(2),
+          orderId: rollOrder.orderId, atomico: true,
         });
         ex.leg = { optionSymbol: newOptionSymbol, strike: targetStrike, expiry: rollDate.expiry, side: 'sell_to_open', contracts: ex.leg.contracts };
-        ex.orderId = openOrder.orderId;
+        ex.orderId = rollOrder.orderId;
         ex.status = 'submitted'; // checkWheelExecutionFills confirma el fill de la pata nueva
         ex.rollCount = (ex.rollCount || 0) + 1;
         ex.totalCreditAccumulated = (ex.totalCreditAccumulated || 0) + netCredit;
@@ -3189,7 +3206,9 @@ async function checkWheelCallManagementImpl() {
         // break-even, porque el original ya estaba por encima del costo base.
         const porNorma = triggerProfit || triggerExtr;
         if (porNorma && !triggerDelta) {
-          const ventana = expirations.filter(e => e.dte != null && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX);
+          const ventana = expirations.filter(e => e.dte != null
+            && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX
+            && e.expiry > ex.leg.expiry); // nunca hacia un vencimiento mas cercano
           const candidatos = (currentExp?.strikes || [])
             .filter(s => s.strike >= ex.leg.strike && s.call)
             .sort((a, b) => a.strike - b.strike);
@@ -3233,42 +3252,34 @@ async function checkWheelCallManagementImpl() {
         }
 
         const newOptionSymbol = tradier.buildOccSymbol(ex.symbol, rollDate.expiry, 'C', targetStrike);
-        const closeOrder = await tradier.closeSingleLeg({
-          underlyingRoot: ex.symbol, optionSymbol: ex.leg.optionSymbol, side: 'buy_to_close', quantity: ex.leg.contracts,
-        });
-        const closeConfirm = await tradier.getOrder(closeOrder.orderId);
-        const closeFill = verificarFillPorPata(closeConfirm, ex.leg.contracts);
-        if (!closeFill.completo) {
-          ex.notes = `Roll de Call abortado: no se confirmó el cierre de la pata vieja (orden ${closeOrder.orderId}).`;
-          cambios = true;
-          console.error(`[WHEEL-CC-MGMT] ${ex.symbol}: ${ex.notes}`);
-          continue;
-        }
-        let openOrder;
+
+        // Roll ATOMICO en una sola orden multileg — mismo cambio que en el Put
+        // (ver placeRollOrder, src/tradier.js): si la reapertura no llena, las
+        // acciones quedarian descubiertas. Con multileg, o llenan las dos patas
+        // o no llena ninguna y la Call vieja sigue cubriendo.
+        const costoCerrar = quote.mark || 0;
+        const netCreditMin = Math.max(0, +(rollDate.premium - costoCerrar).toFixed(2));
+        let rollOrder;
         try {
-          openOrder = await placeSingleLegOrderWithRetry({
-            underlyingRoot: ex.symbol, optionSymbol: newOptionSymbol, side: 'sell_to_open', quantity: ex.leg.contracts, limitPrice: rollDate.premium,
+          rollOrder = await tradier.placeRollOrder({
+            underlyingRoot: ex.symbol,
+            oldOptionSymbol: ex.leg.optionSymbol,
+            newOptionSymbol,
+            quantity: ex.leg.contracts,
+            optType: 'C',
+            netCreditMin,
           });
-        } catch (openError) {
-          ex.phase = 'CERRADO';
-          ex.status = 'orphaned_roll_failed';
-          ex.closeReason = 'ROLL_REAPERTURA_FALLIDA';
-          ex.notes = `ALERTA: se cerró la Call vieja (${ex.leg.optionSymbol}, costo $${closeConfirm.avg_fill_price}) pero la reapertura del roll falló tras 3 intentos (${openError.message}) — posición quedó FLAT (sin Call, acciones descubiertas). Revisar manualmente.`;
+        } catch (rollError) {
+          ex.notes = `Roll de Call no enviado (${rollError.message}) — la Call vieja sigue intacta, se reintenta en el próximo ciclo.`;
           cambios = true;
           console.error(`[WHEEL-CC-MGMT] ${ex.symbol}: ${ex.notes}`);
-          try {
-            await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
-              method: 'POST',
-              headers: { 'Title': `🚨 ${ex.symbol}: roll de Call falló a mitad de camino`, 'Priority': 'urgent', 'Tags': 'rotating_light', 'Content-Type': 'text/plain' },
-              body: `${ex.symbol}: se cerró la Call vieja pero no se pudo reabrir la nueva tras 3 intentos. Acciones quedaron descubiertas. Error: ${openError.message}`,
-            });
-          } catch(e) {}
           continue;
         }
-        const netCredit = rollDate.premium - Math.abs(parseFloat(closeConfirm.avg_fill_price || 0));
-        ex.events.push({ date: new Date().toISOString(), type: 'ROLL_CALL', fromStrike: ex.leg.strike, fromExpiry: ex.leg.expiry, toStrike: targetStrike, toExpiry: rollDate.expiry, netCredit: +netCredit.toFixed(2) });
+
+        const netCredit = netCreditMin; // piso garantizado por el tipo de orden 'credit'
+        ex.events.push({ date: new Date().toISOString(), type: 'ROLL_CALL', fromStrike: ex.leg.strike, fromExpiry: ex.leg.expiry, toStrike: targetStrike, toExpiry: rollDate.expiry, netCredit: +netCredit.toFixed(2), orderId: rollOrder.orderId, atomico: true });
         ex.leg = { optionSymbol: newOptionSymbol, strike: targetStrike, expiry: rollDate.expiry, side: 'sell_to_open', contracts: ex.leg.contracts };
-        ex.orderId = openOrder.orderId;
+        ex.orderId = rollOrder.orderId;
         ex.status = 'submitted';
         ex.rollCount = (ex.rollCount || 0) + 1;
         cambios = true;
@@ -3332,6 +3343,64 @@ app.post('/api/wheel-trading/executions/:id/patch', async (req, res) => {
   res.json(result);
 });
 
+// Construye el registro local de una put corta que ya existe en la cuenta.
+// Compartido por la adopcion automatica (checkWheelPutManagementImpl) y por el
+// endpoint manual, para que no puedan divergir.
+//
+// Bug real 2026-08-03, encontrado a los pocos minutos de adoptar las dos
+// primeras: la version inicial omitia `events`, y el roll hace
+// `ex.events.push(...)` DESPUES de mandar las ordenes a Tradier -- la posicion
+// se habria rolado de verdad y el registro habria quedado apuntando a la pata
+// vieja. De ahi que esta funcion arranque de una plantilla explicita con todos
+// los campos que el pipeline asume, no solo los que hacian falta para listar.
+function construirRegistroAdoptado(p, parsed) {
+  const contracts = Math.abs(parseFloat(p.quantity)) || 1;
+  // cost_basis de una pata corta viene negativo y es el TOTAL: el credito por
+  // contrato/accion es |cost_basis| / (contratos * 100).
+  const credito = +(Math.abs(parseFloat(p.cost_basis) || 0) / (contracts * 100)).toFixed(2);
+  const ahora = new Date().toISOString();
+  return {
+    id: `wtex-adopt-${Date.now()}-${parsed.root}`,
+    signalId: null,
+    symbol: parsed.root,
+    timestamp: p.date_acquired || ahora,
+    phase: 'CSP_ACTIVA',
+    entryPrice: null,
+    costBasisTarget: null,
+    fairValue: null,
+    leg: { optionSymbol: p.symbol, strike: parsed.strike, expiry: parsed.expiry, side: 'sell_to_open', contracts },
+    orderId: null,
+    status: 'filled',
+    entryFillPrice: credito,
+    creditReceived: credito,
+    totalCreditAccumulated: credito,
+    filledAt: p.date_acquired || ahora,
+    rollCount: 0,
+    readyForAssignment: false,
+    forced: false,
+    events: [],
+    adopted: true,
+    notes: `Adoptada ${ahora.slice(0,10)}: la posicion existia en Tradier sin registro local, quedaba sin gestionar. Credito reconstruido del cost_basis ($${credito}); fairValue/costBasisTarget quedan en null (no se inventan) — el roll defensivo por fair value no aplica hasta completarlos, el roll por las normas de 60%/extrinseco si funciona sin ellos.`,
+  };
+}
+
+// Puts cortas presentes en la cuenta que no tienen registro CSP_ACTIVA.
+function detectarPutsHuerfanas(posiciones, executions) {
+  const { parseOccSymbol } = require('./src/bp_tradier_adapter');
+  const yaRegistradas = new Set(
+    executions.filter(e => e.phase === 'CSP_ACTIVA').map(e => e.leg?.optionSymbol).filter(Boolean)
+  );
+  const out = [];
+  for (const p of (posiciones || [])) {
+    const parsed = parseOccSymbol(p.symbol || '');
+    if (!parsed || parsed.optType !== 'P') continue;
+    if (parseFloat(p.quantity) >= 0) continue;
+    if (yaRegistradas.has(p.symbol)) continue;
+    out.push({ p, parsed });
+  }
+  return out;
+}
+
 // POST /api/wheel-trading/adopt — "adopta" una put corta que YA existe en la
 // cuenta de Tradier pero no tiene registro local, creandole uno en CSP_ACTIVA
 // para que los monitores (gestion, roll, vencimiento) la vean.
@@ -3348,58 +3417,23 @@ app.post('/api/wheel-trading/executions/:id/patch', async (req, res) => {
 // Con {symbols:["BAC260821P00055000"]}: crea el registro de esas.
 app.post('/api/wheel-trading/adopt', async (req, res) => {
   try {
-    const { parseOccSymbol } = require('./src/bp_tradier_adapter');
     const posiciones = await tradier.getPositions();
-    const executions = loadWheelTradingExecutions();
-    const yaRegistradas = new Set(
-      executions.filter(e => e.phase === 'CSP_ACTIVA').map(e => e.leg?.optionSymbol).filter(Boolean)
-    );
-    const candidatas = (posiciones || []).filter(p => {
-      const parsed = parseOccSymbol(p.symbol || '');
-      return parsed && parsed.optType === 'P' && parseFloat(p.quantity) < 0 && !yaRegistradas.has(p.symbol);
-    });
+    const candidatas = detectarPutsHuerfanas(posiciones, loadWheelTradingExecutions());
 
     const pedidos = Array.isArray(req.body?.symbols) ? req.body.symbols : null;
     if (!pedidos) {
-      return res.json({ ok: true, dryRun: true, candidatas: candidatas.map(p => {
-        const parsed = parseOccSymbol(p.symbol);
-        return { optionSymbol: p.symbol, symbol: parsed.root, strike: parsed.strike, expiry: parsed.expiry,
-                 contracts: Math.abs(parseFloat(p.quantity)), costBasis: p.cost_basis, dateAcquired: p.date_acquired };
-      }) });
+      return res.json({ ok: true, dryRun: true, candidatas: candidatas.map(({ p, parsed }) => ({
+        optionSymbol: p.symbol, symbol: parsed.root, strike: parsed.strike, expiry: parsed.expiry,
+        contracts: Math.abs(parseFloat(p.quantity)), costBasis: p.cost_basis, dateAcquired: p.date_acquired,
+      })) });
     }
 
     const creadas = await withWheelExecutionsLock(() => {
       const exs = loadWheelTradingExecutions();
-      const nuevas = [];
-      for (const p of candidatas) {
-        if (!pedidos.includes(p.symbol)) continue;
-        const parsed = parseOccSymbol(p.symbol);
-        const contracts = Math.abs(parseFloat(p.quantity)) || 1;
-        // cost_basis de una pata corta viene negativo y es el TOTAL: el credito
-        // por contrato/accion es |cost_basis| / (contratos * 100).
-        const credito = +(Math.abs(parseFloat(p.cost_basis) || 0) / (contracts * 100)).toFixed(2);
-        const ex = {
-          id: `wtex-adopt-${Date.now()}-${parsed.root}`,
-          signalId: null,
-          symbol: parsed.root,
-          timestamp: p.date_acquired || new Date().toISOString(),
-          phase: 'CSP_ACTIVA',
-          entryPrice: null,
-          costBasisTarget: null,
-          fairValue: null,
-          leg: { optionSymbol: p.symbol, strike: parsed.strike, expiry: parsed.expiry, side: 'sell_to_open', contracts },
-          orderId: null,
-          status: 'filled',
-          entryFillPrice: credito,
-          creditReceived: credito,
-          totalCreditAccumulated: credito,
-          filledAt: p.date_acquired || new Date().toISOString(),
-          adopted: true,
-          notes: `Adoptada ${new Date().toISOString().slice(0,10)}: la posicion existia en Tradier sin registro local, quedaba sin gestionar. Credito reconstruido del cost_basis ($${credito}); fairValue/costBasisTarget quedan en null (no se inventan) — el roll defensivo por fair value no aplica hasta que se completen.`,
-        };
-        exs.push(ex); nuevas.push(ex);
-      }
-      if (nuevas.length) saveWheelTradingExecutions(exs);
+      const nuevas = candidatas
+        .filter(({ p }) => pedidos.includes(p.symbol))
+        .map(({ p, parsed }) => construirRegistroAdoptado(p, parsed));
+      if (nuevas.length) { exs.push(...nuevas); saveWheelTradingExecutions(exs); }
       return nuevas;
     });
     res.json({ ok: true, adoptadas: creadas.length, executions: creadas });
@@ -3407,7 +3441,6 @@ app.post('/api/wheel-trading/adopt', async (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
-
 
 // ══════════════════════════════════════════════════════════════
 // ── SPX Signal Center ────────────────────────────────────────

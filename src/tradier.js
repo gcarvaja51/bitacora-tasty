@@ -327,6 +327,45 @@ class TradierClient {
     };
   }
 
+  // ── Roll ATOMICO (2026-08-03) ──────────────────────────────────────────────
+  // Tradier no tiene un tipo de orden "roll", pero SI soporta multileg — y un
+  // roll es exactamente eso: cerrar la pata vieja y abrir la nueva EN LA MISMA
+  // orden. O llenan las dos, o no llena ninguna.
+  //
+  // Por que existe: hasta ahora el roll de la Rueda se mandaba como DOS ordenes
+  // separadas (closeSingleLeg y despues placeSingleLegOrder). Cuando la segunda
+  // fallaba o no llenaba, la posicion quedaba FLAT y sin proteccion, con el
+  // registro marcado 'ROLL_REAPERTURA_FALLIDA'. Le paso a 7 posiciones (RIO,
+  // NBIS, HOOD, RKLB, BE, IBIT y ANET) — no era un caso raro, era el modo de
+  // falla dominante del pipeline. El usuario lo detecto mirando Tradier: "el
+  // roll es automatico, cierra posicion y abre posicion... la veo abierta".
+  //
+  // netCreditMin: crédito neto mínimo aceptado (>=0 = nunca pagar por rolar).
+  // Si el mercado no lo da, la orden no llena y la posicion vieja sigue INTACTA
+  // — que es justamente el punto de hacerlo atomico.
+  async placeRollOrder({ underlyingRoot, oldOptionSymbol, newOptionSymbol, quantity, optType = 'P', netCreditMin = 0 }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const params = {
+      class:              'multileg',
+      symbol:             underlyingRoot,
+      type:               'credit',
+      duration:           'day',
+      price:              String(Math.max(0, netCreditMin).toFixed(2)),
+      'option_symbol[0]': oldOptionSymbol,
+      'side[0]':          'buy_to_close',
+      'quantity[0]':      String(quantity),
+      'option_symbol[1]': newOptionSymbol,
+      'side[1]':          'sell_to_open',
+      'quantity[1]':      String(quantity),
+    };
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams(params).toString(),
+    });
+    return { orderId: data.order?.id ?? null, status: data.order?.status ?? 'unknown', raw: data };
+  }
+
   // Cotizaciones actuales (mark/bid/ask) para una lista de simbolos OCC — necesario
   // para calcular cuanto costaria cerrar una posicion abierta ahora mismo (no habia
   // ningun metodo de cotizacion en este cliente).
