@@ -1,0 +1,11 @@
+{
+  "name": "premercado-collector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Recolector de datos de TradingView + Sigma Terminal para el skill premercado-spx. Corre ANTES de que Claude escriba el informe -- deja capturas/valores ya guardados en disco para que la redaccion del informe no dependa de que la conexion CDP/Chrome coopere en ese momento exacto. Reutiliza la logica de conexion de gamma_daemon/tv.js (no duplica dependencias -- no tiene node_modules propio, resuelve chrome-remote-interface desde gamma_daemon/node_modules via las rutas relativas de ese modulo). Para Sigma Terminal lee gamma_daemon/status.json en vez de lanzar su propio Puppeteer -- ver comentario al inicio de collect.js.",
+  "main": "collect.js",
+  "scripts": {
+    "start": "node collect.js"
+  }
+}
