@@ -746,7 +746,7 @@ const MON_OVERLAYS = [
   { id:'ema10',     label:'EMA 10',     color:'#5b82e6', on:true,  tipo:'ema'   },
   { id:'ema20',     label:'EMA 20',     color:'#e879a0', on:true,  tipo:'ema'   },
   { id:'netGex',    label:'GEX',        color:'#13d68f', on:true,  tipo:'barra' },
-  { id:'netDex',    label:'DEX',        color:'#3ba7ff', on:false, tipo:'barra' },
+  { id:'netDex',    label:'DEX',        color:'#3ba7ff', on:true,  tipo:'barra' },
   { id:'netVanna',  label:'Vanna',      color:'#a78bfa', on:false, tipo:'barra' },
 ];
 let _monOn = Object.fromEntries(MON_OVERLAYS.map(o => [o.id, o.on]));
@@ -890,20 +890,40 @@ function renderMonitorSPX() {
     _monSeries[o.id] = s;
   }
 
-  // GEX / DEX / Vanna abajo, en su propia escala — mismo truco de priceScaleId
-  // + scaleMargins que ya se usa para el histograma del Playbook.
+  // GEX / DEX / Vanna abajo, en su propia escala (priceScaleId propio +
+  // scaleMargins). Van como LINEAS, no como histograma: con barras, prender dos
+  // o tres a la vez las dibuja una encima de otra y la ultima tapa a las demas
+  // — problema real que se vio al comparar contra la referencia, donde cada
+  // flujo se distingue y trae su propia etiqueta de valor a la derecha.
+  // El formateador agrega la "B" de billones: una etiqueta que solo dice
+  // "62.47" no dice de que serie es ni en que unidad esta.
+  const fmtB = { priceFormat: { type:'custom', minMove:0.01, formatter: v => (v >= 0 ? '' : '-') + Math.abs(v).toFixed(2) + 'B' } };
+  let hayFlujo = false;
   for (const o of MON_OVERLAYS.filter(x => x.tipo === 'barra')) {
     if (!_monOn[o.id]) continue;
     const datos = [];
     bars.forEach((b, i) => {
       const v = porVela[i] ? porVela[i][o.id] : null;
-      if (v != null) datos.push({ time:b.time, value:+(v / 1e9).toFixed(2), color: v >= 0 ? o.color + 'aa' : '#f04f5aaa' });
+      if (v != null) datos.push({ time:b.time, value:+(v / 1e9).toFixed(2) });
     });
     if (!datos.length) continue;
-    const s = _monChart.addHistogramSeries({ priceScaleId:'flujos', color:o.color });
+    const s = _monChart.addLineSeries(Object.assign({
+      priceScaleId:'flujos', color:o.color, lineWidth:2,
+      priceLineVisible:false, lastValueVisible:true, title:o.label,
+    }, fmtB));
     s.setData(datos);
-    _monChart.priceScale('flujos').applyOptions({ scaleMargins:{ top:0.76, bottom:0 } });
     _monSeries[o.id] = s;
+    hayFlujo = true;
+  }
+  // Linea de cero: separa regimen positivo de negativo de un vistazo — sin
+  // ella, una serie que cruza a negativo no se distingue de una que solo baja.
+  if (hayFlujo) {
+    const cero = _monChart.addLineSeries(Object.assign({
+      priceScaleId:'flujos', color:'#4e5a70', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed,
+      priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false,
+    }, fmtB));
+    cero.setData(bars.map(b => ({ time:b.time, value:0 })));
+    _monChart.priceScale('flujos').applyOptions({ scaleMargins:{ top:0.74, bottom:0 } });
   }
 
   // Popup por vela — equivalente al "Info popup" de la referencia.
@@ -1483,8 +1503,8 @@ function renderWheelRich(wheels, priceMap) {
 
   const phaseLabel = { CSP_ACTIVA:'🔵 CSP Activa', CC_ACTIVA:'🟢 Covered Call', ACCIONES:'🟡 Acciones', IDLE:'⚪ Sin actividad' };
   const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
-  const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
-  const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
+  const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', BTO_PUT:'🛡️', STC_PUT:'📤', BTO_CALL:'🛡️', STC_CALL:'📤', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
+  const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', BTO_PUT:'Put larga comprada', STC_PUT:'Put larga cerrada', BTO_CALL:'Call larga comprada', STC_CALL:'Call larga cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
 
   // ── VISTA TABLA ──────────────────────────────────────────────
   const tablaHtml = (() => {
@@ -1679,7 +1699,8 @@ function renderWheelRich(wheels, priceMap) {
         ? w.marginRequired
         : w.costBasis > 0 ? w.costBasis * shares * 0.45 : 0;
 
-      const premTypes  = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
+      const premTypes  = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL',
+                                  'BTO_PUT','STC_PUT','BTO_CALL','STC_CALL']);
       const premEvents = w.events.filter(e => premTypes.has(e.type));
       const firstDate  = premEvents.length > 0 ? new Date(premEvents[0].date) : null;
 
