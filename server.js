@@ -2651,10 +2651,62 @@ async function checkWheelExecutionFillsImpl() {
     if (!pendientes.length) return;
     let cambios = false;
 
+    // Posiciones reales, para poder reconciliar una orden que NO lleno. Se pide
+    // una sola vez por ciclo, y solo si hace falta.
+    let simbolosEnCuenta = null;
+    try {
+      simbolosEnCuenta = new Set((await tradier.getPositions() || []).map(p => p.symbol));
+    } catch(e) {
+      console.error('[WHEEL-FILL] No se pudieron leer posiciones para reconciliar:', e.message);
+    }
+
     for (const ex of pendientes) {
       try {
-        const order = await tradier.getOrder(ex.orderId);
-        const fillCheck = verificarFillPorPata(order, ex.leg.contracts);
+        // Una orden vieja puede no existir ya para Tradier y la consulta tira
+        // error (caso real: JBLU, orden 35216369 de julio). Si eso cayera al
+        // catch de abajo, el registro seguiria atascado justo por ser el mas
+        // viejo — o sea el que mas necesita reconciliarse. Se trata como
+        // "sin rastro", que la logica de abajo ya sabe resolver.
+        let order = null;
+        try { order = await tradier.getOrder(ex.orderId); }
+        catch(e) { console.log(`[WHEEL-FILL] ${ex.symbol}: orden ${ex.orderId} no consultable (${e.message}) — se reconcilia contra las posiciones.`); }
+        const fillCheck = order ? verificarFillPorPata(order, ex.leg.contracts) : { completo: false };
+
+        // Punto ciego cerrado (2026-08-03). Antes esta funcion SOLO actuaba si
+        // la orden llenaba: si se rechazaba, se cancelaba o expiraba sin llenar,
+        // el registro se quedaba en 'submitted' PARA SIEMPRE — y el monitor de
+        // gestion (incluida la limpieza de huerfanos) solo mira registros
+        // 'filled', asi que tampoco los veia. Resultado: quedaban invisibles
+        // para todo el sistema. JBLU llevaba asi desde julio, con el
+        // vencimiento ya pasado; KO y BAC cayeron ahi el mismo dia, cuando la
+        // reapertura de sus rolls no lleno y la orden del dia expiro al cierre.
+        const ESTADOS_MUERTOS = ['rejected', 'canceled', 'expired', 'error'];
+        const ordenMuerta = !order || ESTADOS_MUERTOS.includes(order.status);
+        if (!fillCheck.completo && ordenMuerta && simbolosEnCuenta) {
+          const tienePosicion = simbolosEnCuenta.has(ex.leg?.optionSymbol);
+          if (tienePosicion) {
+            // Raro pero posible: la orden figura muerta y la posicion existe
+            // igual (glitch del sandbox, ver "Orden fantasma" en CLAUDE.md).
+            // Se cree a la CUENTA, no a la orden.
+            ex.status = 'filled';
+            ex.filledAt = ex.filledAt || new Date().toISOString();
+            ex.notes = `Orden ${ex.orderId} figura ${order?.status || 'inexistente'} pero la pata SI esta en la cuenta — se toma la posicion real como verdad.`;
+          } else {
+            // Ni orden viva ni posicion: no hay nada que gestionar.
+            const eraRoll = (ex.rollCount || 0) > 0 || (ex.events || []).length > 0;
+            ex.phase  = 'CERRADO';
+            ex.status = 'closed';
+            ex.closedAt = new Date().toISOString();
+            ex.closeReason = eraRoll ? 'ROLL_REAPERTURA_NO_LLENO' : 'ENTRADA_NO_LLENO';
+            ex.notes = eraRoll
+              ? `La reapertura del roll (orden ${ex.orderId}) quedo ${order?.status || 'sin rastro'} y la pata ${ex.leg?.optionSymbol} no esta en la cuenta: la posicion quedo flat. Ciclo cerrado, se deja de evaluar.`
+              : `La orden de entrada ${ex.orderId} quedo ${order?.status || 'sin rastro'} y nunca hubo posicion. Registro cerrado.`;
+            console.log(`[WHEEL-FILL] 🧹 ${ex.symbol}: ${ex.closeReason} — ${ex.leg?.optionSymbol}`);
+          }
+          cambios = true;
+          continue;
+        }
+
         if (fillCheck.completo) {
           ex.status = 'filled';
           ex.entryFillPrice = order.avg_fill_price || null;
