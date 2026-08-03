@@ -4923,6 +4923,48 @@ app.post('/api/spx/sigma-levels', (req, res) => {
 // Por defecto devuelve el ultimo valor (compatibilidad con lo que ya consumia
 // esto). ?history=true devuelve el historial completo (opcionalmente
 // ?date=YYYY-MM-DD para filtrar un dia) para analisis retroactivo.
+// ── Monitor SPX (2026-08-03) ───────────────────────────────────────────────
+// Junta en una sola respuesta las velas de SPX y la serie historica de niveles
+// de gamma que el daemon viene guardando cada 2 min (Sigma Terminal), para
+// poder dibujar la evolucion de Call Wall / Put Wall / Gamma Flip SOBRE el
+// precio, en vez de ver solo el valor de este instante.
+//
+// Es data que ya teniamos entera y no estabamos mirando: el historial de
+// sigma-levels cubre ~2 semanas (cap 10000) con netGex/netDex/netVanna/regime
+// ademas de los tres niveles.
+//
+// Nota honesta sobre paridad con la referencia (ORXIAL): NO tenemos un
+// "Regimen de volatilidad" tipo FAIR/CHEAP/RICH — eso requeriria IV Rank
+// historico, que no se guarda por lectura. Se expone `regime` (signo del GEX),
+// que es lo que si tenemos, sin renombrarlo para aparentar otra cosa.
+app.get('/api/spx/monitor', async (req, res) => {
+  try {
+    const interval = ['1m','2m','5m','15m','1d'].includes(req.query.interval) ? req.query.interval : '5m';
+    const range    = req.query.range || (interval === '1d' ? '6mo' : '5d');
+
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=${interval}&range=${range}`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const j = await r.json();
+    const result = j.chart?.result?.[0];
+    const ts = result?.timestamp || [];
+    const q  = result?.indicators?.quote?.[0] || {};
+    const bars = [];
+    for (let i = 0; i < ts.length; i++) {
+      const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
+      if (o == null || h == null || l == null || c == null) continue;
+      // La vela EN FORMACION viene con O=H=L=C (bug ya documentado en el
+      // pipeline de Reversion) — se descarta para no dibujar una vela plana.
+      if (h === l && o === c && i === ts.length - 1) continue;
+      bars.push({ time: ts[i], open: o, high: h, low: l, close: c, volume: q.volume?.[i] ?? null });
+    }
+
+    const levels = loadSigmaLevelsHistory();
+    res.json({ ok: true, interval, bars, levels, barsCount: bars.length, levelsCount: levels.length });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/spx/sigma-levels', (req, res) => {
   const history = loadSigmaLevelsHistory();
   if (req.query.history === 'true') {

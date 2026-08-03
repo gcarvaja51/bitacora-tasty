@@ -43,6 +43,7 @@
     <div class="nav-item" onclick="nav('reports',this)"><span class="icon">◑</span> Reportes</div>
     <div class="nav-item" onclick="nav('watchlist',this)"><span class="icon">👁</span> Watchlist</div>
     <div class="nav-item" onclick="nav('backtester',this)"><span class="icon">🔬</span> Backtester SPX</div>
+    <div class="nav-item" onclick="nav('monitor',this)"><span class="icon">📊</span> Monitor SPX</div>
     <div class="nav-item" onclick="nav('wheel',this)"><span class="icon">🔄</span> La Rueda</div>
     <div class="nav-item" onclick="nav('bp',this)"><span class="icon">⚖</span> Buying Power</div>
     <div class="nav-item" onclick="nav('alejandro',this)"><span class="icon">🎯</span> Playbook Alejandro</div>
@@ -548,6 +549,36 @@
     <div id="bt-signal-list"><div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">Ejecuta el backtester</div></div>
   </div>
 </div>
+    <!-- Monitor SPX (2026-08-03) — evolucion historica de los niveles de gamma
+         SOBRE el precio. Inspirado en el monitor de ORXIAL que compartio el
+         usuario; la data (velas + historial de sigma-levels cada 2 min) ya
+         existia entera, solo no se estaba mirando junta. -->
+    <div id="panel-monitor" class="panel">
+      <div style="padding:16px 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:10px;">
+          <div style="font-size:18px;font-weight:700;color:var(--bright);">📊 Monitor SPX <span style="font-size:11px;color:var(--muted);font-weight:400;">— niveles de gamma sobre el precio</span></div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="mon-interval" onchange="loadMonitorSPX()" style="background:var(--card);border:1px solid var(--border);color:var(--bright);border-radius:6px;padding:6px 10px;font-size:12px;">
+              <option value="5m">5 min</option>
+              <option value="2m">2 min</option>
+              <option value="15m">15 min</option>
+              <option value="1d">Diario</option>
+            </select>
+            <select id="mon-dia" onchange="renderMonitorSPX()" style="background:var(--card);border:1px solid var(--border);color:var(--bright);border-radius:6px;padding:6px 10px;font-size:12px;"></select>
+          </div>
+        </div>
+
+        <div id="mon-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
+
+        <div style="position:relative;">
+          <div id="mon-chart" style="width:100%;height:520px;"></div>
+          <div id="mon-tooltip" style="display:none;position:absolute;pointer-events:none;z-index:5;background:rgba(19,23,34,.96);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;line-height:1.6;min-width:200px;box-shadow:0 6px 20px rgba(0,0,0,.5);"></div>
+        </div>
+
+        <div id="mon-status" style="margin-top:8px;font-size:11px;color:var(--muted);"></div>
+      </div>
+    </div>
+
     <div id="panel-wheel" class="panel">
       <div style="padding:20px;max-width:1200px;margin:0 auto;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:10px;">
@@ -692,8 +723,227 @@ async function api(path, method='GET', body=null) {
 //  NAVIGATION — registro de tabs en vez del if/else de 16 ramas
 //  de index.html (evita heredar ese acoplamiento al copiar).
 // ══════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════
+// ── Monitor SPX (2026-08-03) ─────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// Dibuja la EVOLUCION de los niveles de gamma sobre el precio, en vez del
+// valor puntual de este instante que era lo unico que se veia hasta ahora.
+// La data ya existia entera: velas de SPX + el historial de sigma-levels que
+// el "Daemon Muros y Gamma" viene empujando cada 2 min (cap ~2 semanas).
+//
+// Los niveles llegan cada ~2 min y las velas cada 5 (o 2/15): para cada vela se
+// toma la ULTIMA lectura en o antes de esa vela (escalera hacia adelante). Asi
+// el nivel dibujado es el que estaba vigente en ese momento, no uno interpolado
+// que nunca existio.
+
+let _monChart = null, _monData = null, _monSeries = {};
+const MON_OVERLAYS = [
+  { id:'gammaFlip', label:'Gamma Flip', color:'#f5c842', on:true,  tipo:'nivel' },
+  { id:'callWall',  label:'Call Wall',  color:'#13d68f', on:true,  tipo:'nivel' },
+  { id:'putWall',   label:'Put Wall',   color:'#f04f5a', on:true,  tipo:'nivel' },
+  { id:'mvs',       label:'MVS',        color:'#a78bfa', on:false, tipo:'nivel' },
+  { id:'ema10',     label:'EMA 10',     color:'#5b82e6', on:true,  tipo:'ema'   },
+  { id:'ema20',     label:'EMA 20',     color:'#e879a0', on:true,  tipo:'ema'   },
+  { id:'netGex',    label:'GEX',        color:'#13d68f', on:true,  tipo:'barra' },
+  { id:'netDex',    label:'DEX',        color:'#3ba7ff', on:false, tipo:'barra' },
+  { id:'netVanna',  label:'Vanna',      color:'#a78bfa', on:false, tipo:'barra' },
+];
+let _monOn = Object.fromEntries(MON_OVERLAYS.map(o => [o.id, o.on]));
+
+async function loadMonitorSPX() {
+  const interval = document.getElementById('mon-interval')?.value || '5m';
+  const st = document.getElementById('mon-status');
+  if (st) st.textContent = 'Cargando…';
+  try {
+    const r = await fetch('/api/spx/monitor?interval=' + interval);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'respuesta invalida');
+    _monData = j;
+
+    // Selector de dia — solo los dias que realmente tienen velas.
+    const dias = [...new Set(j.bars.map(b => new Date(b.time * 1000).toISOString().slice(0, 10)))].sort().reverse();
+    const sel = document.getElementById('mon-dia');
+    if (sel) {
+      const previo = sel.value;
+      sel.innerHTML = '<option value="">Todo el rango</option>' +
+        dias.map(d => '<option value="' + d + '">' + d + '</option>').join('');
+      sel.value = dias.includes(previo) ? previo : (interval === '1d' ? '' : (dias[0] || ''));
+    }
+    renderMonitorChips();
+    renderMonitorSPX();
+  } catch(e) {
+    if (st) st.textContent = 'Error cargando el monitor: ' + e.message;
+  }
+}
+
+function renderMonitorChips() {
+  const cont = document.getElementById('mon-chips');
+  if (!cont) return;
+  cont.innerHTML = MON_OVERLAYS.map(o => {
+    const activo = _monOn[o.id];
+    const borde  = activo ? o.color : 'var(--border)';
+    const fondo  = activo ? o.color + '22' : 'transparent';
+    const texto  = activo ? o.color : 'var(--muted)';
+    return '<span onclick="toggleMonitorOverlay(\'' + o.id + '\')" style="cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:6px;'
+      + 'border:1px solid ' + borde + ';border-radius:14px;padding:4px 11px;font-size:11px;font-weight:600;'
+      + 'background:' + fondo + ';color:' + texto + ';">'
+      + '<span style="width:8px;height:8px;border-radius:50%;background:' + texto + ';"></span>' + o.label + '</span>';
+  }).join('');
+}
+
+function toggleMonitorOverlay(id) {
+  _monOn[id] = !_monOn[id];
+  renderMonitorChips();
+  renderMonitorSPX();
+}
+
+// EMA sobre los cierres YA recortados al dia mostrado, para que la media
+// arranque con el mismo recorte que se ve en pantalla.
+function monEMA(bars, periodo) {
+  if (bars.length < periodo) return [];
+  const k = 2 / (periodo + 1);
+  let ema = bars.slice(0, periodo).reduce((a, b) => a + b.close, 0) / periodo;
+  const out = [{ time: bars[periodo - 1].time, value: +ema.toFixed(2) }];
+  for (let i = periodo; i < bars.length; i++) {
+    ema = bars[i].close * k + ema * (1 - k);
+    out.push({ time: bars[i].time, value: +ema.toFixed(2) });
+  }
+  return out;
+}
+
+function renderMonitorSPX() {
+  if (!_monData) return;
+  const cont = document.getElementById('mon-chart');
+  const st   = document.getElementById('mon-status');
+  if (!cont) return;
+  if (_monChart) { _monChart.remove(); _monChart = null; _monSeries = {}; }
+
+  const dia  = document.getElementById('mon-dia')?.value || '';
+  const bars = dia
+    ? _monData.bars.filter(b => new Date(b.time * 1000).toISOString().slice(0, 10) === dia)
+    : _monData.bars;
+  if (!bars.length) { if (st) st.textContent = 'Sin velas para ese día.'; return; }
+
+  const niveles = (_monData.levels || [])
+    .map(l => Object.assign({}, l, { t: Math.floor(new Date(l.updatedAt).getTime() / 1000) }))
+    .filter(l => Number.isFinite(l.t))
+    .sort((a, b) => a.t - b.t);
+
+  // Escalera: para cada vela, la ultima lectura vigente.
+  const porVela = [];
+  let idx = 0, vigente = null;
+  for (const b of bars) {
+    while (idx < niveles.length && niveles[idx].t <= b.time) vigente = niveles[idx++];
+    porVela.push(vigente);
+  }
+  const conNivel = porVela.filter(Boolean).length;
+
+  _monChart = LightweightCharts.createChart(cont, {
+    width: cont.clientWidth || 900,
+    height: 520,
+    layout: { background:{color:'#131722'}, textColor:'#b2b5be' },
+    grid:   { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor:'#2a2e39', scaleMargins:{ top:0.06, bottom:0.28 } },
+    timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false },
+  });
+
+  const velas = _monChart.addCandlestickSeries({
+    upColor:'#26a69a', downColor:'#ef5350',
+    borderUpColor:'#26a69a', borderDownColor:'#ef5350',
+    wickUpColor:'#26a69a', wickDownColor:'#ef5350',
+  });
+  velas.setData(bars);
+  _monSeries.velas = velas;
+
+  // Los niveles se dibujan como ESCALERA: un muro de gamma no se mueve de a
+  // poco, salta de un strike a otro. Una linea recta mentiria sobre el camino.
+  for (const o of MON_OVERLAYS.filter(x => x.tipo === 'nivel')) {
+    if (!_monOn[o.id]) continue;
+    const datos = [];
+    bars.forEach((b, i) => {
+      const v = porVela[i] ? porVela[i][o.id] : null;
+      if (v != null) datos.push({ time: b.time, value: v });
+    });
+    if (!datos.length) continue;
+    const s = _monChart.addLineSeries({
+      color: o.color, lineWidth: 2, lineType: LightweightCharts.LineType.WithSteps,
+      priceLineVisible: false, lastValueVisible: true, title: o.label,
+    });
+    s.setData(datos);
+    _monSeries[o.id] = s;
+  }
+
+  for (const o of MON_OVERLAYS.filter(x => x.tipo === 'ema')) {
+    if (!_monOn[o.id]) continue;
+    const s = _monChart.addLineSeries({ color:o.color, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
+    s.setData(monEMA(bars, o.id === 'ema10' ? 10 : 20));
+    _monSeries[o.id] = s;
+  }
+
+  // GEX / DEX / Vanna abajo, en su propia escala — mismo truco de priceScaleId
+  // + scaleMargins que ya se usa para el histograma del Playbook.
+  for (const o of MON_OVERLAYS.filter(x => x.tipo === 'barra')) {
+    if (!_monOn[o.id]) continue;
+    const datos = [];
+    bars.forEach((b, i) => {
+      const v = porVela[i] ? porVela[i][o.id] : null;
+      if (v != null) datos.push({ time:b.time, value:+(v / 1e9).toFixed(2), color: v >= 0 ? o.color + 'aa' : '#f04f5aaa' });
+    });
+    if (!datos.length) continue;
+    const s = _monChart.addHistogramSeries({ priceScaleId:'flujos', color:o.color });
+    s.setData(datos);
+    _monChart.priceScale('flujos').applyOptions({ scaleMargins:{ top:0.76, bottom:0 } });
+    _monSeries[o.id] = s;
+  }
+
+  // Popup por vela — equivalente al "Info popup" de la referencia.
+  const tip = document.getElementById('mon-tooltip');
+  _monChart.subscribeCrosshairMove(param => {
+    if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) { tip.style.display = 'none'; return; }
+    const i = bars.findIndex(b => b.time === param.time);
+    if (i < 0) { tip.style.display = 'none'; return; }
+    const b = bars[i], n = porVela[i];
+    const f  = v => v == null ? '—' : v.toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
+    const fB = v => v == null ? '—' : (v / 1e9).toFixed(2) + 'B';
+    const fecha = new Date(b.time * 1000);
+    const fila = (c, l, v) => '<div style="display:flex;justify-content:space-between;gap:14px;"><span style="color:' + c + ';">● ' + l + '</span><span style="font-family:ui-monospace,monospace;color:var(--bright);">' + v + '</span></div>';
+    tip.innerHTML =
+      '<div style="font-weight:700;color:var(--bright);margin-bottom:6px;">VELA · ' + fecha.toISOString().slice(0,10) + ' ' + fecha.toISOString().slice(11,16) + ' UTC</div>'
+      + fila('#b2b5be','Cierre', f(b.close))
+      + (n
+        ? fila('#13d68f','Call Wall',  f(n.callWall))
+          + fila('#f5c842','Gamma Flip', f(n.gammaFlip))
+          + fila('#f04f5a','Put Wall',   f(n.putWall))
+          + fila('#a78bfa','MVS',        f(n.mvs))
+          + fila(n.regime === 'POSITIVO' ? '#13d68f' : '#f04f5a', 'Régimen GEX', n.regime || '—')
+          + fila('#13d68f','GEX',   fB(n.netGex))
+          + fila('#3ba7ff','DEX',   fB(n.netDex))
+          + fila('#a78bfa','Vanna', fB(n.netVanna))
+        : '<div style="color:var(--muted);margin-top:4px;">Sin lectura de niveles en este momento</div>');
+    tip.style.display = 'block';
+    const w = 230, h = tip.offsetHeight || 200;
+    tip.style.left = Math.min(Math.max(0, param.point.x + 16), cont.clientWidth - w) + 'px';
+    tip.style.top  = Math.min(Math.max(0, param.point.y - h / 2), 520 - h) + 'px';
+  });
+
+  new ResizeObserver(() => { if (_monChart) _monChart.applyOptions({ width: cont.clientWidth }); }).observe(cont);
+
+  if (st) {
+    const desde = niveles.length ? new Date(niveles[0].t * 1000).toISOString().slice(0,10) : null;
+    st.innerHTML = bars.length + ' velas · ' + conNivel + ' con lectura de niveles'
+      + (desde
+        ? ' · historial de gamma desde ' + desde + ' (' + niveles.length + ' lecturas)'
+        : ' · <span style="color:var(--gold);">sin historial de niveles para este rango</span>')
+      + '<br><span style="color:var(--muted);">Los niveles se dibujan como escalera: cada vela muestra la última lectura vigente del daemon (cada ~2 min), sin interpolar valores que nunca existieron.</span>';
+  }
+}
+
+
 const TABS = {
   backtester:  () => loadBacktester(),
+  monitor:     () => loadMonitorSPX(),
   wheel:       () => loadWheelTrading(),
   bp:          () => loadBPTradier(),
   alejandro:   () => loadAlejandro(),
