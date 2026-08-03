@@ -2760,9 +2760,24 @@ function deltaThetaCells(g) {
          `<td class="td-mono ${t == null ? 'dim' : (t >= 0 ? 'pos' : 'neg')}" title="${tTit}">${tTxt}</td>`;
 }
 
+// Bug real encontrado el 2026-08-03 (el usuario: "porque dice cantidad 2?
+// entiendo que es un solo contrato"): la columna Cant. era
+// `Math.abs(g.totalQty) || g.legs.length`. En CUALQUIER vertical balanceada
+// (+1 larga, -1 corta) totalQty da 0 — falsy — asi que caia al fallback y
+// mostraba el numero de PATAS (2) como si fueran contratos. Un Iron Condor de
+// 1 contrato mostraba 4. Ahora se toma la cantidad real por pata: en una
+// estructura balanceada todas las patas tienen el mismo |quantity|, que es
+// justamente el numero de contratos. Para acciones sigue siendo el total de
+// acciones (ahi totalQty nunca se cancela).
+function posContractsTradier(g) {
+  if (g.isStock) return Math.abs(g.totalQty || 0);
+  const qtys = (g.legs || []).map(l => Math.abs(parseFloat(l.quantity) || 0)).filter(q => q > 0);
+  return qtys.length ? Math.max(...qtys) : '—';
+}
+
 function buildPosRowTradier(g) {
   const strat = STRAT_TYPE_LABEL(g);
-  const dirBadge = g.direction === 'SHORT' ? 'badge-red' : 'badge-green';
+  const dirBadge = g.direction === 'SHORT' ? 'badge-red' : g.direction === 'NEUTRAL' ? 'badge-gold' : 'badge-green';
   const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l => l.strike))].join(' / ');
   const absPrem = Math.abs(g.premiumNet);
   const pct = absPrem > 0 ? (g.unrealizedPnL / absPrem * 100) : 0;
@@ -2773,7 +2788,7 @@ function buildPosRowTradier(g) {
     <td class="td-mono dim">${strikes}</td>
     <td class="td-mono dim">${g.expiry||'—'}</td>
     <td>${g.dte!==null&&g.dte!==undefined?dteChip(g.dte):'—'}</td>
-    <td class="td-mono">${Math.abs(g.totalQty||0) || g.legs.length}</td>
+    <td class="td-mono">${posContractsTradier(g)}</td>
     <td class="td-mono ${cc(g.unrealizedPnL)}" style="font-weight:700">${f$(g.unrealizedPnL)}</td>
     <td class="td-mono ${g.premiumNet>=0?'pos':'neg'}">${g.premiumNet>=0?fa$(g.premiumNet):'-'+fa$(Math.abs(g.premiumNet))}</td>
     ${deltaThetaCells(g)}
@@ -2798,14 +2813,50 @@ function STRAT_TYPE_LABEL(g) {
   return `Spread (${g.legs.length}p)`;
 }
 
+// Bug real encontrado el 2026-08-03 (el usuario reporto "la bitacora dice
+// estrategia direccional bajista, pero hoy el mercado ha sido alcista todo el
+// dia"): esta funcion decidia la direccion con una sola pregunta — "¿hay una
+// pata corta y es un Call?" → SHORT. Eso funciona para una call vendida suelta
+// y para un Bear Call Spread, pero es FALSO para un BULL CALL SPREAD (debito):
+// tambien tiene una call corta, solo que ARRIBA de la larga, financiandola —
+// la estructura es alcista. Los 4 trades de SPX de hoy (todos BULL_CALL_SPREAD)
+// salian marcados SHORT en rojo.
+//
+// Regla correcta, la misma que ya usa classifySpread() en
+// src/tradier_closed_pnl_adapter.js: en una vertical, la pata CORTA por encima
+// de la larga = alcista; por debajo = bajista. Vale igual para puts y calls.
+function posDirectionTradier(g) {
+  if (g.isStock) return 'LONG';
+  const legs  = g.legs || [];
+  const puts  = legs.filter(l => l.optType === 'P');
+  const calls = legs.filter(l => l.optType === 'C');
+
+  // Patas cortas de AMBOS tipos (Iron Condor, strangle vendido): no es
+  // direccional — antes caia en SHORT solo por tener la call corta.
+  if (puts.some(l => l.isShort) && calls.some(l => l.isShort)) return 'NEUTRAL';
+
+  const vertical = arr => {
+    const corta = arr.find(l => l.isShort), larga = arr.find(l => !l.isShort);
+    if (!corta || !larga || corta.strike == null || larga.strike == null) return null;
+    return corta.strike > larga.strike ? 'LONG' : 'SHORT';
+  };
+  if (calls.length === 2 && !puts.length)  return vertical(calls) || 'LONG';
+  if (puts.length  === 2 && !calls.length) return vertical(puts)  || 'LONG';
+
+  if (legs.length === 1) {
+    const l = legs[0];
+    // Call larga y put corta son alcistas; call corta y put larga, bajistas.
+    return l.optType === 'C' ? (l.isShort ? 'SHORT' : 'LONG')
+                             : (l.isShort ? 'LONG'  : 'SHORT');
+  }
+  // Estructura no reconocida: se cae a la heuristica vieja antes que inventar.
+  const corta = legs.find(l => l.isShort);
+  return corta && corta.optType === 'C' ? 'SHORT' : 'LONG';
+}
+
 function annotatePosGroupTradier(g) {
   g.stratType = STRAT_TYPE_LABEL(g);
-  if (g.isStock) { g.direction = 'LONG'; }
-  else {
-    const shortLeg = g.legs.find(l => l.isShort);
-    const shortIsCall = shortLeg && shortLeg.optType === 'C';
-    g.direction = shortLeg ? (shortIsCall ? 'SHORT' : 'LONG') : 'LONG';
-  }
+  g.direction = posDirectionTradier(g);
   const fl = g.legs[0];
   if (!g.isStock && fl && fl.expiry) {
     g.dte = Math.ceil((new Date(fl.expiry) - new Date()) / 86400000);
