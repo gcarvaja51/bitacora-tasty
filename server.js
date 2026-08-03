@@ -4671,11 +4671,19 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // viejos del loop de premercado que todavia no lo manden (queda undefined,
   // getFreshSigmaLevels() lo propaga igual y el consumidor trata "sin dato"
   // como "sin DEX fresco", cae al comportamiento de antes).
-  const { netGex, netDex, regime, callWall, putWall, gammaFlip, mvs, spxPrice } = req.body || {};
+  // netVanna agregado 2026-08-03, mismo criterio (opcional, queda undefined si
+  // no viene): el daemon ya lo leia de Sigma Terminal y lo empujaba al
+  // indicador de TradingView (in_29/in_30), pero este endpoint lo descartaba
+  // en el destructuring -- o sea que se veia en el grafico pero NO quedaba
+  // registrado del lado del servidor, sin historial para analisis retroactivo
+  // (mismo agujero que ya nos obligo a reconstruir el RSI a mano para los 63
+  // trades de Reversion). Hoy ninguna estrategia lo usa para decidir; se
+  // guarda solo para poder medirlo cuando haga falta.
+  const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice } = req.body || {};
   if (regime !== 'POSITIVO' && regime !== 'NEGATIVO') {
     return res.status(400).json({ ok: false, error: 'regime debe ser POSITIVO o NEGATIVO' });
   }
-  const entry = { netGex, netDex, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
+  const entry = { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
   const history = loadSigmaLevelsHistory();
   history.unshift(entry);
   saveSigmaLevelsHistory(history.slice(0, SIGMA_LEVELS_MAX_ENTRIES));
