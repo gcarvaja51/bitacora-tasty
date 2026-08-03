@@ -742,7 +742,7 @@ async function api(path, method='GET', body=null) {
 // el nivel dibujado es el que estaba vigente en ese momento, no uno interpolado
 // que nunca existio.
 
-let _monChart = null, _monChartFlujos = null, _monData = null, _monSeries = {};
+let _monChart = null, _monChartFlujos = null, _monData = null, _monSeries = {}, _monResizeObs = null;
 // Colores alineados al codigo de Sigma Terminal (2026-08-03, a pedido del
 // usuario). No se eligieron a ojo: son los mismos que ya usa el indicador
 // CIARG_V1 en TradingView para dibujar estos niveles — color.purple para el
@@ -889,8 +889,16 @@ function renderMonitorSPX() {
   // Estas lecturas se dibujan en SU PROPIO timestamp, no remuestreadas: son
   // pocas y van todas despues de la ultima vela, asi que solo agregan unas
   // ranuras al borde derecho sin descolocar las velas.
+  // SOLO la ultima lectura, no todas las posteriores (corregido 2026-08-03 el
+  // mismo dia que se agrego). Cada lectura de la cola ocupa su propia ranura en
+  // el eje, y ahi no hay vela: con velas de 5 min eran ~5 ranuras sobre 78 y
+  // apenas se notaba, pero en 15 min son ~10 sobre 26 — casi un tercio del
+  // grafico vacio a la derecha, que el usuario leyo (con razon) como "faltan
+  // las ultimas velas del dia". Con un solo punto se sigue viendo el valor de
+  // CIERRE, que era el objetivo, sin comerse el ancho del panel.
   const ultimaVela = bars[bars.length - 1].time;
-  const cola = niveles.filter(n => n.t > ultimaVela);
+  const posteriores = niveles.filter(n => n.t > ultimaVela);
+  const cola = posteriores.length ? [posteriores[posteriores.length - 1]] : [];
 
   _monChart = LightweightCharts.createChart(cont, {
     width: cont.clientWidth || 900,
@@ -898,6 +906,8 @@ function renderMonitorSPX() {
     layout: { background:{color:'#131722'}, textColor:'#b2b5be' },
     grid:   { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      localization: { timeFormatter: (time) => new Date(time * 1000).toLocaleString('en-CA',
+        { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hour12:false, month:'short', day:'2-digit' }) + ' ET' },
     rightPriceScale: { borderColor:'#2a2e39', scaleMargins:{ top:0.06, bottom:0.28 } },
     timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false,
       // Eje en hora de MERCADO (America/New_York), no UTC: un trader lee
@@ -1017,6 +1027,8 @@ function renderMonitorSPX() {
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       // Misma anchura de escala que el chart de arriba, si no los dos ejes de
       // tiempo quedan desalineados aunque el rango sea identico.
+      localization: { timeFormatter: (time) => new Date(time * 1000).toLocaleString('en-CA',
+        { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hour12:false, month:'short', day:'2-digit' }) + ' ET' },
       rightPriceScale: { borderColor:'#2a2e39', minimumWidth:72, scaleMargins:{ top:0.15, bottom:0.15 } },
       timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false,
         tickMarkFormatter: (time) => new Date(time * 1000).toLocaleTimeString('en-US',
@@ -1103,10 +1115,29 @@ function renderMonitorSPX() {
     tip.style.top  = Math.min(Math.max(0, param.point.y - h / 2), 520 - h) + 'px';
   });
 
-  new ResizeObserver(() => {
-    if (_monChart)       _monChart.applyOptions({ width: cont.clientWidth });
-    if (_monChartFlujos) _monChartFlujos.applyOptions({ width: cont.clientWidth });
-  }).observe(cont);
+  // Un solo observer vivo. Antes se creaba uno nuevo en cada render y no se
+  // desconectaba ninguno: tras varios "Actualizar" quedaban N observers
+  // apuntando a charts ya destruidos, peleando por el ancho.
+  if (_monResizeObs) _monResizeObs.disconnect();
+  _monResizeObs = new ResizeObserver(() => {
+    const w = cont.clientWidth;
+    if (!w) return; // panel oculto: medir 0 y aplicarlo es lo que lo "recogia"
+    if (_monChart)       _monChart.applyOptions({ width: w });
+    if (_monChartFlujos) _monChartFlujos.applyOptions({ width: w });
+  });
+  _monResizeObs.observe(cont);
+
+  // Ajustar el contenido al ancho real. Sin esto el chart recien creado
+  // conserva el espaciado de barras por defecto y la serie queda ocupando solo
+  // una parte del panel — el sintoma de "se recoge a la mitad" al actualizar.
+  requestAnimationFrame(() => {
+    const w = cont.clientWidth;
+    if (!w || !_monChart) return;
+    _monChart.applyOptions({ width: w });
+    if (_monChartFlujos) _monChartFlujos.applyOptions({ width: w });
+    _monChart.timeScale().fitContent();
+    if (_monChartFlujos) _monChartFlujos.timeScale().fitContent();
+  });
 
   if (st) {
     const desde = niveles.length ? new Date(niveles[0].t * 1000).toLocaleDateString('en-CA', { timeZone:'America/New_York' }) : null;
@@ -1705,6 +1736,7 @@ function renderWheelRich(wheels, priceMap) {
           : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
           : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+          : e.type === 'DIVIDENDO' && e.retencion ? `Bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
           : `${evLabelFor(e)}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
         const amt = e.amount||0;
         const amtCls = amt>=0?'pos':'neg';
@@ -1787,6 +1819,7 @@ function renderWheelRich(wheels, priceMap) {
         : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
         : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
         : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+        : e.type === 'DIVIDENDO' && e.retencion ? `Dividendo: bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
         : `${evLabelFor(e)}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
       const amt = e.amount||0;
       return `<div class="wheel-event">
