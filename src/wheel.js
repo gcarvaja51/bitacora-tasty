@@ -44,10 +44,21 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       .sort((a, b) => new Date(a['executed-at']) - new Date(b['executed-at']));
 
     const events = [];
+    // totalPremium = flujo de caja NETO de todas las patas de opciones + dividendos
+    // netos. Signo real (credito suma, debito resta) — ver nota de la auditoria
+    // 2026-08-03 mas abajo.
     let totalPremium = 0;
     let shares = 0;
+    let stockCost = 0;   // desembolso real por las acciones, neto de fees de asignacion
     let avgCost = 0;
     let costBasis = null;
+
+    // Costo base = lo que realmente pusiste por accion menos TODO lo que cobraste
+    // por ese subyacente. Se recalcula entero despues de cada movimiento en vez de
+    // ajustarse incrementalmente — antes (pre 2026-08-03) solo las calls y los
+    // dividendos tocaban costBasis y las puts no, asi que la ganancia/perdida de
+    // cualquier put vendida DESPUES de tener las acciones nunca llegaba a la base.
+    const syncBasis = () => { if (shares > 0) costBasis = avgCost - totalPremium / shares; };
 
     for (const tx of txs) {
       const action    = tx.action || '';
@@ -57,75 +68,89 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       const parsed    = parseSymbol(tx.symbol || '');
       const date      = (tx['transaction-date'] || '').slice(0, 10);
 
-      // Ignorar posiciones largas en opciones (coberturas, no parte del ciclo Rueda)
-      if (parsed.isOption && /Buy to Open|Sell to Close/i.test(action)) continue;
+      // ── Opciones: TODAS las patas, cortas y largas ────────────────
+      // Antes (pre 2026-08-03) se descartaban las patas largas asumiendo que eran
+      // coberturas ajenas al ciclo. En la practica varias entradas fueron spreads
+      // verticales de una sola orden (misma marca de tiempo, IDs consecutivos —
+      // p.ej. GAP 27/24 del 28-may, 20/19.5 x3 del 25-jun, 19.5/20 x6 del 29-jun),
+      // asi que la pata larga es parte del mismo trade y su plata cuenta igual.
+      // No hay forma confiable de distinguir "cobertura" de "pata de spread" en el
+      // feed de Tastytrade, y en ambos casos es dinero real del subyacente.
+      if (parsed.isOption && parsed.type) {
+        let type = null;
+        if      (/Sell to Open/i.test(action))  type = parsed.type === 'P' ? 'STO_PUT' : 'STO_CALL';
+        else if (/Buy to Close/i.test(action))  type = parsed.type === 'P' ? 'BTC_PUT' : 'BTC_CALL';
+        else if (/Buy to Open/i.test(action))   type = parsed.type === 'P' ? 'BTO_PUT' : 'BTO_CALL';
+        else if (/Sell to Close/i.test(action)) type = parsed.type === 'P' ? 'STC_PUT' : 'STC_CALL';
+        // Assignment / Expiration: sin `action` y net-value 0 — no mueven plata.
+        if (!type) continue;
+        const qty = Math.abs(parseFloat(tx.quantity || 0)) || undefined;
+        events.push({ date, type, strike:parsed.strike, expiry:parsed.expiry, contracts:qty, amount:+nv.toFixed(3) });
+        totalPremium += nv;
+        syncBasis();
+        continue;
+      }
 
-      if (/Sell to Open/i.test(action) && parsed.type === 'P') {
-        events.push({ date, type:'STO_PUT', strike:parsed.strike, expiry:parsed.expiry, amount:Math.abs(nv) });
-        totalPremium += Math.abs(nv);
+      // ── Dividendos ────────────────────────────────────────────────
+      // Deteccion tolerante por sub-type O descripcion. Se usa el signo real: el
+      // credito del dividendo suma y la retencion de impuesto (que llega como una
+      // fila Debit aparte con el mismo sub-type "Dividend") resta. Antes se hacia
+      // Math.abs() sobre ambas, asi que la retencion se contaba como si fuera
+      // ingreso extra — p.ej. GAP 29-jul: +17.50 y -5.25 se sumaban como 22.75
+      // cuando el neto real era 12.25.
+      if (txType === 'Money Movement' && /dividend/i.test(tx['transaction-sub-type'] || tx.description || '')) {
+        totalPremium += nv;
+        syncBasis();
+        events.push({ date, type:'DIVIDENDO', amount:+nv.toFixed(2), costBasis });
+        continue;
+      }
 
-      } else if (/Buy to Close/i.test(action) && parsed.type === 'P') {
-        events.push({ date, type:'BTC_PUT', strike:parsed.strike, expiry:parsed.expiry, amount:-Math.abs(nv) });
-        totalPremium -= Math.abs(nv);
-
-      } else if (/Sell to Open/i.test(action) && parsed.type === 'C') {
-        events.push({ date, type:'STO_CALL', strike:parsed.strike, expiry:parsed.expiry, amount:Math.abs(nv) });
-        totalPremium += Math.abs(nv);
-        // Reducir costo base por prima de CC (solo si ya hay acciones)
-        if (costBasis !== null && shares > 0) costBasis -= Math.abs(nv) / shares;
-
-      } else if (/Buy to Close/i.test(action) && parsed.type === 'C') {
-        events.push({ date, type:'BTC_CALL', strike:parsed.strike, expiry:parsed.expiry, amount:-Math.abs(nv) });
-        totalPremium -= Math.abs(nv);
-        // Revertir reducción al cerrar CC
-        if (costBasis !== null && shares > 0) costBasis += Math.abs(nv) / shares;
-
-      } else if (instrType === 'Equity' && /Buy to Open|Buy/i.test(action)) {
+      // ── Acciones ──────────────────────────────────────────────────
+      if (instrType === 'Equity' && /Buy to Open|Buy/i.test(action)) {
         const qty   = parseFloat(tx.quantity || 0);
         const price = parseFloat(tx.price || 0);
-        avgCost = shares ? (avgCost * shares + price * qty) / (shares + qty) : price;
-        shares += qty;
-        // FIX: descontar TODA la prima acumulada hasta ahora (incluye Puts cobradas antes de comprar)
-        costBasis = avgCost - totalPremium / shares;
-        events.push({ date, type:'STOCK_BUY', qty, price, amount:-Math.abs(nv) });
+        // net-value, no price*qty: incluye los fees de asignacion (clearing-fees),
+        // que son plata que efectivamente saliste a pagar por las acciones.
+        const cost  = Math.abs(nv);
+        stockCost += cost;
+        shares    += qty;
+        avgCost    = shares > 0 ? stockCost / shares : 0;
+        syncBasis();
+        events.push({ date, type:'STOCK_BUY', qty, price, fees:+(cost - price * qty).toFixed(2), amount:-cost });
+        continue;
+      }
 
-      } else if (instrType === 'Equity' && /Sell/i.test(action)) {
+      if (instrType === 'Equity' && /Sell/i.test(action)) {
         const qty   = parseFloat(tx.quantity || 0);
         const price = parseFloat(tx.price || 0);
         events.push({ date, type:'STOCK_SELL', qty, price, amount:Math.abs(nv) });
-        shares -= qty;
-        if (shares <= 0) shares = 0;
+        stockCost -= avgCost * Math.min(qty, shares);
+        shares    -= qty;
+        if (shares <= 0) { shares = 0; stockCost = 0; }
+        syncBasis();
+        continue;
+      }
 
-      } else if (txType === 'Receive Deliver' && /Receive/i.test(action)) {
+      if (txType === 'Receive Deliver' && /Receive/i.test(action)) {
         const qty = parseFloat(tx.quantity || 0);
         if (qty > 0) {
           const lastPut = [...events].reverse().find(e => e.type === 'STO_PUT');
           const assignPrice = lastPut?.strike || avgCost;
-          avgCost = shares ? (avgCost * shares + assignPrice * qty) / (shares + qty) : assignPrice;
-          shares += qty;
-          costBasis = avgCost - totalPremium / shares;
+          stockCost += assignPrice * qty;
+          shares    += qty;
+          avgCost    = shares > 0 ? stockCost / shares : 0;
+          syncBasis();
           events.push({ date, type:'ASSIGNED', qty, price:assignPrice, costBasis, amount:0 });
         }
-
-      } else if (txType === 'Money Movement' && /dividend/i.test(tx['transaction-sub-type'] || tx.description || '')) {
-        // Deteccion tolerante — no hay un dividendo real todavia con el que confirmar
-        // el nombre exacto del transaction-sub-type de Tastytrade, asi que matchea
-        // por sub-type O descripcion conteniendo "dividend" (case-insensitive) en vez
-        // de un valor exacto.
-        // A pedido del usuario (2026-07-09): el dividendo SI reduce el costo base,
-        // mismo patron que STO_CALL — se suma a totalPremium (para que un STOCK_BUY
-        // futuro que recalcule desde cero tambien lo incluya) y se resta directo de
-        // costBasis si ya hay acciones en mano.
-        const divAmount = Math.abs(nv);
-        totalPremium += divAmount;
-        if (costBasis !== null && shares > 0) costBasis -= divAmount / shares;
-        events.push({ date, type:'DIVIDENDO', amount: divAmount, costBasis });
       }
     }
 
     // ── Consolidar rolls: BTC+STO mismo día (puts Y calls) ──────────
     // Si el mismo día hay un BTC y un STO del mismo tipo (P o C),
     // se trata como un ROLL y se consolida en un único evento neto.
+    // Solo entran las patas CORTAS: un BTO/STC (pata larga de un spread) no es un
+    // roll aunque caiga el mismo dia, y mezclarlo acá inventaría rolls que nunca
+    // ocurrieron. Quedan como eventos sueltos en el timeline.
     const rollsByDate = {};
     const nonRollEvents = [];
 
@@ -201,7 +226,7 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
 
     // ── Costo base proyectado (CSP abierta, antes de asignación) ──
     const sharesIfAssigned = contracts * 100;
-    let projectedCostBasis = costBasis;
+    let projectedCostBasis = costBasis !== null ? +costBasis.toFixed(4) : null;
     if (costBasis === null && putStrike > 0 && sharesIfAssigned > 0) {
       projectedCostBasis = +(putStrike - totalPremium / sharesIfAssigned).toFixed(4);
     } else if (costBasis === null && shares > 0 && totalPremium > 0) {

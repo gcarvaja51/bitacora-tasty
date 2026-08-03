@@ -1610,8 +1610,17 @@ function renderWheelRich(wheels, priceMap) {
 
   const phaseLabel = { CSP_ACTIVA:'🔵 CSP Activa', CC_ACTIVA:'🟢 Covered Call', ACCIONES:'🟡 Acciones', IDLE:'⚪ Sin actividad' };
   const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
-  const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', BTO_PUT:'🛡️', STC_PUT:'📤', BTO_CALL:'🛡️', STC_CALL:'📤', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
+  const evIcon     = { STO_PUT:'⬆️', BTC_PUT:'⬇️', STO_CALL:'⬆️', BTC_CALL:'⬇️', BTO_PUT:'⬇️', STC_PUT:'⬆️', BTO_CALL:'⬇️', STC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
   const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', BTO_PUT:'Put larga comprada', STC_PUT:'Put larga cerrada', BTO_CALL:'Call larga comprada', STC_CALL:'Call larga cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
+
+  // Ver nota en index.html: la flecha sigue la direccion de la PLATA, no la de la
+  // operacion — un cierre que costo dinero no puede mostrar ⬆️.
+  const evIconFor = (e) => /^(STO|BTC|BTO|STC)_/.test(e.type || '')
+    ? ((e.amount || 0) >= 0 ? '⬆️' : '⬇️')
+    : (evIcon[e.type] || '•');
+  const evLabelFor = (e) => e.type === 'DIVIDENDO' && (e.amount || 0) < 0
+    ? 'Retención dividendo'
+    : (evLabel[e.type] || e.type);
 
   // ── VISTA TABLA ──────────────────────────────────────────────
   const tablaHtml = (() => {
@@ -1650,18 +1659,18 @@ function renderWheelRich(wheels, priceMap) {
         </tr></thead>
         <tbody>${w.events.map(e => {
         const isRoll = e.type === 'ROLL';
-        const tipo = evIcon[e.type]||'•';
+        const tipo = evIconFor(e);
         const desc = isRoll ? `Roll $${e.fromStrike}→$${e.toStrike} · ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
           : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
           : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
-          : `${evLabel[e.type]||e.type}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
+          : `${evLabelFor(e)}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
         const amt = e.amount||0;
         const amtCls = amt>=0?'pos':'neg';
         const amtStr = (amt>=0?'+$':'-$')+Math.abs(amt).toFixed(2);
         return `<tr class="wheel-event-tr">
           <td style="color:var(--muted);">${e.date}</td>
-          <td>${tipo} ${evLabel[e.type]||e.type}</td>
+          <td>${tipo} ${evLabelFor(e)}</td>
           <td style="color:var(--muted2);">${desc}</td>
           <td style="text-align:right;" class="${amtCls}">${amtStr}</td>
         </tr>`;
@@ -1737,10 +1746,10 @@ function renderWheelRich(wheels, priceMap) {
         : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
         : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
         : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
-        : `${evLabel[e.type]||e.type}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
+        : `${evLabelFor(e)}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
       const amt = e.amount||0;
       return `<div class="wheel-event">
-        <div class="wheel-event-icon">${evIcon[e.type]||'•'}</div>
+        <div class="wheel-event-icon">${evIconFor(e)}</div>
         <div class="wheel-event-body">
           <div class="wheel-event-date">${e.date}</div>
           <div class="wheel-event-desc">${desc}</div>

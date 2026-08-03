@@ -3814,8 +3814,26 @@ async function loadWheel() {
 
     const phaseLabel = { CSP_ACTIVA:'🔵 CSP Activa', CC_ACTIVA:'🟢 Covered Call', ACCIONES:'🟡 Acciones', IDLE:'⚪ Sin actividad' };
     const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
-    const evIcon     = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
-    const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
+    const evIcon     = { STO_PUT:'⬆️', BTC_PUT:'⬇️', STO_CALL:'⬆️', BTC_CALL:'⬇️', BTO_PUT:'⬇️', STC_PUT:'⬆️', BTO_CALL:'⬇️', STC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
+    const evLabel    = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', BTO_PUT:'Put larga comprada', STC_PUT:'Put larga cerrada', BTO_CALL:'Call larga comprada', STC_CALL:'Call larga cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
+
+    // La flecha sigue la direccion de la PLATA, no la de la operacion.
+    // Bug reportado 2026-08-03: el mapa original marcaba compra/venta (BTC='⬆️'
+    // porque "comprás para cerrar"), asi que un cierre que costo dinero salia con
+    // flecha hacia arriba al lado de un monto negativo — "Put cerrada -$267.36 ⬆️".
+    // Ahora se deriva del signo del monto, asi no puede volver a contradecirlo.
+    // ROLL y los eventos de acciones/dividendo mantienen su icono propio: el roll
+    // es un neto que puede dar para cualquier lado y los otros ya se leen solos.
+    const evIconFor = (e) => /^(STO|BTC|BTO|STC)_/.test(e.type || '')
+      ? ((e.amount || 0) >= 0 ? '⬆️' : '⬇️')
+      : (evIcon[e.type] || '•');
+
+    // Un dividendo llega en dos filas: el credito y la retencion de impuesto
+    // (Debit). Distinguirlas en el timeline para que la negativa no se lea como
+    // "dividendo en contra".
+    const evLabelFor = (e) => e.type === 'DIVIDENDO' && (e.amount || 0) < 0
+      ? 'Retención dividendo'
+      : (evLabel[e.type] || e.type);
 
     // ── VISTA TABLA ──────────────────────────────────────────────
     const tablaHtml = (() => {
@@ -3858,8 +3876,8 @@ async function loadWheel() {
         const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
 
         // Timeline detail
-        const evIcon  = { STO_PUT:'⬇️', BTC_PUT:'⬆️', STO_CALL:'📞', BTC_CALL:'⬆️', ROLL:'🔄', STOCK_BUY:'🛒', STOCK_SELL:'💰', ASSIGNED:'🎯', DIVIDENDO:'💵' };
-        const evLabel = { STO_PUT:'Put vendida', BTC_PUT:'Put cerrada', STO_CALL:'Covered Call vendida', BTC_CALL:'Covered Call cerrada', ROLL:'Roll', STOCK_BUY:'Acciones compradas', STOCK_SELL:'Acciones vendidas', ASSIGNED:'Asignado', DIVIDENDO:'Dividendo' };
+        // (los mapas de icono/etiqueta viven arriba, en el scope de loadWheel —
+        // se usan via evIconFor/evLabelFor para que la flecha siga a la plata)
         const timelineHtml = `<table class="wheel-timeline" style="width:100%;">
           <thead><tr>
             <th class="wheel-event-th" style="text-align:left;">FECHA</th>
@@ -3869,18 +3887,18 @@ async function loadWheel() {
           </tr></thead>
           <tbody>${w.events.map(e => {
           const isRoll = e.type === 'ROLL';
-          const tipo = evIcon[e.type]||'•';
+          const tipo = evIconFor(e);
           const desc = isRoll ? `Roll $${e.fromStrike}→$${e.toStrike} · ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
             : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
             : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
             : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
-            : `${evLabel[e.type]||e.type}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
+            : `${evLabelFor(e)}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
           const amt = e.amount||0;
           const amtCls = amt>=0?'pos':'neg';
           const amtStr = (amt>=0?'+$':'-$')+Math.abs(amt).toFixed(2);
           return `<tr class="wheel-event-tr">
             <td style="color:var(--muted);">${e.date}</td>
-            <td>${tipo} ${evLabel[e.type]||e.type}</td>
+            <td>${tipo} ${evLabelFor(e)}</td>
             <td style="color:var(--muted2);">${desc}</td>
             <td style="text-align:right;" class="${amtCls}">${amtStr}</td>
           </tr>`;
@@ -3962,10 +3980,10 @@ async function loadWheel() {
           : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
           : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
-          : `${evLabel[e.type]||e.type}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
+          : `${evLabelFor(e)}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
         const amt = e.amount||0;
         return `<div class="wheel-event">
-          <div class="wheel-event-icon">${evIcon[e.type]||'•'}</div>
+          <div class="wheel-event-icon">${evIconFor(e)}</div>
           <div class="wheel-event-body">
             <div class="wheel-event-date">${e.date}</div>
             <div class="wheel-event-desc">${desc}</div>
@@ -4043,7 +4061,8 @@ async function loadWheel() {
           : w.costBasis > 0 ? w.costBasis * shares * 0.45 : 0;
 
         // Fechas — usar SOLO eventos de prima (no compras de acciones)
-        const premTypes  = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
+        const premTypes  = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL',
+                                    'BTO_PUT','STC_PUT','BTO_CALL','STC_CALL']);
         const premEvents = w.events.filter(e => premTypes.has(e.type));
         const firstDate  = premEvents.length > 0 ? new Date(premEvents[0].date) : null;
         // Meses transcurridos desde primera prima — mínimo 1 mes completo para no inflar
@@ -4196,6 +4215,17 @@ async function loadWheel() {
           }
         }
 
+        // Mismo indice para las patas LARGAS (BTO → STC). Simetrico al de arriba:
+        // el debito de abrir la pata larga se muestra neteado en la semana en que
+        // se cierra, no en la de apertura, para que un spread no aparezca como una
+        // perdida en una semana y una ganancia en otra.
+        const btoIndex = new Map();
+        for (const ev of w.events) {
+          if ((ev.type === 'BTO_PUT' || ev.type === 'BTO_CALL') && ev.strike != null && ev.expiry) {
+            btoIndex.set(`${ev.strike}|${ev.expiry}`, { amount: ev.amount || 0, date: ev.date, used: false });
+          }
+        }
+
         const addAmt = (date, amt) => {
           const wk = mondayOf(date);
           allWeeksSet.add(wk);
@@ -4218,8 +4248,18 @@ async function loadWheel() {
             // Si no hay STO matching (caso raro), mostrar el BTC solo
             else { addAmt(ev.date, ev.amount || 0); }
 
+          } else if (ev.type === 'STC_PUT' || ev.type === 'STC_CALL') {
+            // Cierre de pata larga: netear contra su BTO, misma logica que arriba
+            const key = `${ev.strike}|${ev.expiry}`;
+            const bto = btoIndex.get(key);
+            if (bto) {
+              bto.used = true;
+              addAmt(ev.date, bto.amount + (ev.amount || 0));
+            }
+            else { addAmt(ev.date, ev.amount || 0); }
+
           }
-          // STO_PUT/STO_CALL: se procesan al llegar su BTC o al expirar (ver abajo)
+          // STO_*/BTO_*: se procesan al llegar su cierre o al expirar (ver abajo)
         }
 
         // STOs que expiraron sin BTC → mostrar prima en la semana de su expiry
@@ -4228,6 +4268,16 @@ async function loadWheel() {
             const expiry = key.split('|')[1];
             if (expiry && expiry < today) {
               addAmt(expiry, sto.amount); // semana de la expiry
+            }
+          }
+        }
+
+        // BTOs que expiraron sin venderse → la prima pagada se pierde entera
+        for (const [key, bto] of btoIndex) {
+          if (!bto.used) {
+            const expiry = key.split('|')[1];
+            if (expiry && expiry < today) {
+              addAmt(expiry, bto.amount); // amount ya viene negativo
             }
           }
         }

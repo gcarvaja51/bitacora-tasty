@@ -52,26 +52,79 @@ Estrategia de opciones: CSP → Asignación → Covered Call, ciclando.
 **Tipos de eventos** (generados por `wheel.js`):
 - `STO_PUT` / `BTC_PUT` — Sell/Buy to Close Put
 - `STO_CALL` / `BTC_CALL` — Sell/Buy to Close Call
-- `ROLL` — BTC + STO mismo día (consolidado automáticamente, puts y calls)
+- `BTO_PUT` / `STC_PUT` / `BTO_CALL` / `STC_CALL` (agregados 2026-08-03) — patas **largas**
+  (compra para abrir / venta para cerrar), ver auditoría abajo
+- `ROLL` — BTC + STO mismo día (consolidado automáticamente, puts y calls). **Solo patas
+  cortas**: un BTO/STC del mismo día no es un roll y se deja como evento suelto.
 - `STOCK_BUY` / `STOCK_SELL` / `ASSIGNED`
 - `DIVIDENDO` (agregado 2026-07-09) — dividendos en efectivo, ver nota abajo
 
 **Underlyings activos**: JBLU, NU, GAP, SOFI (en `wheel_config.json`)
 
+### Auditoría 2026-08-03 — tres errores de contabilidad corregidos
+
+Disparada por una revisión manual de la card de GAP. Los tres afectaban `totalPremium` y/o
+`costBasis` de **todos** los activos. Verificado después del fix: `totalPremium` de las 4
+ruedas cuadra al centavo contra una suma independiente de los `net-value` crudos del feed.
+
+1. **Patas largas descartadas.** Había un `continue` que ignoraba todo `Buy to Open` /
+   `Sell to Close` en opciones, asumiendo que eran coberturas ajenas al ciclo. En la práctica
+   varias entradas fueron **spreads verticales de una sola orden** — confirmado por
+   `executed-at` idéntico al milisegundo, IDs consecutivos y el mismo `order-id` (p.ej. GAP
+   27/24 del 28-may, 20/19.5 ×3 del 25-jun, 19.5/20 ×6 del 29-jun; NU 12/11 ×2 del 15-may).
+   La pata larga es parte del mismo trade y su plata cuenta igual. No hay forma confiable de
+   distinguir "cobertura" de "pata de spread" en el feed de Tastytrade, y en ambos casos es
+   dinero real del subyacente — así que ahora **entran todas**.
+2. **Retención de impuesto contada como ingreso.** El dividendo llega como dos filas con el
+   mismo `transaction-sub-type: "Dividend"`: el crédito y la retención (Debit). Se hacía
+   `Math.abs()` sobre ambas, así que la retención **sumaba** en vez de restar. GAP 29-jul:
+   +17.50 y −5.25 se contaban como 22.75 cuando el neto real es 12.25. Ahora se usa el signo.
+3. **Costo base asimétrico entre puts y calls.** `costBasis` se ajustaba incrementalmente y
+   **solo** las calls y los dividendos lo tocaban. Cualquier put vendida *después* de tener
+   las acciones nunca llegaba a la base — en GAP eso escondió una pérdida de $138.75.
+   Reemplazado por un recálculo completo (`syncBasis()`) después de cada movimiento:
+   `costBasis = avgCost − totalPremium / shares`. Una sola fórmula, sin casos especiales.
+
+Bonus del mismo pase: `avgCost` ahora sale del `net-value` de la compra, no de `price × qty`,
+así incluye los `clearing-fees` de la asignación (GAP: $27.05 real vs $27.00 que mostraba).
+
+**Impacto en las cards** (antes → después):
+
+| | prima | costo base | avgCost |
+|---|---|---|---|
+| GAP | 315.98 → **372.99** | 22.4527 → **23.3201** | 27.00 → **27.05** |
+| NU | (n/d) → **282.37** | → **11.6132** | 13.00 → **13.025** |
+| JBLU | 95.96 → **95.96** | 4.8139 → **4.3211** | 5.2800 → **5.2808** |
+| SOFI | → **151.85** | → **14.9815** (proyectado) | — |
+
+JBLU no tenía patas largas ni dividendos: su base cambió solo por el error 3 (las puts
+vendidas con acciones en mano ahora sí reducen la base) — se movió **a favor**.
+
+`src/wheel_tradier_adapter.js` **no** necesitó cambios: proyecta la máquina de estados de la
+Rueda automatizada, que solo opera patas cortas y no registra dividendos.
+
+**Bug de display detectado por el usuario en el mismo pase:** el mapa `evIcon` marcaba la
+dirección de la *operación* (`BTC_*: '⬆️'`, porque comprás para cerrar), así que un cierre que
+costó dinero salía con flecha hacia arriba al lado de un monto negativo — *"Put cerrada
+$20 07-17 · −$267.36 ⬆️"*. Ahora hay un helper `evIconFor(e)` en ambos renderers que **deriva
+la flecha del signo del monto**, así no puede volver a contradecirlo; `ROLL` y los eventos de
+acciones/dividendo mantienen su ícono propio (el roll es un neto que puede dar para cualquier
+lado). Junto con eso, `evLabelFor(e)` etiqueta el `DIVIDENDO` negativo como *"Retención
+dividendo"* para que no se lea como un dividendo en contra.
+
 **Feature 2026-07-09 — dividendos ahora aparecen en la Rueda:** antes `buildWheelData`
 solo procesaba `transaction-type` `'Trade'`/`'Receive Deliver'` — un dividendo de Tastytrade
 (`'Money Movement'`) quedaba completamente afuera del pipeline, invisible en el timeline.
 Se agregó `'Money Movement'` al filtro inicial y un branch nuevo que detecta dividendos por
-`transaction-sub-type` o `description` conteniendo "dividend" (case-insensitive). **Sin
-confirmar contra un caso real todavía** — no hay ningún dividendo acreditado en la cuenta
-para validar el nombre exacto del campo que usa Tastytrade; el matcheo tolerante (por
-descripción, no un valor exacto) es la mitigación mientras no haya un ejemplo real. Revisar
-en cuanto se acredite el primero.
+`transaction-sub-type` o `description` conteniendo "dividend" (case-insensitive).
+**Confirmado contra un caso real el 2026-08-03** (GAP, acreditado el 29-jul): Tastytrade usa
+`transaction-sub-type: "Dividend"` e `instrument-type: "Equity"`, y manda **dos filas** — el
+crédito y la retención de impuesto por separado, ambas con el mismo sub-type. El matcheo
+tolerante funcionó; lo que falló fue el signo (ver error 2 de la auditoría arriba).
 **Ajuste 2026-07-09 (mismo día, a pedido explícito del usuario):** el dividendo **sí reduce
-el costo base** — mismo patrón que `STO_CALL`: se suma a `totalPremium` (para que un
-`STOCK_BUY` futuro que recalcule desde cero también lo incluya) y se resta directo de
-`costBasis` si ya hay acciones en mano en ese momento. Sigue sin sumarse a la tabla de
-"Primas/Semana" (que solo cuenta `STO/BTC/ROLL`, no dividendos) — no se pidió ese cambio.
+el costo base**. Sigue siendo así, pero desde 2026-08-03 vía `syncBasis()` como todo lo demás,
+no con un ajuste incremental propio. Sigue sin sumarse a la tabla de "Primas/Semana" (que
+solo cuenta patas de opciones, no dividendos) — no se pidió ese cambio.
 
 ## Tabla Primas/Semana (`semanalHtml` en index.html)
 
@@ -80,6 +133,10 @@ Muestra solo P&L **realizados**. Lógica:
 - `BTC` → busca su `STO` matching por `strike|expiry`, muestra el **neto** en la semana del cierre
 - `STO` sin BTC y expirado (`expiry < today`) → muestra prima en la semana del **expiry**
 - `STO` aún abierto → **excluido silenciosamente**
+- `STC` → mismo criterio que `BTC` pero contra su `BTO` (índice `btoIndex`, agregado
+  2026-08-03): el débito de abrir la pata larga se netea en la semana en que se **cierra**,
+  para que un spread no aparezca como pérdida en una semana y ganancia en otra
+- `BTO` sin `STC` y expirado → la prima pagada se perdió entera, se muestra en el **expiry**
 
 ## SPX 0DTE — CIARG_V1 + Signal Center
 
