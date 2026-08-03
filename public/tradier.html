@@ -1915,12 +1915,21 @@ function consolidateStrategies(legs) {
         // enriquecimiento con el registro RAW de mas abajo los sobreescribe con
         // el dato exacto cuando existe registro local (mas preciso que inferir
         // del stratType).
-        direction:leg.direction, strikes:leg.strikes });
+        direction:leg.direction, strikes:leg.strikes,
+        // 2026-08-03: estos tres tampoco se propagaban. pnlPending era un bug
+        // real y silencioso — la etiqueta "⏳ Pendiente" de Historial nunca se
+        // llegaba a mostrar porque el flag se perdia justo aca, antes de
+        // renderizar. isOpen/livePnl son nuevos (posiciones abiertas con P&L
+        // no realizado en vivo).
+        pnlPending:leg.pnlPending, pnlSource:leg.pnlSource,
+        isOpen:leg.isOpen, livePnl:null,
+        closeReason:leg.closeReason, entryFillPrice:leg.entryFillPrice });
     }
     const s = map.get(key);
     s.openValue  += leg.openValue  || 0;
     s.closeValue += leg.closeValue || 0;
     s.pnl        += leg.pnl        || 0;
+    if (typeof leg.livePnl === 'number') s.livePnl = (s.livePnl || 0) + leg.livePnl;
   }
   return [...map.values()];
 }
@@ -1977,10 +1986,19 @@ async function loadHistoryTradier() {
       }
     });
 
-    const wins     = strategies.filter(s => s.pnl > 0).length;
-    const totalPnl = strategies.reduce((a,b) => a + b.pnl, 0);
+    // El resumen mide SOLO lo cerrado con P&L real. Las posiciones abiertas y
+    // las pendientes de conciliar aparecen en la tabla, pero contarlas aca
+    // ensuciaria el win rate con trades que todavia no tienen resultado.
+    const cerrados = strategies.filter(s => !s.pnlPending);
+    const abiertos = strategies.filter(s => s.isOpen);
+    const pendientes = strategies.filter(s => s.pnlPending && !s.isOpen);
+    const wins     = cerrados.filter(s => s.pnl > 0).length;
+    const totalPnl = cerrados.reduce((a,b) => a + b.pnl, 0);
+    const liveSum  = abiertos.reduce((a,b) => a + (b.livePnl || 0), 0);
     $('hist-summary').textContent =
-      `${strategies.length} trades cerrados · Win Rate: ${strategies.length ? Math.round(wins/strategies.length*100) : 0}% · P&L: ${f$(totalPnl)}`;
+      `${cerrados.length} trades cerrados · Win Rate: ${cerrados.length ? Math.round(wins/cerrados.length*100) : 0}% · P&L: ${f$(totalPnl)}`
+      + (abiertos.length ? ` · 🔵 ${abiertos.length} abierta${abiertos.length>1?'s':''} (~${f$(liveSum)} no realizado)` : '')
+      + (pendientes.length ? ` · ⏳ ${pendientes.length} por conciliar` : '');
 
     window._histData = strategies;
     window._histSortCol = 'closeDate';
@@ -2005,7 +2023,7 @@ async function loadHistoryTradier() {
         return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
       });
       $('hist-tbody').innerHTML = !sorted.length
-        ? '<tr><td colspan="12" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados en este período</td></tr>'
+        ? '<tr><td colspan="12" style="text-align:center;padding:24px;color:var(--muted);">Sin trades en este período</td></tr>'
         : sorted.map(s => {
             const durLabel = s.durationDays === 0 ? 'Intradía' : s.durationDays === 1 ? '1 día' : `${s.durationDays}d`;
             const origenLabel = ORIGEN_LABELS[s.strategyFamily] || s.strategyFamily || (s.stratType === 'The Wheel' ? 'La Rueda' : '—');
@@ -2018,8 +2036,8 @@ async function loadHistoryTradier() {
             const informeBtn = tieneInforme
               ? `<a href="/api/informe-trade/${s.key}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
               : `<span class="dim" style="font-size:10px;">—</span>`;
-            return `<tr>
-              <td class="td-mono dim">${s.closeDate||'—'}</td>
+            return `<tr${s.isOpen ? ' style="background:rgba(79,142,255,.06);"' : ''}>
+              <td class="td-mono dim">${s.isOpen ? '<span class="badge badge-blue" style="font-size:9px;">🔵 ABIERTA</span>' : (s.closeDate||'—')}</td>
               <td class="td-mono dim">${s.openDate||'—'}</td>
               <td class="${s.direction==='BULLISH'?'pos':s.direction==='BEARISH'?'neg':'dim'}">${s.direction||'—'}</td>
               <td style="font-size:11px;">${origenLabel}</td>
@@ -2029,9 +2047,15 @@ async function loadHistoryTradier() {
               <td style="font-size:11px;">${cierreLabel}</td>
               <td class="td-mono dim">${durLabel}</td>
               <td class="td-mono">${fillLabel}</td>
-              ${s.pnlPending
-                ? `<td class="td-mono dim" style="font-weight:600;font-size:10px;" title="El trade ya cerró, pero Tradier todavía no asentó el P&L real (gain_loss). La conciliación pasiva corre cada 5 min y lo completa sola. Este trade NO cuenta todavía en win rate, curva ni KPIs.">⏳ Pendiente</td>`
-                : `<td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>`}
+              ${s.isOpen
+                ? (s.livePnl != null
+                    // P&L NO REALIZADO — el "~" marca que es un estimado en vivo
+                    // (cotizaciones reales de Tradier), no un resultado cerrado.
+                    ? `<td class="td-mono ${cc(s.livePnl)}" style="font-weight:700;" title="P&L no realizado, estimado con cotizaciones en vivo de Tradier. Cambia con el mercado y NO cuenta todavía en win rate, curva ni KPIs.">~${f$(s.livePnl)}</td>`
+                    : `<td class="td-mono dim" style="font-size:10px;" title="Posición abierta — no se pudo cotizar en vivo (mercado cerrado o sin datos de las patas).">🔵 Abierta</td>`)
+                : s.pnlPending
+                  ? `<td class="td-mono dim" style="font-weight:600;font-size:10px;" title="El trade ya cerró, pero Tradier todavía no asentó el P&L real (gain_loss). La conciliación pasiva corre cada 5 min y lo completa sola. Este trade NO cuenta todavía en win rate, curva ni KPIs.">⏳ Pendiente</td>`
+                  : `<td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>`}
               <td>${informeBtn}</td>
             </tr>`;
           }).join('');

@@ -61,7 +61,14 @@ const { estimateSpxCommission, estimateWheelCommission } = require('./broker_fee
 // commissionEstimate (mismo calculo que ya usa Demo Tradier, ver
 // src/broker_fees.js — antes Reportes mostraba $0 fijo de comision).
 function mapSpxExecution(ex) {
-  if (ex.status !== 'closed') return null;
+  // Posiciones ABIERTAS (2026-08-03, a pedido del usuario): antes solo entraban
+  // las cerradas, asi que un trade recien abierto no aparecia en ningun lado
+  // hasta cerrar. Ahora se incluyen marcadas con isOpen + livePnl (el P&L no
+  // realizado que ya calcula el servidor con cotizaciones reales de Tradier).
+  // Se tratan como "pendientes" para los agregados: NO cuentan en win rate,
+  // P&L total, curva ni calendario -- un trade sin cerrar no tiene resultado.
+  const isOpen = ex.status === 'filled' || ex.status === 'submitted';
+  if (ex.status !== 'closed' && !isOpen) return null;
   // pnl todavia no asentado (pnlSource 'pendiente_verificar'): ANTES se
   // descartaba el trade por completo y no aparecia en ninguna hoja hasta que
   // Tradier confirmara el gain_loss -- podia ser horas. A pedido del usuario
@@ -71,14 +78,18 @@ function mapSpxExecution(ex) {
   // buildMetricsTradier EXCLUYE estos trades de todos los agregados (win rate,
   // P&L total, curva, calendario...) -- si contaran, un trade sin resultado
   // real se leeria como perdedora de $0 y ensuciaria las metricas.
-  const pnlPending = typeof ex.pnl !== 'number';
+  const pnlPending = isOpen || typeof ex.pnl !== 'number';
   const contracts     = ex.contracts || 1;
   const entryPremium  = Math.abs(ex.entryFillPrice ?? ex.creditReceived ?? 0) * 100 * contracts;
   const openValue     = ex.isCredit === false ? -entryPremium : entryPremium;
   const pnlNum        = pnlPending ? 0 : ex.pnl;
   const closeValue    = pnlPending ? 0 : +(pnlNum - openValue).toFixed(2);
   const openDate      = (ex.filledAt || ex.timestamp || '').slice(0, 10);
-  const closeDate     = (ex.closedAt || ex.timestamp || '').slice(0, 10);
+  // Una posicion abierta no tiene fecha de cierre real. Se usa la de apertura
+  // como clave de orden (Historial ordena por closeDate) para que aparezca
+  // arriba junto a lo mas reciente, pero closeExecAt/closeDate quedan marcados
+  // como abiertos para que la UI no muestre una fecha de cierre inventada.
+  const closeDate     = isOpen ? openDate : (ex.closedAt || ex.timestamp || '').slice(0, 10);
   if (!openDate || !closeDate) return null;
   return {
     key:              ex.id,
@@ -86,6 +97,12 @@ function mapSpxExecution(ex) {
     openDate,
     closeDate,
     closeExecAt:      ex.closedAt || null,
+    isOpen,                           // <- Historial: fila de posicion abierta
+    livePnl:          isOpen ? (typeof ex.livePnl === 'number' ? ex.livePnl : null) : null,
+    direction:        ex.direction || null,
+    strikes:          ex.strikes || null,
+    closeReason:      ex.closeReason || null,
+    entryFillPrice:   ex.entryFillPrice ?? null,
     desc:             ex.strategyFamily ? `${ex.strategyFamily} · ${ex.direction || ''}`.trim() : null,
     strategyFamily:   ex.strategyFamily || null,
     stratType:        ex.strategy || 'Otro',

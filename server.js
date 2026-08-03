@@ -6973,12 +6973,34 @@ app.get('/api/nlv-history-tradier', (req, res) => {
 // Extraido para que /api/curve-tradier pueda reusar exactamente los mismos
 // datos (mismo cache key 'transactions-tradier') sin duplicar la logica de
 // reconciliacion ni pagar 2 veces el fetch real a tradier.getClosedPnl.
+// Adjunta ex.livePnl (P&L no realizado) a las ejecuciones abiertas. Extraido
+// de GET /api/tradier/executions (2026-08-03) para reusarlo en Historial, que
+// ahora tambien muestra posiciones abiertas — antes esta logica vivia inline
+// en ese unico endpoint.
+async function attachLivePnl(executions) {
+  try {
+    const abiertas = executions.filter(e => e.status === 'filled' && e.creditReceived != null);
+    if (!abiertas.length) return;
+    const simbolos = [...new Set(abiertas.flatMap(e => Object.values(e.legs || {}).filter(Boolean)))];
+    const quotes = await tradier.getQuotes(simbolos);
+    const q = {};
+    quotes.forEach(x => { q[x.symbol] = x.mark; });
+    for (const ex of abiertas) ex.livePnl = calcLivePnl(ex, q);
+  } catch(e) {
+    console.error('[TRADIER] Error calculando P&L en vivo:', e.message);
+  }
+}
+
 function getTransactionsTradierData() {
-  return cached('transactions-tradier', 300, async () => {
+  // TTL bajado de 300s a 60s (2026-08-03): Historial ahora muestra posiciones
+  // ABIERTAS con su P&L en vivo, que se mueve tick a tick — 5 minutos de cache
+  // haria que el usuario refrescara y viera el mismo numero viejo.
+  return cached('transactions-tradier', 60, async () => {
     const { buildMetricsTradier } = require('./src/metrics_tradier');
     const { reconcileClosedPnl, trackedLegKeys } = require('./src/tradier_closed_pnl_adapter');
     const spxExecutions   = loadTradierExecutions();
     const wheelExecutions = loadWheelTradingExecutions();
+    await attachLivePnl(spxExecutions);
     const closedPnl = await tradier.getClosedPnl('2026-01-01');
     const tracked = trackedLegKeys(spxExecutions, wheelExecutions);
     const brokerOnlyStrategies = reconcileClosedPnl(closedPnl, tracked);
