@@ -2692,6 +2692,10 @@ setInterval(checkWheelExecutionFills, 30 * 1000);
 // completo ya acordado con el usuario. NO vende Covered Call ni reinicia el
 // ciclo — eso es la Fase 4, deliberadamente fuera de esta.
 const WHEEL_ROLL_MIN_DELTA   = 0.35; // trigger de defensa por delta (hasta 0.50 = ATM)
+// Norma explicita del usuario (2026-08-03), al mismo nivel que la del 60% de
+// ganancia: "si el valor extrinseco tiene un valor menor al 5% de la prima,
+// [debe rolarse] para evitar que me asignen sin mi consentimiento". Sin
+// extrinseco no queda nada que compense el riesgo de ejercicio temprano.
 const WHEEL_ROLL_EXTR_PCT    = 5;    // mismo % relativo que la alerta pasiva existente
 const WHEEL_ROLL_DTE_MAX     = 21;   // regla 50/21
 // Norma explicita del usuario (2026-08-03): "si tengo abierto un put o una call
@@ -2789,11 +2793,19 @@ async function checkWheelPutManagementImpl() {
         const triggerProfit = pnlPct >= WHEEL_ROLL_PROFIT_MIN;
         if (!triggerExtr && !triggerDelta && !triggerDte && !triggerProfit) continue;
 
+        // Las dos NORMAS del usuario (ver WHEEL_ROLL_PROFIT_MIN y
+        // WHEEL_ROLL_EXTR_PCT): 60%+ capturado, o extrinseco por debajo del 5%
+        // de la prima. Cualquiera de las dos obliga a rolar y tiene prioridad
+        // sobre los cortes que llevan a la asignacion — la del extrinseco
+        // existe justamente para "evitar que me asignen sin mi consentimiento",
+        // asi que seria contradictorio dejar que readyForAssignment la anule.
+        const rollObligatorio = triggerProfit || triggerExtr;
+
         // readyForAssignment = "dejar de defender", no "dejar de cosechar":
-        // estas posiciones ahora entran al monitor pero SOLO pueden actuar por
-        // ganancia. Si el unico trigger es defensivo, se respeta la decision
-        // previa de permitir la asignacion y no se hace nada.
-        if (ex.readyForAssignment && !triggerProfit) continue;
+        // estas posiciones entran al monitor pero solo pueden actuar por una de
+        // las dos normas. Si el unico trigger es defensivo (delta/DTE), se
+        // respeta la decision previa de permitir la asignacion.
+        if (ex.readyForAssignment && !rollObligatorio) continue;
 
         // 5. Costo base real tras primas acumuladas
         const costoBaseReal = ex.leg.strike - (ex.totalCreditAccumulated || ex.creditReceived || 0);
@@ -2801,12 +2813,14 @@ async function checkWheelPutManagementImpl() {
         // 5a. ¿Ya llegó al Fair Value? → dejar de defender, no rolar más
         // (nunca para posiciones neverAssign=true — esas son especulación pura sobre la
         // prima, no se permite la asignación aunque el costo base ya sea atractivo)
-        // triggerProfit tiene prioridad sobre este corte (2026-08-03): con 70%+
-        // capturado lo correcto es cosechar y reabrir, no quedarse esperando una
-        // asignacion que probablemente ni llegue. Caso real: KO al 90% con el put
-        // a $79 y la accion en $86.98 — profundamente OTM, se iba a expirar sin
-        // valor, y este `continue` hacia que el monitor nunca lo mirara.
-        if (!triggerProfit && !ex.neverAssign && ex.fairValue != null && costoBaseReal <= ex.fairValue) {
+        // Las dos normas tienen prioridad sobre este corte (2026-08-03): con
+        // 60%+ capturado lo correcto es cosechar y reabrir, no quedarse
+        // esperando una asignacion que probablemente ni llegue; y con el
+        // extrinseco agotado el objetivo declarado es NO ser asignado. Caso
+        // real: KO al 91% con el put a $79 y la accion en $86.98 —
+        // profundamente OTM, se iba a expirar sin valor, y este `continue`
+        // hacia que el monitor nunca lo mirara.
+        if (!rollObligatorio && !ex.neverAssign && ex.fairValue != null && costoBaseReal <= ex.fairValue) {
           ex.readyForAssignment = true;
           ex.notes = `Costo base real ($${costoBaseReal.toFixed(2)}) alcanzó el Fair Value ($${ex.fairValue}) — se deja de defender, se permite la asignación.`;
           cambios = true;
@@ -2830,11 +2844,15 @@ async function checkWheelPutManagementImpl() {
         // lo que se busca es reciclar la prima en el plazo mas eficiente.
         // Si en esa ventana no hay ningun vencimiento con prima, se cae a la
         // logica de siempre (todos los vencimientos) en vez de no rolar.
-        const soloGanancia = triggerProfit && !esDefensivo && !triggerDelta;
-        if (soloGanancia) {
+        const porNorma = rollObligatorio && !esDefensivo && !triggerDelta;
+        if (porNorma) {
           const ventana = expirations.filter(e => e.dte != null && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX);
           rollDate = wheelTrading.findBestRollDate(ventana, ex.leg.strike);
-          if (rollDate) console.log(`[WHEEL-MGMT] ${ex.symbol}: roll por ganancia (${(pnlPct*100).toFixed(0)}% capturado) — mejor vencimiento entre 1-3 semanas: ${rollDate.expiry} (${rollDate.dte} DTE, $${rollDate.premium}, ${rollDate.creditPerDay}/dia).`);
+          const motivo = triggerProfit ? `${(pnlPct*100).toFixed(0)}% capturado` : `extrinseco ${extrPct.toFixed(1)}% de la prima`;
+          if (rollDate) console.log(`[WHEEL-MGMT] ${ex.symbol}: roll por norma (${motivo}) — mejor vencimiento entre 1-3 semanas: ${rollDate.expiry} (${rollDate.dte} DTE, $${rollDate.premium}, ${rollDate.creditPerDay}/dia).`);
+          // Si en 1-3 semanas no hay nada rolable, NO se abandona: cae a la
+          // logica de siempre (todos los vencimientos), que es la que tiene mas
+          // chance de encontrar credito neto en una posicion ya ITM.
         }
         if (rollDate) {
           // Ya resuelto por el roll de ganancia — no se evalua defensa ni caminata.
@@ -3169,8 +3187,8 @@ async function checkWheelCallManagementImpl() {
         // strike (no solo uno mas alto): con la call ya muy OTM, subir el strike
         // deja una prima insignificante. El mismo strike nunca viola el
         // break-even, porque el original ya estaba por encima del costo base.
-        const soloGanancia = triggerProfit && !triggerDelta && !triggerExtr;
-        if (soloGanancia) {
+        const porNorma = triggerProfit || triggerExtr;
+        if (porNorma && !triggerDelta) {
           const ventana = expirations.filter(e => e.dte != null && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX);
           const candidatos = (currentExp?.strikes || [])
             .filter(s => s.strike >= ex.leg.strike && s.call)
@@ -3184,7 +3202,7 @@ async function checkWheelCallManagementImpl() {
           }
           if (mejor) {
             targetStrike = mejor.strike; rollDate = mejor.rd;
-            console.log(`[WHEEL-CC-MGMT] ${ex.symbol}: roll por ganancia (${(pnlPct*100).toFixed(0)}% capturado) — Call ${ex.leg.strike}→${targetStrike}, mejor vencimiento 1-3 semanas: ${rollDate.expiry} (${rollDate.dte} DTE, $${rollDate.premium}, ${rollDate.creditPerDay}/dia).`);
+            console.log(`[WHEEL-CC-MGMT] ${ex.symbol}: roll por norma (${triggerProfit ? `${(pnlPct*100).toFixed(0)}% capturado` : `extrinseco ${extrPct.toFixed(1)}%`}) — Call ${ex.leg.strike}→${targetStrike}, mejor vencimiento 1-3 semanas: ${rollDate.expiry} (${rollDate.dte} DTE, $${rollDate.premium}, ${rollDate.creditPerDay}/dia).`);
           }
         }
 
