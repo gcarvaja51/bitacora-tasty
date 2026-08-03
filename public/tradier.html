@@ -806,14 +806,38 @@ function renderMonitorChips() {
   }).join('');
 }
 
+// Color de cada serie, leido SIEMPRE de MON_OVERLAYS. Antes el popup repetia
+// los hex a mano y quedo desincronizado: al pasar el Gamma Flip a violeta y el
+// MVS a naranja, el popup siguio mostrando el Gamma Flip en amarillo y el MVS
+// en violeta — el usuario lo vio antes que yo. Con una sola fuente de color no
+// puede volver a pasar.
+function colorDe(id) {
+  const o = MON_OVERLAYS.find(x => x.id === id);
+  return o ? o.color : '#b2b5be';
+}
+
 function toggleMonitorOverlay(id) {
   _monOn[id] = !_monOn[id];
   renderMonitorChips();
   renderMonitorSPX();
 }
 
-// EMA sobre los cierres YA recortados al dia mostrado, para que la media
-// arranque con el mismo recorte que se ve en pantalla.
+// EMA calculada sobre TODA la serie disponible y despues recortada al dia que
+// se muestra (2026-08-03). Antes se calculaba solo con las velas del dia, y una
+// EMA necesita `periodo` velas para sembrarse: con velas de 5 min la EMA 20 no
+// tenia su primer punto hasta pasados 100 minutos, o sea que recien aparecia
+// despues de las 11:00 y las primeras dos horas de sesion quedaban sin medias
+// — justo el tramo donde mas se opera. Sembrarla con las sesiones anteriores es
+// ademas lo correcto: una EMA es continua, no se reinicia en cada apertura
+// (mismo comportamiento que TradingView).
+function monEMARecortada(todas, visibles, periodo) {
+  const completa = monEMA(todas, periodo);
+  const porTiempo = new Map(completa.map(d => [d.time, d.value]));
+  return visibles
+    .map(b => ({ time: b.time, value: porTiempo.get(b.time) }))
+    .filter(d => d.value != null);
+}
+
 function monEMA(bars, periodo) {
   if (bars.length < periodo) return [];
   const k = 2 / (periodo + 1);
@@ -856,6 +880,18 @@ function renderMonitorSPX() {
   }
   const conNivel = porVela.filter(Boolean).length;
 
+  // Cola posterior al cierre de velas (2026-08-03). Las velas de 5 min terminan
+  // a las 15:55, pero el daemon sigue leyendo hasta pasadas las 16:00 — o sea
+  // que el valor de CIERRE caia siempre fuera del grafico. Caso real que lo
+  // destapo: el usuario vio que el Gamma Flip cerro en 7595 y la etiqueta
+  // mostraba 7665, que era la lectura de las 15:54 (la ultima que entraba antes
+  // de la vela de 15:55). El dato estaba bien guardado; el grafico lo tiraba.
+  // Estas lecturas se dibujan en SU PROPIO timestamp, no remuestreadas: son
+  // pocas y van todas despues de la ultima vela, asi que solo agregan unas
+  // ranuras al borde derecho sin descolocar las velas.
+  const ultimaVela = bars[bars.length - 1].time;
+  const cola = niveles.filter(n => n.t > ultimaVela);
+
   _monChart = LightweightCharts.createChart(cont, {
     width: cont.clientWidth || 900,
     height: 520,
@@ -890,6 +926,7 @@ function renderMonitorSPX() {
       const v = porVela[i] ? porVela[i][o.id] : null;
       if (v != null) datos.push({ time: b.time, value: v });
     });
+    cola.forEach(n => { if (n[o.id] != null) datos.push({ time: n.t, value: n[o.id] }); });
     if (!datos.length) continue;
     const s = _monChart.addLineSeries({
       color: o.color, lineWidth: 2, lineType: LightweightCharts.LineType.WithSteps,
@@ -902,7 +939,7 @@ function renderMonitorSPX() {
   const emaData = {};
   for (const o of MON_OVERLAYS.filter(x => x.tipo === 'ema')) {
     if (!_monOn[o.id]) continue;
-    const datos = monEMA(bars, o.id === 'ema10' ? 10 : 20);
+    const datos = monEMARecortada(_monData.bars, bars, o.id === 'ema10' ? 10 : 20);
     emaData[o.id] = datos;
     const s = _monChart.addLineSeries({ color:o.color, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
     s.setData(datos);
@@ -993,6 +1030,7 @@ function renderMonitorSPX() {
         const v = porVela[i] ? porVela[i][o.id] : null;
         if (v != null) datos.push({ time:b.time, value:+(v / 1e9).toFixed(2) });
       });
+      cola.forEach(n => { if (n[o.id] != null) datos.push({ time:n.t, value:+(n[o.id] / 1e9).toFixed(2) }); });
       if (!datos.length) continue;
       const serie = _monChartFlujos.addLineSeries(Object.assign({
         color:o.color, lineWidth:2, priceLineVisible:false, lastValueVisible:true, title:o.label,
@@ -1007,7 +1045,7 @@ function renderMonitorSPX() {
       color:'#4e5a70', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed,
       priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false,
     }, fmtB));
-    cero.setData(bars.map(b => ({ time:b.time, value:0 })));
+    cero.setData(bars.map(b => ({ time:b.time, value:0 })).concat(cola.map(n => ({ time:n.t, value:0 }))));
 
     // Sincronizacion del eje de tiempo, en los dos sentidos. El flag evita el
     // rebote infinito (A avisa a B, B avisa a A, ...).
@@ -1035,26 +1073,29 @@ function renderMonitorSPX() {
   _monChart.subscribeCrosshairMove(param => {
     if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) { tip.style.display = 'none'; return; }
     const i = bars.findIndex(b => b.time === param.time);
-    if (i < 0) { tip.style.display = 'none'; return; }
-    const b = bars[i], n = porVela[i];
+    const enCola = i < 0 ? cola.find(c => c.t === param.time) : null;
+    if (i < 0 && !enCola) { tip.style.display = 'none'; return; }
+    const b = i >= 0 ? bars[i] : null;          // la cola no tiene vela detras
+    const n = i >= 0 ? porVela[i] : enCola;
     const f  = v => v == null ? '—' : v.toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
     const fB = v => v == null ? '—' : (v / 1e9).toFixed(2) + 'B';
-    const fecha = new Date(b.time * 1000);
+    const fecha = new Date((b ? b.time : enCola.t) * 1000);
     const etFecha = fecha.toLocaleDateString('en-CA', { timeZone:'America/New_York' });
     const etHora  = fecha.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hour12:false });
     const fila = (c, l, v) => '<div style="display:flex;justify-content:space-between;gap:14px;"><span style="color:' + c + ';">● ' + l + '</span><span style="font-family:ui-monospace,monospace;color:var(--bright);">' + v + '</span></div>';
     tip.innerHTML =
       '<div style="font-weight:700;color:var(--bright);margin-bottom:6px;">VELA · ' + etFecha + ' ' + etHora + ' ET</div>'
-      + fila('#b2b5be','Cierre', f(b.close))
+      + (b ? fila('#b2b5be','Cierre', f(b.close))
+           : '<div style="color:var(--muted);margin-bottom:4px;">Lectura posterior al cierre de velas</div>')
       + (n
-        ? fila('#13d68f','Call Wall',  f(n.callWall))
-          + fila('#f5c842','Gamma Flip', f(n.gammaFlip))
-          + fila('#f04f5a','Put Wall',   f(n.putWall))
-          + fila('#a78bfa','MVS',        f(n.mvs))
-          + fila(n.regime === 'POSITIVO' ? '#13d68f' : '#f04f5a', 'Régimen GEX', n.regime || '—')
-          + fila('#13d68f','GEX',   fB(n.netGex))
-          + fila('#3ba7ff','DEX',   fB(n.netDex))
-          + fila('#a78bfa','Vanna', fB(n.netVanna))
+        ? fila(colorDe('callWall'),  'Call Wall',  f(n.callWall))
+          + fila(colorDe('gammaFlip'), 'Gamma Flip', f(n.gammaFlip))
+          + fila(colorDe('putWall'),   'Put Wall',   f(n.putWall))
+          + fila(colorDe('mvs'),       'MVS',        f(n.mvs))
+          + fila(n.regime === 'POSITIVO' ? colorDe('callWall') : colorDe('putWall'), 'Régimen GEX', n.regime || '—')
+          + fila(colorDe('netGex'),   'GEX',   fB(n.netGex))
+          + fila(colorDe('netDex'),   'DEX',   fB(n.netDex))
+          + fila(colorDe('netVanna'), 'Vanna', fB(n.netVanna))
         : '<div style="color:var(--muted);margin-top:4px;">Sin lectura de niveles en este momento</div>');
     tip.style.display = 'block';
     const w = 230, h = tip.offsetHeight || 200;
