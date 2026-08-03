@@ -2694,11 +2694,14 @@ setInterval(checkWheelExecutionFills, 30 * 1000);
 const WHEEL_ROLL_MIN_DELTA   = 0.35; // trigger de defensa por delta (hasta 0.50 = ATM)
 const WHEEL_ROLL_EXTR_PCT    = 5;    // mismo % relativo que la alerta pasiva existente
 const WHEEL_ROLL_DTE_MAX     = 21;   // regla 50/21
-// Subido de 0.50 a 0.70 el 2026-08-03, a pedido explicito del usuario: "cuando
-// lleguen al 70% o mas buscar cerrarlos y abrir otro a una semana, dos semanas
-// o 3 semanas que tenga el mejor beneficio". A ese nivel casi no queda prima
-// por capturar y el riesgo de cola sigue vivo — conviene cerrar y reabrir.
-const WHEEL_ROLL_PROFIT_MIN  = 0.70; // 70% del crédito capturado
+// Norma explicita del usuario (2026-08-03): "si tengo abierto un put o una call
+// y estan valorizados por arriba del 60%, deben ser rolleados". Aplica IGUAL a
+// las dos patas — esta constante la comparten checkWheelPutManagementImpl y
+// checkWheelCallManagementImpl. Historial: arranco en 0.50, subio a 0.70 mas
+// temprano el mismo dia, y quedo en 0.60 con esta norma. Racional: a ese nivel
+// ya casi no queda prima por capturar pero el riesgo de cola sigue vivo entero,
+// asi que conviene cerrar y reabrir en un plazo nuevo.
+const WHEEL_ROLL_PROFIT_MIN  = 0.60; // 60% del crédito capturado
 // Ventana de vencimientos para el roll POR GANANCIA (1 a 3 semanas). Distinta
 // del roll defensivo, que sigue comparando TODOS los vencimientos disponibles
 // (ver findBestRollDate): ahi la prioridad es salvar la posicion, no la
@@ -3157,10 +3160,37 @@ async function checkWheelCallManagementImpl() {
         // amenazada — a diferencia del Put, donde el piso de 2% decide si vale la pena
         // caminar el strike; acá el objetivo es solo capturar mas ganancia, no alcanzar un
         // target de rentabilidad.
-        const candidatosMayores = (currentExp?.strikes || [])
+        let targetStrike = null, rollDate = null;
+
+        // Roll POR GANANCIA (>=60%) — misma norma que el Put (ver
+        // WHEEL_ROLL_PROFIT_MIN): la posicion ya capturo casi toda la prima, se
+        // cosecha y se reabre en el plazo mas eficiente entre 1 y 3 semanas.
+        // A diferencia del caso defensivo de abajo, aca SI se admite el MISMO
+        // strike (no solo uno mas alto): con la call ya muy OTM, subir el strike
+        // deja una prima insignificante. El mismo strike nunca viola el
+        // break-even, porque el original ya estaba por encima del costo base.
+        const soloGanancia = triggerProfit && !triggerDelta && !triggerExtr;
+        if (soloGanancia) {
+          const ventana = expirations.filter(e => e.dte != null && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX);
+          const candidatos = (currentExp?.strikes || [])
+            .filter(s => s.strike >= ex.leg.strike && s.call)
+            .sort((a, b) => a.strike - b.strike);
+          let mejor = null;
+          for (const cand of candidatos) {
+            const rd = wheelTrading.findBestRollDate(ventana, cand.strike, 'C');
+            if (!rd || rd.premium <= 0) continue;
+            if (rd.premium - (quote.mark || 0) < 0) continue; // nunca pagar por rolar
+            if (!mejor || rd.creditPerDay > mejor.rd.creditPerDay) mejor = { strike: cand.strike, rd };
+          }
+          if (mejor) {
+            targetStrike = mejor.strike; rollDate = mejor.rd;
+            console.log(`[WHEEL-CC-MGMT] ${ex.symbol}: roll por ganancia (${(pnlPct*100).toFixed(0)}% capturado) — Call ${ex.leg.strike}→${targetStrike}, mejor vencimiento 1-3 semanas: ${rollDate.expiry} (${rollDate.dte} DTE, $${rollDate.premium}, ${rollDate.creditPerDay}/dia).`);
+          }
+        }
+
+        const candidatosMayores = rollDate ? [] : (currentExp?.strikes || [])
           .filter(s => s.strike > ex.leg.strike && s.call)
           .sort((a, b) => a.strike - b.strike);
-        let targetStrike = null, rollDate = null;
         for (const cand of candidatosMayores) {
           const rd = wheelTrading.findBestRollDate(expirations, cand.strike, 'C');
           if (rd && rd.premium > 0) {
