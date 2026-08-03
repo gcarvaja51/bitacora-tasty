@@ -354,7 +354,11 @@ class TradierClient {
       symbol:             underlyingRoot,
       type:               'credit',
       duration:           'day',
-      price:              String(Math.max(0, netCreditMin).toFixed(2)),
+      // Tradier rechaza `price: 0` en una orden de credito ("Invalid parameter,
+      // price: must be greater than 0", confirmado con preview el 2026-08-03).
+      // netCreditMin puede dar 0.00 perfectamente (roll a la par), asi que el
+      // piso real es $0.01: sigue siendo "no pagar por rolar", que es la regla.
+      price:              String(Math.max(0.01, netCreditMin).toFixed(2)),
       'option_symbol[0]': oldOptionSymbol,
       'side[0]':          'buy_to_close',
       'quantity[0]':      String(quantity),
