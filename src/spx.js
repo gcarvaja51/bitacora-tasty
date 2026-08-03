@@ -286,18 +286,20 @@ function selectStrategy(context) {
   const { direction, ivRank, vix, gammaRegime, etHour, etMin, capital, openingRangeRespected } = context;
   const etMins = etHour * 60 + etMin;
 
-  // 1. Validar ventana horaria ET — cierre 2:30pm ET (confirmado con el usuario
-  // 2026-07-15): antes el gate timeOK_1DTE dejaba entrar direccionales por
+  // 1. Validar ventana horaria ET — cierre 2:00pm ET (recortado desde 2:30pm el
+  // 2026-08-03, a pedido explicito del usuario: "el direccional dejemoslo hasta
+  // las 2 pm et, 1 pm colombia"). Historial del cierre anterior (2026-07-15):
+  // antes el gate timeOK_1DTE dejaba entrar direccionales por
   // alerta hasta las 3:50pm ET, y eso produjo entradas mal gestionadas cerca
   // del cierre (ej. orden 35218867, entro 3:58pm ET, cerro en -$80 — los
   // ultimos minutos antes del cierre son complejos por la gamma). Se elimina
   // por completo la ventana 1DTE de este flujo; el Iron Condor 1DTE sigue
   // existiendo como sugerencia manual aparte (ver checkIronCondor... en
   // server.js, ventana CIERRE_1DTE 3:40-3:50pm), que no pasa por selectStrategy.
-  const timeOK_0DTE = (etHour > 9 || (etHour === 9 && etMin >= 45)) && (etHour < 14 || (etHour === 14 && etMin < 30));
+  const timeOK_0DTE = (etHour > 9 || (etHour === 9 && etMin >= 45)) && etHour < 14;
 
   if (!timeOK_0DTE) {
-    return { valid: false, reason: `Fuera de ventana horaria (${etHour}:${String(etMin).padStart(2,'0')} ET). Entrada válida entre 9:45am y 2:30pm ET.` };
+    return { valid: false, reason: `Fuera de ventana horaria (${etHour}:${String(etMin).padStart(2,'0')} ET). Entrada válida entre 9:45am y 2:00pm ET.` };
   }
 
   const expType = '0DTE';

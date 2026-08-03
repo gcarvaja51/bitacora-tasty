@@ -4216,9 +4216,12 @@ async function checkDirectionalAutonomous() {
   try {
     const et = getETHour();
     const etMins = et.hour * 60 + et.min;
-    // Misma ventana que selectStrategy() (9:45am-2:30pm ET) — evita llamadas
-    // inutiles a Tradier fuera del horario operable del direccional.
-    if (etMins < 9 * 60 + 45 || etMins >= 14 * 60 + 30) return;
+    // Misma ventana que selectStrategy() (9:45am-2:00pm ET) — evita llamadas
+    // inutiles a Tradier fuera del horario operable del direccional. Recortada
+    // desde 2:30pm el 2026-08-03 a pedido del usuario; si se toca aca hay que
+    // tocar tambien timeOK_0DTE en selectStrategy() (src/spx.js) o el
+    // autonomo evalua en una franja que el gate de estrategia despues rechaza.
+    if (etMins < 9 * 60 + 45 || etMins >= 14 * 60) return;
 
     // Gate de posicion real (2026-07-28, a pedido explicito del usuario) —
     // antes de evaluar Camino B siquiera, confirmar que no hay ya una
