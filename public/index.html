@@ -410,7 +410,8 @@
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Mes</th><th>P&amp;L</th><th>Retorno %</th>
+              <th>Mes</th><th>P&amp;L Realizado</th><th>Retorno %</th>
+              <th title="Cambio del valor liquidativo de la cuenta: incluye lo no realizado de las posiciones abiertas">Δ NLV</th>
               <th>Días +</th><th>Días –</th><th>Broker (comis.)</th><th>Estado</th>
             </tr></thead>
             <tbody id="monthly-tbody"></tbody>
@@ -2060,14 +2061,33 @@ async function loadReports(forceRefresh) {
     }
     renderStratRows(stratList);
 
-    // Monthly table — usar strategyByMonth filtrado; NLV solo si no hay filtro activo
+    // Monthly table — la columna P&L es SIEMPRE lo realizado (strategyByMonth),
+    // igual que el resto de la pestaña (win rate, ganancia promedio, round-trips).
+    //
+    // Antes, SIN filtro de fechas esta columna mostraba nlvByMonth: el cambio del
+    // valor liquidativo de la cuenta, que se recalcula contra el NLV EN VIVO en
+    // cada request y por lo tanto se mueve minuto a minuto con las posiciones
+    // abiertas. Reportado por el usuario 2026-08-03: agosto marcaba ~$5 a media
+    // rueda cuando las dos operaciones cerradas del mes (SPY +3.49 y SOFI +23.75)
+    // sumaban $27.24 -- al cierre esa misma celda ya iba por $608. Y CON filtro
+    // de fechas sí usaba strategyByMonth, o sea que la misma columna significaba
+    // dos cosas distintas segun si habias tocado el filtro. Peor: las columnas
+    // "Dias +/-" de la misma fila siempre salieron de stratByDay (realizado), asi
+    // que la fila se contradecia sola.
+    //
+    // El delta de NLV no se pierde -- va en su propia columna, con su nombre. Es
+    // dato de cuenta, no de estrategias, asi que no se puede recortar por rango:
+    // con un filtro activo se muestra vacio en vez de mentir.
     const isFiltered = sd !== '2026-02-01' || ed !== todayStr();
-    const curveByMonth = isFiltered ? m.strategyByMonth : (S.curve?.nlvByMonth || m.strategyByMonth || m.byMonth || {});
-    const months = Object.keys(curveByMonth).sort().reverse();
+    const realizedByMonth = m.strategyByMonth || {};
+    const nlvByMonth      = S.curve?.nlvByMonth || {};
+    const months = [...new Set([...Object.keys(realizedByMonth), ...(isFiltered ? [] : Object.keys(nlvByMonth))])]
+      .sort().reverse();
     const byDay  = m.stratByDay || m.byDay || {};
     const initial = S.curve?.curve?.initial || 10644;
     $('monthly-tbody').innerHTML = months.map(mo=>{
-      const pnl  = curveByMonth[mo], pct = initial ? (pnl/initial*100).toFixed(2) : 0;
+      const pnl  = realizedByMonth[mo] || 0, pct = initial ? (pnl/initial*100).toFixed(2) : 0;
+      const dNlv = isFiltered ? null : nlvByMonth[mo];
       const moP  = `${mo}-`;
       const posD = Object.entries(byDay).filter(([d,v])=>d.startsWith(moP)&&v>0).length;
       const negD = Object.entries(byDay).filter(([d,v])=>d.startsWith(moP)&&v<0).length;
@@ -2077,6 +2097,7 @@ async function loadReports(forceRefresh) {
         <td class="td-bright">${label.charAt(0).toUpperCase()+label.slice(1)}</td>
         <td class="td-mono ${cc(pnl)}" style="font-weight:700">${f$(pnl)}</td>
         <td class="td-mono ${cc(pnl)}">${fp(pct)}</td>
+        <td class="td-mono ${dNlv==null?'dim':cc(dNlv)}">${dNlv==null?'—':f$(dNlv)}</td>
         <td class="pos td-mono">${posD}</td>
         <td class="neg td-mono">${negD}</td>
         <td class="neg td-mono">-${fa$(comm)}</td>

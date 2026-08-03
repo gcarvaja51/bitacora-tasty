@@ -148,6 +148,28 @@ Muestra solo P&L **realizados**. Lógica:
   para que un spread no aparezca como pérdida en una semana y ganancia en otra
 - `BTO` sin `STC` y expirado → la prima pagada se perdió entera, se muestra en el **expiry**
 
+## Tabla Desglose Mensual (pestaña Reportes, `loadReports` en index.html)
+
+**Realizado vs Δ NLV — no mezclar (corregido 2026-08-03).** La columna de P&L mostraba
+`nlvByMonth` cuando no había filtro de fechas y `strategyByMonth` cuando sí lo había: la misma
+columna significaba dos cosas distintas según si habías tocado el filtro. Son métricas
+diferentes de verdad:
+
+- **`strategyByMonth`** — suma del `pnl` de los round-trips **cerrados** en el mes. Es lo que
+  usa el resto de la pestaña (win rate, ganancia/pérdida promedio, tabla de round-trips).
+- **`nlvByMonth`** — cambio del valor liquidativo de la cuenta. Se calcula en `/api/curve`
+  contra el **NLV en vivo** (`[...entries, [today, currentNlv]]` en server.js), así que el mes
+  en curso **se mueve minuto a minuto** con las posiciones abiertas.
+
+Reportado por el usuario: agosto marcaba ~$5 a media rueda cuando las dos operaciones cerradas
+del mes (SPY +3.49 y SOFI +23.75) sumaban **$27.24** — y para el cierre esa misma celda ya iba
+por $608. Encima las columnas "Días +/−" de la misma fila siempre salieron de `stratByDay`
+(realizado), así que la fila se contradecía sola.
+
+Ahora la columna P&L es **siempre** `strategyByMonth`, y el delta de NLV tiene su propia
+columna. Como es dato de cuenta y no de estrategias, no se puede recortar por rango: con un
+filtro activo se muestra vacío (`—`) en vez de mentir.
+
 ## SPX 0DTE — CIARG_V1 + Signal Center
 
 Sistema de señales para SPX 0DTE/1DTE, con ejecución automática en Tradier (sandbox) para
