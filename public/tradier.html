@@ -2029,7 +2029,9 @@ async function loadHistoryTradier() {
               <td style="font-size:11px;">${cierreLabel}</td>
               <td class="td-mono dim">${durLabel}</td>
               <td class="td-mono">${fillLabel}</td>
-              <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+              ${s.pnlPending
+                ? `<td class="td-mono dim" style="font-weight:600;font-size:10px;" title="El trade ya cerró, pero Tradier todavía no asentó el P&L real (gain_loss). La conciliación pasiva corre cada 5 min y lo completa sola. Este trade NO cuenta todavía en win rate, curva ni KPIs.">⏳ Pendiente</td>`
+                : `<td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>`}
               <td>${informeBtn}</td>
             </tr>`;
           }).join('');

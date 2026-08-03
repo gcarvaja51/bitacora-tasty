@@ -61,11 +61,22 @@ const { estimateSpxCommission, estimateWheelCommission } = require('./broker_fee
 // commissionEstimate (mismo calculo que ya usa Demo Tradier, ver
 // src/broker_fees.js — antes Reportes mostraba $0 fijo de comision).
 function mapSpxExecution(ex) {
-  if (ex.status !== 'closed' || typeof ex.pnl !== 'number') return null;
+  if (ex.status !== 'closed') return null;
+  // pnl todavia no asentado (pnlSource 'pendiente_verificar'): ANTES se
+  // descartaba el trade por completo y no aparecia en ninguna hoja hasta que
+  // Tradier confirmara el gain_loss -- podia ser horas. A pedido del usuario
+  // (2026-08-03) ahora SI se devuelve, marcado con pnlPending, para que
+  // Historial lo muestre con la etiqueta "pendiente" en vez de ocultarlo.
+  // OJO: pnl queda en 0 solo para no romper las ~12 sumas que asumen numero;
+  // buildMetricsTradier EXCLUYE estos trades de todos los agregados (win rate,
+  // P&L total, curva, calendario...) -- si contaran, un trade sin resultado
+  // real se leeria como perdedora de $0 y ensuciaria las metricas.
+  const pnlPending = typeof ex.pnl !== 'number';
   const contracts     = ex.contracts || 1;
   const entryPremium  = Math.abs(ex.entryFillPrice ?? ex.creditReceived ?? 0) * 100 * contracts;
   const openValue     = ex.isCredit === false ? -entryPremium : entryPremium;
-  const closeValue    = +(ex.pnl - openValue).toFixed(2);
+  const pnlNum        = pnlPending ? 0 : ex.pnl;
+  const closeValue    = pnlPending ? 0 : +(pnlNum - openValue).toFixed(2);
   const openDate      = (ex.filledAt || ex.timestamp || '').slice(0, 10);
   const closeDate     = (ex.closedAt || ex.timestamp || '').slice(0, 10);
   if (!openDate || !closeDate) return null;
@@ -80,12 +91,14 @@ function mapSpxExecution(ex) {
     stratType:        ex.strategy || 'Otro',
     openValue:        +openValue.toFixed(2),
     closeValue,
-    pnl:              +ex.pnl.toFixed(2),
+    pnl:              +pnlNum.toFixed(2),
+    pnlPending,                       // <- Historial lo usa para mostrar "pendiente"
+    pnlSource:        ex.pnlSource || null,
     commissionEstimate: estimateSpxCommission(ex),
     amPm:             getAmPm(ex.filledAt || ex.timestamp),
     durationDays:     Math.round((new Date(closeDate) - new Date(openDate)) / 86400000),
     durationCat:      getDurationCat(openDate, closeDate),
-    win:              ex.pnl > 0,
+    win:              pnlPending ? null : ex.pnl > 0,
     flaggedError:     !!ex.flaggedError,
     flaggedErrorNote: ex.flaggedErrorNote || null,
   };
@@ -165,12 +178,20 @@ function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnl
     ...brokerOnlyStrategies,
   ].sort((a, b) => (a.closeDate || '').localeCompare(b.closeDate || ''));
 
+  // `strategies` (la lista completa, con los pendientes) se devuelve tal cual
+  // para que Historial pueda listarlos. TODOS los agregados de aca en adelante
+  // usan `computed` -- solo trades con P&L real confirmado. Sin esta
+  // separacion, un trade cerrado hoy pero sin gain_loss asentado en Tradier
+  // contaria como perdedora de $0: bajaria el win rate y ensuciaria curva,
+  // calendario y KPIs con un resultado que todavia no existe.
+  const computed = strategies.filter(s => !s.pnlPending);
+
   // Cash flow por "orden" — aproximado con 2 eventos por estrategia (apertura
   // + cierre), ya que Tradier no expone un ledger de ordenes crudo como
   // TastyTrade (metrics.js seccion 3 usa `orders`, que acá no existe).
   const byDay = {}, byMonth = {}, byWeek = {};
   const openByDay = {};
-  for (const s of strategies) {
+  for (const s of computed) {
     if (s.openDate) {
       const mo = s.openDate.slice(0, 7), wk = weekKey(s.openDate);
       byDay[s.openDate] = (byDay[s.openDate] || 0) + s.openValue;
@@ -187,7 +208,7 @@ function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnl
   }
 
   const byUnderlying = {};
-  for (const s of strategies) {
+  for (const s of computed) {
     const un = s.underlying || 'OTHER';
     if (!byUnderlying[un]) byUnderlying[un] = { pnl: 0, trades: 0, wins: 0 };
     byUnderlying[un].pnl += s.pnl;
@@ -196,7 +217,7 @@ function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnl
   }
 
   const byStrategy = {};
-  for (const s of strategies) {
+  for (const s of computed) {
     const st = s.stratType || 'Otro';
     if (!byStrategy[st]) byStrategy[st] = { pnl: 0, trades: 0, wins: 0, avgWin: 0, avgLoss: 0, winRate: 0 };
     byStrategy[st].pnl += s.pnl;
@@ -204,15 +225,15 @@ function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnl
     if (s.pnl > 0) byStrategy[st].wins += 1;
   }
   for (const [type, data] of Object.entries(byStrategy)) {
-    const sw = strategies.filter(s => s.stratType === type && s.pnl > 0);
-    const sl = strategies.filter(s => s.stratType === type && s.pnl <= 0);
+    const sw = computed.filter(s => s.stratType === type && s.pnl > 0);
+    const sl = computed.filter(s => s.stratType === type && s.pnl <= 0);
     data.avgWin  = sw.length ? +(sw.reduce((a, b) => a + b.pnl, 0) / sw.length).toFixed(2) : 0;
     data.avgLoss = sl.length ? +(sl.reduce((a, b) => a + b.pnl, 0) / sl.length).toFixed(2) : 0;
     data.winRate = data.trades ? +((data.wins / data.trades) * 100).toFixed(1) : 0;
   }
 
   const byTimeSlot = {};
-  for (const s of strategies) {
+  for (const s of computed) {
     const ap = s.amPm || 'Unknown';
     if (!byTimeSlot[ap]) byTimeSlot[ap] = { pnl: 0, trades: 0, wins: 0 };
     byTimeSlot[ap].pnl += s.pnl;
@@ -221,7 +242,7 @@ function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnl
   }
 
   const byDuration = {};
-  for (const s of strategies) {
+  for (const s of computed) {
     const dc = s.durationCat || 'Unknown';
     if (!byDuration[dc]) byDuration[dc] = { pnl: 0, trades: 0, wins: 0 };
     byDuration[dc].pnl += s.pnl;
@@ -234,7 +255,7 @@ function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnl
   const brokerByMonth = {};
 
   const strategyByMonth = {}, strategyByWeek = {}, stratByDay = {};
-  for (const s of strategies) {
+  for (const s of computed) {
     if (!s.closeDate) continue;
     const mo = s.closeDate.slice(0, 7), wk = weekKey(s.closeDate);
     strategyByMonth[mo] = (strategyByMonth[mo] || 0) + s.pnl;
@@ -242,20 +263,20 @@ function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnl
     stratByDay[s.closeDate] = (stratByDay[s.closeDate] || 0) + s.pnl;
   }
 
-  const winners = strategies.filter(s => s.pnl > 0);
-  const losers  = strategies.filter(s => s.pnl <= 0);
+  const winners = computed.filter(s => s.pnl > 0);
+  const losers  = computed.filter(s => s.pnl <= 0);
   const totalGain = winners.reduce((a, b) => a + b.pnl, 0);
   const totalLoss = Math.abs(losers.reduce((a, b) => a + b.pnl, 0));
   const sDayVals = Object.values(stratByDay);
   const posD = sDayVals.filter(v => v > 0), negD = sDayVals.filter(v => v < 0);
 
   return {
-    totalStrategies: strategies.length,
-    winRate:      strategies.length ? +((winners.length / strategies.length) * 100).toFixed(2) : 0,
+    totalStrategies: computed.length,
+    winRate:      computed.length ? +((winners.length / computed.length) * 100).toFixed(2) : 0,
     profitFactor: totalLoss > 0 ? +(totalGain / totalLoss).toFixed(2) : totalGain > 0 ? 999 : 0,
     avgWinner:    winners.length ? +(totalGain / winners.length).toFixed(2) : 0,
     avgLoser:     losers.length ? +(totalLoss / losers.length).toFixed(2) : 0,
-    totalPnL:     +strategies.reduce((a, b) => a + b.pnl, 0).toFixed(2),
+    totalPnL:     +computed.reduce((a, b) => a + b.pnl, 0).toFixed(2),
     totalComm:    0,
     positiveDays: posD.length,
     negativeDays: negD.length,
