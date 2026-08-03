@@ -10,8 +10,17 @@ import CDP from 'chrome-remote-interface';
 import { execSync, spawn } from 'child_process';
 
 const CDP_PORT = Number(process.env.TV_CDP_PORT || 9223);
-const SYMBOL_MATCH = /SPX/i;
-const STUDY_NAME_MATCH = /CIARG_V1/i;
+// Match exacto al ticker real de SPX en TradingView -- un /SPX/i suelto tambien
+// matchea falsos positivos reales como "OANDA:SPX500USD" (CFD de otro broker,
+// confirmado en vivo 2026-07-31: aparecio con CIARG_V3 aplicado tras un relanzamiento
+// de TradingView y casi recibe los muros por error).
+const SYMBOL_MATCH = /^SPCFD:SPX$/i;
+// Matchea CUALQUIER version (CIARG_V1, CIARG_V3, etc.) -- las multiples ventanas
+// SPX no estan sincronizadas entre si (ver CLAUDE.md) y pueden quedar temporalmente
+// con nombres distintos tras renombrar el script hasta que el usuario actualice
+// cada una a mano. Con un match fijo a un solo nombre, la busqueda fallaba
+// silenciosamente en las ventanas que todavia no se habian actualizado.
+const STUDY_NAME_MATCH = /CIARG_V\d/i;
 
 async function evalOn(client, expression) {
   const result = await client.Runtime.evaluate({ expression, returnByValue: true, awaitPromise: false });

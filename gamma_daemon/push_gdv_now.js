@@ -49,7 +49,7 @@ for (const t of targets) {
         try { return { index: i, symbol: c.model().mainSeries().symbol() }; } catch(e) { return { index: i, error: e.message }; }
       })
     `);
-    const hasSpx = panes.some((p) => p.symbol && /SPX/i.test(p.symbol));
+    const hasSpx = panes.some((p) => p.symbol && /^SPCFD:SPX$/i.test(p.symbol));
     if (!hasSpx) { await client.close(); continue; }
 
     for (const p of panes) {
@@ -71,7 +71,7 @@ for (const t of targets) {
             var studies = chart.getAllStudies();
             for (var i = 0; i < studies.length; i++) {
               var name = studies[i].name || studies[i].title || '';
-              if (/CIARG_V1/i.test(name)) return studies[i].id;
+              if (/CIARG_V\d/i.test(name)) return studies[i].id;
             }
             return null;
           } catch (e) { return null; }
