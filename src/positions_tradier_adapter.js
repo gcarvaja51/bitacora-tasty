@@ -25,7 +25,7 @@ function groupPositionsTradier(positions = [], quotesMap = {}) {
     const openDate = p.date_acquired ? p.date_acquired.slice(0, 10) : '—';
 
     if (!map.has(key)) {
-      map.set(key, { underlying: und, expiry: exp || null, isStock, legs: [], unrealizedPnL: 0, premiumNet: 0, openDate, totalQty: 0 });
+      map.set(key, { underlying: und, expiry: exp || null, isStock, legs: [], unrealizedPnL: 0, premiumNet: 0, openDate, totalQty: 0, netDelta: null, netTheta: null });
     }
     const g = map.get(key);
 
@@ -36,9 +36,19 @@ function groupPositionsTradier(positions = [], quotesMap = {}) {
     const q = quotesMap[p.symbol] || {};
     const mark = q.mark != null ? q.mark : 0;
 
-    g.legs.push({ ...p, ...(parsed || {}), avgPrice, mark, isShort: qtySigned < 0 });
+    g.legs.push({ ...p, ...(parsed || {}), avgPrice, mark, isShort: qtySigned < 0, delta: q.delta ?? null, theta: q.theta ?? null });
     g.currentPrice = mark;
     g.totalQty += qtySigned;
+
+    // Delta/Theta NETOS de la posicion (2026-08-03) — se suma la griega de cada
+    // pata multiplicada por su cantidad CON SIGNO: una pata corta invierte el
+    // signo de su delta. Ej. Iron Condor: call corta (delta +) y put corta
+    // (delta -) se cancelan, dando un neto cercano a 0 = posicion neutral, que
+    // es justamente la tesis de la estructura.
+    // Se deja en null (no en 0) si Tradier no devolvio griegas -- un 0 se leeria
+    // como "posicion neutral" cuando en realidad es "sin dato".
+    if (q.delta != null) g.netDelta = (g.netDelta || 0) + q.delta * qtySigned;
+    if (q.theta != null) g.netTheta = (g.netTheta || 0) + q.theta * qtySigned;
 
     const posDir = qtySigned < 0 ? -1 : 1;
     g.unrealizedPnL += posDir * (mark - avgPrice) * Math.abs(qtySigned) * mul;

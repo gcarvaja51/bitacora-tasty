@@ -330,18 +330,31 @@ class TradierClient {
   // Cotizaciones actuales (mark/bid/ask) para una lista de simbolos OCC — necesario
   // para calcular cuanto costaria cerrar una posicion abierta ahora mismo (no habia
   // ningun metodo de cotizacion en este cliente).
+  // greeks (2026-08-03): Tradier devuelve delta/theta/gamma/vega/IV en el MISMO
+  // endpoint de cotizaciones con `greeks=true` -- no hace falta traer la cadena
+  // completa por vencimiento (que era la alternativa, mucho mas pesada). Se pide
+  // siempre: para acciones el campo simplemente no viene y queda en null, no
+  // rompe a ningun consumidor existente.
   async getQuotes(symbols) {
     if (!symbols || !symbols.length) return [];
-    const data = await this._req(`/markets/quotes?symbols=${encodeURIComponent(symbols.join(','))}`);
+    const data = await this._req(`/markets/quotes?greeks=true&symbols=${encodeURIComponent(symbols.join(','))}`);
     const raw  = data.quotes?.quote;
     const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-    return list.map(q => ({
-      symbol: q.symbol,
-      mark: q.bid != null && q.ask != null ? (parseFloat(q.bid) + parseFloat(q.ask)) / 2 : parseFloat(q.last || 0),
-      bid:  parseFloat(q.bid  || 0),
-      ask:  parseFloat(q.ask  || 0),
-      last: parseFloat(q.last || 0),
-    }));
+    return list.map(q => {
+      const g = q.greeks || null;
+      return {
+        symbol: q.symbol,
+        mark: q.bid != null && q.ask != null ? (parseFloat(q.bid) + parseFloat(q.ask)) / 2 : parseFloat(q.last || 0),
+        bid:  parseFloat(q.bid  || 0),
+        ask:  parseFloat(q.ask  || 0),
+        last: parseFloat(q.last || 0),
+        delta: g && g.delta != null ? parseFloat(g.delta) : null,
+        theta: g && g.theta != null ? parseFloat(g.theta) : null,
+        gamma: g && g.gamma != null ? parseFloat(g.gamma) : null,
+        vega:  g && g.vega  != null ? parseFloat(g.vega)  : null,
+        iv:    g && g.mid_iv != null ? parseFloat(g.mid_iv) : null,
+      };
+    });
   }
 
   // Velas intradia (timesales) para un simbolo — usado para reemplazar el feed de
