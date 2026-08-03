@@ -2694,19 +2694,63 @@ setInterval(checkWheelExecutionFills, 30 * 1000);
 const WHEEL_ROLL_MIN_DELTA   = 0.35; // trigger de defensa por delta (hasta 0.50 = ATM)
 const WHEEL_ROLL_EXTR_PCT    = 5;    // mismo % relativo que la alerta pasiva existente
 const WHEEL_ROLL_DTE_MAX     = 21;   // regla 50/21
-const WHEEL_ROLL_PROFIT_MIN  = 0.50; // 50% del crédito capturado
+// Subido de 0.50 a 0.70 el 2026-08-03, a pedido explicito del usuario: "cuando
+// lleguen al 70% o mas buscar cerrarlos y abrir otro a una semana, dos semanas
+// o 3 semanas que tenga el mejor beneficio". A ese nivel casi no queda prima
+// por capturar y el riesgo de cola sigue vivo — conviene cerrar y reabrir.
+const WHEEL_ROLL_PROFIT_MIN  = 0.70; // 70% del crédito capturado
+// Ventana de vencimientos para el roll POR GANANCIA (1 a 3 semanas). Distinta
+// del roll defensivo, que sigue comparando TODOS los vencimientos disponibles
+// (ver findBestRollDate): ahi la prioridad es salvar la posicion, no la
+// eficiencia del credito/dia.
+const WHEEL_PROFIT_ROLL_DTE_MIN = 5;
+const WHEEL_PROFIT_ROLL_DTE_MAX = 23;
 const WHEEL_EMA_FAR_PCT      = 4;    // "lejos de las EMAs" para el caso defensivo
 
 async function checkWheelPutManagementImpl() {
   if (!isMarketHours()) return;
   try {
     const executions = loadWheelTradingExecutions();
-    const abiertas = executions.filter(e => e.phase === 'CSP_ACTIVA' && e.status === 'filled' && !e.readyForAssignment);
+    // readyForAssignment YA NO excluye del monitor (2026-08-03, a pedido del
+    // usuario). Ese flag significa "dejar de DEFENDER" (costo base ya llegó al
+    // fair value), no "dejar de cosechar": KO llegó a 90% de ganancia con el
+    // put profundamente OTM — se iba a expirar sin valor, y el monitor ni lo
+    // miraba. Ahora entran al loop, pero abajo solo se les permite actuar por
+    // el trigger de ganancia, nunca por los defensivos.
+    const abiertas = executions.filter(e => e.phase === 'CSP_ACTIVA' && e.status === 'filled');
     if (!abiertas.length) return;
     let cambios = false;
 
+    // Posiciones REALES en la cuenta — para detectar registros huerfanos.
+    // Bug real 2026-08-03: el registro de PDD quedo en CSP_ACTIVA con la nota
+    // "Roll abortado", pero esa put ya no existia en Tradier. El monitor
+    // intentaba cerrarla 3 veces cada 5 min, TODO el dia: 122 de las 130
+    // ordenes de la jornada fueron ese rechazo ("Buy To Cover order cannot be
+    // placed unless closing a short position"). Ahora se detecta antes de
+    // intentar nada y el registro se cierra solo.
+    let simbolosEnCuenta = null;
+    try {
+      const posiciones = await tradier.getPositions();
+      simbolosEnCuenta = new Set((posiciones || []).map(p => p.symbol));
+    } catch(e) {
+      console.error('[WHEEL-MGMT] No se pudieron leer posiciones para detectar huerfanos:', e.message);
+    }
+
     for (const ex of abiertas) {
       try {
+        // Huerfano: el registro dice CSP_ACTIVA pero la pata no esta en la
+        // cuenta. Solo se actua si la lectura de posiciones fue exitosa (un
+        // error de red no debe cerrar registros validos).
+        if (simbolosEnCuenta && !simbolosEnCuenta.has(ex.leg?.optionSymbol)) {
+          ex.phase  = 'CERRADO';
+          ex.status = 'closed';
+          ex.closedAt = new Date().toISOString();
+          ex.closeReason = 'HUERFANO_SIN_POSICION';
+          ex.notes = `Cerrado automaticamente ${new Date().toISOString().slice(0,10)}: la pata ${ex.leg?.optionSymbol} no existe en la cuenta de Tradier (cerrada/vencida fuera de nuestros monitores). Se deja de reintentar. P&L no verificable desde aca — revisar a mano si hace falta.`;
+          cambios = true;
+          console.log(`[WHEEL-MGMT] 🧹 ${ex.symbol}: registro huerfano cerrado (${ex.leg?.optionSymbol} no esta en la cuenta).`);
+          continue;
+        }
         // 1. Datos en vivo: spot, cotización del leg, cadena (delta actual), barras diarias.
         // SIN filtro de expiry — a diferencia de la entrada, el roll compara TODOS los
         // vencimientos disponibles (decisión del usuario, ver findBestRollDate); filtrar
@@ -2742,13 +2786,24 @@ async function checkWheelPutManagementImpl() {
         const triggerProfit = pnlPct >= WHEEL_ROLL_PROFIT_MIN;
         if (!triggerExtr && !triggerDelta && !triggerDte && !triggerProfit) continue;
 
+        // readyForAssignment = "dejar de defender", no "dejar de cosechar":
+        // estas posiciones ahora entran al monitor pero SOLO pueden actuar por
+        // ganancia. Si el unico trigger es defensivo, se respeta la decision
+        // previa de permitir la asignacion y no se hace nada.
+        if (ex.readyForAssignment && !triggerProfit) continue;
+
         // 5. Costo base real tras primas acumuladas
         const costoBaseReal = ex.leg.strike - (ex.totalCreditAccumulated || ex.creditReceived || 0);
 
         // 5a. ¿Ya llegó al Fair Value? → dejar de defender, no rolar más
         // (nunca para posiciones neverAssign=true — esas son especulación pura sobre la
         // prima, no se permite la asignación aunque el costo base ya sea atractivo)
-        if (!ex.neverAssign && ex.fairValue != null && costoBaseReal <= ex.fairValue) {
+        // triggerProfit tiene prioridad sobre este corte (2026-08-03): con 70%+
+        // capturado lo correcto es cosechar y reabrir, no quedarse esperando una
+        // asignacion que probablemente ni llegue. Caso real: KO al 90% con el put
+        // a $79 y la accion en $86.98 — profundamente OTM, se iba a expirar sin
+        // valor, y este `continue` hacia que el monitor nunca lo mirara.
+        if (!triggerProfit && !ex.neverAssign && ex.fairValue != null && costoBaseReal <= ex.fairValue) {
           ex.readyForAssignment = true;
           ex.notes = `Costo base real ($${costoBaseReal.toFixed(2)}) alcanzó el Fair Value ($${ex.fairValue}) — se deja de defender, se permite la asignación.`;
           cambios = true;
@@ -2765,7 +2820,22 @@ async function checkWheelPutManagementImpl() {
 
         let targetStrike = ex.leg.strike;
         let rollDate = null;
-        if (esDefensivo) {
+        // Roll POR GANANCIA (>=70%): cerrar y reabrir, eligiendo entre 1 y 3
+        // semanas el vencimiento de mejor beneficio (credito/dia), a pedido
+        // explicito del usuario. Tiene prioridad sobre la caminata de strike:
+        // acá la posición ya ganó, no hay nada que defender ni que "caminar" —
+        // lo que se busca es reciclar la prima en el plazo mas eficiente.
+        // Si en esa ventana no hay ningun vencimiento con prima, se cae a la
+        // logica de siempre (todos los vencimientos) en vez de no rolar.
+        const soloGanancia = triggerProfit && !esDefensivo && !triggerDelta;
+        if (soloGanancia) {
+          const ventana = expirations.filter(e => e.dte != null && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX);
+          rollDate = wheelTrading.findBestRollDate(ventana, ex.leg.strike);
+          if (rollDate) console.log(`[WHEEL-MGMT] ${ex.symbol}: roll por ganancia (${(pnlPct*100).toFixed(0)}% capturado) — mejor vencimiento entre 1-3 semanas: ${rollDate.expiry} (${rollDate.dte} DTE, $${rollDate.premium}, ${rollDate.creditPerDay}/dia).`);
+        }
+        if (rollDate) {
+          // Ya resuelto por el roll de ganancia — no se evalua defensa ni caminata.
+        } else if (esDefensivo) {
           rollDate = wheelTrading.findBestRollDate(expirations, ex.leg.strike);
         } else {
           // 5c. Caminata — ¿un strike más bajo (hacia el fair value) sigue superando el piso de 2%?
@@ -3212,6 +3282,82 @@ app.post('/api/wheel-trading/executions/:id/patch', async (req, res) => {
   });
   if (!result.ok) return res.status(404).json(result);
   res.json(result);
+});
+
+// POST /api/wheel-trading/adopt — "adopta" una put corta que YA existe en la
+// cuenta de Tradier pero no tiene registro local, creandole uno en CSP_ACTIVA
+// para que los monitores (gestion, roll, vencimiento) la vean.
+//
+// Por que existe (2026-08-03): el huerfano tiene dos direcciones. La de
+// registro-sin-posicion la resuelve el cleanup de checkWheelPutManagementImpl.
+// La inversa — posicion real sin registro — dejaba la posicion completamente
+// sin gestionar, y no habia forma de arreglarlo salvo editando el JSON a mano.
+// Caso real: BAC (put 55, 21-ago) estaba al 90% de ganancia y el sistema ni
+// sabia que existia, justo el escenario que el usuario queria que se rolara.
+//
+// Sin body: devuelve la lista de candidatas (puts cortas en la cuenta sin
+// registro CSP_ACTIVA) sin crear nada — para poder mirar antes de decidir.
+// Con {symbols:["BAC260821P00055000"]}: crea el registro de esas.
+app.post('/api/wheel-trading/adopt', async (req, res) => {
+  try {
+    const { parseOccSymbol } = require('./src/bp_tradier_adapter');
+    const posiciones = await tradier.getPositions();
+    const executions = loadWheelTradingExecutions();
+    const yaRegistradas = new Set(
+      executions.filter(e => e.phase === 'CSP_ACTIVA').map(e => e.leg?.optionSymbol).filter(Boolean)
+    );
+    const candidatas = (posiciones || []).filter(p => {
+      const parsed = parseOccSymbol(p.symbol || '');
+      return parsed && parsed.optType === 'P' && parseFloat(p.quantity) < 0 && !yaRegistradas.has(p.symbol);
+    });
+
+    const pedidos = Array.isArray(req.body?.symbols) ? req.body.symbols : null;
+    if (!pedidos) {
+      return res.json({ ok: true, dryRun: true, candidatas: candidatas.map(p => {
+        const parsed = parseOccSymbol(p.symbol);
+        return { optionSymbol: p.symbol, symbol: parsed.root, strike: parsed.strike, expiry: parsed.expiry,
+                 contracts: Math.abs(parseFloat(p.quantity)), costBasis: p.cost_basis, dateAcquired: p.date_acquired };
+      }) });
+    }
+
+    const creadas = await withWheelExecutionsLock(() => {
+      const exs = loadWheelTradingExecutions();
+      const nuevas = [];
+      for (const p of candidatas) {
+        if (!pedidos.includes(p.symbol)) continue;
+        const parsed = parseOccSymbol(p.symbol);
+        const contracts = Math.abs(parseFloat(p.quantity)) || 1;
+        // cost_basis de una pata corta viene negativo y es el TOTAL: el credito
+        // por contrato/accion es |cost_basis| / (contratos * 100).
+        const credito = +(Math.abs(parseFloat(p.cost_basis) || 0) / (contracts * 100)).toFixed(2);
+        const ex = {
+          id: `wtex-adopt-${Date.now()}-${parsed.root}`,
+          signalId: null,
+          symbol: parsed.root,
+          timestamp: p.date_acquired || new Date().toISOString(),
+          phase: 'CSP_ACTIVA',
+          entryPrice: null,
+          costBasisTarget: null,
+          fairValue: null,
+          leg: { optionSymbol: p.symbol, strike: parsed.strike, expiry: parsed.expiry, side: 'sell_to_open', contracts },
+          orderId: null,
+          status: 'filled',
+          entryFillPrice: credito,
+          creditReceived: credito,
+          totalCreditAccumulated: credito,
+          filledAt: p.date_acquired || new Date().toISOString(),
+          adopted: true,
+          notes: `Adoptada ${new Date().toISOString().slice(0,10)}: la posicion existia en Tradier sin registro local, quedaba sin gestionar. Credito reconstruido del cost_basis ($${credito}); fairValue/costBasisTarget quedan en null (no se inventan) — el roll defensivo por fair value no aplica hasta que se completen.`,
+        };
+        exs.push(ex); nuevas.push(ex);
+      }
+      if (nuevas.length) saveWheelTradingExecutions(exs);
+      return nuevas;
+    });
+    res.json({ ok: true, adoptadas: creadas.length, executions: creadas });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 
