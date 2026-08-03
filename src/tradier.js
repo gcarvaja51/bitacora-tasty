@@ -246,7 +246,7 @@ class TradierClient {
       symbol:   underlyingRoot,
       type:     worstNetPrice == null ? 'market' : (worstNetPrice >= 0 ? 'credit' : 'debit'),
       duration: 'day',
-      ...(worstNetPrice == null ? {} : { price: String(Math.abs(worstNetPrice)) }),
+      ...(worstNetPrice == null ? {} : { price: Number(Math.abs(worstNetPrice)).toFixed(2) }),
       'option_symbol[0]': shortSym,
       'side[0]':          'buy_to_close',
       'quantity[0]':      String(quantity),
@@ -312,7 +312,14 @@ class TradierClient {
       quantity:       String(quantity),
       duration:       'day',
     };
-    if (limitPrice != null) { params.type = 'limit'; params.price = String(limitPrice); }
+    // Redondeo a 2 decimales OBLIGATORIO. Tradier rechaza con HTTP 400
+    // "Invalid parameter, price: must use up to 2 decimal place(s)" — y eso fue
+    // lo que mato el roll de ANET el 2026-08-03: la pata vieja se recompro bien
+    // y la reapertura fallo 3 veces por este error, dejando la posicion FLAT
+    // sin proteccion. El precio venia del mid de la cadena (ej. 3.125), que
+    // naturalmente tiene 3 decimales. Se redondea aca, en el unico lugar que
+    // arma la orden, en vez de confiar en que cada call site se acuerde.
+    if (limitPrice != null) { params.type = 'limit'; params.price = Number(limitPrice).toFixed(2); }
     else                    { params.type = 'market'; }
     const body = new URLSearchParams(params);
     const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
@@ -358,7 +365,7 @@ class TradierClient {
       // price: must be greater than 0", confirmado con preview el 2026-08-03).
       // netCreditMin puede dar 0.00 perfectamente (roll a la par), asi que el
       // piso real es $0.01: sigue siendo "no pagar por rolar", que es la regla.
-      price:              String(Math.max(0.01, netCreditMin).toFixed(2)),
+      price:              Math.max(0.01, netCreditMin).toFixed(2),
       'option_symbol[0]': oldOptionSymbol,
       'side[0]':          'buy_to_close',
       'quantity[0]':      String(quantity),
@@ -456,7 +463,7 @@ class TradierClient {
       symbol:   underlyingRoot,
       type:     minCreditPrice != null ? 'credit' : 'market',
       duration: 'day',
-      ...(minCreditPrice != null ? { price: String(minCreditPrice) } : {}),
+      ...(minCreditPrice != null ? { price: Number(minCreditPrice).toFixed(2) } : {}),
       'option_symbol[0]': putShortSym,  'side[0]': 'sell_to_open', 'quantity[0]': String(quantity),
       'option_symbol[1]': putLongSym,   'side[1]': 'buy_to_open',  'quantity[1]': String(quantity),
       'option_symbol[2]': callShortSym, 'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),
@@ -528,7 +535,7 @@ class TradierClient {
       symbol:   underlyingRoot,
       type:     maxDebitPrice != null ? 'debit' : 'market',
       duration: 'day',
-      ...(maxDebitPrice != null ? { price: String(maxDebitPrice) } : {}),
+      ...(maxDebitPrice != null ? { price: Number(maxDebitPrice).toFixed(2) } : {}),
       'option_symbol[0]': outerHighSym, 'side[0]': 'buy_to_open',  'quantity[0]': String(quantity),
       'option_symbol[1]': innerHighSym, 'side[1]': 'sell_to_open', 'quantity[1]': String(quantity),
       'option_symbol[2]': innerLowSym,  'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),
