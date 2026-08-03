@@ -762,7 +762,8 @@ async function loadMonitorSPX() {
     _monData = j;
 
     // Selector de dia — solo los dias que realmente tienen velas.
-    const dias = [...new Set(j.bars.map(b => new Date(b.time * 1000).toISOString().slice(0, 10)))].sort().reverse();
+    const diaMercado = t => new Date(t * 1000).toLocaleDateString('en-CA', { timeZone:'America/New_York' });
+    const dias = [...new Set(j.bars.map(b => diaMercado(b.time)))].sort().reverse();
     const sel = document.getElementById('mon-dia');
     if (sel) {
       const previo = sel.value;
@@ -821,7 +822,7 @@ function renderMonitorSPX() {
 
   const dia  = document.getElementById('mon-dia')?.value || '';
   const bars = dia
-    ? _monData.bars.filter(b => new Date(b.time * 1000).toISOString().slice(0, 10) === dia)
+    ? _monData.bars.filter(b => new Date(b.time * 1000).toLocaleDateString('en-CA', { timeZone:'America/New_York' }) === dia)
     : _monData.bars;
   if (!bars.length) { if (st) st.textContent = 'Sin velas para ese día.'; return; }
 
@@ -846,7 +847,14 @@ function renderMonitorSPX() {
     grid:   { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor:'#2a2e39', scaleMargins:{ top:0.06, bottom:0.28 } },
-    timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false },
+    timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false,
+      // Eje en hora de MERCADO (America/New_York), no UTC: un trader lee
+      // "10:30" como media hora despues de la apertura, no como una hora UTC
+      // que hay que restar mentalmente. Se resuelve con toLocaleString real,
+      // asi que el horario de verano se ajusta solo.
+      tickMarkFormatter: (time) => new Date(time * 1000).toLocaleTimeString('en-US',
+        { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hour12:false }),
+    },
   });
 
   const velas = _monChart.addCandlestickSeries({
@@ -908,9 +916,11 @@ function renderMonitorSPX() {
     const f  = v => v == null ? '—' : v.toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
     const fB = v => v == null ? '—' : (v / 1e9).toFixed(2) + 'B';
     const fecha = new Date(b.time * 1000);
+    const etFecha = fecha.toLocaleDateString('en-CA', { timeZone:'America/New_York' });
+    const etHora  = fecha.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hour12:false });
     const fila = (c, l, v) => '<div style="display:flex;justify-content:space-between;gap:14px;"><span style="color:' + c + ';">● ' + l + '</span><span style="font-family:ui-monospace,monospace;color:var(--bright);">' + v + '</span></div>';
     tip.innerHTML =
-      '<div style="font-weight:700;color:var(--bright);margin-bottom:6px;">VELA · ' + fecha.toISOString().slice(0,10) + ' ' + fecha.toISOString().slice(11,16) + ' UTC</div>'
+      '<div style="font-weight:700;color:var(--bright);margin-bottom:6px;">VELA · ' + etFecha + ' ' + etHora + ' ET</div>'
       + fila('#b2b5be','Cierre', f(b.close))
       + (n
         ? fila('#13d68f','Call Wall',  f(n.callWall))
@@ -931,7 +941,7 @@ function renderMonitorSPX() {
   new ResizeObserver(() => { if (_monChart) _monChart.applyOptions({ width: cont.clientWidth }); }).observe(cont);
 
   if (st) {
-    const desde = niveles.length ? new Date(niveles[0].t * 1000).toISOString().slice(0,10) : null;
+    const desde = niveles.length ? new Date(niveles[0].t * 1000).toLocaleDateString('en-CA', { timeZone:'America/New_York' }) : null;
     st.innerHTML = bars.length + ' velas · ' + conNivel + ' con lectura de niveles'
       + (desde
         ? ' · historial de gamma desde ' + desde + ' (' + niveles.length + ' lecturas)'
