@@ -1257,6 +1257,74 @@ function tradierRangeParams(daysBack) {
   return { start: fmt(past), end: fmt(now) };
 }
 
+// ── Velas frescas de SPX: historial de Tradier + cola en vivo de Yahoo ───────
+// (2026-08-04, fix real)
+//
+// El sandbox de Tradier entrega los datos con ~15 min de retraso. Verificado en
+// vivo: a las 10:38 ET su ultima vela de 2m era la de las 10:22 — le faltaban 8
+// velas — y donde ambas fuentes tenian dato los cierres coincidian al centavo.
+// O sea que Tradier no esta mal: esta atrasado.
+//
+// Eso importaba mucho mas de lo que parece, porque las dos estrategias deciden
+// con estas velas: el direccional desde 2026-07-27 (fetchCaminoBBars, cuando
+// paso a calcular Camino B por su cuenta en vez de esperar el webhook de
+// TradingView) y la reversion desde 2026-08-02 (buildSPXContext). Las dos
+// venian evaluando un mercado de 15 minutos atras — en un sistema que opera
+// velas de 2 minutos, eso es operar a ciegas. Detectado porque el usuario veia
+// un pullback claro en pantalla que el sistema no registraba.
+//
+// No se vuelve a Yahoo a secas porque el cambio del 2026-08-02 arreglaba un bug
+// real: la ULTIMA vela que devuelve Yahoo es la que todavia se esta formando y
+// viene con Open=High=Low=Close identicos, lo que dejaba entryCandleLow/High de
+// la reversion fijados en un solo precio en vez de un rango (afectaba al 100%
+// de las ejecuciones reales). Por eso se combinan las dos: el historial ya
+// liquidado de Tradier, mas las velas que le faltan desde Yahoo, descartando
+// siempre la que esta en curso.
+const BAR_SEG      = { '2min': 120, '15min': 900 };
+const BAR_YAHOO_IV = { '2min': '2m', '15min': '15m' };
+
+async function fetchBarsSPXFrescas(intervalo, daysBack = 7) {
+  let barsT = [];
+  try {
+    const { start, end } = tradierRangeParams(daysBack);
+    barsT = (await tradier.getTimesales('SPX', intervalo, start, end))
+      .filter(b => b.close != null && b.high != null && b.low != null);
+  } catch (e) {
+    console.error(`[SPX-BARS] Tradier ${intervalo} falló:`, e.message);
+  }
+
+  let barsY = [];
+  try {
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=${BAR_YAHOO_IV[intervalo]}&range=5d`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const res = (await r.json()).chart?.result?.[0];
+    const q = res?.indicators?.quote?.[0] || {};
+    const ahoraSeg = Date.now() / 1000;
+    const dur = BAR_SEG[intervalo];
+    barsY = (res?.timestamp || [])
+      .map((ts, i) => ({ timestamp: ts, open: q.open?.[i], high: q.high?.[i], low: q.low?.[i], close: q.close?.[i] }))
+      // El corte por antiguedad es lo que descarta la vela en curso: una vela ya
+      // cerrada arranco hace al menos su propia duracion.
+      .filter(b => b.close != null && b.high != null && b.low != null && (ahoraSeg - b.timestamp) >= dur);
+  } catch (e) {
+    console.error(`[SPX-BARS] Yahoo ${intervalo} falló:`, e.message);
+  }
+
+  // Si una de las dos fuentes no respondio, se usa la otra tal cual — nunca se
+  // devuelve vacio por tener media fuente caida.
+  if (!barsT.length) return barsY;
+  if (!barsY.length) return barsT;
+
+  const ultimoT = barsT[barsT.length - 1].timestamp;
+  const cola = barsY.filter(b => b.timestamp > ultimoT);
+  if (cola.length) {
+    const hh = ts => new Date(ts * 1000).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false }).slice(0, 5);
+    console.log(`[SPX-BARS] ${intervalo}: Tradier llega a ${hh(ultimoT)}, +${cola.length} velas de Yahoo hasta ${hh(cola[cola.length-1].timestamp)}.`);
+  }
+  return barsT.concat(cola);
+}
+
 function calcMACD(closes) {
   if (closes.length < 35) return { line: null, signal: null, hist: null, histPrev: null, bullish: false, bearish: false, slope: 0 };
   const ema12 = calcEMA(closes, 12);
@@ -4232,9 +4300,9 @@ async function buildSPXContext() {
       const q15 = j15.chart?.result?.[0]?.indicators?.quote?.[0] || {};
       let closes15 = (q15.close || []).filter(v => v != null);
       try {
-        const { start: start15, end: end15 } = tradierRangeParams(7);
-        const tBars15 = await tradier.getTimesales('SPX', '15min', start15, end15);
-        const tCloses15 = tBars15.map(b => b.close).filter(v => v != null);
+        // Tradier + cola de Yahoo (2026-08-04) — antes era solo Tradier, que en
+        // sandbox llega ~15 min atrasado. Ver fetchBarsSPXFrescas.
+        const tCloses15 = (await fetchBarsSPXFrescas('15min')).map(b => b.close).filter(v => v != null);
         if (tCloses15.length >= 30) closes15 = tCloses15;
       } catch(eT15) { console.error('[SPX] Tradier 15m error, usando Yahoo:', eT15.message); }
       if (closes15.length >= 30) {
@@ -4341,8 +4409,11 @@ async function buildSPXContext() {
         // propio bróker, no un placeholder de la vela en curso.
         let bars2mTradier = null;
         try {
-          const { start: start2, end: end2 } = tradierRangeParams(7);
-          const tBars2 = await tradier.getTimesales('SPX', '2min', start2, end2);
+          // Tradier + cola de Yahoo (2026-08-04) — antes era solo Tradier, que en
+          // sandbox llega ~15 min atrasado. El filtro `high !== low` de abajo
+          // sigue cubriendo la vela en curso de Yahoo (O=H=L=C), aunque
+          // fetchBarsSPXFrescas ya la descarta por antigüedad.
+          const tBars2 = await fetchBarsSPXFrescas('2min');
           const tCloses2 = tBars2.map(b => b.close).filter(v => v != null);
           if (tCloses2.length >= 20) closes2 = tCloses2;
           const tBarsOhlc = tBars2.filter(b => b.high != null && b.low != null && b.close != null && b.high !== b.low);
@@ -4630,16 +4701,12 @@ app.post('/api/spx/webhook', async (req, res) => {
 // Tradier — misma fuente que ya usa buildSPXContext() desde el fix del
 // 2026-07-24 (ver tradierRangeParams, mas arriba en este archivo).
 async function fetchCaminoBBars() {
-  const { start: start2, end: end2 } = tradierRangeParams(7);
-  const tBars2 = await tradier.getTimesales('SPX', '2min', start2, end2);
-  const bars2m = tBars2
-    .filter(b => b.close != null && b.high != null && b.low != null)
-    .map(b => ({ high: b.high, low: b.low, close: b.close }));
-
-  const { start: start15, end: end15 } = tradierRangeParams(7);
-  const tBars15 = await tradier.getTimesales('SPX', '15min', start15, end15);
-  const closes15m = tBars15.filter(b => b.close != null).map(b => b.close);
-
+  // fetchBarsSPXFrescas: Tradier (historial liquidado) + la cola que le falta
+  // desde Yahoo. Antes esto leia SOLO de Tradier y por lo tanto decidia la
+  // entrada sobre un mercado de ~15 min atras — ver la nota larga en la
+  // definicion de esa funcion.
+  const bars2m    = (await fetchBarsSPXFrescas('2min')).map(b => ({ high: b.high, low: b.low, close: b.close }));
+  const closes15m = (await fetchBarsSPXFrescas('15min')).map(b => b.close);
   return { bars2m, closes15m };
 }
 
