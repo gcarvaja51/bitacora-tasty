@@ -4330,6 +4330,14 @@ async function buildSPXContext() {
             macd:  calcMACD(closes2),
             weinstein: calcWeinstein(closes2),
           };
+          // ATR de 2m (2026-08-04) — lo necesita el trailing por puntos de SPX,
+          // que congela este valor al entrar (ver entryAtr2m). Solo se calcula
+          // si hay velas OHLC reales de Tradier: el ATR necesita high/low, y el
+          // camino de respaldo de Yahoo solo trae cierres.
+          if (bars2mTradier && bars2mTradier.length >= 20) {
+            const atr2arr = calcATR(bars2mTradier, 14);
+            indicators.atr2m = atr2arr.length ? atr2arr[atr2arr.length - 1] : null;
+          }
         }
 
         // Rango de apertura 9:30-10:00 ET — para la ventana Iron Condor de las 10am.
@@ -5037,6 +5045,13 @@ async function processDirectionalEntry(direction, meta = {}) {
               // momento de entrar, igual que entryCandleLow/High en la reversion.
               fractalLevel:  signal.fractalLevel ?? null,
               pocLevel:      signal.pocLevel ?? null,
+              // Congelados para el trailing por PUNTOS de SPX (2026-08-04). Se
+              // guardan al entrar en vez de recalcularse cada 30s: el ATR de 2m
+              // exigiria traer velas en el loop rapido, y en un hold de minutos
+              // no se mueve lo suficiente como para justificar esa llamada.
+              // Mismo criterio que fractalLevel/pocLevel de arriba.
+              entrySpx:      typeof ctx?.spxPrice === 'number' ? ctx.spxPrice : null,
+              entryAtr2m:    typeof ctx?.indicators?.atr2m === 'number' ? ctx.indicators.atr2m : null,
               filledAt:      null,
               closedAt:      null,
               closeReason:   null,
@@ -6034,36 +6049,52 @@ async function checkDirectionalTPSLImpl() {
         else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
       }
 
-      // ── Trailing en modo SOMBRA (2026-08-03) ─────────────────────────────
-      // Registra que habria hecho un trailing stop, SIN ejecutarlo. Nace de que
-      // el 39% de los cierres direccionales fueron TECHNICAL_STOP con perdida
-      // media alta, pero el P&L de esos registros viene del /gainloss viejo, que
-      // hoy sabemos que asignaba mal las patas — o sea que la acusacion contra
-      // el stop tecnico NO es demostrable con el historico. En vez de cambiar la
-      // salida a ciegas, se anota en paralelo lo que el trailing habria decidido
-      // y se compara contra el cierre real sobre los MISMOS trades. Sin riesgo:
-      // no coloca ordenes ni altera cerrarPor.
+      // ── Trailing en modo SOMBRA — sobre PUNTOS de SPX ───────────────────
+      // Registra que habria hecho un trailing, SIN ejecutarlo.
       //
-      // Regla: una vez que la ganancia toca ACTIVACION, se protege devolviendo
-      // como maximo DEVOLUCION del pico alcanzado.
+      // Se mide en PUNTOS DEL SUBYACENTE y no en % de la prima (decision del
+      // usuario, 2026-08-04): en 0DTE el theta mueve el valor del spread aunque
+      // el SPX no se mueva, asi que un trailing sobre la prima se contamina con
+      // el paso del tiempo. El precio del indice es limpio. Ademas todo el
+      // analisis que sostiene estos parametros se hizo en puntos.
+      //
+      // Colchon = 2.5x ATR de 2m. Sale de medir 6 reglas distintas sobre las 9
+      // entradas direccionales del mentor: fue la mejor de las que protegen
+      // (23.7 pts/trade contra 9.0 del TP actual del 30%). Va en ATR y no en
+      // puntos fijos por la misma razon que el umbral del gatillo: la
+      // profundidad util cambia con la volatilidad del momento.
+      //
+      // Por que NO se usa la EMA10 como piso, que seria lo intuitivo: resulto la
+      // regla MAS floja de las seis (17.1 pts). Tiene sentido — es justo la
+      // linea que el gatillo de entrada considera una visita sana del precio, asi
+      // que usarla de salida seria cerrar en cada retroceso normal.
+      //
+      // Activacion a +10 pts: por debajo de eso el trailing no existe y solo
+      // protege el stop de siempre. Evita que el ruido saque una posicion apenas
+      // pasa a verde.
       try {
-        const base = Math.abs(ex.creditReceived) * 100 * (ex.contracts || 1);
-        if (base > 0 && Number.isFinite(pnlActual)) {
-          const gananciaPct = (pnlActual * 100 * (ex.contracts || 1)) / base;
+        const atrEntrada = ex.entryAtr2m;
+        if (spxPriceActual != null && ex.entrySpx != null && atrEntrada > 0) {
+          const esAlcistaTrail = ex.direction === 'BULLISH';
+          const favPts = esAlcistaTrail ? (spxPriceActual - ex.entrySpx) : (ex.entrySpx - spxPriceActual);
           const sh = ex.shadowTrail || (ex.shadowTrail = {
-            activacion: 0.20, devolucion: 0.30, picoPct: -Infinity, disparo: null, ciclos: 0,
+            base: 'puntos_spx', activaPts: 10, colchonATR: 2.5,
+            atrEntrada: +atrEntrada.toFixed(2), picoPts: -Infinity, disparo: null, ciclos: 0,
           });
           sh.ciclos++;
-          if (gananciaPct > sh.picoPct) sh.picoPct = +gananciaPct.toFixed(4);
-          if (!sh.disparo && sh.picoPct >= sh.activacion && gananciaPct <= sh.picoPct * (1 - sh.devolucion)) {
+          if (favPts > sh.picoPts) sh.picoPts = +favPts.toFixed(2);
+          const piso = sh.picoPts - sh.colchonATR * atrEntrada;
+          if (!sh.disparo && sh.picoPts >= sh.activaPts && favPts <= piso) {
             sh.disparo = {
               ts: new Date().toISOString(),
-              picoPct: sh.picoPct,
-              gananciaPct: +gananciaPct.toFixed(4),
+              picoPts: sh.picoPts,
+              favPts: +favPts.toFixed(2),
+              pisoPts: +piso.toFixed(2),
+              spx: spxPriceActual,
               pnlEstimado: +(pnlActual * 100 * (ex.contracts || 1)).toFixed(2),
             };
             cambios = true;
-            console.log(`[SOMBRA-TRAIL] ${ex.orderId}: el trailing habria salido acá — pico ${(sh.picoPct*100).toFixed(0)}%, ahora ${(gananciaPct*100).toFixed(0)}%, P&L estimado $${sh.disparo.pnlEstimado}`);
+            console.log(`[SOMBRA-TRAIL] ${ex.orderId}: el trailing habria salido acá — pico +${sh.picoPts} pts, ahora +${favPts.toFixed(1)} pts (piso ${piso.toFixed(1)}), P&L estimado $${sh.disparo.pnlEstimado}`);
           }
         }
       } catch(e) { /* la sombra jamas debe romper el monitor real */ }
