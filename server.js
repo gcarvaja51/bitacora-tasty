@@ -3599,13 +3599,23 @@ const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtensio
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
 const { calcCaminoA, calcATR } = require('./src/camino_a');
-const { calcCaminoB } = require('./src/camino_b');
+const { calcCaminoB, calcPullbackEntry } = require('./src/camino_b');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
 const SPX_CONFIG_FILE = path.join(DATA_DIR, 'spx_config.json');
 const SPX_CONFIG_DEFAULTS = {
   minScore: 80, // regla de Alejandro: los 3 Mundos alineados -> score > 80/100
+  // Umbral MAS ALTO para el trade siguiente a una perdida del mismo dia
+  // (2026-08-03, a pedido del usuario). Razon: los 4 trades de un dia no son 4
+  // apuestas independientes — si el marco de 15m esta mal leido, los 4 heredan
+  // el mismo error. Tras una perdida se exige mas evidencia para volver a
+  // entrar. Se aplica solo al SIGUIENTE trade: si ese gana, vuelve a 80.
+  minScoreTrasPerdida: 90,
+  // 'pullback' = gatillo nuevo (calcPullbackEntry, ver src/camino_b.js).
+  // 'camino_b' = alineacion activa de 2m, el de siempre. Cambiar este valor
+  // revierte el comportamiento por completo, sin tocar codigo.
+  entryMode: 'pullback',
   weights: {
     // Modelo "Peso de la Evidencia" (playbook Alejandro, Framework 3 Mundos).
     // fase_weinstein a todo-o-nada: si 2m y 15m coinciden (2-2 o 4-4) son los
@@ -3763,6 +3773,15 @@ function loadSPXConfig() {
     }
     // Suma parametros de riesgo diario (consecutivas + drawdown %) y proximidad de
     // muro a un smaReversion ya guardado que no los tenga (ajuste post-curso Luis Silva).
+    // Migracion 2026-08-03: entryMode + minScoreTrasPerdida. Mismo patron no
+    // destructivo que las anteriores — solo agrega las claves si faltan, sin
+    // tocar el resto de la config guardada en el volumen.
+    if (saved && saved.entryMode === undefined) {
+      console.log('[SPX] Sumando entryMode (pullback) y minScoreTrasPerdida (90) — no existían');
+      saved.entryMode = SPX_CONFIG_DEFAULTS.entryMode;
+      saved.minScoreTrasPerdida = SPX_CONFIG_DEFAULTS.minScoreTrasPerdida;
+    }
+
     if (saved?.trading?.smaReversion && saved.trading.smaReversion.maxDailyDrawdownPct === undefined) {
       console.log('[SPX] Sumando maxDailyDrawdownPct/wallProximityPts a smaReversion (no existían)');
       saved.trading.smaReversion.maxDailyDrawdownPct = SPX_CONFIG_DEFAULTS.trading.smaReversion.maxDailyDrawdownPct;
@@ -4614,11 +4633,14 @@ async function checkDirectionalAutonomous() {
     if (tradierDiceAbierto || localDiceAbierto) return; // ya hay un trade SPXW abierto/en curso — no evaluar
 
     const { bars2m, closes15m } = await fetchCaminoBBars();
-    const r = calcCaminoB(bars2m, closes15m);
+    const modo = (loadSPXConfig().entryMode) || 'camino_b';
+    const r = modo === 'pullback'
+      ? calcPullbackEntry(bars2m, closes15m)
+      : calcCaminoB(bars2m, closes15m);
 
     if (r.bull || r.bear) {
       const direction = r.bull ? 'BULLISH' : 'BEARISH';
-      console.log(`[SPX] ✅ Camino B ${direction} — ${r.reason}`);
+      console.log(`[SPX] ✅ Entrada ${direction} (modo ${modo}) — ${r.reason}`);
       await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r });
     } else {
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_CAMINO_B', passed: false, reason: r.reason, snapshot: { coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
@@ -4634,6 +4656,40 @@ setInterval(checkDirectionalAutonomous, 30 * 1000);
 // llamarse tanto desde una alerta real de Pine como desde el chequeo autonomo,
 // sin duplicar codigo. meta.source/meta.timeframe son solo metadata para el
 // dashboard (columna "Origen"), no afectan la decision.
+// Umbral de score efectivo para el proximo trade direccional (2026-08-03).
+// Si el ULTIMO trade direccional cerrado de HOY salio negativo, se exige
+// minScoreTrasPerdida (90) en vez de minScore (80).
+//
+// Caso "P&L todavia no asentado": los monitores dejan el registro en 'filled'
+// a proposito y la reconciliacion pasiva completa el pnl hasta 5 min despues.
+// En esa ventana no sabemos si gano o perdio, y se aplica el umbral ALTO — la
+// regla existe para frenar tras una perdida, asi que ante la duda frena. Son
+// pocos minutos y los trades estan separados por 20-50.
+function minScoreEfectivoDireccional(cfg) {
+  const base = cfg.minScore ?? 80;
+  const alto = cfg.minScoreTrasPerdida ?? base;
+  if (alto <= base) return { valor: base, motivo: null };
+  try {
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const cerradosHoy = loadTradierExecutions()
+      .filter(e => e.strategyFamily === 'TENDENCIA' && e.status === 'closed'
+                && (e.filledAt || '').slice(0, 10) === hoy && e.closedAt)
+      .sort((a, b) => b.closedAt.localeCompare(a.closedAt));
+    if (!cerradosHoy.length) return { valor: base, motivo: null };
+    const ultimo = cerradosHoy[0];
+    if (typeof ultimo.pnl !== 'number') {
+      return { valor: alto, motivo: `el trade anterior de hoy todavía no tiene P&L confirmado — se exige ${alto}% por precaución` };
+    }
+    if (ultimo.pnl < 0) {
+      return { valor: alto, motivo: `el trade anterior de hoy cerró en $${ultimo.pnl} — se exige ${alto}%` };
+    }
+    return { valor: base, motivo: null };
+  } catch(e) {
+    console.error('[SPX] minScoreEfectivoDireccional:', e.message);
+    return { valor: base, motivo: null };
+  }
+}
+
 async function processDirectionalEntry(direction, meta = {}) {
   const tStart = Date.now();
   const source = meta.source || 'CaminoB_autonomo';
@@ -4711,8 +4767,19 @@ async function processDirectionalEntry(direction, meta = {}) {
       fractal15m:  ctx.indicators?.fractal15m || {},
     }, spxConfig);
 
+    // Umbral escalado tras una perdida del mismo dia (ver
+    // minScoreEfectivoDireccional). Se recalcula 'passed' con el umbral
+    // efectivo en vez de tocar calcPlaybookScore, que se usa desde otros lados.
+    const umbral = minScoreEfectivoDireccional(spxConfig);
+    if (umbral.valor > playbookResult.minScore) {
+      playbookResult.minScore = umbral.valor;
+      playbookResult.passed = playbookResult.score >= umbral.valor;
+      playbookResult.umbralElevadoPor = umbral.motivo;
+    }
+
     if (!playbookResult.passed) {
-      const reason = `Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`;
+      const reason = `Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`
+        + (playbookResult.umbralElevadoPor ? ` — ${playbookResult.umbralElevadoPor}` : '');
       console.log(`[SPX] ❌ ${reason}`);
       console.log(`[SPX] Detalle checks: ${JSON.stringify(playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })))}`);
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, minScore: playbookResult.minScore, checks: playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })) }) });

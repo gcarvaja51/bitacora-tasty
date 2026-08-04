@@ -102,4 +102,90 @@ function calcCaminoB(bars2m, closes15m) {
   };
 }
 
-module.exports = { calcCaminoB, calcFase15mSimple };
+// ── Gatillo de PULLBACK (2026-08-03) ────────────────────────────────────────
+// Reemplaza a coreAlign como disparador, a pedido del usuario, tras un estudio
+// sobre 18 dias de velas reales. La diferencia conceptual: Camino B entra
+// cuando la alineacion de 2m esta ACTIVA — o sea con el precio ya extendido,
+// despues de que el movimiento arranco. Este entra cuando el precio VUELVE a
+// la EMA10 y reanuda, que es donde el recorrido todavia esta por delante.
+//
+// Que se saco y por que:
+//   - MACD de 2m: un retroceso hunde la linea del MACD contra su señal por
+//     construccion, asi que el filtro vetaba justo el momento que se busca
+//     (caso real 3-ago 10:34: MagicTrend, EMAs y marco 15m OK, MACD en contra
+//     las 8 velas del pullback). Peor: el 9-jul estuvo A FAVOR en las TRES
+//     peores señales del dia (-30.8, -27.4, -8.3 pts de excursion adversa),
+//     mientras las señales con MACD en contra tuvieron mediana de -0.5. No
+//     filtra riesgo; entra tarde.
+//   - Alineacion de EMAs en 2m: el pullback ES una fase contraria breve dentro
+//     de la fase mayor. El 9-jul la nube de 2m se fue a -3.58 (Fase 3 pura) y
+//     ahi estaba la mejor entrada del dia (+25 pts en 18 min).
+// Lo que se mantiene: el marco maestro de 15m (Fase 2/4). Se cumplio en los 5
+// casos marcados por el usuario y es el filtro que si hace su trabajo.
+//
+// Resultados del estudio (mismo simulador para las 3 variantes, TP/SL en
+// puntos, exclusividad de posicion simulada): el pullback le gana a la logica
+// actual en 6 de 7 combinaciones de TP/SL, y en las DOS mitades de la muestra
+// por separado (9-21 jul y 22 jul-3 ago), que es lo que descarta sobreajuste.
+// Agregar el MACD encima empeora en 6 de 7.
+//
+// Salvedad honesta que hay que tener presente: la referencia contra los trades
+// REALES no es confiable (39 de 62 tienen el P&L mal calculado por el
+// /gainloss viejo), asi que lo validado es la comparacion ENTRE variantes, no
+// el rendimiento absoluto.
+//
+// Dispara si el precio vuelve a la EMA10 y reanuda, de dos formas:
+//   (a) CRUCE — cerro del otro lado de la EMA10 y vuelve a cruzarla. Es la
+//       "Conservative Entry" del script original del mentor (entryUpT_SS).
+//   (b) ROCE — la distancia a la EMA10 toco un minimo local y giro, sin llegar
+//       a cruzar, con ese minimo dentro de maxATR veces el ATR. Hace falta
+//       porque 2 de los 5 casos marcados nunca cruzaron (minimos de +0.31 y
+//       +0.66 ATR) y el cruce solo los habria perdido.
+// El umbral en ATR (no en puntos) es necesario porque la profundidad util
+// varia muchisimo con la volatilidad del momento: los casos reales fueron de
+// +0.66 a -2.0 ATR.
+function calcPullbackEntry(bars2m, closes15m, opciones = {}) {
+  const maxATR = opciones.maxATR ?? 0.8;
+  const periodoATR = opciones.periodoATR ?? 14;
+  if (!bars2m || bars2m.length < 35) {
+    return { bull: false, bear: false, reason: 'Historial insuficiente (2m)' };
+  }
+  const closes2m = bars2m.map(b => b.close);
+  const ema10 = calcEMAArray(closes2m, 10);
+  const atr = calcATR(bars2m, periodoATR);
+  const i = bars2m.length - 1;
+  if (ema10[i] == null || ema10[i-1] == null || ema10[i-2] == null || atr[i] == null) {
+    return { bull: false, bear: false, reason: 'Datos insuficientes (warmup 2m)' };
+  }
+
+  const fase15 = calcFase15mSimple(closes15m);
+  if (!fase15.bull && !fase15.bear) {
+    return { bull: false, bear: false, reason: 'Marco 15m sin Fase 2 ni Fase 4 — no se evalua pullback' };
+  }
+  const dir = fase15.bull ? 1 : -1;
+  // distancia A FAVOR de la direccion: positiva = extendido, negativa = del otro lado
+  const d = k => dir > 0 ? closes2m[k] - ema10[k] : ema10[k] - closes2m[k];
+
+  const cruce = dir > 0
+    ? (closes2m[i-1] < ema10[i-1] && closes2m[i] > ema10[i])
+    : (closes2m[i-1] > ema10[i-1] && closes2m[i] < ema10[i]);
+  const giro  = d(i) > d(i-1) && d(i-1) <= d(i-2);
+  const cerca = Math.abs(d(i-1)) <= maxATR * atr[i];
+  const roce  = giro && cerca;
+
+  const disparo = cruce || roce;
+  const etiqueta = cruce ? 'cruce de vuelta sobre la EMA10' : roce ? 'roce y giro en la EMA10' : null;
+  return {
+    bull: disparo && dir > 0,
+    bear: disparo && dir < 0,
+    tipo: etiqueta,
+    distActual: +d(i).toFixed(2),
+    distMinima: +d(i-1).toFixed(2),
+    atr: +atr[i].toFixed(2),
+    reason: disparo
+      ? `Pullback ${dir > 0 ? 'alcista' : 'bajista'} — ${etiqueta} (mínimo ${d(i-1).toFixed(2)} pts, ATR ${atr[i].toFixed(2)}), marco 15m en Fase ${dir > 0 ? 2 : 4}`
+      : `Sin pullback: distancia a la EMA10 ${d(i).toFixed(2)} pts (mínimo previo ${d(i-1).toFixed(2)}, tope ${(maxATR * atr[i]).toFixed(2)})`,
+  };
+}
+
+module.exports = { calcCaminoB, calcFase15mSimple, calcPullbackEntry };
