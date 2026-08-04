@@ -210,9 +210,10 @@
               <th onclick="posSortTradier('precio')" style="cursor:pointer;user-select:none;">Precio Subyac. <span id="sort-precio"></span></th>
               <th onclick="posSortTradier('open')"   style="cursor:pointer;user-select:none;">Apertura <span id="sort-open"></span></th>
               <th onclick="posSortTradier('pct')"    style="cursor:pointer;user-select:none;">% Capturado <span id="sort-pct"></span></th>
+              <th title="Cierre manual forzado. Solo disponible para trades automáticos de SPX: cerrar una pata de la Rueda a mano dejaría su ciclo desincronizado.">Acción</th>
             </tr></thead>
             <tbody id="pos-tbody">
-              <tr><td colspan="14"><div class="loader"><div class="spinner"></div></div></td></tr>
+              <tr><td colspan="15"><div class="loader"><div class="spinner"></div></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -3314,7 +3315,24 @@ function buildPosRowTradier(g) {
         <span class="td-mono ${pct>=0?'pos':'neg'}" style="font-size:10px;min-width:40px;">${pct.toFixed(0)}%</span>
       </div>
     </td>
+    ${celdaCierreTradier(g)}
   </tr>`;
+}
+
+// Botón de cierre manual en Posiciones (2026-08-04). Solo aparece si el grupo
+// se puede mapear a una ejecución automática de SPX abierta — las posiciones de
+// La Rueda quedan fuera a propósito: cerrar una pata suelta a mano dejaría el
+// ciclo desincronizado (el registro seguiría en CSP_ACTIVA/CC_ACTIVA con la
+// posición ya cerrada), que es peor que no tener el botón.
+let _execPorSimboloTradier = {};
+function celdaCierreTradier(g) {
+  const ids = new Set((g.legs||[]).map(l => _execPorSimboloTradier[l.symbol]).filter(Boolean));
+  if (ids.size !== 1) {
+    return `<td><span class="dim" style="font-size:10px;" title="Sin trade automático de SPX asociado (posición de La Rueda o manual).">—</span></td>`;
+  }
+  const id = [...ids][0];
+  const etiqueta = `${g.underlying} ${[...new Set((g.legs||[]).map(l=>l.strike))].join('/')}`;
+  return `<td><button id="close-btn-${id}" onclick="cerrarManualTradier('${id}','${etiqueta}')" title="Cierre manual forzado: cancela órdenes que estén bloqueando las patas y coloca la orden de cierre." style="background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.35);color:var(--red,#ff6b6b);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">✖ Cerrar</button></td>`;
 }
 
 function STRAT_TYPE_LABEL(g) {
@@ -3416,12 +3434,22 @@ function renderPosRowsTradier(groups) {
     if (typeof va==='string') return asc?va.localeCompare(vb):vb.localeCompare(va);
     return asc?va-vb:vb-va;
   });
-  $('pos-tbody').innerHTML = sorted.length ? sorted.map(g=>buildPosRowTradier(g)).join('') : '<tr><td colspan="14" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
+  $('pos-tbody').innerHTML = sorted.length ? sorted.map(g=>buildPosRowTradier(g)).join('') : '<tr><td colspan="15" style="text-align:center;padding:24px;color:var(--muted);">Sin posiciones abiertas</td></tr>';
 }
 
 async function loadPositionsTradier() {
   try {
     const data = await api('/api/positions-tradier');
+    // Mapa símbolo-de-pata -> id de ejecución SPX abierta, para saber qué filas
+    // pueden ofrecer el botón de cierre manual (ver celdaCierreTradier).
+    try {
+      const ej = await api('/api/tradier/executions');
+      const lista = Array.isArray(ej) ? ej : (ej.executions || []);
+      _execPorSimboloTradier = {};
+      lista.filter(e => ['filled','submitted'].includes(e.status)).forEach(e => {
+        Object.values(e.legs || {}).forEach(sym => { if (sym) _execPorSimboloTradier[sym] = e.id; });
+      });
+    } catch(_) { _execPorSimboloTradier = {}; }
     const groups = (data.groups||[]).map(annotatePosGroupTradier);
     let totalPremium = 0, totalUnreal = 0;
     groups.forEach(g => { totalPremium += Math.max(0, g.premiumNet); totalUnreal += g.unrealizedPnL; });
@@ -3433,7 +3461,7 @@ async function loadPositionsTradier() {
     ].join('');
     renderPosRowsTradier(groups);
   } catch(e) {
-    $('pos-tbody').innerHTML = `<tr><td colspan="14"><div class="error-box">${e.message}</div></td></tr>`;
+    $('pos-tbody').innerHTML = `<tr><td colspan="15"><div class="error-box">${e.message}</div></td></tr>`;
   }
 }
 
