@@ -542,6 +542,59 @@ class TradierClient {
 
   // Cierra las 4 patas del Iron Condor — orden inversa (buy_to_close en las cortas,
   // sell_to_close en las largas).
+  // ── Cierre generico de CUALQUIER posicion abierta (2026-08-04) ──────────────
+  //
+  // A pedido del usuario, como "plan B" cuando el robot se enreda: cierra 1, 2 o
+  // 4 patas, sea SPX o La Rueda, sin depender de que estrategia dice nuestro
+  // registro. La direccion de cada pata se deriva de la POSICION REAL en el
+  // broker (quantity > 0 -> se vende para cerrar; < 0 -> se recompra), que es la
+  // unica fuente confiable justo cuando lo que puede estar mal es nuestro
+  // seguimiento.
+  //
+  // Una sola pata va como class 'option'; dos o mas como 'multileg' (atomica —
+  // nunca dos ordenes sueltas, que podrian dejar una pata al descubierto si solo
+  // una llena).
+  async closeAnyPosition({ underlyingRoot, legs, type = 'market', price }) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    const abiertas = (legs || []).filter(l => l.symbol && Number(l.quantity) !== 0);
+    if (!abiertas.length) throw new Error('Sin patas abiertas que cerrar');
+
+    const lado = q => (Number(q) > 0 ? 'sell_to_close' : 'buy_to_close');
+    const body = new URLSearchParams({
+      symbol:   underlyingRoot,
+      duration: 'day',
+      type,
+      ...(price != null ? { price: String(price) } : {}),
+    });
+
+    if (abiertas.length === 1) {
+      const l = abiertas[0];
+      body.set('class', 'option');
+      body.set('option_symbol', l.symbol);
+      body.set('side', lado(l.quantity));
+      body.set('quantity', String(Math.abs(Number(l.quantity))));
+    } else {
+      body.set('class', 'multileg');
+      abiertas.forEach((l, i) => {
+        body.set(`option_symbol[${i}]`, l.symbol);
+        body.set(`side[${i}]`, lado(l.quantity));
+        body.set(`quantity[${i}]`, String(Math.abs(Number(l.quantity))));
+      });
+    }
+
+    const data = await this._req(`/accounts/${this.accountNumber}/orders`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString(),
+    });
+    return {
+      orderId: data.order?.id ?? null,
+      status:  data.order?.status ?? 'unknown',
+      patas:   abiertas.map(l => ({ symbol: l.symbol, side: lado(l.quantity), quantity: Math.abs(Number(l.quantity)) })),
+      raw:     data,
+    };
+  }
+
   async closeIronCondorOrder({ underlyingRoot, expiry, putShortStrike, putLongStrike, callShortStrike, callLongStrike, quantity }) {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
     const putShortSym  = this.buildOccSymbol(underlyingRoot, expiry, 'P', putShortStrike);

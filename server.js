@@ -56,6 +56,57 @@ if (!IS_PRODUCTION) {
   console.log('[SPX] Entorno LOCAL detectado — auto-ejecucion en Tradier deshabilitada (solo produccion/Railway opera la cuenta real).');
 }
 
+// Fecha de HOY en hora del Este, no en UTC. Bug real (2026-08-04, a partir de
+// un reporte del usuario: "el dato de julio y agosto lo veo raro"): los
+// snapshots de NLV se guardaban con todayStr() (fecha UTC) pero el guard de
+// dia habil usa isWeekdayET() (dia ET). Despues de las 8pm ET (7pm en
+// invierno) la fecha UTC ya es la del dia siguiente, asi que un arranque o
+// redeploy un viernes de noche pasaba el guard (ET dice viernes) y escribia el
+// snapshot bajo la fecha del SABADO -- de ahi salio el "2026-08-01" que quedo
+// en el historial de produccion. Si eso cae en la ultima noche habil de un
+// mes, corre la frontera del mes y le acredita a un mes dias del otro, que es
+// exactamente el sintoma reportado. Todo lo que fecha un dia de MERCADO usa
+// esta funcion; todayStr() (UTC) queda solo para rangos de consulta a la API,
+// donde adelantarse un dia es inofensivo.
+const todayStrET = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
+}).format(new Date());
+
+// Sabado/domingo de una fecha 'YYYY-MM-DD'. Mediodia UTC al parsear para que
+// ninguna zona horaria corra la fecha a la vispera.
+function isWeekendDate(dateStr) {
+  const day = new Date(dateStr + 'T12:00:00Z').getUTCDay();
+  return day === 0 || day === 6;
+}
+
+// Descarta snapshots fechados en fin de semana. Se aplica al LEER, no al
+// escribir, para que tambien limpie los que ya quedaron guardados en el
+// volumen de Railway (ese archivo no se puede editar a mano desde aca) y para
+// que cualquier fuga futura quede neutralizada sola. NO toca NLV_SEED: esos
+// son valores de cierre de mes cargados a mano -- 2026-02-28 es un sabado a
+// proposito -- y se vuelven a aplicar encima al construir el historial.
+function dropWeekendSnapshots(history) {
+  const out = {};
+  for (const [d, v] of Object.entries(history)) if (!isWeekendDate(d)) out[d] = v;
+  return out;
+}
+
+// ms hasta la proxima ocurrencia de HH:MM hora del Este. No se puede usar un
+// offset UTC fijo: 20:35 UTC son las 4:35pm ET solo en horario de verano; en
+// EST (nov-mar) son las 3:35pm, 25 minutos ANTES del cierre, asi que el
+// snapshot "de cierre" de todo el invierno se tomaba con el mercado abierto.
+// Mismo error de offset fijo que ya se corrigio en getETHour() (src/spx.js).
+function msUntilET(hour, minute) {
+  const p = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour12: false,
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }).formatToParts(new Date()).reduce((a, x) => (a[x.type] = x.value, a), {});
+  const nowMs = ((+p.hour % 24) * 60 + +p.minute) * 60000 + (+p.second) * 1000;
+  let delta = (hour * 60 + minute) * 60000 - nowMs;
+  if (delta <= 0) delta += 24 * 3600 * 1000;
+  return delta;
+}
+
 const NLV_FILE = path.join(DATA_DIR, 'nlv_history.json');
 const NLV_SEED = {
   '2026-02-13': 10644.00,   // depósito inicial
@@ -67,16 +118,24 @@ const NLV_SEED = {
 function loadNlvHistory() {
   try {
     if (fs.existsSync(NLV_FILE)) {
-      return { ...NLV_SEED, ...JSON.parse(fs.readFileSync(NLV_FILE, 'utf8')) };
+      return { ...NLV_SEED, ...dropWeekendSnapshots(JSON.parse(fs.readFileSync(NLV_FILE, 'utf8'))) };
     }
   } catch(e) { /* ignorar */ }
   return { ...NLV_SEED };
 }
 
-function saveNlvSnapshot(dateStr, nlv) {
+// overwrite:false -- no pisar un snapshot que ya exista para esa fecha. Lo usa
+// el guardado del ARRANQUE: el valor bueno del dia es el de las 4:35pm ET
+// (scheduleDaily), y un restart a media manana no debe reemplazarlo por un NLV
+// intradia. Bug real (2026-08-04): asi es como la misma fecha terminaba con
+// valores distintos segun el server -- 2026-07-28 valia 8493.04 en local y
+// 8472.80 en produccion. El guardado programado si pisa: ese es el cierre.
+function saveNlvSnapshot(dateStr, nlv, { overwrite = true } = {}) {
   const history = loadNlvHistory();
+  if (!overwrite && history[dateStr] != null) return false;
   history[dateStr] = nlv;
   fs.writeFileSync(NLV_FILE, JSON.stringify(history, null, 2), 'utf8');
+  return true;
 }
 
 // Bug real (2026-08-01, encontrado a partir de un reporte del usuario: "la curva
@@ -90,7 +149,7 @@ function saveNlvSnapshot(dateStr, nlv) {
 // cambiando mes por semana.
 function computeWeeklyNlv(nlvHistory, currentNlv) {
   const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayStrET();
   const allEntries = (isWeekdayET() ? [...entries, [today, currentNlv]] : entries).map(([d, v]) => [d, v, weekKey(d)]);
 
   const weeklyMap = {};
@@ -110,33 +169,31 @@ function computeWeeklyNlv(nlvHistory, currentNlv) {
   return weeklyMap;
 }
 
+// Mes = ultimo NLV del mes menos el ultimo NLV anterior al mes. Los buckets
+// asi calculados suman exactamente el cambio total de la cuenta (verificado:
+// 10644 + suma(feb..ago) = NLV actual al centavo), que es la propiedad que
+// hace util a esta metrica frente al P&L realizado.
+//
+// Limitacion que queda en pie: si un mes se queda sin snapshot en sus ultimos
+// dias de mercado, el resultado de esos dias se le acredita al mes siguiente
+// (no se pierde ni se duplica, pero se corre de mes). No hay forma de repartirlo
+// sin el dato; lo que se ataca es la causa -- que no falten snapshots -- via
+// todayStrET/msUntilET/overwrite arriba.
 function computeMonthlyNlv(nlvHistory, currentNlv) {
   const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
   // Agregar snapshot de hoy -- solo si hoy es dia habil (ver isWeekdayET),
   // mismo criterio que computeWeeklyNlv.
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayStrET();
   const allEntries = isWeekdayET() ? [...entries, [today, currentNlv]] : entries;
 
-  const byMonth = {};
-  for (let i = 1; i < allEntries.length; i++) {
-    const [prevDate, prevNlv] = allEntries[i-1];
-    const [curDate,  curNlv]  = allEntries[i];
-    const mo = curDate.slice(0, 7);
-    // Si están en meses distintos, calcular el cambio
-    if (prevDate.slice(0,7) !== mo) {
-      // El inicio de este mes = valor al final del mes anterior
-      byMonth[mo] = (byMonth[mo] || 0) + curNlv - prevNlv;
-    } else {
-      byMonth[mo] = (byMonth[mo] || 0) + curNlv - prevNlv;
-    }
-  }
-  // Simplificar: mes = último valor del mes - primer valor del mes
   const monthlyMap = {};
   const prevNlvByMonth = {};
   for (let i = 0; i < allEntries.length; i++) {
     const [date, nlv] = allEntries[i];
     const mo = date.slice(0, 7);
-    if (!prevNlvByMonth[mo]) {
+    // `in` y no un chequeo de verdad: un mes anterior que cerro exactamente en
+    // 0 es falsy y volveria a recalcular la base en cada iteracion.
+    if (!(mo in prevNlvByMonth)) {
       // Primer dato de este mes: start = último valor del mes anterior
       const prevMoEntries = allEntries.filter(([d]) => d.slice(0,7) < mo);
       const prevVal = prevMoEntries.length ? prevMoEntries[prevMoEntries.length-1][1] : nlv;
@@ -6959,6 +7016,103 @@ app.post('/api/tradier/executions/:id/patch', async (req, res) => {
 // colchon, ver el fix del 2026-07-20 que evito un cierre a mercado por encima
 // del ancho del spread). `aMercado: true` la saltea, para el caso en que lo que
 // se necesita es salir si o si.
+// ── Cierre manual forzado — "plan B" cuando el robot se enreda (2026-08-04) ──
+//
+// A pedido del usuario: tiene que funcionar sobre CUALQUIER trade abierto —1, 2
+// o 4 patas, SPX o La Rueda— y sin depender de nuestros propios registros, que
+// son justamente lo que puede estar mal cuando hace falta usarlo.
+//
+// Por eso todo se deriva de la POSICION REAL en Tradier: qué patas hay y en qué
+// dirección. Nuestro registro solo se usa DESPUES, para dejar el estado
+// coherente; si no lo encuentra, igual cierra.
+async function cerrarPosicionPorSimbolos(simbolos, { aMercado = false } = {}) {
+  const pedidos = new Set((simbolos || []).filter(Boolean));
+  if (!pedidos.size) throw new Error('Sin símbolos que cerrar');
+
+  const posiciones = (await tradier.getPositions()).filter(p => pedidos.has(p.symbol));
+  if (!posiciones.length) throw new Error('Esas patas ya no figuran abiertas en Tradier');
+
+  // 1) Liberar las patas: una orden fantasma bloquea cualquier cierre nuevo.
+  let canceladas = 0;
+  try {
+    for (const o of await tradier.getOrders()) {
+      if (!['open', 'pending'].includes((o.status || '').toLowerCase())) continue;
+      const legs = Array.isArray(o.leg) ? o.leg : (o.leg ? [o.leg] : []);
+      const toca = pedidos.has(o.option_symbol) || legs.some(l => pedidos.has(l.option_symbol));
+      if (!toca) continue;
+      try { await tradier.cancelOrder(o.id); canceladas++;
+            console.log(`[CIERRE-MANUAL] 🧹 Orden ${o.id} (${o.status}) cancelada — bloqueaba las patas.`); }
+      catch (e) { console.error(`[CIERRE-MANUAL] No se pudo cancelar ${o.id}:`, e.message); }
+    }
+  } catch (e) { console.error('[CIERRE-MANUAL] Error listando órdenes:', e.message); }
+
+  // 2) Cerrar. A mercado por defecto: acá lo que se busca es salir. La
+  //    protección de precio de los monitores existe para cierres automáticos
+  //    repetibles; este botón se usa cuando algo ya se torció.
+  const root = (posiciones[0].symbol || '').match(/^[A-Z]+/)?.[0] || 'SPXW';
+  const orden = await tradier.closeAnyPosition({
+    underlyingRoot: root,
+    legs: posiciones.map(p => ({ symbol: p.symbol, quantity: p.quantity })),
+    type: 'market',
+  });
+
+  // 3) Dejar coherente nuestro registro (best-effort, nunca bloquea el cierre).
+  const tocados = [];
+  try {
+    await withExecutionsLock(() => {
+      const all = loadTradierExecutions();
+      for (const ex of all) {
+        if (!['filled', 'submitted'].includes(ex.status)) continue;
+        if (!Object.values(ex.legs || {}).some(sym => pedidos.has(sym))) continue;
+        ex.closeOrderId = orden.orderId;
+        ex.closeReason  = 'MANUAL_FORZADO';
+        ex.notes = (ex.notes ? ex.notes + ' | ' : '') + 'Cierre manual forzado desde la bitácora.';
+        tocados.push(ex.id);
+      }
+      if (tocados.length) saveTradierExecutions(all);
+    });
+  } catch (e) { console.error('[CIERRE-MANUAL] No se pudo marcar la ejecución SPX:', e.message); }
+
+  try {
+    await withWheelExecutionsLock(() => {
+      const all = loadWheelTradingExecutions();
+      let cambio = false;
+      for (const ex of all) {
+        if (ex.phase === 'CERRADO') continue;
+        if (!pedidos.has(ex.leg?.optionSymbol)) continue;
+        // Cerrar la Call de una Covered Call NO termina el ciclo: las acciones
+        // siguen ahí, el ciclo vuelve a ASIGNADO y se venderá otra Call.
+        // Cerrar el Put de un CSP sí lo termina.
+        ex.phase  = ex.phase === 'CC_ACTIVA' ? 'ASIGNADO' : 'CERRADO';
+        ex.status = ex.phase === 'ASIGNADO' ? ex.status : 'closed';
+        ex.notes = (ex.notes ? ex.notes + ' | ' : '') +
+          `Pata cerrada manualmente desde la bitácora — ciclo pasa a ${ex.phase}.`;
+        tocados.push(ex.id); cambio = true;
+      }
+      if (cambio) saveWheelTradingExecutions(all);
+    });
+  } catch (e) { console.error('[CIERRE-MANUAL] No se pudo marcar el ciclo de la Rueda:', e.message); }
+
+  return { orderId: orden.orderId, status: orden.status, patas: orden.patas, canceladas, registros: tocados };
+}
+
+// Genérico: cierra por símbolos de pata (lo usa el botón de Posiciones).
+app.post('/api/tradier/close-position', async (req, res) => {
+  try {
+    if (!IS_PRODUCTION) {
+      return res.json({ ok: false, reason: 'local',
+        message: 'En local no se colocan órdenes reales (mismo sandbox que producción).' });
+    }
+    const r = await cerrarPosicionPorSimbolos(req.body?.symbols, { aMercado: true });
+    res.json({ ok: true, ...r });
+  } catch (e) {
+    console.error('[CIERRE-MANUAL] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Por id de ejecución (lo usa el botón del Historial) — resuelve las patas y
+// delega en la MISMA función, para que no haya dos formas de cerrar lo mismo.
 app.post('/api/tradier/executions/:id/close-now', async (req, res) => {
   try {
     const ex = loadTradierExecutions().find(e => e.id === req.params.id);
@@ -6970,42 +7124,8 @@ app.post('/api/tradier/executions/:id/close-now', async (req, res) => {
       return res.json({ ok: false, reason: 'local',
         message: 'En local no se colocan órdenes reales (mismo sandbox que producción).' });
     }
-
-    const canceladas = await cancelarOrdenesVivasDeLasPatas(ex);
-
-    // Proteccion de precio: mismo calculo que usan los monitores.
-    let worstNetPrice;
-    if (!req.body?.aMercado && ex.legs?.longSym && ex.legs?.shortSym) {
-      try {
-        const quotes = await tradier.getQuotes([ex.legs.longSym, ex.legs.shortSym]);
-        const q = {};
-        (Array.isArray(quotes) ? quotes : Object.values(quotes)).forEach(x => { q[x.symbol] = x.mark; });
-        const buffer = loadSPXConfig().trading?.closeSlippageBufferPts ?? 1.0;
-        if (q[ex.legs.longSym] != null && q[ex.legs.shortSym] != null) {
-          const neto = q[ex.legs.longSym] - q[ex.legs.shortSym];
-          worstNetPrice = neto >= 0 ? Math.max(neto - buffer, 0) : neto - buffer;
-        }
-      } catch (e) {
-        console.warn('[CIERRE-MANUAL] No se pudo cotizar, va a mercado:', e.message);
-      }
-    }
-
-    const closeResult = await colocarOrdenDeCierre(ex, { worstNetPrice });
-
-    const guardado = await withExecutionsLock(() => {
-      const all = loadTradierExecutions();
-      const t = all.find(e => e.id === req.params.id);
-      if (!t) return null;
-      t.closeOrderId = closeResult?.orderId ?? null;
-      t.closeReason  = 'MANUAL_FORZADO';
-      t.notes = (t.notes ? t.notes + ' | ' : '') +
-        `Cierre manual forzado desde la bitácora${canceladas ? ` (${canceladas} orden(es) bloqueante(s) cancelada(s))` : ''}.`;
-      saveTradierExecutions(all);
-      return t;
-    });
-
-    res.json({ ok: true, canceladas, closeOrderId: closeResult?.orderId ?? null,
-               worstNetPrice: worstNetPrice ?? null, execution: guardado });
+    const r = await cerrarPosicionPorSimbolos(Object.values(ex.legs || {}), { aMercado: true });
+    res.json({ ok: true, ...r });
   } catch (e) {
     console.error('[CIERRE-MANUAL] Error:', e.message);
     res.status(500).json({ error: e.message });
