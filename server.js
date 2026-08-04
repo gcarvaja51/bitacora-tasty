@@ -5952,6 +5952,40 @@ async function checkDirectionalTPSLImpl() {
         else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
       }
 
+      // ── Trailing en modo SOMBRA (2026-08-03) ─────────────────────────────
+      // Registra que habria hecho un trailing stop, SIN ejecutarlo. Nace de que
+      // el 39% de los cierres direccionales fueron TECHNICAL_STOP con perdida
+      // media alta, pero el P&L de esos registros viene del /gainloss viejo, que
+      // hoy sabemos que asignaba mal las patas — o sea que la acusacion contra
+      // el stop tecnico NO es demostrable con el historico. En vez de cambiar la
+      // salida a ciegas, se anota en paralelo lo que el trailing habria decidido
+      // y se compara contra el cierre real sobre los MISMOS trades. Sin riesgo:
+      // no coloca ordenes ni altera cerrarPor.
+      //
+      // Regla: una vez que la ganancia toca ACTIVACION, se protege devolviendo
+      // como maximo DEVOLUCION del pico alcanzado.
+      try {
+        const base = Math.abs(ex.creditReceived) * 100 * (ex.contracts || 1);
+        if (base > 0 && Number.isFinite(pnlActual)) {
+          const gananciaPct = (pnlActual * 100 * (ex.contracts || 1)) / base;
+          const sh = ex.shadowTrail || (ex.shadowTrail = {
+            activacion: 0.20, devolucion: 0.30, picoPct: -Infinity, disparo: null, ciclos: 0,
+          });
+          sh.ciclos++;
+          if (gananciaPct > sh.picoPct) sh.picoPct = +gananciaPct.toFixed(4);
+          if (!sh.disparo && sh.picoPct >= sh.activacion && gananciaPct <= sh.picoPct * (1 - sh.devolucion)) {
+            sh.disparo = {
+              ts: new Date().toISOString(),
+              picoPct: sh.picoPct,
+              gananciaPct: +gananciaPct.toFixed(4),
+              pnlEstimado: +(pnlActual * 100 * (ex.contracts || 1)).toFixed(2),
+            };
+            cambios = true;
+            console.log(`[SOMBRA-TRAIL] ${ex.orderId}: el trailing habria salido acá — pico ${(sh.picoPct*100).toFixed(0)}%, ahora ${(gananciaPct*100).toFixed(0)}%, P&L estimado $${sh.disparo.pnlEstimado}`);
+          }
+        }
+      } catch(e) { /* la sombra jamas debe romper el monitor real */ }
+
       if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
         cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
         console.log(`[Tradier-DIR-TPSL] ⏰ Cierre forzado por horario (30 min antes del cierre) — orden ${ex.orderId}`);
@@ -6644,6 +6678,40 @@ app.post('/api/wheel-trading/roll-preview', async (req, res) => {
   } catch(e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// Comparacion trailing-sombra vs cierre real (2026-08-03). Solo lectura: junta
+// lo que el trailing HABRIA hecho (registrado en paralelo por el monitor, sin
+// ejecutarse) contra lo que el cierre real dio, sobre los MISMOS trades.
+// Se excluyen los trades cuyo P&L viene del /gainloss viejo: ese metodo asignaba
+// mal las patas cuando varios trades compartian strikes el mismo dia, asi que
+// compararse contra el seria comparar contra un numero que no es.
+app.get('/api/spx/shadow-trail', (req, res) => {
+  const ex = loadTradierExecutions().filter(e => e.strategyFamily === 'TENDENCIA' && e.shadowTrail);
+  const fiable = e => typeof e.pnl === 'number' && e.pnlSource && !/^gainloss/.test(e.pnlSource);
+  const filas = ex.map(e => ({
+    id: e.id, dia: (e.filledAt || '').slice(0, 10), estado: e.status,
+    cierreReal: e.closeReason || null,
+    pnlReal: typeof e.pnl === 'number' ? e.pnl : null,
+    pnlFiable: fiable(e),
+    picoPct: e.shadowTrail.picoPct === -Infinity ? null : e.shadowTrail.picoPct,
+    trailDisparo: e.shadowTrail.disparo || null,
+    diferencia: (e.shadowTrail.disparo && fiable(e)) ? +(e.shadowTrail.disparo.pnlEstimado - e.pnl).toFixed(2) : null,
+  }));
+  const comparables = filas.filter(f => f.diferencia != null);
+  res.json({
+    ok: true,
+    config: { activacion: 0.20, devolucion: 0.30 },
+    total: filas.length,
+    comparables: comparables.length,
+    resumen: comparables.length ? {
+      pnlRealTotal:  +comparables.reduce((a, b) => a + b.pnlReal, 0).toFixed(2),
+      pnlTrailTotal: +comparables.reduce((a, b) => a + b.trailDisparo.pnlEstimado, 0).toFixed(2),
+      diferenciaTotal: +comparables.reduce((a, b) => a + b.diferencia, 0).toFixed(2),
+    } : null,
+    nota: 'pnlEstimado del trailing es la cotizacion viva del momento, no un fill real — el cierre verdadero tendria algo de deslizamiento.',
+    filas,
+  });
 });
 
 app.get('/api/tradier/orders-raw', async (req, res) => {
