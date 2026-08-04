@@ -148,19 +148,19 @@ function calcPullbackEntry(bars2m, closes15m, opciones = {}) {
   const maxATR = opciones.maxATR ?? 0.8;
   const periodoATR = opciones.periodoATR ?? 14;
   if (!bars2m || bars2m.length < 35) {
-    return { bull: false, bear: false, reason: 'Historial insuficiente (2m)' };
+    return { bull: false, bear: false, coreAlignBull: false, coreAlignBear: false, reason: 'Historial insuficiente (2m)' };
   }
   const closes2m = bars2m.map(b => b.close);
   const ema10 = calcEMAArray(closes2m, 10);
   const atr = calcATR(bars2m, periodoATR);
   const i = bars2m.length - 1;
   if (ema10[i] == null || ema10[i-1] == null || ema10[i-2] == null || atr[i] == null) {
-    return { bull: false, bear: false, reason: 'Datos insuficientes (warmup 2m)' };
+    return { bull: false, bear: false, coreAlignBull: false, coreAlignBear: false, reason: 'Datos insuficientes (warmup 2m)' };
   }
 
   const fase15 = calcFase15mSimple(closes15m);
   if (!fase15.bull && !fase15.bear) {
-    return { bull: false, bear: false, reason: 'Marco 15m sin Fase 2 ni Fase 4 — no se evalua pullback' };
+    return { bull: false, bear: false, coreAlignBull: false, coreAlignBear: false, reason: 'Marco 15m sin Fase 2 ni Fase 4 — no se evalua pullback' };
   }
   const dir = fase15.bull ? 1 : -1;
   // distancia A FAVOR de la direccion: positiva = extendido, negativa = del otro lado
@@ -175,9 +175,32 @@ function calcPullbackEntry(bars2m, closes15m, opciones = {}) {
 
   const disparo = cruce || roce;
   const etiqueta = cruce ? 'cruce de vuelta sobre la EMA10' : roce ? 'roce y giro en la EMA10' : null;
+  // coreAlignBull/coreAlignBear: MISMO valor que bull/bear, con el nombre que
+  // espera el consumidor (2026-08-04, fix real).
+  //
+  // server.js arma el check de mayor peso del score direccional asi:
+  //   caminoBConfirmed = { bull: !!meta.caminoB?.coreAlignBull, ... }
+  // — nombres heredados de calcCaminoB, que si los devolvia. calcPullbackEntry
+  // solo devolvia bull/bear, asi que al activar entryMode='pullback' ese campo
+  // quedo en undefined, !!undefined dio false, y fase_weinstein (45 pts) paso a
+  // fallar SIEMPRE, con cualquier mercado. Como el techo sin esos 45 puntos es
+  // 55 y el minimo es 80, el direccional quedo matematicamente incapaz de tomar
+  // un solo trade — no "mas selectivo": imposible.
+  //
+  // Detectado en vivo con un setup que el usuario veia en pantalla: los otros 4
+  // checks pasaban perfecto (55/55) y la señal moria igual. Mismo tipo de falla
+  // que el bug historico de macd.bullish (un nombre de campo que no coincide y
+  // apaga un check en silencio), ya documentado en CLAUDE.md.
+  //
+  // La equivalencia es correcta, no un parche: calcPullbackEntry ya devuelve
+  // false de entrada si el marco de 15m no esta en Fase 2 ni 4, asi que un
+  // bull/bear en true YA significa "2m y 15m alineados", que es exactamente lo
+  // que el check afirma medir.
   return {
     bull: disparo && dir > 0,
     bear: disparo && dir < 0,
+    coreAlignBull: disparo && dir > 0,
+    coreAlignBear: disparo && dir < 0,
     tipo: etiqueta,
     distActual: +d(i).toFixed(2),
     distMinima: +d(i-1).toFixed(2),
