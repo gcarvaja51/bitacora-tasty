@@ -2476,6 +2476,19 @@ app.post('/api/wheel-trading/signals/:id/approve', async (req, res) => {
     const signal = signals[idx];
     if (signal.status !== 'PENDING') return res.status(400).json({ error: `La señal ya está en estado ${signal.status}` });
 
+    // Mismo guard anti-duplicado que force-entry (2026-08-04). Que la señal este
+    // en PENDING solo garantiza que ESA señal no se aprobo antes — dos señales
+    // distintas del mismo simbolo podian aprobarse las dos y abrir dos ciclos.
+    const yaAbierto = loadWheelTradingExecutions().find(e =>
+      e.symbol === signal.symbol && e.phase !== 'CERRADO' &&
+      ['submitted', 'filled'].includes(e.status));
+    if (yaAbierto) {
+      return res.status(409).json({
+        error: `${signal.symbol} ya tiene un ciclo en curso (${yaAbierto.phase}, ${yaAbierto.status}).`,
+        existente: { id: yaAbierto.id, phase: yaAbierto.phase, status: yaAbierto.status },
+      });
+    }
+
     const optionSymbol = tradier.buildOccSymbol(signal.symbol, signal.expiry, 'P', signal.strike);
 
     // Mismo criterio de seguridad que el resto del sistema (SPX): local nunca coloca
@@ -2558,6 +2571,23 @@ app.post('/api/wheel-trading/force-entry', async (req, res) => {
   try {
     const symbol = (req.body.symbol || '').toUpperCase().trim();
     if (!symbol) return res.status(400).json({ error: 'symbol requerido' });
+
+    // Guard anti-duplicado (2026-08-04). Este endpoint no revisaba si el simbolo
+    // ya tenia un ciclo en curso, asi que dos llamadas seguidas colocaban DOS
+    // ordenes identicas y creaban DOS registros — caso real: ANET 160P 4-sep,
+    // ordenes 36442314 y 36442315 con 6 segundos de diferencia, las dos vivas al
+    // mismo limite. Si las dos se llenan, la exposicion real es el doble de la
+    // que se pidio. La Rueda es una posicion por simbolo por diseño.
+    const yaAbierto = loadWheelTradingExecutions().find(e =>
+      e.symbol === symbol && e.phase !== 'CERRADO' &&
+      ['submitted', 'filled'].includes(e.status));
+    if (yaAbierto && !req.body.permitirDuplicado) {
+      return res.status(409).json({
+        error: `${symbol} ya tiene un ciclo en curso (${yaAbierto.phase}, ${yaAbierto.status}). ` +
+               `Usá permitirDuplicado:true si de verdad querés una segunda posición.`,
+        existente: { id: yaAbierto.id, phase: yaAbierto.phase, status: yaAbierto.status, orderId: yaAbierto.orderId },
+      });
+    }
 
     // limit=12 (en vez del default 6) — tickers con muchos vencimientos semanales
     // (ej. IBIT) no llegan a la ventana 30-45 DTE con el default.
@@ -7347,6 +7377,17 @@ function scheduleExtrinsicChecks() {
 // IMPORTANTE: solo actua sobre ordenes de SPXW (nuestro universo) — antes cancelaba
 // CUALQUIER orden pending de la cuenta sin distinguir si era nuestra, arriesgando
 // cancelar algo que el usuario hubiera colocado manualmente en el sandbox.
+// Fix 2026-08-04: este filtro miraba solo `status === 'pending'`, pero en Tradier
+// una orden limit que ya esta viva en el libro figura como 'open' — 'pending' es
+// un estado de transito breve, previo al ruteo. O sea que el caso mas comun de
+// orden huerfana (una limit que nunca llego a llenarse) NUNCA se limpiaba.
+// Peor: `hasOpenPosition` SI cuenta 'open' como bloqueo, asi que una orden asi
+// dejaba el sistema sin generar ni una sola señal nueva de forma indefinida —
+// ese es el mecanismo detras del gotcha ya documentado ("si el sistema deja de
+// generar señales sin motivo aparente, revisar getOrders() por huerfanas").
+// 'partially_filled' queda FUERA a proposito: cancelar ahi dejaria una pata
+// suelta al descubierto, que es peor que la orden colgada.
+const ESTADOS_LIMPIABLES = ['open', 'pending'];
 const PENDING_ORDER_MAX_AGE_MS = 10 * 60 * 1000; // 10 min
 function ordenEsDeNuestroUniverso(o, root = 'SPXW') {
   if ((o.symbol || '').startsWith(root)) return true;
@@ -7362,13 +7403,13 @@ async function cleanupStalePendingOrdersImpl() {
     const orders = await tradier.getOrders();
     const ahora = Date.now();
     for (const o of orders) {
-      if (o.status !== 'pending') continue;
+      if (!ESTADOS_LIMPIABLES.includes((o.status || '').toLowerCase())) continue;
       if (!ordenEsDeNuestroUniverso(o)) continue;
       const edadMs = ahora - new Date(o.create_date).getTime();
       if (edadMs < PENDING_ORDER_MAX_AGE_MS) continue;
       try {
         await tradier.cancelOrder(o.id);
-        console.log(`[TRADIER-CLEANUP] 🗑️ Orden pending huérfana cancelada: ${o.id} (${Math.round(edadMs/60000)} min de antigüedad).`);
+        console.log(`[TRADIER-CLEANUP] 🗑️ Orden ${o.status} huérfana cancelada: ${o.id} (${Math.round(edadMs/60000)} min de antigüedad).`);
         // Si esta orden esta en nuestro propio tracking como 'submitted', marcarla
         // cancelada tambien — si no, los monitores activos (checkIronCondorTPSL/
         // checkDirectionalTPSL) seguirian consultando getOrder() cada 90s para
