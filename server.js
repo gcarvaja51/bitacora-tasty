@@ -3601,6 +3601,7 @@ const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtensio
 const { calcCaminoA, calcATR } = require('./src/camino_a');
 const { calcCaminoB, calcPullbackEntry } = require('./src/camino_b');
 const { sellarVersion } = require('./src/algo_version');
+const { evaluarSalidasAlternativas } = require('./src/salidas_alternativas');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -5052,6 +5053,11 @@ async function processDirectionalEntry(direction, meta = {}) {
               // Mismo criterio que fractalLevel/pocLevel de arriba.
               entrySpx:      typeof ctx?.spxPrice === 'number' ? ctx.spxPrice : null,
               entryAtr2m:    typeof ctx?.indicators?.atr2m === 'number' ? ctx.indicators.atr2m : null,
+              // Muros vigentes al entrar — para poder evaluar despues la regla
+              // "TP al muro" sobre el dato que REALMENTE habia en ese momento,
+              // no sobre el de ahora.
+              entryCallWall: effectiveGex?.callWall ?? null,
+              entryPutWall:  effectiveGex?.putWall  ?? null,
               filledAt:      null,
               closedAt:      null,
               closeReason:   null,
@@ -6861,6 +6867,96 @@ app.get('/api/spx/version-stats', (req, res) => {
     nota: 'Los trades con pnlSource "gainloss" se excluyen por defecto: ese metodo asignaba mal las patas. ?incluirDudosos=true para verlos igual.',
     versiones: filas,
   });
+});
+
+// Analisis de salidas alternativas — corre DESPUES del cierre (16:30 ET), una
+// vez por dia. Reproduce sobre las velas reales que habria dado cada regla de
+// salida en cada trade del dia, incluido lo que paso DESPUES de que el trade
+// real cerro (que es justo lo que hoy no se guarda en ningun lado).
+//
+// A pedido del usuario: mantener el TP como esta y acumular trazabilidad para
+// decidir el cambio de salida mas adelante con datos propios.
+async function analizarSalidasDelDia(fecha) {
+  const dia = fecha || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  try {
+    const bars = await tradier.getTimesales('SPX', '2min', `${dia} 09:30`, `${dia} 16:15`);
+    if (!bars || bars.length < 20) { console.log(`[SALIDAS] ${dia}: sin velas suficientes`); return 0; }
+    const { calcATR } = require('./src/camino_a');
+    const atr = calcATR(bars, 14);
+    let n = 0;
+    await withExecutionsLock(() => {
+      const executions = loadTradierExecutions();
+      let cambios = false;
+      for (const ex of executions) {
+        if (ex.strategyFamily !== 'TENDENCIA') continue;
+        if ((ex.filledAt || '').slice(0, 10) !== dia) continue;
+        if (ex.status !== 'closed' || ex.shadowExits) continue;
+        const r = evaluarSalidasAlternativas(ex, bars, atr);
+        if (r) { ex.shadowExits = r; cambios = true; n++; }
+      }
+      if (cambios) saveTradierExecutions(executions);
+    });
+    if (n) console.log(`[SALIDAS] ${dia}: analizados ${n} trades`);
+    return n;
+  } catch(e) { console.error('[SALIDAS] error:', e.message); return 0; }
+}
+setInterval(() => {
+  const et = getETHour();
+  if (et.hour === 16 && et.min < 5) analizarSalidasDelDia();
+}, 4 * 60 * 1000);
+
+// Comparacion agregada de todas las reglas de salida sobre los trades reales.
+// ?fecha=YYYY-MM-DD para un dia puntual. POST /api/spx/analizar-salidas para
+// forzar el analisis sin esperar al job.
+app.get('/api/spx/salidas-alternativas', (req, res) => {
+  const ex = loadTradierExecutions().filter(e =>
+    e.strategyFamily === 'TENDENCIA' && e.shadowExits &&
+    (!req.query.fecha || (e.filledAt || '').slice(0, 10) === req.query.fecha));
+  if (!ex.length) return res.json({ ok: true, trades: 0, nota: 'sin trades analizados todavia' });
+
+  const reglas = ['tp30','tp50','tp80','tp100','tp150','trailing25ATR','muro','aguantarAlCierre'];
+  const resumen = {};
+  for (const r of reglas) {
+    const vals = ex.map(e => e.shadowExits.alternativas[r])
+      .map(v => (v && typeof v.pnl === 'number') ? v.pnl : null);
+    // Una regla que NUNCA se alcanza en un trade no se puede saltear: ese trade
+    // habria terminado aguantando hasta el cierre. Se le imputa ese resultado,
+    // si no la comparacion premiaria a las reglas que rara vez disparan.
+    const conFallback = vals.map((v, i) => v != null ? v : ex[i].shadowExits.alternativas.aguantarAlCierre?.pnl ?? null)
+                            .filter(v => v != null);
+    if (!conFallback.length) continue;
+    const gan = conFallback.filter(v => v > 0).length;
+    const mins = ex.map(e => e.shadowExits.alternativas[r]?.minutos).filter(v => typeof v === 'number');
+    resumen[r] = {
+      trades: conFallback.length,
+      pnlTotal: +conFallback.reduce((a,b)=>a+b,0).toFixed(2),
+      pnlPorTrade: +(conFallback.reduce((a,b)=>a+b,0)/conFallback.length).toFixed(2),
+      winRate: +(gan/conFallback.length*100).toFixed(1),
+      minutosMedianos: mins.length ? mins.sort((a,b)=>a-b)[Math.floor(mins.length/2)] : null,
+      vecesQueDisparo: vals.filter(v=>v!=null).length,
+    };
+  }
+  const reales = ex.map(e => e.shadowExits.real.pnl).filter(v => typeof v === 'number');
+  res.json({
+    ok: true, trades: ex.length,
+    real: reales.length ? {
+      pnlTotal: +reales.reduce((a,b)=>a+b,0).toFixed(2),
+      pnlPorTrade: +(reales.reduce((a,b)=>a+b,0)/reales.length).toFixed(2),
+      winRate: +(reales.filter(v=>v>0).length/reales.length*100).toFixed(1),
+    } : null,
+    excursiones: {
+      mfeMediano: (()=>{const a=ex.map(e=>e.shadowExits.mfePts).sort((x,y)=>x-y);return a[Math.floor(a.length/2)];})(),
+      maeMediano: (()=>{const a=ex.map(e=>e.shadowExits.maePts).sort((x,y)=>x-y);return a[Math.floor(a.length/2)];})(),
+    },
+    alternativas: resumen,
+    nota: 'P&L de las alternativas reconstruido con Black-Scholes (IV 17.5%): sirve para comparar reglas entre si, no como monto absoluto. Los puntos de MFE/MAE si son exactos.',
+    muestraSuficiente: ex.length >= 30,
+  });
+});
+
+app.post('/api/spx/analizar-salidas', async (req, res) => {
+  const n = await analizarSalidasDelDia(req.body?.fecha);
+  res.json({ ok: true, analizados: n });
 });
 
 app.get('/api/spx/shadow-trail', (req, res) => {
