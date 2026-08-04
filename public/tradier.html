@@ -2405,8 +2405,22 @@ function consolidateStrategies(legs) {
   return [...map.values()];
 }
 
+// Caché en memoria con vencimiento (2026-08-04, bug real reportado por el
+// usuario: "no veo el reporte del trade de hoy").
+// Antes esto era `if (force || !S.txns)`, o sea que S.txns se llenaba una sola
+// vez al abrir la página y NUNCA se renovaba. Solo la pestaña Hoy pasa
+// force=true; Reportes, Historial y el Dashboard reusaban la copia vieja para
+// siempre. Con la página abierta desde la mañana, un trade cerrado al mediodía
+// no aparecía en ninguna de las tres por más que se cambiara de pestaña — solo
+// recargando entera. 60s = mismo TTL que el caché del servidor para este
+// endpoint, así que no agrega llamadas reales de más.
+const TXNS_TTL_MS = 60 * 1000;
 async function fetchTxnsTradier(force) {
-  if (force || !S.txns) S.txns = await api('/api/transactions-tradier');
+  const vencido = !S.txnsAt || (Date.now() - S.txnsAt) > TXNS_TTL_MS;
+  if (force || !S.txns || vencido) {
+    S.txns = await api('/api/transactions-tradier');
+    S.txnsAt = Date.now();
+  }
   return S.txns;
 }
 
