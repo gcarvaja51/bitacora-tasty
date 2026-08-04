@@ -1068,11 +1068,17 @@ sistema SPX que depende de IV Rank:
   **solo por VIX** todo este tiempo, nunca por el IV Rank real del SPX.
 - **Endpoint correcto confirmado**: `GET /market-metrics?symbols=SYMBOL` (coma, no
   `symbols[]=`), campo `implied-volatility-index-rank` (decimal 0-1, multiplicar por 100). Ya
-  corregido en el código nuevo de este screener (`checkWheelCandidates`). **Pendiente, señalado
-  al usuario, no corregido todavía a propósito** (fuera del alcance de esta Fase 1): aplicar el
-  mismo fix a `buildSPXContext()` en `server.js` — cambiaría el comportamiento real de un
-  sistema que ejecuta órdenes reales en producción, así que se dejó para que el usuario decida
-  cuándo desplegar ese cambio específico, en vez de mezclarlo silenciosamente con este trabajo.
+  corregido en el código nuevo de este screener (`checkWheelCandidates`).
+
+  **RESUELTO el 2026-08-04** — a pedido explícito del usuario ("el iv rank es una variable
+  fundamental"), tras encontrarlo otra vez en vivo: ese día el sistema armó un **débito**
+  (Bull Call Spread) cuando el IV Rank real era **33.5%** y correspondía crédito. `buildSPXContext()`
+  usa ahora el endpoint correcto. Ante fallo queda en **`null`, no en 30**: el respaldo viejo
+  era exactamente el umbral de decisión (`ivRank > 30`), lo peor posible — no "neutral", sino
+  justo el borde. Los dos consumidores ya tratan `null` como "sin dato" (`useDebit` exige
+  `!= null`; `null > 30` es falso y la decisión cae al VIX, que es el comportamiento previo).
+  El `catch` mudo también se cambió por uno que loguea — ese silencio es la razón por la que
+  el bug pasó semanas sin que nadie lo notara.
 
 **Validado 2026-07-10** contra datos reales de mercado (29 tickers del watchlist): el pipeline
 completo corre sin errores end-to-end; en la corrida de validación ningún ticker pasó los 4

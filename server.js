@@ -375,7 +375,7 @@ app.get('/api/curve', async (req, res) => {
         curve: { labels, values, initial, maxDD: +maxDD.toFixed(2), maxDDPct: +maxDDPct.toFixed(2) },
         calendar, byMonth, byWeek,
         nlvByMonth, nlvByWeek,
-        nlvSnapshots: Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).concat([[todayStr(), currentNlv]]),
+        nlvSnapshots: Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).concat([[todayStrET(), currentNlv]]),
         ts: new Date().toISOString()
       };
     });
@@ -407,7 +407,10 @@ app.get('/api/transactions', async (req, res) => {
 app.get('/api/today', async (req, res) => {
   try {
     const data = await cached('today', 30, async () => {
-      const d = todayStr();
+      // Fecha ET: "hoy" es un dia de mercado, no un dia UTC. Con todayStr()
+      // esta tarjeta se vaciaba sola despues de las 8pm ET (7pm en invierno),
+      // porque pedia las transacciones de MANANA.
+      const d = todayStrET();
       return { items: await tt.getAllTransactions(d, d), ts: new Date().toISOString() };
     });
     res.json(data);
@@ -4249,11 +4252,44 @@ async function buildSPXContext() {
     } catch(e) {}
 
     // 4. IV Rank SPX desde TastyTrade
-    let ivRank = 30;
+    //
+    // Fix 2026-08-04 (bug conocido desde el 2026-07-10, ya documentado en
+    // CLAUDE.md, corregido recien ahora a pedido del usuario: "el iv rank es una
+    // variable fundamental").
+    //
+    // El endpoint viejo (/market-data/volatility?symbols[]=) devuelve 404 —
+    // confirmado en vivo otra vez hoy. El catch vacio lo tapaba y caia SIEMPRE al
+    // 30 fijo, asi que `ctx.ivRank` valia exactamente 30 desde que existe. Dos
+    // consecuencias reales, no teoricas:
+    //   - `isCredit = ivRank > 30 || vix > 20` (src/spx.js): 30 > 30 es FALSO
+    //     siempre, o sea que la decision credito/debito venia gobernada solo por
+    //     el VIX. Caso real de hoy: IV Rank real 33.5% (daba credito) y el
+    //     sistema armo un DEBITO porque el VIX estaba en 16.
+    //   - `useDebit = ivRank < 25` (Iron Condor): 30 < 25 es FALSO siempre, o sea
+    //     que el Long Put Condor de debito nunca se disparo por esta via.
+    // Que el valor de respaldo fuera 30 — exactamente el umbral de decision — es
+    // lo peor que podia ser: no "neutral", sino justo el borde.
+    //
+    // Bonus del mismo bloque: `parseFloat(x || 30) * 100` habria dado 3000 si el
+    // campo faltaba, porque multiplicaba el respaldo tambien.
+    //
+    // Endpoint correcto: /market-metrics?symbols=X (coma, no array), campo
+    // implied-volatility-index-rank (decimal 0-1). Mismo que ya usaba bien el
+    // screener de la Rueda desde el 2026-07-10.
+    //
+    // Ante fallo queda en null, no en un numero inventado: los dos consumidores
+    // ya tratan null como "sin dato" (useDebit exige != null; `null > 30` es
+    // falso y cae al VIX). Y el error se loguea — el catch mudo es la razon por
+    // la que esto paso semanas sin que nadie lo notara.
+    let ivRank = null;
     try {
-      const mktData = await tt._req('/market-data/volatility?symbols[]=SPX');
-      ivRank = parseFloat(mktData.data?.items?.[0]?.['iv-rank'] || 30) * 100;
-    } catch(e) {}
+      const mktData = await tt._req('/market-metrics?symbols=SPX');
+      const raw = mktData.data?.items?.[0]?.['implied-volatility-index-rank'];
+      if (raw != null) ivRank = Math.round(parseFloat(raw) * 100);
+      else console.error('[SPX] market-metrics respondió sin implied-volatility-index-rank para SPX');
+    } catch(e) {
+      console.error('[SPX] No se pudo leer el IV Rank de SPX:', e.message);
+    }
 
     // 5. Calcular GEX
     // Necesitamos precios/greeks de la cadena — usar los que ya vienen en nested
@@ -8333,14 +8369,20 @@ app.get('/api/bp-dashboard-tradier', async (req, res) => {
 const NLV_FILE_TRADIER = path.join(DATA_DIR, 'nlv_history_tradier.json');
 function loadNlvHistoryTradier() {
   try {
-    if (fs.existsSync(NLV_FILE_TRADIER)) return JSON.parse(fs.readFileSync(NLV_FILE_TRADIER, 'utf8'));
+    // Mismo saneo de fines de semana que loadNlvHistory (aca sin seed que
+    // preservar: la cuenta Tradier no tiene valores cargados a mano).
+    if (fs.existsSync(NLV_FILE_TRADIER)) return dropWeekendSnapshots(JSON.parse(fs.readFileSync(NLV_FILE_TRADIER, 'utf8')));
   } catch(e) { /* ignorar */ }
   return {};
 }
-function saveNlvSnapshotTradier(dateStr, nlv) {
+// Misma firma que saveNlvSnapshot (ver arriba): overwrite:false para el
+// guardado del arranque, que solo debe rellenar huecos, nunca pisar el cierre.
+function saveNlvSnapshotTradier(dateStr, nlv, { overwrite = true } = {}) {
   const history = loadNlvHistoryTradier();
+  if (!overwrite && history[dateStr] != null) return false;
   history[dateStr] = nlv;
   fs.writeFileSync(NLV_FILE_TRADIER, JSON.stringify(history, null, 2), 'utf8');
+  return true;
 }
 app.get('/api/nlv-history-tradier', (req, res) => {
   try { res.json({ history: loadNlvHistoryTradier() }); }
@@ -8509,7 +8551,7 @@ async function snapshotNlv() {
     const bal = await tt.getBalances();
     const nlv = parseFloat(bal?.['net-liquidating-value'] || 0);
     if (nlv > 0) {
-      const date = todayStr();
+      const date = todayStrET();
       saveNlvSnapshot(date, nlv);
       console.log(`[NLV] Snapshot guardado: ${date} = $${nlv.toFixed(2)}`);
     }
@@ -8517,12 +8559,9 @@ async function snapshotNlv() {
 }
 
 function scheduleDaily() {
-  // Calcular milisegundos hasta las 4:35 PM ET (20:35 UTC)
-  const now = new Date();
-  const target = new Date(now);
-  target.setUTCHours(20, 35, 0, 0);
-  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-  const ms = target - now;
+  // 4:35 PM ET reales (msUntilET) — antes eran 20:35 UTC clavados, que solo
+  // coinciden con las 4:35pm ET en horario de verano.
+  const ms = msUntilET(16, 35);
   console.log(`[NLV] Próximo snapshot automático en ${Math.round(ms/60000)} minutos`);
   setTimeout(async () => {
     await snapshotNlv();
@@ -8542,8 +8581,9 @@ app.listen(PORT, async () => {
     console.log(`✅  Conectado — Cuenta: ${tt.accountNumber} | Net Liq: $${nlv.toFixed(2)}\n`);
     // Guardar snapshot de hoy al arrancar -- solo si hoy es dia habil (ver
     // isWeekdayET arriba); un restart de fin de semana no debe crear un
-    // snapshot falso para ese dia.
-    if (isWeekdayET()) saveNlvSnapshot(todayStr(), nlv);
+    // snapshot falso para ese dia. overwrite:false para no pisar el valor de
+    // cierre si ya se guardo: el arranque solo rellena huecos.
+    if (isWeekdayET()) saveNlvSnapshot(todayStrET(), nlv, { overwrite: false });
     // Programar guardado diario a las 4:35 PM ET
     scheduleDaily();
   } catch (e) {
@@ -8559,8 +8599,8 @@ app.listen(PORT, async () => {
       const balT = await tradier.getBalances();
       const nlvT = parseFloat(balT?.total_equity || 0);
       if (nlvT > 0) {
-        saveNlvSnapshotTradier(todayStr(), nlvT);
-        console.log(`[NLV-TRADIER] Snapshot guardado: ${todayStr()} = $${nlvT.toFixed(2)}`);
+        saveNlvSnapshotTradier(todayStrET(), nlvT, { overwrite: false });
+        console.log(`[NLV-TRADIER] Snapshot guardado: ${todayStrET()} = $${nlvT.toFixed(2)}`);
       }
     }
     scheduleDailyTradier();
@@ -8570,17 +8610,14 @@ app.listen(PORT, async () => {
 });
 
 function scheduleDailyTradier() {
-  const now = new Date();
-  const target = new Date(now);
-  target.setUTCHours(20, 35, 0, 0);
-  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-  const ms = target - now;
+  // 4:35 PM ET reales, igual que scheduleDaily (ver msUntilET).
+  const ms = msUntilET(16, 35);
   setTimeout(async () => {
     if (!isWeekdayET()) { scheduleDailyTradier(); return; }
     try {
       const bal = await tradier.getBalances();
       const nlv = parseFloat(bal?.total_equity || 0);
-      if (nlv > 0) saveNlvSnapshotTradier(todayStr(), nlv);
+      if (nlv > 0) saveNlvSnapshotTradier(todayStrET(), nlv);
     } catch(e) { console.error('[NLV-TRADIER] Error en snapshot diario:', e.message); }
     scheduleDailyTradier();
   }, ms);
