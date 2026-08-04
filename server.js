@@ -3600,6 +3600,7 @@ const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtensio
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
 const { calcCaminoA, calcATR } = require('./src/camino_a');
 const { calcCaminoB, calcPullbackEntry } = require('./src/camino_b');
+const { sellarVersion } = require('./src/algo_version');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -5010,6 +5011,13 @@ async function processDirectionalEntry(direction, meta = {}) {
               timestamp:     signal.timestamp,
               strategy:      signal.strategy,
               strategyFamily: signal.strategyFamily || 'TENDENCIA',
+              // Sello de version (2026-08-04, ver src/algo_version.js). Permite
+              // atribuir cada trade a la configuracion bajo la que corrio, sin
+              // depender de fechas: un mismo dia puede tener dos versiones. La
+              // huella se calcula sola de los parametros que cambian el
+              // comportamiento, asi que un ajuste hecho via POST /api/spx/config
+              // sin anotarlo en el control de cambios igual queda separado.
+              algoVersion:   sellarVersion(spxConfig, signal.strategyFamily || 'TENDENCIA'),
               isCredit:      !!signal.isCredit, // false = debito, para que checkDirectionalTPSL sepa que formula de P&L usar
               direction:     signal.direction,
               strikes:       signal.strikes,
@@ -5525,6 +5533,13 @@ async function checkIronCondor() {
             timestamp:     signal.timestamp,
             strategy:      strategyName,
             strategyFamily: 'NEUTRAL',
+            // Sello de version (2026-08-04, ver src/algo_version.js). Permite
+            // atribuir cada trade a la configuracion bajo la que corrio, sin
+            // depender de fechas: un mismo dia puede tener dos versiones. La
+            // huella se calcula sola de los parametros que cambian el
+            // comportamiento, asi que un ajuste hecho via POST /api/spx/config
+            // sin anotarlo en el control de cambios igual queda separado.
+            algoVersion:   sellarVersion(spxConfig, 'NEUTRAL'),
             isCredit:      !useDebit,
             expType:       dte,
             strikes:       signal.strikes,
@@ -6432,6 +6447,13 @@ async function checkAlejamientoSMA() {
             timestamp:      signal.timestamp,
             strategy,
             strategyFamily: 'REVERSION',
+            // Sello de version (2026-08-04, ver src/algo_version.js). Permite
+            // atribuir cada trade a la configuracion bajo la que corrio, sin
+            // depender de fechas: un mismo dia puede tener dos versiones. La
+            // huella se calcula sola de los parametros que cambian el
+            // comportamiento, asi que un ajuste hecho via POST /api/spx/config
+            // sin anotarlo en el control de cambios igual queda separado.
+            algoVersion:   sellarVersion(spxConfig, 'REVERSION'),
             direction,
             strikes:        signal.strikes,
             expiry:         strikes.expiry,
@@ -6753,6 +6775,63 @@ app.post('/api/wheel-trading/roll-preview', async (req, res) => {
 // Se excluyen los trades cuyo P&L viene del /gainloss viejo: ese metodo asignaba
 // mal las patas cuando varios trades compartian strikes el mismo dia, asi que
 // compararse contra el seria comparar contra un numero que no es.
+// Win rate y P&L agrupados por VERSION del algoritmo (2026-08-04). Es la
+// contraparte del control de cambios en Excel: alli se anota QUE cambio y por
+// que; aca se ve QUE RESULTADO dio. Sin esto, "¿el ajuste mejoro o empeoro?"
+// no tiene respuesta.
+//
+// Se agrupa por huella y no por fecha porque un mismo dia puede tener dos
+// versiones (hoy mismo pasaron tres cambios de alto impacto en una tarde).
+//
+// Filtra el P&L no confiable: 39 de los 62 trades direccionales previos al
+// 2026-08-03 vienen del /gainloss viejo, que asignaba mal las patas cuando
+// varios trades compartian strikes el mismo dia — al menos 5 registran una
+// perdida MAYOR al debito pagado, imposible en un spread de debito. Incluirlos
+// contaminaria cualquier comparacion entre versiones.
+app.get('/api/spx/version-stats', (req, res) => {
+  const familia = req.query.familia || null;
+  const incluirDudosos = req.query.incluirDudosos === 'true';
+  const ex = loadTradierExecutions().filter(e =>
+    e.status === 'closed' && typeof e.pnl === 'number'
+    && (!familia || e.strategyFamily === familia));
+
+  const confiable = e => e.pnlSource && !/^gainloss$/.test(e.pnlSource);
+  const grupos = {};
+  for (const e of ex) {
+    if (!incluirDudosos && !confiable(e)) continue;
+    const h = e.algoVersion?.huella || '(sin sello)';
+    const g = grupos[h] = grupos[h] || {
+      huella: h, familia: e.strategyFamily || null,
+      commit: e.algoVersion?.commit || null,
+      parametros: e.algoVersion?.parametros || null,
+      trades: 0, ganadores: 0, pnl: 0, desde: null, hasta: null,
+    };
+    g.trades++;
+    if (e.pnl > 0) g.ganadores++;
+    g.pnl += e.pnl;
+    const d = (e.filledAt || e.timestamp || '').slice(0, 10);
+    if (d && (!g.desde || d < g.desde)) g.desde = d;
+    if (d && (!g.hasta || d > g.hasta)) g.hasta = d;
+  }
+  const filas = Object.values(grupos).map(g => ({
+    ...g,
+    pnl: +g.pnl.toFixed(2),
+    winRate: +(g.ganadores / g.trades * 100).toFixed(1),
+    pnlPorTrade: +(g.pnl / g.trades).toFixed(2),
+    // Con menos de 30 trades la diferencia entre 60% y 80% no se distingue del
+    // azar. Se marca explicitamente para no sacar conclusiones de 5 trades.
+    muestraSuficiente: g.trades >= 30,
+  })).sort((a, b) => (b.hasta || '').localeCompare(a.hasta || ''));
+
+  res.json({
+    ok: true,
+    objetivo: 'win rate 80%',
+    excluidos: incluirDudosos ? 0 : ex.filter(e => !confiable(e)).length,
+    nota: 'Los trades con pnlSource "gainloss" se excluyen por defecto: ese metodo asignaba mal las patas. ?incluirDudosos=true para verlos igual.',
+    versiones: filas,
+  });
+});
+
 app.get('/api/spx/shadow-trail', (req, res) => {
   const ex = loadTradierExecutions().filter(e => e.strategyFamily === 'TENDENCIA' && e.shadowTrail);
   const fiable = e => typeof e.pnl === 'number' && e.pnlSource && !/^gainloss/.test(e.pnlSource);
