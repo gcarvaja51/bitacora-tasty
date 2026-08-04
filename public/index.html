@@ -158,7 +158,8 @@
               <button class="c-dd-btn" onclick="cddToggle('dd-tipo')"><span id="dd-tipo-lbl">Acumulado</span> &#9662;</button>
               <div class="c-dd-menu" id="dd-tipo-menu">
                 <div class="c-dd-item" onclick="setChTipo('acumulado');cddToggle('dd-tipo')"><span id="chk-acum" class="c-dd-chk">&#10003;</span>ACUMULADO</div>
-                <div class="c-dd-item" onclick="setChTipo('periodo');cddToggle('dd-tipo')"><span id="chk-per" class="c-dd-chk" style="opacity:0">&#10003;</span>PERIODO</div>
+                <div class="c-dd-item" onclick="setChTipo('periodo');cddToggle('dd-tipo')"><span id="chk-per" class="c-dd-chk" style="opacity:0">&#10003;</span>&Delta; NET LIQ</div>
+                <div class="c-dd-item" onclick="setChTipo('realizado');cddToggle('dd-tipo')"><span id="chk-real" class="c-dd-chk" style="opacity:0">&#10003;</span>REALIZADO</div>
               </div>
             </div>
           </div>
@@ -711,6 +712,29 @@ const S = {
   initialCapital: parseFloat(localStorage.getItem('tt_initial') || '10644'),
 };
 
+// Vencimiento de la caché en memoria (2026-08-04) — mismo arreglo que se hizo
+// en public/tradier.html el mismo día, después de que el usuario reportara "no
+// veo el reporte del trade de hoy".
+//
+// S.txns / S.overview / S.curve se llenaban UNA vez al abrir la página y no se
+// renovaban nunca: todos los call sites preguntaban solo `!S.txns`. La única
+// forma de ver datos nuevos era el botón de refresco (que sí las pone en null)
+// o recargar entera — y nada indicaba que hiciera falta. Con la bitácora abierta
+// desde la mañana, un trade cerrado al mediodía no aparecía por más que se
+// cambiara de pestaña.
+//
+// 60s = mismo TTL que el caché del servidor para estos endpoints, así que no
+// agrega llamadas reales de más.
+const CACHE_TTL_MS = 60 * 1000;
+function cacheVencida(clave) {
+  const t = S[clave + 'At'];
+  return !t || (Date.now() - t) > CACHE_TTL_MS;
+}
+function guardarCache(clave, valor) { S[clave] = valor; S[clave + 'At'] = Date.now(); return valor; }
+// Devuelve el valor cacheado solo si sigue vigente; si no, undefined (para
+// usarlo como `cacheVigente('txns') || api(...)`).
+function cacheVigente(clave) { return cacheVencida(clave) ? undefined : S[clave]; }
+
 // ══════════════════════════════════════════
 //  FORMAT HELPERS
 // ══════════════════════════════════════════
@@ -826,15 +850,15 @@ function renderTopBar(b, positions=[]) {
 async function loadDashboard() {
   try {
     const [ov, curveData, txData] = await Promise.all([
-      S.overview || api('/api/overview'),
-      S.curve    || api('/api/curve'),
-      S.txns     || api('/api/transactions'),
+      cacheVigente('overview') || api('/api/overview'),
+      cacheVigente('curve')    || api('/api/curve'),
+      cacheVigente('txns')     || api('/api/transactions'),
     ]);
-    S.overview = ov; S.curve = curveData; S.txns = txData;
+    guardarCache('overview', ov); guardarCache('curve', curveData); guardarCache('txns', txData);
 
     renderTopBar(ov.balances, ov.positions);
     renderDashKPIs(ov.balances, curveData.curve, txData.metrics);
-    _cData = curveData; _chRedraw();
+    _cData = curveData; _cMetric = txData.metrics; _chRedraw();
     renderMonthlyChart(curveData.nlvByMonth || txData.metrics.strategyByMonth || curveData.byMonth || calendarToMonthly(curveData.calendar));
     renderDashPositions(ov.positions);
     renderDashRecent(txData.items, txData.metrics?.strategies || []);
@@ -1057,7 +1081,11 @@ function renderEquityChart(curve, nlvSnapshots, _tipo, _chtype) {
   };
 
   var datasets = [{
-    label: 'Net Liq',
+    // 'realizado' cae por todas las ramas de `_tipo==='acumulado'` igual que
+    // 'periodo' (barras por signo, sin linea de capital inicial, sin overlay
+    // de snapshots); lo unico que cambia es como se llama la serie, porque no
+    // es Net Liq sino P&L de operaciones cerradas.
+    label: _tipo==='realizado' ? 'P&L Realizado' : 'Net Liq',
     data: mainData,
     backgroundColor: getBg,
     borderColor: getBorder,
@@ -1161,8 +1189,8 @@ function renderMonthlyChart(byMonth={}) {
 // ══════════════════════════════════════════
 async function loadCalendar() {
   try {
-    if (!S.curve) S.curve = await api('/api/curve');
-    if (!S.txns)  S.txns  = await api('/api/transactions');
+    if (!S.curve || cacheVencida('curve')) guardarCache('curve', await api('/api/curve'));
+    if (!S.txns  || cacheVencida('txns'))  guardarCache('txns',  await api('/api/transactions'));
     renderCalendar();
   } catch(e) { console.error(e); }
 }
@@ -1225,8 +1253,8 @@ async function calDayClick(dateStr, pnl) {
 
   try {
     // Siempre usar el historial completo para no perder trades viejos
-    if (!S.txns || S.txns._range === '60d') {
-      S.txns = await api('/api/transactions');
+    if (!S.txns || S.txns._range === '60d' || cacheVencida('txns')) {
+      guardarCache('txns', await api('/api/transactions'));
       S.txns._fullHistory = true;
     }
     const legs = S.txns.metrics?.strategies || [];
@@ -1844,8 +1872,8 @@ async function loadReports(forceRefresh) {
     // Siempre pedimos desde el inicio de la cuenta para que el FIFO
     // empareje aperturas antiguas con cierres dentro del rango.
     // Los KPIs y tablas se filtran por closeDate abajo.
-    if (forceRefresh || !S.txns) {
-      S.txns = await api(`/api/transactions?startDate=2026-02-01&endDate=${ed}`);
+    if (forceRefresh || !S.txns || cacheVencida('txns')) {
+      guardarCache('txns', await api(`/api/transactions?startDate=2026-02-01&endDate=${ed}`));
     }
     let data = S.txns;
     // Filtrar estrategias al rango seleccionado por closeDate
@@ -5060,7 +5088,11 @@ async function refreshAll() {
   });
   try {
     await fetch('/api/refresh',{method:'POST'});
+    // Se limpian también las marcas de tiempo del caché (2026-08-04): dejarlas
+    // colgando no rompía nada (el valor en null ya fuerza el fetch) pero deja el
+    // estado mintiendo sobre cuándo se trajo el dato.
     S.overview=null; S.curve=null; S.txns=null; S.today=null;
+    S.overviewAt=null; S.curveAt=null; S.txnsAt=null;
     const active=document.querySelector('.nav-item.active');
     const tab=active?.onclick?.toString().match(/nav\('(\w+)'/)?.[1]||'dashboard';
     if(tab==='dashboard') await loadDashboard();
@@ -6762,9 +6794,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ══ CURVA — CONTROLES ══════════════════
 var _cData   = null;
+var _cMetric = null;   // txData.metrics — fuente del P&L REALIZADO (ver _chRedraw)
 var _cTipo   = 'acumulado';
 var _cPeriod = 'daily';
 var _cType   = 'bar';
+
+// Las tres vistas de la curva NO son la misma cifra medida distinto:
+//   acumulado / Δ Net Liq -> cambio del VALOR DE LA CUENTA (incluye lo que se
+//     mueven las posiciones abiertas; sus buckets suman el saldo real).
+//   realizado             -> P&L de los round-trips CERRADOS en el periodo,
+//     misma fuente que la pestana Reportes (metrics.stratByDay/strategyByWeek/
+//     strategyByMonth), asi los dos lugares no pueden contradecirse.
+// Se separaron el 2026-08-04 tras un reporte del usuario ("julio y agosto los
+// veo raros"): la curva mostraba solo Δ Net Liq y se leia como "lo que gane".
+// Julio daba +262.80 de Δ Net Liq con -19.80 realizado, y agosto al reves --
+// los dos meses parecian intercambiados. Mismo criterio que ya se habia
+// aplicado al Desglose Mensual de Reportes (ver CLAUDE.md, 2026-08-03).
+function _realizedByPeriod(period) {
+  if (!_cMetric) return null;
+  if (period === 'weekly')  return _cMetric.strategyByWeek  || null;
+  if (period === 'monthly') return _cMetric.strategyByMonth || null;
+  return _cMetric.stratByDay || null;
+}
 
 function _chRedraw() {
   if (!_cData) return;
@@ -6776,6 +6827,21 @@ function _chRedraw() {
   var nlvByWeek   = _cData.nlvByWeek   || byWeek;
   var initial     = curve.initial || 10644;
   var labels, vals, snaps;
+
+  // Vista REALIZADO — corta antes de las tres ramas de Net Liq: es otra
+  // magnitud, no otra forma de mirar la misma serie. Las claves ya vienen
+  // agrupadas por dia/semana/mes desde metrics (mismos buckets que Reportes),
+  // asi que aca no se reagrupa nada.
+  if (_cTipo === 'realizado') {
+    var rsrc = _realizedByPeriod(_cPeriod) || {};
+    var rkeys = Object.keys(rsrc).sort();
+    renderEquityChart({
+      labels:  _cPeriod === 'monthly' ? rkeys.map(function(k){ return k+'-15'; }) : rkeys,
+      values:  rkeys.map(function(k){ return +(rsrc[k]||0).toFixed(2); }),
+      initial: initial, maxDD: curve.maxDD, maxDDPct: curve.maxDDPct
+    }, null, 'realizado', _cType);
+    return;
+  }
 
   if (_cPeriod === 'daily') {
     labels = curve.labels;
@@ -6856,11 +6922,10 @@ function setChPeriod(p) {
 }
 function setChTipo(t) {
   _cTipo = t;
-  var lbl=$('dd-tipo-lbl'); if(lbl) lbl.textContent=t==='acumulado'?'Acumulado':'Periodo';
-  var acumOp=t==='acumulado'?'1':'0', perOp=t==='periodo'?'1':'0';
-  var ca=$('chk-acum'), cp=$('chk-per');
-  if(ca) ca.style.opacity=acumOp;
-  if(cp) cp.style.opacity=perOp;
+  var map={acumulado:'Acumulado',periodo:'Δ Net Liq',realizado:'Realizado'};
+  var lbl=$('dd-tipo-lbl'); if(lbl) lbl.textContent=map[t]||t;
+  var chk={acumulado:'chk-acum',periodo:'chk-per',realizado:'chk-real'};
+  Object.keys(chk).forEach(function(k){ var c=$(chk[k]); if(c) c.style.opacity = k===t?'1':'0'; });
   _chRedraw();
 }
 
