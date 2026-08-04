@@ -5749,6 +5749,82 @@ function sizeContractsByRisk(capital, riskPct, shortDelta, distancePts) {
   return Math.max(1, Math.floor(riskDollars / lossPerContract));
 }
 
+// ── Liberar las patas antes de cerrar (2026-08-04, fix real) ────────────────
+//
+// El sandbox de Tradier deja ordenes "fantasma": la orden padre se queda en
+// 'open' aunque sus dos patas figuren 'filled' y la posicion nunca se liquide.
+// Mientras esa orden vive, el broker considera esas patas comprometidas y
+// RECHAZA cualquier intento nuevo de cerrar.
+//
+// Caso real del 2026-08-04: la orden 36476032 dejo un Bull Call Spread GANADOR
+// sin salida durante 15 min — el monitor detecto el TP, mando el cierre, y las
+// 4 ordenes siguientes salieron rechazadas una tras otra (36476195, 36476366,
+// 36476496, 36476746). Hubo que cancelar la fantasma a mano para desbloquearlo.
+// Ese mismo dia habia pasado tambien con la reversion de las 11:14 (36466020 y
+// 36466381 rechazadas), y ya se habia visto el 2026-07-22: es un patron del
+// sandbox, no un accidente aislado.
+//
+// cleanupStalePendingOrders tambien lo destraba, pero tarda hasta 20 min (espera
+// 10 y corre cada 10) — una eternidad para 0DTE, y peor si lo que quedo trabado
+// es un STOP en vez de un objetivo.
+//
+// 'partially_filled' queda fuera a proposito (cancelar ahi dejaria una pata al
+// descubierto), igual que en cleanupStalePendingOrders. La orden de ENTRADA
+// tampoco se toca.
+async function cancelarOrdenesVivasDeLasPatas(ex) {
+  const simbolos = new Set(Object.values(ex.legs || {}).filter(Boolean));
+  if (!simbolos.size) return 0;
+  let canceladas = 0;
+  try {
+    for (const o of await tradier.getOrders()) {
+      if (!['open', 'pending'].includes((o.status || '').toLowerCase())) continue;
+      if (String(o.id) === String(ex.orderId)) continue;
+      const legs = Array.isArray(o.leg) ? o.leg : (o.leg ? [o.leg] : []);
+      const toca = simbolos.has(o.option_symbol) || legs.some(l => simbolos.has(l.option_symbol));
+      if (!toca) continue;
+      try {
+        await tradier.cancelOrder(o.id);
+        canceladas++;
+        console.log(`[CIERRE] 🧹 Orden ${o.id} (${o.status}) cancelada — bloqueaba las patas de ${ex.id}.`);
+      } catch (e) {
+        console.error(`[CIERRE] No se pudo cancelar ${o.id}:`, e.message);
+      }
+    }
+  } catch (e) { console.error('[CIERRE] Error listando órdenes:', e.message); }
+  return canceladas;
+}
+
+// Coloca la orden de cierre que corresponda segun la estrategia. Compartido por
+// los 3 monitores de TP/SL y por el cierre manual del dashboard, para que no
+// existan dos formas distintas de cerrar lo mismo.
+// NO marca status='closed' ni graba pnl: eso lo hace la reconciliacion pasiva
+// (checkTradierExecutions) con los fills reales — ver la nota del 2026-07-10
+// sobre grabar el P&L con la cotizacion de antes de cerrar.
+async function colocarOrdenDeCierre(ex, { worstNetPrice } = {}) {
+  const q = ex.contracts;
+  if (ex.strategy === 'IRON_CONDOR') {
+    return tradier.closeIronCondorOrder({
+      underlyingRoot: 'SPXW', expiry: ex.expiry,
+      putShortStrike:  ex.strikes.shortStrike,     putLongStrike:  ex.strikes.longStrike,
+      callShortStrike: ex.strikes.callShortStrike, callLongStrike: ex.strikes.callLongStrike,
+      quantity: q,
+    });
+  }
+  if (ex.strategy === 'DEBIT_PUT_CONDOR') {
+    return tradier.closeDebitCondorOrder({
+      underlyingRoot: 'SPXW', expiry: ex.expiry,
+      outerHighStrike: ex.strikes.outerHighStrike, innerHighStrike: ex.strikes.innerHighStrike,
+      innerLowStrike:  ex.strikes.innerLowStrike,  outerLowStrike:  ex.strikes.outerLowStrike,
+      quantity: q,
+    });
+  }
+  return tradier.closeSpreadOrder({
+    strategy: ex.strategy, underlyingRoot: 'SPXW', expiry: ex.strikes.expiry,
+    shortStrike: ex.strikes.shortStrike, longStrike: ex.strikes.longStrike,
+    quantity: q, worstNetPrice,
+  });
+}
+
 function calcLivePnl(ex, q) {
   try {
     const legs = ex.legs || {};
@@ -5953,6 +6029,10 @@ async function checkIronCondorTPSLImpl() {
       }
 
       try {
+        // Libera las patas antes de reintentar: una orden fantasma del sandbox
+        // (padre 'open' con patas 'filled') hace que el broker RECHACE todo
+        // cierre nuevo sobre esas mismas patas — ver cancelarOrdenesVivasDeLasPatas.
+        await cancelarOrdenesVivasDeLasPatas(ex);
         let closeResult;
         if (esDebito) {
           closeResult = await tradier.closeDebitCondorOrder({
@@ -6240,6 +6320,10 @@ async function checkDirectionalTPSLImpl() {
         const worstNetPriceDir = netValueAlCerrar >= 0
           ? Math.max(netValueAlCerrar - bufferPts, 0)
           : netValueAlCerrar - bufferPts;
+        // Libera las patas antes de reintentar: una orden fantasma del sandbox
+        // (padre 'open' con patas 'filled') hace que el broker RECHACE todo
+        // cierre nuevo sobre esas mismas patas — ver cancelarOrdenesVivasDeLasPatas.
+        await cancelarOrdenesVivasDeLasPatas(ex);
         const closeResultDir = await tradier.closeSpreadOrder({
           strategy:       ex.strategy,
           underlyingRoot: 'SPXW',
@@ -6780,6 +6864,10 @@ async function checkAlejamientoSMATPSLImpl() {
           }
         } catch(eq) { console.warn(`[Tradier-REV-TPSL] No se pudo cotizar para proteger el cierre de ${ex.orderId}, cierra a mercado:`, eq.message); }
 
+        // Libera las patas antes de reintentar: una orden fantasma del sandbox
+        // (padre 'open' con patas 'filled') hace que el broker RECHACE todo
+        // cierre nuevo sobre esas mismas patas — ver cancelarOrdenesVivasDeLasPatas.
+        await cancelarOrdenesVivasDeLasPatas(ex);
         const closeResultRev = await tradier.closeSpreadOrder({
           strategy:       ex.strategy,
           underlyingRoot: 'SPXW',
@@ -6852,6 +6940,76 @@ app.post('/api/tradier/executions/:id/patch', async (req, res) => {
   });
   if (!result.ok) return res.status(404).json(result);
   res.json(result);
+});
+
+// POST /api/tradier/executions/:id/close-now — cierre manual forzado (2026-08-04)
+//
+// A pedido del usuario, despues del caso de la orden fantasma del 04-ago: cuando
+// el sandbox deja una posicion trabada, el monitor reintenta y lo rechazan una y
+// otra vez, y hasta ahora la unica salida era cancelar la orden a mano por fuera
+// del sistema. Este boton hace lo mismo que el monitor pero por decision del
+// usuario: libera las patas y coloca el cierre.
+//
+// Igual que los monitores, NO marca status='closed' ni graba el pnl — deja el
+// registro en 'filled' para que la reconciliacion pasiva traiga el P&L real de
+// los fills (ver la nota del 2026-07-10). Y respeta IS_PRODUCTION: en local no
+// coloca nada, mismo criterio que el resto del sistema.
+//
+// Por defecto usa la misma proteccion de precio que los monitores (limite con
+// colchon, ver el fix del 2026-07-20 que evito un cierre a mercado por encima
+// del ancho del spread). `aMercado: true` la saltea, para el caso en que lo que
+// se necesita es salir si o si.
+app.post('/api/tradier/executions/:id/close-now', async (req, res) => {
+  try {
+    const ex = loadTradierExecutions().find(e => e.id === req.params.id);
+    if (!ex) return res.status(404).json({ error: 'Ejecución no encontrada' });
+    if (['closed', 'canceled'].includes(ex.status)) {
+      return res.status(400).json({ error: `La ejecución ya está en estado "${ex.status}".` });
+    }
+    if (!IS_PRODUCTION) {
+      return res.json({ ok: false, reason: 'local',
+        message: 'En local no se colocan órdenes reales (mismo sandbox que producción).' });
+    }
+
+    const canceladas = await cancelarOrdenesVivasDeLasPatas(ex);
+
+    // Proteccion de precio: mismo calculo que usan los monitores.
+    let worstNetPrice;
+    if (!req.body?.aMercado && ex.legs?.longSym && ex.legs?.shortSym) {
+      try {
+        const quotes = await tradier.getQuotes([ex.legs.longSym, ex.legs.shortSym]);
+        const q = {};
+        (Array.isArray(quotes) ? quotes : Object.values(quotes)).forEach(x => { q[x.symbol] = x.mark; });
+        const buffer = loadSPXConfig().trading?.closeSlippageBufferPts ?? 1.0;
+        if (q[ex.legs.longSym] != null && q[ex.legs.shortSym] != null) {
+          const neto = q[ex.legs.longSym] - q[ex.legs.shortSym];
+          worstNetPrice = neto >= 0 ? Math.max(neto - buffer, 0) : neto - buffer;
+        }
+      } catch (e) {
+        console.warn('[CIERRE-MANUAL] No se pudo cotizar, va a mercado:', e.message);
+      }
+    }
+
+    const closeResult = await colocarOrdenDeCierre(ex, { worstNetPrice });
+
+    const guardado = await withExecutionsLock(() => {
+      const all = loadTradierExecutions();
+      const t = all.find(e => e.id === req.params.id);
+      if (!t) return null;
+      t.closeOrderId = closeResult?.orderId ?? null;
+      t.closeReason  = 'MANUAL_FORZADO';
+      t.notes = (t.notes ? t.notes + ' | ' : '') +
+        `Cierre manual forzado desde la bitácora${canceladas ? ` (${canceladas} orden(es) bloqueante(s) cancelada(s))` : ''}.`;
+      saveTradierExecutions(all);
+      return t;
+    });
+
+    res.json({ ok: true, canceladas, closeOrderId: closeResult?.orderId ?? null,
+               worstNetPrice: worstNetPrice ?? null, execution: guardado });
+  } catch (e) {
+    console.error('[CIERRE-MANUAL] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /api/tradier/executions — historial + balance real de la cuenta demo

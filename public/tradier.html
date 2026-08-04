@@ -2424,6 +2424,31 @@ async function fetchTxnsTradier(force) {
   return S.txns;
 }
 
+// Cierre manual forzado (2026-08-04) — para destrabar una posición cuando el
+// sandbox deja una orden fantasma y el monitor no logra cerrar (ver
+// cancelarOrdenesVivasDeLasPatas en server.js). Coloca la orden real, así que
+// pide confirmación explícita antes.
+async function cerrarManualTradier(id, etiqueta) {
+  if (!confirm(`¿Cerrar manualmente ${etiqueta}?\n\nSe cancelará cualquier orden que esté bloqueando las patas y se colocará la orden de cierre en Tradier.`)) return;
+  const btn = document.getElementById('close-btn-' + id);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const r = await fetch(`/api/tradier/executions/${id}/close-now`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const j = await r.json();
+    if (j.ok) {
+      alert(`Orden de cierre colocada.${j.canceladas ? `\n${j.canceladas} orden(es) bloqueante(s) cancelada(s).` : ''}\n\nEl P&L real aparece cuando la conciliación confirme los fills (hasta 5 min).`);
+    } else {
+      alert(j.message || j.error || 'No se pudo cerrar.');
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✖ Cerrar'; }
+    loadHistTradier();
+  }
+}
+
 // ── HISTORIAL ────────────────────────────────────────────────
 function initHistFiltersTradier() {
   if (!$('hist-from').value) {
@@ -2518,9 +2543,13 @@ async function loadHistoryTradier() {
             const cierreLabel = s.closeReason ? (CIERRE_LABELS[s.closeReason] || s.closeReason) : '—';
             const fillLabel = s.entryFillPrice != null ? '$'+s.entryFillPrice : '—';
             const tieneInforme = s.key ? window._repInformesMap[s.key] : null;
-            const informeBtn = tieneInforme
-              ? `<a href="/api/informe-trade/${s.key}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
-              : `<span class="dim" style="font-size:10px;">—</span>`;
+            const informeBtn = s.isOpen
+              // Posición abierta: botón de cierre manual forzado en vez del PDF
+              // (que no existe hasta que el trade cierra).
+              ? `<button id="close-btn-${s.key}" onclick="cerrarManualTradier('${s.key}','${(s.stratType||'')} ${strikesLabel}')" title="Cierre manual forzado: cancela órdenes que estén bloqueando las patas y coloca la orden de cierre." style="background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.35);color:var(--red,#ff6b6b);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">✖ Cerrar</button>`
+              : tieneInforme
+                ? `<a href="/api/informe-trade/${s.key}" target="_blank" style="background:rgba(19,214,143,.12);border:1px solid rgba(19,214,143,.3);color:var(--green);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;text-decoration:none;">📄 PDF</a>`
+                : `<span class="dim" style="font-size:10px;">—</span>`;
             return `<tr${s.isOpen ? ' style="background:rgba(79,142,255,.06);"' : ''}>
               <td class="td-mono dim">${s.isOpen ? '<span class="badge badge-blue" style="font-size:9px;">🔵 ABIERTA</span>' : (s.closeDate||'—')}</td>
               <td class="td-mono dim">${s.openDate||'—'}</td>
