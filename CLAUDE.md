@@ -140,10 +140,55 @@ reconstruirlo sin adivinar.
 mezcla realizado/NLV; el costo base del adaptador ya usaba la fórmula completa en un solo paso,
 sin el ajuste incremental asimétrico; y no hay dividendos ni patas largas en el modelo.
 
-**Gaps conocidos que quedan** (sin dato para resolverlos, no son bugs): el `avgCost` de la Rueda
-Tradier es el strike de asignación pelado, sin los fees de asignación — el modelo de ejecuciones
-no los guarda. Y si una acción paga dividendo mientras se la tiene entre el CSP y la CC, no baja
-el costo base: las ejecuciones de Tradier no registran dividendos.
+### Esquemas alineados entre las dos Ruedas (2026-08-03)
+
+Los dos gaps que habían quedado (fees de asignación y dividendos) se cerraron agregando los
+campos que faltaban, a pedido del usuario: "que los esquemas queden similares".
+
+**Campos nuevos en el registro de ejecución** (`wheel_trading_executions.json`), que graba
+`checkWheelExpiryImpl` al detectar la asignación:
+
+| Campo | Qué es |
+|---|---|
+| `stockCostBasis` | Desembolso real por las acciones, en dólares totales. Sale de `cost_basis` de la posición de Tradier, que **ya incluye los fees de asignación** — el análogo exacto del `net-value` de Tastytrade. |
+| `shares` | Acciones realmente recibidas (no `contratos × 100` asumido). |
+| `assignedStrike` | Strike real del Put asignado. Hacía falta porque `ex.leg` se **sobreescribe** con la Covered Call en cuanto se vende, así que después de eso ya no se puede recuperar. |
+| `assignedAt` | Fecha de la asignación, para fechar el evento y acotar la búsqueda de dividendos. |
+| `dividends[]` | `{date, bruto, retencion, neto}` por pago. Lo llena `checkWheelDividends`. |
+
+**`checkWheelDividends` (server.js, cada 6h)** — un dividendo cobrado con las acciones en mano
+baja el costo base, igual que en Tasty. Lee `tradier.getAccountHistory()` (endpoint nuevo en
+`src/tradier.js`) y guarda el **neto por fecha**, no evento suelto: Tastytrade demostró que un
+pago puede llegar partido en bruto + retención, y así se netean solos. Solo mira ciclos en
+`ASIGNADO`/`CC_ACTIVA` — antes de asignar no hay acciones que cobren nada.
+
+⚠️ **El shape de los eventos de dividendo NO está verificado contra un caso real**: la cuenta es
+sandbox y `getAccountHistory` devuelve el historial vacío. `parseDividendEvent` acepta varias
+formas posibles (`amount` en la raíz o dentro de `dividend`, símbolo en `symbol` o embebido en
+la descripción) en vez de asumir una — mismo criterio tolerante que se usó para Tastytrade,
+donde el shape real resultó traer dos asientos por pago. Revisar en cuanto se acredite el
+primero en una cuenta real.
+
+**Esquema de eventos — ahora idéntico en las dos bitácoras:**
+
+| Evento | Campos |
+|---|---|
+| `STO_PUT` / `STO_CALL` | `date, type, strike, expiry, contracts, amount` |
+| `ROLL` | `date, type, fromStrike, fromExpiry, toStrike, toExpiry, amount` |
+| `ASSIGNED` | `date, type, qty, price, fees, costBasis, amount` |
+| `STOCK_SELL` | `date, type, qty, price, amount` |
+| `DIVIDENDO` | `date, type, amount, bruto, retencion, costBasis` |
+
+`amount` es **siempre dólares totales** en los dos lados. `costBasis` en `ASSIGNED`/`DIVIDENDO`
+es el costo base vigente en ese punto del timeline (`basisAhora()` en el adaptador de Tradier,
+`syncBasis()` en `wheel.js`). Los tipos que solo genera Tasty (`BTC_*`, `BTO_*`, `STC_*`,
+`STOCK_BUY`) no existen del lado Tradier porque la Rueda automatizada no compra patas largas y
+la asignación no llega como una compra de equity separada.
+
+**Compatibilidad con registros viejos**: los ciclos anteriores a este cambio no traen ninguno de
+los campos nuevos. El adaptador cae al comportamiento anterior (strike nominal × acciones, sin
+fees, sin dividendos, prima de la Call inicial en 0) en vez de romper o inventar — verificado
+con un registro legacy simulado.
 
 **Bug de display detectado por el usuario en el mismo pase:** el mapa `evIcon` marcaba la
 dirección de la *operación* (`BTC_*: '⬆️'`, porque comprás para cerrar), así que un cierre que

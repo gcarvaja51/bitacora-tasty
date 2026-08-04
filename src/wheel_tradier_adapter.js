@@ -48,7 +48,8 @@ function buildWheelDataFromTradier(executions = []) {
     const events = [];
     let totalPremium = 0;
     let sharesQty = 0;
-    let assignedStrike = null; // costo base real una vez asignado
+    let stockCost = 0;         // desembolso real por las acciones, en dolares totales
+    let assignedStrike = null; // strike nominal de la asignacion
 
     for (const ex of sorted) {
       const contracts = (ex.leg && ex.leg.contracts) || 1;
@@ -56,6 +57,12 @@ function buildWheelDataFromTradier(executions = []) {
       const putRolls = exEvents.filter(e => e.type === 'ROLL' || e.type === 'ROLL_DEFENSIVO');
       // Precio de opcion (por accion) -> dolares totales. Ver nota de UNIDADES arriba.
       const aDolares = (precio) => +((precio || 0) * 100 * contracts).toFixed(2);
+      // Costo base vigente en este punto del timeline — misma formula que usa
+      // syncBasis() en wheel.js (Tasty). Se adjunta a los eventos ASSIGNED y
+      // DIVIDENDO para que las dos bitacoras expongan el mismo campo.
+      const basisAhora = () => (sharesQty > 0 && stockCost > 0)
+        ? +((stockCost - totalPremium) / sharesQty).toFixed(4)
+        : null;
 
       // Entrada del Put — si ya hubo rolls, el primero trae fromStrike/fromExpiry
       // (el leg original antes de rolar); si no, ex.leg todavia tiene el strike
@@ -63,7 +70,7 @@ function buildWheelDataFromTradier(executions = []) {
       const entryStrike = putRolls.length ? putRolls[0].fromStrike : (ex.leg && ex.leg.strike);
       const entryExpiry = putRolls.length ? putRolls[0].fromExpiry : (ex.leg && ex.leg.expiry);
       const entryAmount = aDolares(ex.entryFillPrice != null ? ex.entryFillPrice : (ex.creditReceived || 0));
-      events.push({ date: (ex.filledAt || ex.timestamp || '').slice(0, 10), type: 'STO_PUT', strike: entryStrike, expiry: entryExpiry, amount: entryAmount });
+      events.push({ date: (ex.filledAt || ex.timestamp || '').slice(0, 10), type: 'STO_PUT', strike: entryStrike, expiry: entryExpiry, contracts, amount: entryAmount });
       totalPremium += entryAmount;
 
       let runningPutStrike = entryStrike;
@@ -76,11 +83,27 @@ function buildWheelDataFromTradier(executions = []) {
         lastPutExpiry = rv.toExpiry;
       }
 
-      // Asignacion — cualquier fase mas alla de CSP_ACTIVA implica que hubo asignacion
+      // Asignacion — cualquier fase mas alla de CSP_ACTIVA implica que hubo asignacion.
+      // `stockCostBasis` (dolares totales, cost_basis de Tradier: ya incluye los fees
+      // de asignacion) lo guarda checkWheelExpiryImpl desde 2026-08-03. Los registros
+      // anteriores no lo traen y caen al strike nominal x acciones, como antes.
       if (ex.phase !== 'CSP_ACTIVA') {
-        assignedStrike = runningPutStrike;
-        sharesQty = contracts * 100;
-        events.push({ date: lastPutExpiry || '', type: 'ASSIGNED', qty: sharesQty, price: assignedStrike, amount: 0 });
+        // `ex.assignedStrike` (grabado por checkWheelExpiryImpl) es el strike REAL
+        // del Put que se asigno. `runningPutStrike` sale de ex.leg, que ya fue
+        // sobreescrito por la Covered Call en cuanto se vendio — usarlo daba un
+        // nominal equivocado y por lo tanto un `fees` inventado.
+        assignedStrike = ex.assignedStrike ?? runningPutStrike;
+        sharesQty = ex.shares || contracts * 100;
+        const nominal   = assignedStrike * sharesQty;
+        const costoReal = ex.stockCostBasis != null ? ex.stockCostBasis : nominal;
+        stockCost += costoReal;
+        events.push({
+          date: ex.assignedAt || lastPutExpiry || '',
+          type: 'ASSIGNED', qty: sharesQty, price: assignedStrike,
+          fees: +(costoReal - nominal).toFixed(2),
+          costBasis: basisAhora(),
+          amount: 0,
+        });
       }
 
       // Covered Call — venta inicial + rolls. `ce.credit` lo guarda server.js desde
@@ -90,11 +113,26 @@ function buildWheelDataFromTradier(executions = []) {
       for (const ce of callEvents) {
         const monto = aDolares(ce.type === 'STO_CALL' ? ce.credit : ce.netCredit);
         if (ce.type === 'STO_CALL') {
-          events.push({ date: (ce.date || '').slice(0, 10), type: 'STO_CALL', strike: ce.strike, expiry: ce.expiry, amount: monto });
+          events.push({ date: (ce.date || '').slice(0, 10), type: 'STO_CALL', strike: ce.strike, expiry: ce.expiry, contracts, amount: monto });
         } else {
           events.push({ date: (ce.date || '').slice(0, 10), type: 'ROLL', fromStrike: ce.fromStrike, fromExpiry: ce.fromExpiry, toStrike: ce.toStrike, toExpiry: ce.toExpiry, amount: monto });
         }
         totalPremium += monto;
+      }
+
+      // Dividendos cobrados con las acciones en mano — los junta
+      // checkWheelDividends (server.js) desde 2026-08-03. Mismo evento y mismos
+      // campos que emite buildWheelData de Tasty (`amount` neto + `bruto` y
+      // `retencion` para el desglose): un pago = un evento, aunque el broker lo
+      // mande partido en bruto y retencion.
+      for (const dv of (ex.dividends || [])) {
+        const neto = +(dv.neto ?? ((dv.bruto || 0) - (dv.retencion || 0))).toFixed(2);
+        totalPremium += neto;
+        events.push({
+          date: dv.date, type: 'DIVIDENDO', amount: neto,
+          bruto: +(dv.bruto || 0).toFixed(2), retencion: +(dv.retencion || 0).toFixed(2),
+          costBasis: basisAhora(), // ya con el dividendo aplicado, igual que en Tasty
+        });
       }
 
       // Cierre del ciclo
@@ -104,6 +142,7 @@ function buildWheelDataFromTradier(executions = []) {
           events.push({ date: (ex.leg.expiry || '').slice(0, 10), type: 'STOCK_SELL', qty: sharesQty, price: ex.leg.strike, amount: 0 });
         }
         sharesQty = 0;
+        stockCost = 0;
         assignedStrike = null;
       }
     }
@@ -114,9 +153,12 @@ function buildWheelDataFromTradier(executions = []) {
     const contracts = (latest.leg && latest.leg.contracts) || 0;
     const activePut = mappedPhase === 'CSP_ACTIVA' && latest.leg ? { strike: latest.leg.strike, expiry: latest.leg.expiry, contracts } : null;
     const activeCall = mappedPhase === 'CC_ACTIVA' && latest.leg ? { strike: latest.leg.strike, expiry: latest.leg.expiry, contracts } : null;
-    const shares = (mappedPhase === 'ACCIONES' || mappedPhase === 'CC_ACTIVA') ? contracts * 100 : 0;
-    const avgCost = assignedStrike || 0;
+    const shares = (mappedPhase === 'ACCIONES' || mappedPhase === 'CC_ACTIVA') ? (sharesQty || contracts * 100) : 0;
     const denom = shares || (contracts * 100) || 1;
+    // avgCost = desembolso real por accion (incluye fees de asignacion cuando
+    // Tradier los reporto via cost_basis); si no hay dato real, cae al strike
+    // nominal, que es lo unico que habia antes.
+    const avgCost = stockCost > 0 && shares > 0 ? +(stockCost / shares).toFixed(4) : (assignedStrike || 0);
     let costBasis = avgCost > 0 ? +(avgCost - totalPremium / denom).toFixed(4) : null;
 
     // Costo base proyectado (CSP abierta, todavia sin asignar) — mismo fallback

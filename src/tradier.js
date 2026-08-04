@@ -188,6 +188,30 @@ class TradierClient {
     }
   }
 
+  // Historial de la cuenta — dividendos, fees, ajustes y trades. Es la unica
+  // fuente de dividendos que tiene Tradier (gainloss solo trae cierres de
+  // posicion), y La Rueda los necesita porque un dividendo cobrado mientras se
+  // tienen las acciones baja el costo base, igual que en la bitacora de Tasty.
+  //
+  // OJO — el shape de los eventos NO esta verificado contra un caso real: la
+  // cuenta es sandbox y devuelve el historial vacio, asi que no hay ningun
+  // dividendo con el que confirmar los nombres exactos de los campos. Se
+  // normaliza de forma tolerante (ver parseDividendEvent en server.js) siguiendo
+  // el mismo criterio que ya se uso para los dividendos de Tastytrade. Revisar en
+  // cuanto se acredite el primero en una cuenta real.
+  async getAccountHistory(sinceDate, { limit = 500 } = {}) {
+    if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
+    try {
+      const qs = `limit=${limit}${sinceDate ? `&start=${sinceDate}` : ''}`;
+      const data = await this._req(`/accounts/${this.accountNumber}/history?${qs}`);
+      const raw  = data.history?.event;
+      return Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    } catch(e) {
+      console.error('[Tradier] getAccountHistory error:', e.message);
+      return null; // null = no se pudo consultar (distinto de [] = sin eventos)
+    }
+  }
+
   // Revisa si ya hay una posicion abierta o una orden en curso para el root dado
   // (ej. "SPXW") — evita apilar un trade nuevo antes de que el anterior cierre.
   async hasOpenPosition(root) {

@@ -136,11 +136,15 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
         if (qty > 0) {
           const lastPut = [...events].reverse().find(e => e.type === 'STO_PUT');
           const assignPrice = lastPut?.strike || avgCost;
+          // Esta fila de Tastytrade llega con net-value 0 (el desembolso viene en
+          // el `Buy to Open` de equity que la acompaña, ver rama de arriba), asi
+          // que aca no hay fee que medir: queda en 0 para que el evento tenga la
+          // misma forma que el ASSIGNED de la Rueda de Tradier.
           stockCost += assignPrice * qty;
           shares    += qty;
           avgCost    = shares > 0 ? stockCost / shares : 0;
           syncBasis();
-          events.push({ date, type:'ASSIGNED', qty, price:assignPrice, costBasis, amount:0 });
+          events.push({ date, type:'ASSIGNED', qty, price:assignPrice, fees:0, costBasis, amount:0 });
         }
       }
     }

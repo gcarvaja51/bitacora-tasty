@@ -3088,8 +3088,18 @@ async function checkWheelExpiryImpl() {
       const acciones = positions.find(p => p.symbol === ex.symbol && parseFloat(p.quantity || 0) > 0);
       if (acciones) {
         ex.phase = 'ASIGNADO';
-        ex.notes = `Asignado el ${new Date().toISOString().slice(0,10)} — ${acciones.quantity} acciones.`;
-        console.log(`[WHEEL-EXPIRY] ${ex.symbol}: ${ex.notes}`);
+        // Costo REAL de las acciones (2026-08-03): cost_basis de Tradier viene en
+        // dolares totales y ya incluye los fees de asignacion, igual que el
+        // net-value de Tastytrade. Antes la Rueda usaba el strike pelado como
+        // avgCost y los fees se perdian -- el mismo hueco que en GAP costaba $5.
+        // Se guardan los dos: el desembolso real y el strike nominal, para poder
+        // mostrar la diferencia como `fees` en el timeline.
+        ex.stockCostBasis = Math.abs(parseFloat(acciones.cost_basis ?? 0)) || null;
+        ex.shares         = Math.abs(parseFloat(acciones.quantity || 0)) || null;
+        ex.assignedStrike = ex.leg?.strike ?? null;
+        ex.assignedAt     = new Date().toISOString().slice(0, 10);
+        ex.notes = `Asignado el ${ex.assignedAt} — ${acciones.quantity} acciones.`;
+        console.log(`[WHEEL-EXPIRY] ${ex.symbol}: ${ex.notes}${ex.stockCostBasis ? ` (costo real $${ex.stockCostBasis})` : ''}`);
       } else {
         ex.phase = 'CERRADO';
         ex.status = 'closed';
@@ -3201,6 +3211,87 @@ async function checkWheelExpiryImpl() {
 }
 function checkWheelExpiry() { return withWheelExecutionsLock(checkWheelExpiryImpl); }
 setInterval(checkWheelExpiry, 30 * 60 * 1000); // cada 30 min — solo importa el dia del vencimiento
+
+// ── Dividendos de las acciones en mano (2026-08-03) ─────────────────────
+// Un dividendo cobrado mientras se tienen las acciones entre el CSP y la Covered
+// Call BAJA el costo base, exactamente igual que en la bitacora de Tasty. Hasta
+// ahora la Rueda de Tradier no los miraba: no habia de donde sacarlos (gainloss
+// solo trae cierres de posicion) y el costo base los ignoraba por completo.
+//
+// Normalizacion tolerante — el shape NO esta verificado contra un caso real (la
+// cuenta sandbox devuelve el historial vacio, ver getAccountHistory en
+// src/tradier.js). Se aceptan varias formas posibles del payload en vez de
+// asumir una: `amount` puede venir en la raiz o dentro de `dividend`, y el
+// simbolo en `symbol` o embebido en la descripcion. Mismo criterio que se uso
+// para los dividendos de Tastytrade, que resultaron traer DOS asientos por pago
+// (bruto y retencion de impuesto) -- por eso se guarda el neto por fecha, no
+// evento suelto.
+function parseDividendEvent(ev) {
+  if (!ev || String(ev.type || '').toLowerCase() !== 'dividend') return null;
+  const det   = ev.dividend || {};
+  const monto = parseFloat(ev.amount ?? det.amount ?? 0);
+  if (!Number.isFinite(monto) || monto === 0) return null;
+  const fecha = String(ev.date || det.date || '').slice(0, 10);
+  if (!fecha) return null;
+  const desc  = String(det.description || ev.description || '');
+  const sym   = (ev.symbol || det.symbol || '').toUpperCase() || null;
+  return { fecha, monto, desc, sym };
+}
+
+// Devuelve true si el evento corresponde al subyacente dado. Con `symbol` es
+// directo; si no viene, se cae a buscar el ticker como palabra suelta en la
+// descripcion (evita que "BE" matchee dentro de "BERKSHIRE").
+function dividendoEsDe(div, symbol) {
+  if (div.sym) return div.sym === symbol;
+  return new RegExp(`\\b${symbol}\\b`, 'i').test(div.desc);
+}
+
+async function checkWheelDividendsImpl() {
+  try {
+    const executions = loadWheelTradingExecutions();
+    // Solo interesan los ciclos con acciones en mano: entre la asignacion y la
+    // entrega de la Call. Antes de asignar no hay acciones que cobren dividendo.
+    const conAcciones = executions.filter(e => e.phase === 'ASIGNADO' || e.phase === 'CC_ACTIVA');
+    if (!conAcciones.length) return;
+
+    const desde = conAcciones
+      .map(e => e.assignedAt || (e.filledAt || e.timestamp || '').slice(0, 10))
+      .filter(Boolean).sort()[0];
+    const eventos = await tradier.getAccountHistory(desde);
+    if (!eventos) return; // null = fallo la consulta; no se toca nada
+
+    const dividendos = eventos.map(parseDividendEvent).filter(Boolean);
+    if (!dividendos.length) return;
+
+    let cambios = false;
+    for (const ex of conAcciones) {
+      const mios = dividendos.filter(d => dividendoEsDe(d, ex.symbol) &&
+        (!ex.assignedAt || d.fecha >= ex.assignedAt));
+      if (!mios.length) continue;
+      ex.dividends = ex.dividends || [];
+      // Neto por fecha: si el broker manda bruto y retencion por separado (como
+      // hace Tastytrade), las dos filas caen en la misma fecha y se netean solas.
+      const porFecha = {};
+      for (const d of mios) {
+        porFecha[d.fecha] = porFecha[d.fecha] || { date: d.fecha, bruto: 0, retencion: 0 };
+        if (d.monto >= 0) porFecha[d.fecha].bruto     += d.monto;
+        else              porFecha[d.fecha].retencion += Math.abs(d.monto);
+      }
+      for (const reg of Object.values(porFecha)) {
+        const neto = +(reg.bruto - reg.retencion).toFixed(2);
+        const ya = ex.dividends.find(x => x.date === reg.date);
+        const nuevo = { date: reg.date, bruto: +reg.bruto.toFixed(2), retencion: +reg.retencion.toFixed(2), neto };
+        if (!ya) { ex.dividends.push(nuevo); cambios = true; console.log(`[WHEEL-DIV] ${ex.symbol}: dividendo ${reg.date} neto $${neto}`); }
+        else if (ya.neto !== neto) { Object.assign(ya, nuevo); cambios = true; }
+      }
+    }
+    if (cambios) saveWheelTradingExecutions(executions);
+  } catch(e) {
+    console.error('[WHEEL-DIV] Error en checkWheelDividendsImpl:', e.message);
+  }
+}
+function checkWheelDividends() { return withWheelExecutionsLock(checkWheelDividendsImpl); }
+setInterval(checkWheelDividends, 6 * 60 * 60 * 1000); // 4 veces al dia — un dividendo se acredita una vez, no hay apuro
 
 // ── Monitor de gestión de la Covered Call (Fase 4) — mismos 4 triggers que el Put
 // (extrínseco, delta, DTE, ganancia), pero la decisión es distinta: ser asignado en
