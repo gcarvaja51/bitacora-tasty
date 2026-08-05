@@ -1753,6 +1753,75 @@ con los inputs reales del estudio corriendo (`pineVersion` distinto). Antes de
 editar, verificar `Version history…` (menú del título del script) y confirmar que
 se está parado en la versión más reciente si hay dudas.
 
+## Rueda Automatizada — el loop de re-adopción: 21 órdenes reales por UNA posición (2026-08-05)
+
+Reportado por el usuario (*"en la bitácora aparece una cantidad grande de trades repetidos
+cerrados hoy"*). Eran **21 ciclos "The Wheel" de SOFI cerrados el mismo día**, 18 con P&L
+idéntico de $127 y 3 de $142 — **$2.712 de ganancia fantasma salidos de una sola posición de
+$127**. Y no era un problema de display: el sistema mandó **21 órdenes reales a Tradier**, una
+cada 5 minutos entre las 11:02 y las 12:44 ET, y seguía corriendo cuando se detectó.
+
+La cuenta tenía —y sigue teniendo— **una sola** put de SOFI: `SOFI260821P00018000`, −1
+contrato, abierta el 10-jul. El bucle:
+
+```
+adoptar → rolar → la reapertura se rechaza → cerrar en falso → re-adoptar → …
+```
+
+**Cómo arrancó:** el registro original `wtex-1783697266006` roló a las 14:57Z hacia
+`SOFI260828P00018000`. La orden nunca llenó, pero `ex.leg` **ya había sido sobreescrito** con
+la pata nueva. A partir de ahí el registro apuntaba a un contrato que no existe, y la posición
+real quedó sin ningún registro que la reclamara — o sea, huérfana. Cinco minutos después
+empezó la adopción, y de ahí no paró.
+
+**Tres defectos independientes lo sostenían.** Hacen falta los tres para que gire, y los tres
+se corrigieron:
+
+1. **`checkWheelExecutionFillsImpl` declaraba la posición "flat" mirando solo la pata nueva.**
+   Un roll son dos órdenes; si la reapertura se rechaza, preguntar por `ex.leg.optionSymbol`
+   da "no está en la cuenta" y se concluye que el ciclo quedó flat — **sin preguntar nunca si
+   la pata vieja sigue abierta**. Acá el cierre tampoco había llenado: `SOFI260821P00018000`
+   estuvo en la cuenta sin interrupción mientras el sistema cerraba su registro 21 veces
+   diciendo que estaba flat. Ahora se reconstruye la pata vieja desde el último evento `ROLL`
+   (`fromStrike`/`fromExpiry` vía `buildOccSymbol`, probando `P` y `C` porque el evento no
+   guarda el tipo) y, si sigue en la cuenta, **el registro vuelve a esa pata y queda vivo**.
+2. **`detectarPutsHuerfanas` no tenía memoria.** Filtraba solo contra registros `CSP_ACTIVA`,
+   así que una posición adoptada cuyo registro después se cierra vuelve a contar como huérfana
+   al ciclo siguiente. `leg` **no sirve** para recordarlo porque el roll lo sobreescribe — por
+   eso se agregó `adoptedSymbol`, inmutable, escrito al adoptar. Ningún symbol ya adoptado se
+   vuelve a adoptar, sin importar en qué fase quedó su registro.
+3. **Nada frenaba el reintento del roll.** El roll atómico (`placeRollOrder`) protege la
+   *posición* cuando se rechaza — no protege a la *cuenta* de que se lo pidan 21 veces. Ahora:
+   30 min de enfriamiento entre intentos, y se abandona tras **3 fallos consecutivos** con un
+   ntfy una sola vez (un roll que falló 3 veces no se arregla reintentando). Un fill real
+   reinicia el contador.
+
+**Bug aparte, encontrado en el mismo pase — la adopción se llevaba patas que no son suyas.**
+`detectarPutsHuerfanas` aceptaba **cualquier** put corta de la cuenta: ese día adoptó
+`SPXW260805P07730000` —una pata 0DTE del pipeline direccional— la registró como ciclo de La
+Rueda y la cerró al instante, inventando **$700** (crédito 7 × 100). Lo contable es lo de
+menos: el riesgo real es que `checkWheelPutManagementImpl` intente **rolar una posición que
+`checkDirectionalTPSL` está gestionando en paralelo**, dos monitores peleando por la misma
+pata. Se agregaron dos cortes independientes a propósito: por **root** (SPX/SPXW nunca son de
+La Rueda, que opera acciones — no depende de leer ningún archivo) y por **registro** (cualquier
+symbol que figure en `tradier_executions.json`).
+
+**Bug de contabilidad, mismo incidente:** `totalCreditAccumulated` se incrementa al **mandar**
+la orden de roll, no al confirmarla — si no llena, ese crédito queda sumado para siempre e
+infla el costo base y el P&L del ciclo. SOFI acumulaba 1.43 con 1.27 realmente cobrado. Al
+revertir un roll fallido ahora se descuenta su `netCredit` y el evento queda marcado
+`fallido: true` (no se borra: el intento existió y sirve para auditar).
+
+**Datos corregidos a mano** vía `POST /api/wheel-trading/executions/:id/patch`: los 21
+registros de SOFI y el de SPXW pasaron a `phase: 'ANULADO'` (`mapWheelExecution` solo mapea
+`CERRADO`, así que salen de la bitácora sin borrarse), y el registro raíz volvió a
+`SOFI260821P00018000` con el crédito en 1.27. La bitácora pasó de **24 operaciones cerradas
+hoy a 5**.
+
+⚠️ **Si vuelve a aparecer un `HUERFANO_SIN_POSICION` o `ROLL_REAPERTURA_NO_LLENO` repetido
+para el mismo símbolo, mirar primero si `ex.leg` apunta a un contrato que no está en la
+cuenta** — ese es el síntoma raíz, todo lo demás es consecuencia.
+
 ## Validación de los 3 automatismos de Tradier (2026-08-05)
 
 A pedido del usuario (*"validame que los automatismos sobre tradier, reversión a la
