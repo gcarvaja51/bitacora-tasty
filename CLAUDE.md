@@ -1811,6 +1811,42 @@ con los inputs reales del estudio corriendo (`pineVersion` distinto). Antes de
 editar, verificar `Version history…` (menú del título del script) y confirmar que
 se está parado en la versión más reciente si hay dudas.
 
+## Cierre manual de un ciclo de La Rueda: sin fecha y con la prima entera como resultado (2026-08-05)
+
+Reportado por el usuario: *"el activo ANET envié un cierre manual, se cerró, pero no veo el
+resultado en la bitácora de tradier"*. El cierre en el broker estaba perfecto (orden
+`36525398`, `buy_to_close ANET260904P00160000`, llenada a **2.81**). El problema era nuestro
+registro.
+
+La rama de La Rueda de `closeAnyPosition` (`server.js`) marcaba `phase`/`status`/`notes` pero
+**no escribía `closedAt`, `closeReason` ni el P&L** — la rama de SPX, diez líneas más arriba,
+sí guarda `closeOrderId`/`closeReason`. Dos consecuencias:
+
+1. **Fecha.** Sin `closedAt`, `mapWheelExecution` cae en cascada hasta `openDate` y archiva el
+   ciclo en su fecha de **apertura**: ANET cerrado el 05-ago aparecía bajo el **03-ago**. Por
+   eso "no se veía" — estaba, dos días atrás, donde nadie lo busca.
+2. **P&L.** Sin `pnl`, `mapWheelExecution` toma `totalCreditAccumulated` entero, o sea **la
+   prima completa como si el put hubiera expirado sin valor**. ANET figuraba con **$495**
+   cuando lo real es (4.95 − 2.81) × 100 = **$214**.
+
+El cierre manual va a mercado y casi nunca está lleno en el instante en que el botón responde,
+así que el costo real no se puede leer ahí: se guarda `closeOrderId` y
+`checkWheelExecutionFills` (cada 30s) resuelve el P&L cuando la orden llena
+(`pnlSource: 'cierre_manual_orden_real'`). Esa función salía temprano si no había nada en
+`submitted` — ahora también corre si hay cierres sin P&L por resolver.
+
+⚠️ **Debilidad de fondo, no resuelta**: `mapWheelExecution` **siempre** cae a la prima entera
+cuando falta `pnl`, y eso es optimista por construcción — el error va siempre a favor, que es
+la dirección peligrosa. De los 15 ciclos cerrados, **8 no tienen `pnl` explícito**. Los otros 7
+son `HUERFANO_SIN_POSICION` / `ROLL_REAPERTURA_NO_LLENO` de montos chicos ($68, $49, $60, −$12,
+$17, $43) donde "me quedé la prima" **puede** ser correcto (el put expiró sin valor) pero no
+está verificado contra el broker. Al tocar esto, no asumir que esos 7 están bien: están
+*sin confirmar*.
+
+**Corregido a mano** el mismo día, además del de arriba: `wtex-adopt-1785784440067-ANET`
+reportaba **$510** cuando su propia nota decía que había cerrado la pata vieja pagando $3.10 →
+real **$200**.
+
 ## El filtro de dirección de 15m va horas atrasado — DIAGNOSTICADO, sin cambiar (2026-08-05)
 
 Reportado por el usuario con captura de TradingView: *"hoy todo el día ha sido bajista en 15
