@@ -4810,6 +4810,18 @@ async function fetchCaminoBBars() {
 // fuente de la decision de entrada del direccional.
 async function checkDirectionalAutonomous() {
   try {
+    // Guard de dia habil/feriado (2026-08-05). Antes esta funcion solo miraba la
+    // HORA ET, no el dia — asi que corria su ventana completa los sabados y
+    // domingos: el fin de semana del 1-2 ago dejo 1.134 evaluaciones de TENDENCIA
+    // (mas 414 de REVERSION y 73 de NEUTRAL) contra datos de un mercado cerrado.
+    // Ademas de gastar llamadas a Tradier/TastyTrade/Yahoo, inunda
+    // spx_strategy_log.json (topado en 5.000 entradas): un solo fin de semana se
+    // come un tercio del buffer y desaloja el diagnostico de los dias reales.
+    // isMarketHours() ya valida fin de semana Y feriados NYSE, y su rango
+    // (9:30-16:00 ET) contiene por completo la ventana de abajo, asi que esto no
+    // recorta nada operable.
+    if (!isMarketHours()) return;
+
     const et = getETHour();
     const etMins = et.hour * 60 + et.min;
     // Misma ventana que selectStrategy() (9:45am-2:00pm ET) — evita llamadas
@@ -5558,6 +5570,11 @@ async function checkIronCondor() {
   // un console.error (se pierde en Railway) sin ningun rastro persistido.
   let dte, ctx;
   try {
+    // Guard de dia habil/feriado — ver nota completa en checkDirectionalAutonomous.
+    // Las dos ventanas de abajo (IC_FAVORABLE 10am-1pm y CIERRE_1DTE 3:45-3:50pm ET)
+    // caen enteras dentro de 9:30-16:00, asi que esto no recorta nada operable.
+    if (!isMarketHours()) return;
+
     const et = getETHour();
     const etMins = et.hour * 60 + et.min;
     const window0DTE = classifyWindow(etMins) === 'IC_FAVORABLE';
@@ -5601,8 +5618,31 @@ async function checkIronCondor() {
     // no vale la pena la llamada de red extra en cada chequeo de 0DTE.
     const highImpactEventsTomorrow = dte === '1DTE' ? await checkHighImpactUSEventsTomorrow() : undefined;
 
+    // GEX efectivo: Sigma Terminal si esta fresco (<5 min), si no el calculo
+    // interno (2026-08-05). El Iron Condor era la UNICA de las tres estrategias
+    // que seguia leyendo ctx.gex directo — Reversion y Direccional recibieron
+    // este fallback el 2026-07-21 y a esta se le paso por alto, justo la que mas
+    // depende del regimen: de 295 evaluaciones en 8 dias, el bloqueo #1 fue
+    // "Gamma regimen NEGATIVO" (66 veces) y nunca genero una sola señal. El
+    // calculo interno tiene un sesgo negativo ya medido (~-3.7B, memoria
+    // gamma_flip_discrepancy), y el gammaFlip diverge fuerte: el 2026-08-05 el
+    // interno daba 7600 contra 7753 de Sigma, 153 puntos — con un buffer de
+    // 20pts eso decide el gate. maxPain se mantiene del calculo interno porque
+    // Sigma no lo empuja (POST /api/spx/sigma-levels no lo recibe).
+    const sigmaIC = getFreshSigmaLevels();
+    const effectiveGex = sigmaIC
+      ? { regime: sigmaIC.regime, netGex: sigmaIC.netGex, netDex: sigmaIC.netDex,
+          callWall: sigmaIC.callWall, putWall: sigmaIC.putWall, gammaFlip: sigmaIC.gammaFlip,
+          maxPain: ctx.gex?.maxPain, source: 'sigma_terminal' }
+      : { ...(ctx.gex || {}), source: 'interno' };
+    console.log(`[SPX-IC ${dte}] Régimen GEX: ${effectiveGex.regime || 'desconocido'} flip: ${effectiveGex.gammaFlip ?? 'sin dato'} (fuente: ${effectiveGex.source})`);
+    // Se escribe de vuelta en ctx para que buildStrategySnapshot() registre en
+    // spx_strategy_log.json el GEX que REALMENTE decidio, no el interno crudo —
+    // mismo criterio que ya se aplico al webhook direccional el 2026-07-21.
+    ctx.gex = effectiveGex;
+
     const gate = evaluateIronCondorGate({
-      spxPrice: ctx.spxPrice, vix: ctx.vix, gex: ctx.gex, indicators: ctx.indicators,
+      spxPrice: ctx.spxPrice, vix: ctx.vix, gex: effectiveGex, indicators: ctx.indicators,
       openingRangeRespected: ctx.openingRangeRespected, etHour: et.hour, etMin: et.min,
       highImpactEventsTomorrow,
     }, dte, icCfg);
@@ -6547,6 +6587,11 @@ setInterval(checkTradierOrderCapability, 15 * 60 * 1000); // cada 15 min; el gua
 // solos — inevitable sin tracking de posición por estrategia a nivel Tradier).
 async function checkAlejamientoSMA() {
   try {
+    // Guard de dia habil/feriado — ver nota completa en checkDirectionalAutonomous.
+    // La ventana de evaluateReversionGate (9:30am-1pm ET) cae entera dentro de
+    // 9:30-16:00, asi que esto no recorta nada operable.
+    if (!isMarketHours()) return;
+
     const et = getETHour();
     const gate = evaluateReversionGate(et.hour, et.min);
     if (!gate.valid) return;
