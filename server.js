@@ -2852,8 +2852,53 @@ async function checkWheelExecutionFillsImpl() {
             ex.filledAt = ex.filledAt || new Date().toISOString();
             ex.notes = `Orden ${ex.orderId} figura ${order?.status || 'inexistente'} pero la pata SI esta en la cuenta — se toma la posicion real como verdad.`;
           } else {
-            // Ni orden viva ni posicion: no hay nada que gestionar.
             const eraRoll = (ex.rollCount || 0) > 0 || (ex.events || []).length > 0;
+
+            // Antes de declarar la posicion "flat" hay que preguntar por la pata
+            // VIEJA, no solo por la nueva (2026-08-05). Un roll son dos ordenes:
+            // cerrar la vieja y reabrir la nueva. `ex.leg` se sobreescribe con la
+            // nueva al mandarlas, asi que si la reapertura se rechaza, mirar solo
+            // `ex.leg.optionSymbol` da "no esta en la cuenta" y se concluye que el
+            // ciclo quedo flat — cuando puede haber fallado TAMBIEN el cierre y la
+            // pata vieja seguir perfectamente abierta. Caso real: SOFI, la cuenta
+            // tenia SOFI260821P00018000 (-1) sin interrupcion mientras el sistema
+            // cerraba el registro 19 veces seguidas diciendo que estaba flat.
+            let legVieja = null;
+            if (eraRoll && simbolosEnCuenta) {
+              const evRoll = [...(ex.events || [])].reverse()
+                .find(e => e.fromExpiry && e.fromStrike != null);
+              if (evRoll) {
+                // El optType no se guarda en el evento: se prueban los dos y manda
+                // la cuenta. Un ciclo de la Rueda no puede tener abiertas a la vez
+                // la put y la call del mismo strike/vencimiento, asi que no hay
+                // ambiguedad real.
+                for (const optType of ['P', 'C']) {
+                  const sym = tradier.buildOccSymbol(ex.symbol, evRoll.fromExpiry, optType, evRoll.fromStrike);
+                  if (simbolosEnCuenta.has(sym)) {
+                    legVieja = { optionSymbol: sym, strike: evRoll.fromStrike, expiry: evRoll.fromExpiry, optType };
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (legVieja) {
+              // El roll no se concreto en ninguna de sus dos patas: la posicion
+              // sigue siendo la de antes. Se devuelve el registro a esa pata y se
+              // deja vivo para que la gestion lo vuelva a intentar, en vez de
+              // cerrarlo en falso y dejar la posicion real sin registro (que es
+              // lo que alimentaba la re-adopcion en bucle).
+              ex.leg = { ...ex.leg, optionSymbol: legVieja.optionSymbol, strike: legVieja.strike, expiry: legVieja.expiry };
+              ex.status = 'filled';
+              ex.rollCount = Math.max(0, (ex.rollCount || 1) - 1);
+              ex.notes = `El roll no se concreto: la reapertura ${ex.orderId} quedo ${order?.status || 'sin rastro'} y la pata vieja ${legVieja.optionSymbol} SIGUE en la cuenta — el cierre tampoco lleno. Registro devuelto a la pata original; la posicion nunca estuvo flat.`;
+              console.log(`[WHEEL-FILL] ↩️  ${ex.symbol}: roll revertido, sigue en ${legVieja.optionSymbol}`);
+              cambios = true;
+              continue;
+            }
+
+            // Ni orden viva ni posicion (ni la nueva ni la vieja): no hay nada
+            // que gestionar.
             ex.phase  = 'CERRADO';
             ex.status = 'closed';
             ex.closedAt = new Date().toISOString();
@@ -3677,6 +3722,11 @@ function construirRegistroAdoptado(p, parsed) {
     costBasisTarget: null,
     fairValue: null,
     leg: { optionSymbol: p.symbol, strike: parsed.strike, expiry: parsed.expiry, side: 'sell_to_open', contracts },
+    // Marca INMUTABLE de que esta posicion ya fue adoptada alguna vez. `leg`
+    // NO sirve para esto: un roll lo sobreescribe con la pata nueva, asi que
+    // despues del primer roll ya no queda rastro de que symbol se adopto.
+    // Ver el loop del 2026-08-05 en detectarPutsHuerfanas.
+    adoptedSymbol: p.symbol,
     orderId: null,
     status: 'filled',
     entryFillPrice: credito,
@@ -3698,6 +3748,19 @@ function detectarPutsHuerfanas(posiciones, executions) {
   const yaRegistradas = new Set(
     executions.filter(e => e.phase === 'CSP_ACTIVA').map(e => e.leg?.optionSymbol).filter(Boolean)
   );
+  // Loop real de ordenes en produccion (2026-08-05). Filtrar solo por
+  // CSP_ACTIVA deja la adopcion SIN MEMORIA: si una posicion se adopta y su
+  // registro despues se cierra mientras la posicion sigue en la cuenta, vuelve
+  // a contar como huerfana en el ciclo siguiente. Con el roll fallando
+  // (ver ROLL_REAPERTURA_NO_LLENO abajo) eso se realimenta:
+  //   adoptar -> rolar -> la reapertura se rechaza -> cerrar -> re-adoptar...
+  // SOFI260821P00018000 (una sola put, -1 contrato) genero asi 19 registros
+  // CERRADO y **19 ordenes reales** en Tradier, una cada 5 min durante 1h40.
+  // De paso inflaba la bitacora: cada registro aporta su totalCreditAccumulated
+  // como ciclo cerrado, ~$2.400 de ganancia fantasma de una posicion de $127.
+  // Ahora un symbol adoptado no se vuelve a adoptar nunca, sin importar en que
+  // fase quedo su registro.
+  for (const e of executions) if (e.adoptedSymbol) yaRegistradas.add(e.adoptedSymbol);
   const out = [];
   for (const p of (posiciones || [])) {
     const parsed = parseOccSymbol(p.symbol || '');
