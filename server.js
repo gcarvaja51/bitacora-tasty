@@ -2891,6 +2891,9 @@ async function checkWheelExecutionFillsImpl() {
               ex.leg = { ...ex.leg, optionSymbol: legVieja.optionSymbol, strike: legVieja.strike, expiry: legVieja.expiry };
               ex.status = 'filled';
               ex.rollCount = Math.max(0, (ex.rollCount || 1) - 1);
+              // Alimenta el freno de reintentos de checkWheelPutManagementImpl.
+              ex.rollFailCount = (ex.rollFailCount || 0) + 1;
+              ex.rollFailedAt  = new Date().toISOString();
               ex.notes = `El roll no se concreto: la reapertura ${ex.orderId} quedo ${order?.status || 'sin rastro'} y la pata vieja ${legVieja.optionSymbol} SIGUE en la cuenta — el cierre tampoco lleno. Registro devuelto a la pata original; la posicion nunca estuvo flat.`;
               console.log(`[WHEEL-FILL] ↩️  ${ex.symbol}: roll revertido, sigue en ${legVieja.optionSymbol}`);
               cambios = true;
@@ -2914,6 +2917,11 @@ async function checkWheelExecutionFillsImpl() {
 
         if (fillCheck.completo) {
           ex.status = 'filled';
+          // Un fill real limpia el freno de reintentos: los 3 fallos son
+          // CONSECUTIVOS, un roll exitoso en el medio reinicia la cuenta.
+          ex.rollFailCount = 0;
+          ex.rollFailedAt = null;
+          ex.rollFailNotified = false;
           ex.entryFillPrice = order.avg_fill_price || null;
           ex.creditReceived = ex.entryFillPrice != null ? Math.abs(parseFloat(ex.entryFillPrice)) : null;
           // Bug real encontrado en la Fase 4: esto sobreescribía totalCreditAccumulated en
@@ -3214,6 +3222,34 @@ async function checkWheelPutManagementImpl() {
           cambios = true;
           console.log(`[WHEEL-MGMT] (dry-run local) ${ex.symbol}: ${ex.notes}`);
           continue;
+        }
+
+        // Freno de reintentos (2026-08-05). El roll atomico protege la posicion
+        // cuando se rechaza, pero nada impedia volver a intentarlo en el ciclo
+        // siguiente — y el siguiente. Con la gestion corriendo cada 5 min, una
+        // reapertura que se rechaza sistematicamente se convierte en una orden
+        // real cada 5 minutos por tiempo indefinido (SOFI: 19 ordenes en 1h40).
+        // Se espera 30 min entre intentos y se abandona tras 3 fallos seguidos,
+        // avisando una sola vez — un roll que fallo 3 veces no se arregla
+        // reintentando, necesita que alguien mire.
+        const fallos = ex.rollFailCount || 0;
+        if (fallos >= 3) {
+          if (!ex.rollFailNotified) {
+            ex.rollFailNotified = true;
+            cambios = true;
+            console.error(`[WHEEL-MGMT] ${ex.symbol}: ${fallos} rolls fallidos seguidos — se deja de reintentar.`);
+            try {
+              await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+                method: 'POST',
+                headers: { 'Title': `⚠️ ${ex.symbol}: roll fallido ${fallos} veces`, 'Priority': 'high', 'Tags': 'warning', 'Content-Type': 'text/plain' },
+                body: `${ex.symbol} ${ex.leg?.optionSymbol}: la reapertura del roll se rechazo ${fallos} veces seguidas. Se dejo de reintentar — requiere atencion manual. La posicion vieja sigue abierta e intacta.`,
+              });
+            } catch(e) {}
+          }
+          continue;
+        }
+        if (ex.rollFailedAt && (Date.now() - new Date(ex.rollFailedAt).getTime()) < 30 * 60 * 1000) {
+          continue; // en enfriamiento tras un roll fallido
         }
 
         const newOptionSymbol = tradier.buildOccSymbol(ex.symbol, rollDate.expiry, 'P', targetStrike);
