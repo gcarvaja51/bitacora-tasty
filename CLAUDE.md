@@ -1811,6 +1811,60 @@ con los inputs reales del estudio corriendo (`pineVersion` distinto). Antes de
 editar, verificar `Version history…` (menú del título del script) y confirmar que
 se está parado en la versión más reciente si hay dudas.
 
+## Reversión — el stop se valida en 5m, no en 2m (2026-08-05)
+
+A pedido explícito del usuario, que lo encuadró como *"un error de fondo que teníamos validado
+la semana pasada"*: la regla del sistema es **"5 minutos DECIDE, 2 minutos AFINA"** y el propio
+comentario del código dice que el 2m *"nunca decide el setup, solo afina"* — pero el stop salía
+del extremo de la vela de **2m**, y decidir cuándo la tesis quedó invalidada **es** una decisión
+de setup, la más importante después de la entrada. Por eso entró como corrección, fuera de la
+cadencia viernes/sábado de [[cambios-solo-viernes-sabado]].
+
+**El stop estaba exactamente en el nivel del ruido** (medido sobre 30 días de velas reales):
+
+| | |
+|---|---|
+| Rango mediano de una vela de 2m (= distancia del stop) | **4,58 pts** |
+| Excursión adversa mediana durante el hold de 10 min | **4,70 / 4,38 pts** |
+
+Son el mismo número: el stop se tocaba por el movimiento normal del precio, no por invalidación.
+Eso explica el **77% de cierres por `PRECIO_INVALIDACION` contra 22% por objetivo** — un perfil
+de tendencia, invertido respecto de la tesis de reversión, que debería ganar seguido y poco (el
+win rate real era 25%, con ganancia media $113 y pérdida media $39, o sea esperanza ≈ **−$1 por
+trade**: los +$45 acumulados en 69 operaciones eran ruido, no ventaja).
+
+**Réplica de los 69 trades reales** con las reglas de salida exactas (objetivo con
+`earlyExitPct` 0.9, time stop de 5 velas, y resolviendo a favor del stop cuando ambos caen en
+la misma vela — supuesto pesimista):
+
+| | stop 2m | stop 5m |
+|---|---|---|
+| Objetivo | 14 (20%) | **25 (36%)** |
+| Stop | 54 (78%) | **41 (59%)** |
+| Time stop | 1 | 3 |
+
+La réplica **reproduce la realidad** con el stop actual (20%/78% simulado vs 22%/77% real), que
+es lo que da crédito al contraste.
+
+⚠️ **Lo que NO está demostrado, y es lo que hay que vigilar**: que mejore la plata. Un stop
+1,66x más ancho produce pérdidas más grandes; si la pérdida media creciera en la misma
+proporción, la mejora del win rate se **cancela exacto** (0,36 × 113 − 0,64 × 65 ≈ −$1, igual
+que antes). Se espera que crezca menos —el delta neto del spread amortigua, no escala lineal con
+los puntos del índice— pero eso solo se mide con trades reales. **La variable a seguir es la
+pérdida media, hoy en $39.**
+
+Detalles de implementación:
+- `closes5` (el "Juez": alejamiento/RSI/dirección/compás) **queda intacto** con su filtro
+  original — este cambio no puede alterar ninguna decisión de **entrada**. El stop usa un array
+  aparte, `bars5`, que además trae `high`/`low`.
+- Sin velas de 5m utilizables cae al comportamiento anterior (2m) en vez de quedarse sin stop.
+- **`stopTimeframe`** se graba en cada ejecución (`'5m'` / `'2m'`). Es lo que permite separar
+  las muestras después: `algoVersion` saca su huella de la **config**, y esto es un cambio de
+  **código**, así que la huella no se mueve sola.
+- Los nombres `entryCandleLow`/`entryCandleHigh` se conservan (los usa
+  `checkAlejamientoSMATPSL` y los registros ya abiertos), aunque desde acá el ancla ya no sea
+  la vela de entrada de 2m.
+
 ## Cierre manual de un ciclo de La Rueda: sin fecha y con la prima entera como resultado (2026-08-05)
 
 Reportado por el usuario: *"el activo ANET envié un cierre manual, se cerró, pero no veo el

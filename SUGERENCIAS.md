@@ -59,4 +59,18 @@ ejecutado — con el filtro de dirección todavía retrasado. Ver
 
 ## Aplicadas
 
-_(vacío — mover acá lo que se despliegue, con la fecha)_
+### Reversión — el stop se valida en 5m, no en 2m · **2026-08-05**
+
+Entró **fuera de la cadencia viernes/sábado** por decisión explícita del usuario: no era un
+ajuste sino una desviación del diseño ya validado la semana anterior ("5 minutos decide, 2
+minutos afina" — el 2m nunca decide el setup, y el stop es una decisión de setup). Mantenerlo
+en 2m costaba los trades de lo que quedaba de semana.
+
+Medido: el rango mediano de una vela de 2m (4,58 pts) es igual a la excursión adversa mediana
+del propio hold (4,70 pts) — el stop estaba dentro del ruido. Con 5m, la réplica de los 69
+trades lleva los cierres por objetivo de 20% a 36% y los stops de 78% a 59%.
+
+**A vigilar, no está demostrado:** que mejore la plata. Un stop 1,66x más ancho da pérdidas
+más grandes; si la pérdida media crece en la misma proporción, la mejora del win rate se
+cancela exacto. **La variable a seguir es la pérdida media, hoy en $39.** Cada ejecución nueva
+graba `stopTimeframe` para poder separar las muestras.
