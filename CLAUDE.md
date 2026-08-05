@@ -316,12 +316,57 @@ Dos cosas a tener presentes al comparar:
   (`metrics.totalPnL`, `strategyByMonth`) **no** conocen ese filtro, así que siempre van a dar
   otro número: julio da **+3,129** en las hojas y **−1,728** en el agregado crudo — la
   diferencia son exactamente los 13 ciclos marcados (−4,857). No es un error, es el filtro.
-- ⚠️ **La hoja "Hoy" es la única sin ese checkbox**: siempre incluye los marcados. Hoy no se
-  nota (ningún cierre del día está marcado) pero un día con un error marcado va a diferir del
-  Dashboard. Pendiente de unificar.
+- **La hoja "Hoy" ya tiene el checkbox** (agregado 2026-08-04) — era la única sin él, así que
+  siempre incluía los marcados y podía no cuadrar con el Dashboard. Mismo id/texto/default que
+  las otras cuatro, y el filtro se aplica **antes** de `consolidateStrategies` (consolidar
+  primero mezclaría una pata marcada con una sana en la misma fila). Las filas marcadas llevan
+  ⚠️ con la nota del error en el tooltip, para que al activarlo se vea *cuál* trade entró y no
+  solo que el número cambió.
 - **Comparar siempre sobre UNA sola lectura.** `/api/transactions-tradier` tiene TTL de 60s y
   trae P&L en vivo: dos consultas separadas por minutos en día de mercado dan números
   distintos sin que haya ningún bug (agosto pasó de 1545 a 395 en una misma sesión).
+
+### Reconciliación con el broker — dos fuentes de trades duplicados (2026-08-04)
+
+Reportado como *"el reporte de historial de agosto 4 está raro, veo varios trades que
+desconocía"*. El día mostraba 10 filas por $196; las correctas eran **8 por $416**. Sobraban dos
+`SPXW Short Call` (−$220 y $0) sobre los strikes **7710 y 7720** — exactamente las dos patas del
+Bull Call Spread `tex-1785860138418` (+$230) que ya estaba contado. La misma plata, dos veces.
+
+`reconcileClosedPnl` (`src/tradier_closed_pnl_adapter.js`) descarta las filas del broker que ya
+cubre un registro nuestro. Fallaba por dos motivos distintos:
+
+**1. Deduplicaba por conteo, no por pertenencia.** Descontaba de a uno: si el broker traía 3
+filas de un symbol/día y teníamos 2 cierres registrados, la tercera sobrevivía y se dibujaba
+como operación propia. Y el sandbox de Tradier **sí duplica filas**: el 04-ago devolvió 3 filas
+del call 7710 — las tres con el mismo `proceeds` (320) y costos distintos (1940 / 1470 / 320) —
+y 2 del 7720, ambas con `proceeds` 690 y costos 1270 / 910. Es el mismo cierre repetido con
+costos inconsistentes. Ahora es pertenencia: si el symbol/día ya tiene cierre registrado, ninguna
+fila extra entra.
+
+**2. La clave de La Rueda usaba el VENCIMIENTO como fecha de cierre.** `trackedLegKeys` armaba
+`optionSymbol|leg.expiry`, pero el broker cierra en otra fecha: nuestro ciclo de PDD cierra el
+03-ago y Tradier reporta esa misma pata cerrada el **24-jul**; RIO/NBIS/IBIT/RKLB vencen el
+21-ago y el broker las cierra el **10-jul**. La clave no coincidía nunca, así que **cada ciclo de
+La Rueda se contaba dos veces**: una como ciclo nuestro (prima acumulada) y otra como "Short Put"
+reconciliado. Ahora la clave de La Rueda va sin fecha (`optionSymbol|*`): un symbol OCC ya
+identifica raíz + vencimiento + tipo + strike, así que si hay un ciclo CERRADO sobre ese
+contrato, cualquier fila del broker para el mismo contrato es esa misma posición.
+
+**Impacto medido sobre toda la historia:** las estrategias "solo del broker" pasan de **18 a 5**,
+y su aporte de −$411 pasa a **+$17**. El 04-ago pasa de $196 a **$416**.
+
+**Las 5 que siguen aflorando son legítimas** — la otra pata de un roll, que el broker reporta y
+nosotros nunca registramos: BAC `260821P55`, KO `260814P79`, JBLU `260814P5`, BE `260821P200`,
+HOOD `260821P100`. En cada caso nuestro registro guarda la pata *previa* al roll y el broker la
+*posterior*. Eso es exactamente para lo que se creó la reconciliación (2026-07-24: aflorar las 91
+patas cerradas que nunca pasaron por el tracking) y sigue funcionando.
+
+⚠️ **Limitación aceptada, explícita:** si alguna vez se cierra dos veces el mismo contrato el
+mismo día y solo una queda registrada, la otra deja de aflorar. Es el precio de que Tradier no
+devuelva `order-id` en `gainloss` (ver cabecera del adaptador). Se prefiere no mostrar un trade
+real no trackeado antes que inventar uno que no existió: lo segundo corrompe el P&L del día y
+hace que las hojas se contradigan entre sí, que es el síntoma que se estaba corrigiendo.
 
 ### Fecha de cierre de un ciclo de La Rueda — un ROLL no es un cierre
 

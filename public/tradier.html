@@ -641,6 +641,16 @@
 
     <!-- ══ HOY (2026-07-28 — reusa fetchTxnsTradier de Historial/Calendario) ══ -->
     <div id="panel-today" class="panel">
+      <!-- Checkbox agregado el 2026-08-04: "Hoy" era la UNICA hoja sin el, asi
+           que siempre incluia los trades marcados como error de implementacion
+           mientras Dashboard/Reportes/Historial/Calendario los excluyen por
+           defecto. Un dia con un error marcado hacia que "Hoy" no cuadrara con
+           el Dashboard. Mismo id/texto/default (desmarcado) que las otras. -->
+      <div class="filters">
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;" title="Trades marcados a mano (columna Error, en Historial) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
+          <input type="checkbox" id="today-incluir-errores" onchange="loadTodayTradier()"> Incluir trades con error de implementación
+        </label>
+      </div>
       <div class="kpi-row cols-3" id="today-kpis-tradier" style="margin-bottom:16px;"></div>
       <div class="card">
         <div class="card-header">Operaciones de Hoy</div>
@@ -3184,10 +3194,14 @@ async function loadTodayTradier() {
   $('today-tbody-tradier').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--muted);">Cargando...</td></tr>';
   try {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/New_York' });
+    const incluirErrores = !!$('today-incluir-errores')?.checked;
     const data = await fetchTxnsTradier(true);
     const legs = data.metrics?.strategies || [];
 
-    const todayLegs  = legs.filter(s => s.closeDate === today);
+    // El filtro de errores va ANTES de consolidar, igual que en las otras
+    // hojas (que filtran m.strategies directo): consolidar primero mezclaria
+    // una pata marcada con una sana dentro de la misma fila.
+    const todayLegs  = legs.filter(s => s.closeDate === today && (incluirErrores || !s.flaggedError));
     const strategies = consolidateStrategies(todayLegs);
     strategies.forEach(s => {
       s.capPct = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null;
@@ -3235,7 +3249,7 @@ function renderTodayRowsTradier(list, col, asc) {
         const dur = s.durationDays===0 ? 'Intradía' : s.durationDays===1 ? '1 día' : `${s.durationDays}d`;
         return `<tr>
           <td class="td-mono dim">${s.closeTime}</td>
-          <td class="td-bright">${s.underlying}</td>
+          <td class="td-bright">${s.underlying}${s.flaggedError?` <span title="${(s.flaggedErrorNote||'Marcado como error de implementación').replace(/"/g,'&quot;')}" style="cursor:help;">⚠️</span>`:''}</td>
           <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">${dur}</td>
           <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>

@@ -42,9 +42,18 @@ function trackedLegKeys(spxExecutions = [], wheelExecutions = []) {
   }
   for (const ex of wheelExecutions) {
     if (ex.phase !== 'CERRADO' || !ex.leg || !ex.leg.optionSymbol) continue;
-    // Sin closedAt limpio en wheel_trading_executions.json (misma limitacion
-    // documentada en src/metrics_tradier.js) — se aproxima con el vencimiento.
-    keys.push(`${ex.leg.optionSymbol}|${ex.leg.expiry}`);
+    // Sin fecha, a proposito (2026-08-04). Antes se aproximaba con el
+    // VENCIMIENTO de la pata, que casi nunca es el dia en que el broker la da
+    // por cerrada: nuestro ciclo de PDD cierra el 03-ago y Tradier reporta esa
+    // misma pata cerrada el 24-jul; RIO/NBIS/IBIT/RKLB tienen vencimiento
+    // 21-ago y el broker las cierra el 10-jul. La clave symbol|fecha entonces
+    // NUNCA coincidia y cada ciclo de La Rueda se contaba dos veces: una como
+    // ciclo nuestro (prima acumulada) y otra como "Short Put" reconciliado del
+    // broker. Un symbol OCC ya identifica raiz + vencimiento + tipo + strike:
+    // si tenemos un ciclo CERRADO sobre ese contrato, cualquier fila del broker
+    // para el mismo contrato es esa misma posicion, se cierre el dia que se
+    // cierre. El comodin evita tener que adivinar la fecha.
+    keys.push(`${ex.leg.optionSymbol}|*`);
   }
   return keys;
 }
@@ -139,15 +148,40 @@ function buildStrategyEntry(underlying, closeDate, rows, stratType) {
   };
 }
 
+// Dedup por PERTENENCIA, no por conteo (2026-08-04, a partir de un reporte del
+// usuario: "veo varios trades que desconocia" en el Historial del 4-ago).
+//
+// Antes se descontaba de a uno: si el broker traia 3 filas de un symbol/dia y
+// nosotros teniamos 2 cierres registrados, la tercera sobrevivia y se dibujaba
+// como una operacion nuestra que nunca existio. Y el sandbox de Tradier SI
+// duplica filas: para el 2026-08-04 devolvio 3 filas del call 7710 -- las tres
+// con el MISMO proceeds (320) y costos distintos (1940 / 1470 / 320) -- y 2 del
+// call 7720, ambas con proceeds 690 y costos 1270 / 910. Es el mismo cierre
+// repetido con costos inconsistentes, no cierres distintos. Los sobrantes se
+// colaban como dos "Short Call" sueltos por -$220 sobre los strikes exactos del
+// Bull Call Spread tex-1785860138418 (+$230), o sea la misma plata contada dos
+// veces.
+//
+// Ahora: si un symbol/dia YA tiene cierre registrado por nosotros, ninguna fila
+// extra del broker para ese mismo symbol/dia entra. Se conserva el proposito
+// original de la reconciliacion (2026-07-24: aflorar las 91 patas cerradas en la
+// cuenta que nunca pasaron por nuestro tracking) porque esas son symbols SIN
+// ningun registro local -- la pertenencia no las toca.
+//
+// Limitacion aceptada y explicita: si alguna vez cerras dos veces el MISMO
+// strike el MISMO dia y solo una queda registrada, la otra deja de aflorar.
+// Es el precio de no poder identificar filas: Tradier no devuelve order-id en
+// gainloss (ver cabecera de este archivo). Se prefiere no mostrar un trade real
+// no trackeado antes que inventar uno que no existio, porque lo segundo
+// corrompe el P&L del dia y contradice al resto de las hojas.
 function reconcileClosedPnl(closedPnlRows = [], trackedKeys = []) {
-  const trackedCount = {};
-  trackedKeys.forEach(k => { trackedCount[k] = (trackedCount[k] || 0) + 1; });
+  const tracked = new Set(trackedKeys);
 
   const remaining = [];
   for (const row of closedPnlRows) {
     const closeDate = (row.close_date || '').slice(0, 10);
-    const key = `${row.symbol}|${closeDate}`;
-    if (trackedCount[key] > 0) { trackedCount[key]--; continue; }
+    // `symbol|*` = pata de La Rueda trackeada, sin fecha (ver trackedLegKeys).
+    if (tracked.has(`${row.symbol}|${closeDate}`) || tracked.has(`${row.symbol}|*`)) continue;
     remaining.push(row);
   }
 
