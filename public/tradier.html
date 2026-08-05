@@ -566,6 +566,16 @@
               <option value="1d">Diario</option>
             </select>
             <select id="mon-dia" onchange="renderMonitorSPX()" style="background:var(--card);border:1px solid var(--border);color:var(--bright);border-radius:6px;padding:6px 10px;font-size:12px;"></select>
+            <!-- Cuenta regresiva del auto-refresh (2026-08-05, a pedido del usuario:
+                 "ponle una barra de 2 minutos que se vaya agotando"). Sirve para
+                 saber de un vistazo que el refresco automatico esta vivo — antes
+                 no habia forma de distinguir "no hay datos nuevos" de "se colgo". -->
+            <div id="mon-refresh" title="El monitor se actualiza solo cada 2 minutos. La barra se vacía hasta el próximo refresco; se pausa si cambiás de pestaña." style="display:flex;align-items:center;gap:6px;">
+              <span id="mon-refresh-txt" style="font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:30px;text-align:right;">2:00</span>
+              <div style="width:64px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;">
+                <div id="mon-refresh-bar" style="height:100%;width:100%;background:var(--bright);border-radius:3px;"></div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -775,10 +785,49 @@ const MON_OVERLAYS = [
 ];
 let _monOn = Object.fromEntries(MON_OVERLAYS.map(o => [o.id, o.on]));
 
+// ── Auto-refresco del Monitor SPX (2026-08-05) ────────────────
+// Reportado por el usuario: "el monitor spx en tradier no se esta actualizando
+// automaticamente... me toca actualizarlo a mano". No era un timer roto: NUNCA
+// hubo uno. loadMonitorSPX() solo se llamaba al entrar a la pestaña (TABS) y al
+// cambiar el selector de intervalo, asi que la vista se quedaba congelada en el
+// momento en que se abrio, mientras el daemon seguia empujando lecturas nuevas
+// cada ~2 min. El ciclo de refresco se alinea con ese ritmo: pedir mas seguido
+// no traeria nada nuevo.
+const MON_REFRESH_MS = 120000;
+let _monNextAt  = 0;
+let _monCargando = false;
+
+function monResetCountdown() { _monNextAt = Date.now() + MON_REFRESH_MS; }
+
+function monTick() {
+  const barra = document.getElementById('mon-refresh-bar');
+  const txt   = document.getElementById('mon-refresh-txt');
+  const cont  = document.getElementById('mon-refresh');
+  if (!barra || !txt) return;
+  // Solo corre con la pestaña del monitor a la vista: refrescar en segundo
+  // plano gasta llamadas para pintar algo que nadie esta mirando, y ademas el
+  // usuario volveria a una barra en un punto arbitrario, que es justo la
+  // señal confusa que esto viene a resolver.
+  const activo = currentTab === 'monitor' && !document.hidden;
+  if (cont) cont.style.opacity = activo ? '1' : '0.35';
+  if (!activo) { monResetCountdown(); return; }
+  if (_monCargando) return;               // congelar la cuenta mientras carga
+  const resta = _monNextAt - Date.now();
+  if (resta <= 0) { monResetCountdown(); loadMonitorSPX(); return; }
+  barra.style.width = (resta / MON_REFRESH_MS * 100).toFixed(1) + '%';
+  const s = Math.ceil(resta / 1000);
+  txt.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+setInterval(monTick, 250);
+
 async function loadMonitorSPX() {
   const interval = document.getElementById('mon-interval')?.value || '5m';
   const st = document.getElementById('mon-status');
   if (st) st.textContent = 'Cargando…';
+  // Cualquier carga (automatica, manual, o cambio de intervalo) reinicia la
+  // cuenta: la barra mide "desde el ultimo dato traido", no desde un reloj fijo.
+  _monCargando = true;
+  monResetCountdown();
   try {
     const r = await fetch('/api/spx/monitor?interval=' + interval);
     const j = await r.json();
@@ -799,6 +848,13 @@ async function loadMonitorSPX() {
     renderMonitorSPX();
   } catch(e) {
     if (st) st.textContent = 'Error cargando el monitor: ' + e.message;
+  } finally {
+    // En finally, no al final del try: si la carga falla, la cuenta tiene que
+    // volver a arrancar igual para que reintente sola en 2 min. Dejarla
+    // congelada dejaria la barra clavada y el monitor muerto justo cuando algo
+    // anda mal, que es cuando mas se necesita que siga intentando.
+    _monCargando = false;
+    monResetCountdown();
   }
 }
 
