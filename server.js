@@ -2808,8 +2808,39 @@ async function checkWheelExecutionFillsImpl() {
   try {
     const executions = loadWheelTradingExecutions();
     const pendientes = executions.filter(e => e.status === 'submitted');
-    if (!pendientes.length) return;
+    // Ciclos cerrados a mano cuyo P&L todavia no se pudo calcular: la orden de
+    // cierre se manda a mercado y casi nunca esta llena en el mismo instante en
+    // que el boton responde, asi que el costo real se resuelve aca, despues
+    // (2026-08-05). Sin esta pasada el ciclo se quedaba con el P&L por defecto
+    // de mapWheelExecution — la prima entera, como si el put hubiera expirado
+    // sin valor.
+    const cierresSinPnl = executions.filter(e =>
+      e.phase === 'CERRADO' && e.closeOrderId && e.pnl == null);
+    if (!pendientes.length && !cierresSinPnl.length) return;
     let cambios = false;
+
+    for (const ex of cierresSinPnl) {
+      try {
+        const orden = await tradier.getOrder(ex.closeOrderId);
+        const costo = parseFloat(orden?.avg_fill_price);
+        if (orden?.status !== 'filled' || !(costo >= 0)) continue;
+        const contratos = (ex.leg && ex.leg.contracts) || 1;
+        const primaCobrada = ex.totalCreditAccumulated ?? ex.creditReceived ?? 0;
+        ex.pnl = +(((primaCobrada - costo) * 100 * contratos).toFixed(2));
+        ex.closeCost  = costo;
+        ex.pnlSource  = 'cierre_manual_orden_real';
+        ex.notes = (ex.notes ? ex.notes + ' | ' : '') +
+          `P&L resuelto con el fill real del cierre (orden ${ex.closeOrderId}, $${costo}): prima ${primaCobrada} - costo ${costo} = $${ex.pnl}.`;
+        cambios = true;
+        console.log(`[WHEEL-FILL] 💵 ${ex.symbol}: cierre manual resuelto — $${ex.pnl}`);
+      } catch(e) {
+        console.error(`[WHEEL-FILL] ${ex.symbol}: no se pudo resolver el P&L del cierre ${ex.closeOrderId}:`, e.message);
+      }
+    }
+    if (!pendientes.length) {
+      if (cambios) saveWheelTradingExecutions(executions);
+      return;
+    }
 
     // Posiciones reales, para poder reconciliar una orden que NO lleno. Se pide
     // una sola vez por ciclo, y solo si hace falta.
@@ -7322,6 +7353,21 @@ async function cerrarPosicionPorSimbolos(simbolos, { aMercado = false } = {}) {
         // Cerrar el Put de un CSP sí lo termina.
         ex.phase  = ex.phase === 'CC_ACTIVA' ? 'ASIGNADO' : 'CERRADO';
         ex.status = ex.phase === 'ASIGNADO' ? ex.status : 'closed';
+        // Sin esto el ciclo quedaba CERRADO pero SIN fecha de cierre ni P&L
+        // (2026-08-05, reportado por el usuario: "envie un cierre manual, se
+        // cerro, pero no veo el resultado en la bitacora"). Con closedAt vacio,
+        // mapWheelExecution (src/metrics_tradier.js) cae en cascada hasta
+        // openDate y archiva el ciclo en su fecha de APERTURA — ANET cerrado el
+        // 05-ago aparecia bajo el 03-ago, donde nadie lo busca. Y sin pnl toma
+        // totalCreditAccumulated entero, o sea la prima completa como si el put
+        // hubiera expirado sin valor, ignorando lo que costo recomprarlo ($495
+        // en vez de los ~$214 reales). closeOrderId deja el rastro para que
+        // checkWheelExecutionFills resuelva el costo real cuando la orden llene.
+        if (ex.phase === 'CERRADO') {
+          ex.closedAt     = new Date().toISOString();
+          ex.closeReason  = 'MANUAL_FORZADO';
+          ex.closeOrderId = orden.orderId;
+        }
         ex.notes = (ex.notes ? ex.notes + ' | ' : '') +
           `Pata cerrada manualmente desde la bitácora — ciclo pasa a ${ex.phase}.`;
         tocados.push(ex.id); cambio = true;
