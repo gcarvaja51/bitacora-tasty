@@ -1811,6 +1811,66 @@ con los inputs reales del estudio corriendo (`pineVersion` distinto). Antes de
 editar, verificar `Version history…` (menú del título del script) y confirmar que
 se está parado en la versión más reciente si hay dudas.
 
+## El filtro de dirección de 15m va horas atrasado — DIAGNOSTICADO, sin cambiar (2026-08-05)
+
+Reportado por el usuario con captura de TradingView: *"hoy todo el día ha sido bajista en 15
+minutos"*. Tenía razón, y el sistema decía lo contrario.
+
+En `entryMode: 'pullback'` (el modo activo en producción) **la dirección la fija una sola
+línea** de `calcPullbackEntry` (`src/camino_b.js`):
+
+```js
+const fase15 = calcFase15mSimple(closes15m);
+const dir = fase15.bull ? 1 : -1;     // el marco de 15m decide, y solo él
+```
+
+El marco de 2m no aporta dirección — solo el *timing* (cruce o roce de la EMA10), siempre a
+favor de lo que diga el 15m. Mientras el 15m esté en Fase 2, **el direccional solo puede
+proponer trades alcistas**.
+
+**Reconstrucción con datos reales de 15m de ese día** (Yahoo `^GSPC`, barra por barra,
+corriendo `calcFase15mSimple` sobre la serie hasta cada punto):
+
+| hora ET | cierre | filtro 15m |
+|---|---|---|
+| 09:30 | 7789.76 | **BULL (Fase 2)** |
+| 10:00 | 7786.19 | **BULL** |
+| 10:30 | 7764.93 | **BULL** |
+| 11:00 | 7754.67 | **BULL** |
+| 11:15 | 7741.37 | ninguna |
+| 12:00 | 7727.79 | ninguna |
+| 13:21 | 7737.57 | **BEAR (Fase 4)** |
+
+La sesión abrió en 7789 y cayó sin pausa. El filtro sostuvo "tendencia alcista" durante la
+primera hora y media, y marcó bajista recién a las 13:21 — **después de 52 puntos de caída**.
+
+**Causa**: la condición es `precio > EMA20 && EMA10 > EMA20 && EMA20 subiendo`. La EMA20 de 15m
+arrastra **5 horas de memoria** (20 barras × 15 min) e incluye el rally de los días previos.
+Mientras esa EMA siguiera subiendo por inercia, las tres condiciones se cumplían aunque el
+precio cayera 50 puntos.
+
+**La coincidencia temporal cierra el caso**: las 27 señales de ese día se generaron entre las
+9:55 y las 11:10 ET — exactamente la ventana en que el filtro decía BULL. En cuanto pasó a
+"ninguna" a las 11:15, dejaron de aparecer.
+
+⚠️ **Lo incómodo, y la razón de dejar esto anotado**: el sistema generó 27 entradas **alcistas
+contra un mercado que caía**, justo en el techo. Con el gate de Crédito/Riesgo ya corregido (ver
+sección siguiente), **8 se habrían ejecutado, las 8 en contra**. O sea que ese día el bug de
+unidades fue lo único que evitó una tanda de trades malos — el gate roto estaba **tapando** este
+problema, y arreglarlo lo dejó expuesto.
+
+Nota adicional: el **MACD de 15m sí estaba bajista** (hist −3.44) al mismo tiempo que el filtro
+decía alcista. El sistema tenía la contradicción a la vista y aun así llegó a score ≥80, porque
+`fase_weinstein` pesa 45 y `macd_cruce_pendiente` solo 15.
+
+**Decisión del usuario: solo diagnosticar, no cambiar el criterio todavía** (coherente con
+`congelar-cambios-para-medir`). Las tres opciones que quedaron sobre la mesa, para cuando se
+retome: (a) que el MACD 15m pueda **vetar** cuando contradice a la fase — el cambio más chico,
+usa datos ya calculados y ese día habría bloqueado las 27; (b) exigir que la **sesión** acompañe
+(precio contra la apertura del día o VWAP), que ataca la causa directa —la memoria de 5h
+arrastrada del día anterior—; (c) acortar el período de la EMA20, lo más simple pero mete ruido
+y hay que recalibrar. **No implementar ninguna sin que el usuario lo pida.**
+
 ## El gate de Crédito/Riesgo rechazaba el 100% de los direccionales de crédito (2026-08-05)
 
 Reportado por el usuario (*"hoy no hubo trades direccionales a pesar de tener un esquema
