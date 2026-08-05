@@ -6861,11 +6861,20 @@ async function checkAlejamientoSMA() {
     // compás_medias_5m/fase_weinstein — ahora también decide alejamiento/RSI/
     // dirección, sin fetch adicional.
     let closes5 = [];
+    // bars5: mismas velas de 5m pero con high/low, para anclar el STOP (2026-08-05).
+    // Se arma aparte de closes5 a proposito: closes5 alimenta al "Juez"
+    // (alejamiento/RSI/direccion/compas) y no se le toca el filtro, para que este
+    // cambio no pueda alterar ninguna decision de ENTRADA.
+    let bars5 = [];
     try {
       const r5 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=5d',
         { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const j5 = await r5.json();
-      closes5 = (j5.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(v => v != null);
+      const q5 = j5.chart?.result?.[0]?.indicators?.quote?.[0] || {};
+      closes5 = (q5.close || []).filter(v => v != null);
+      bars5 = (q5.close || [])
+        .map((c, i) => ({ high: q5.high?.[i], low: q5.low?.[i], close: c }))
+        .filter(b => b.close != null && b.high != null && b.low != null);
     } catch(e) {
       console.error('[SPX-REV] Error trayendo velas 5m:', e.message);
     }
@@ -6952,6 +6961,47 @@ async function checkAlejamientoSMA() {
     while (entryBarIdx > 0 && bars[entryBarIdx].high === bars[entryBarIdx].low) entryBarIdx--;
     const entryBar = bars[entryBarIdx];
 
+    // ── Ancla del STOP: vela de 5m, no de 2m (2026-08-05) ──────────
+    // Corrige una desviacion del diseño ya validado. La regla del sistema es
+    // "5 minutos DECIDE, 2 minutos AFINA" — el 2m nunca decide el setup. Pero
+    // el stop salia del extremo de la vela de 2m, y decidir cuando la tesis
+    // quedo invalidada ES una decision de setup, la mas importante despues de
+    // la entrada.
+    //
+    // Medido sobre 30 dias de velas reales, el rango mediano de una vela de 2m
+    // es 4.58 pts y la excursion adversa mediana durante el propio hold de
+    // 10 min es 4.70 pts: el stop estaba EXACTAMENTE en el nivel del ruido, o
+    // sea que se tocaba por movimiento normal del precio y no por invalidacion.
+    // Eso explica el 77% de cierres por PRECIO_INVALIDACION contra apenas 22%
+    // por objetivo — un perfil de tendencia, invertido respecto de la tesis de
+    // reversion, que deberia ganar seguido y poco.
+    //
+    // Replicando los 69 trades reales con las reglas de salida exactas, el stop
+    // en 5m (rango mediano 7.61 pts) lleva los cierres por objetivo de 20% a
+    // 36% y los stops de 78% a 59%. La replica reproduce la realidad con el
+    // stop actual (20%/78% simulado vs 22%/77% real), asi que el contraste es
+    // creible.
+    //
+    // ⚠️ Lo que NO esta demostrado: que mejore la plata. Un stop 1.66x mas
+    // ancho produce perdidas mas grandes; si la perdida media creciera en la
+    // misma proporcion, la mejora del win rate se cancela exacto y la
+    // esperanza sigue en ~$0. Se espera que crezca MENOS (el delta neto del
+    // spread amortigua, no escala lineal con los puntos del indice) pero eso se
+    // mide con trades reales, no con precio. La variable a vigilar es la
+    // PERDIDA MEDIA, hoy en $39.
+    //
+    // Si no hay velas de 5m utilizables se cae al comportamiento anterior (2m)
+    // en vez de quedarse sin stop; stopTimeframe deja registrado cual se uso,
+    // que es lo que permite separar las muestras despues (algoVersion no
+    // alcanza: su huella sale de la config, y esto es un cambio de codigo).
+    let entryBar5 = null;
+    if (bars5.length) {
+      let i5 = bars5.length - 1;
+      while (i5 > 0 && bars5[i5].high === bars5[i5].low) i5--;
+      entryBar5 = bars5[i5];
+    }
+    const stopBar = entryBar5 || entryBar;
+
     // Fijo en 1 contrato para todas las entradas (2026-07-27, a pedido explicito
     // del usuario) -- reemplaza el sizing por riesgo en dolares ("division sagrada"
     // de Luis Sigma, sizeContractsByRisk, 2026-07-14) que se usaba solo para esta
@@ -7011,8 +7061,13 @@ async function checkAlejamientoSMA() {
             // recalcula en vivo cada 15-20s; con un hold de minutos la SMA8
             // no se mueve mucho, revisar si esto necesita ser mas preciso
             // despues del curso con Luis Silva).
-            entryCandleLow:  entryBar.low,
-            entryCandleHigh: entryBar.high,
+            // Nombre historico, pero desde 2026-08-05 el ancla es la vela de 5m
+            // (ver la nota larga donde se calcula stopBar). Se conservan los
+            // nombres para no romper checkAlejamientoSMATPSL ni los registros ya
+            // abiertos; stopTimeframe dice de que marco salio realmente.
+            entryCandleLow:  stopBar.low,
+            entryCandleHigh: stopBar.high,
+            stopTimeframe:   entryBar5 ? '5m' : '2m',
             entryPrice:      price, // precio SPX al momento de la señal (close de entryBar) — ancla para el % de salida anticipada hacia smaTarget
             smaTarget:       sma8,
             pattern:         patronReversion.pattern,
