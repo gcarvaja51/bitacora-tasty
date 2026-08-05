@@ -55,7 +55,65 @@ function groupPositionsTradier(positions = [], quotesMap = {}) {
     if (qtySigned < 0) g.premiumNet += avgPrice * Math.abs(qtySigned) * mul;
     else                g.premiumNet -= avgPrice * Math.abs(qtySigned) * mul;
   }
-  return [...map.values()].sort((a, b) => a.underlying.localeCompare(b.underlying));
+  return [...map.values()]
+    .flatMap(separarPosicionesIndependientes)
+    .sort((a, b) => a.underlying.localeCompare(b.underlying));
+}
+
+// ── Separar posiciones independientes que comparten vencimiento (2026-08-04) ──
+//
+// La clave de agrupación es `subyacente::vencimiento`, que es lo correcto para
+// detectar estructuras (una vertical, un cóndor y un strangle son justamente
+// varias patas del mismo subyacente y vencimiento). Pero mete en la misma bolsa
+// dos posiciones que NO tienen nada que ver entre sí.
+//
+// Caso real que lo destapó: dos Puts vendidos de ANET, strikes 160 y 165, ambos
+// al 4-sep — dos ciclos independientes de La Rueda que la bitácora mostraba como
+// un solo trade ("Put Spread"), con el P&L y el % capturado mezclados. Y peor: el
+// botón de cierre manual opera sobre TODAS las patas del grupo, así que habría
+// cerrado los dos de golpe cuando lo que se quería era cerrar uno.
+//
+// El discriminador es la dirección: una vertical real SIEMPRE tiene una pata
+// vendida y otra comprada. Si todas las patas son del mismo tipo (todas puts o
+// todas calls) Y todas van en la misma dirección, no son una estructura: son
+// posiciones sueltas que coinciden en fecha. Se separan por strike.
+//
+// Lo que NO se toca (siguen siendo una posición sola, correctamente):
+//   - verticales      -> una corta + una larga
+//   - iron condors    -> mezcla de tipos y direcciones
+//   - strangles       -> dos cortas pero de tipo DISTINTO (put + call)
+//   - acciones        -> nunca entran acá
+function separarPosicionesIndependientes(g) {
+  if (g.isStock || g.legs.length < 2) return [g];
+  const tipos = new Set(g.legs.map(l => l.optType));
+  const dirs  = new Set(g.legs.map(l => !!l.isShort));
+  if (tipos.size !== 1 || dirs.size !== 1) return [g];
+
+  // Una fila por strike, recalculando los agregados desde sus propias patas.
+  const porStrike = new Map();
+  for (const l of g.legs) {
+    if (!porStrike.has(l.strike)) porStrike.set(l.strike, []);
+    porStrike.get(l.strike).push(l);
+  }
+  if (porStrike.size < 2) return [g];
+
+  return [...porStrike.values()].map(legs => {
+    const nuevo = { ...g, legs, unrealizedPnL: 0, premiumNet: 0, totalQty: 0, netDelta: null, netTheta: null };
+    for (const l of legs) {
+      const qty = parseFloat(l.quantity || 0);
+      const mul = 100;
+      nuevo.totalQty += qty;
+      if (l.delta != null) nuevo.netDelta = (nuevo.netDelta || 0) + l.delta * qty;
+      if (l.theta != null) nuevo.netTheta = (nuevo.netTheta || 0) + l.theta * qty;
+      nuevo.unrealizedPnL += (qty < 0 ? -1 : 1) * (l.mark - l.avgPrice) * Math.abs(qty) * mul;
+      nuevo.premiumNet    += (qty < 0 ? 1 : -1) * l.avgPrice * Math.abs(qty) * mul;
+    }
+    // La fecha de apertura del grupo era la de la primera pata que llegó; cada
+    // posición suelta tiene la suya.
+    nuevo.openDate = legs[0].date_acquired ? legs[0].date_acquired.slice(0, 10) : g.openDate;
+    nuevo.currentPrice = legs[0].mark;
+    return nuevo;
+  });
 }
 
 function strategyTypeTradier(g) {
