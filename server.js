@@ -2864,10 +2864,12 @@ async function checkWheelExecutionFillsImpl() {
             // tenia SOFI260821P00018000 (-1) sin interrupcion mientras el sistema
             // cerraba el registro 19 veces seguidas diciendo que estaba flat.
             let legVieja = null;
+            let evRollFallido = null;
             if (eraRoll && simbolosEnCuenta) {
               const evRoll = [...(ex.events || [])].reverse()
                 .find(e => e.fromExpiry && e.fromStrike != null);
               if (evRoll) {
+                evRollFallido = evRoll;
                 // El optType no se guarda en el evento: se prueban los dos y manda
                 // la cuenta. Un ciclo de la Rueda no puede tener abiertas a la vez
                 // la put y la call del mismo strike/vencimiento, asi que no hay
@@ -2891,6 +2893,17 @@ async function checkWheelExecutionFillsImpl() {
               ex.leg = { ...ex.leg, optionSymbol: legVieja.optionSymbol, strike: legVieja.strike, expiry: legVieja.expiry };
               ex.status = 'filled';
               ex.rollCount = Math.max(0, (ex.rollCount || 1) - 1);
+              // El credito del roll se suma a totalCreditAccumulated al MANDAR la
+              // orden, no al llenarla — si la orden no llego a llenar, ese credito
+              // nunca se cobro y hay que devolverlo, o el costo base y el P&L del
+              // ciclo quedan inflados por plata que no entro. Caso real: SOFI
+              // acumulaba 1.43 con 1.27 realmente cobrado (0.16 de un roll que
+              // fallo). El evento se deja en el historial, marcado, en vez de
+              // borrarlo — el intento existio.
+              if (evRollFallido && evRollFallido.netCredit) {
+                ex.totalCreditAccumulated = +((ex.totalCreditAccumulated || 0) - evRollFallido.netCredit).toFixed(2);
+                evRollFallido.fallido = true;
+              }
               // Alimenta el freno de reintentos de checkWheelPutManagementImpl.
               ex.rollFailCount = (ex.rollFailCount || 0) + 1;
               ex.rollFailedAt  = new Date().toISOString();
