@@ -287,8 +287,8 @@
               <th onclick="sortHist('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hh-durationDays"></span></th>
               <th onclick="sortHist('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hh-pnl"></span></th>
               <th onclick="sortHist('capPct')"      style="cursor:pointer;user-select:none;">% Capturado <span id="hh-capPct"></span></th>
-              <th onclick="sortHist('openValue')"   style="cursor:pointer;user-select:none;">Prima cobrada <span id="hh-openValue"></span></th>
-              <th onclick="sortHist('closeValue')"  style="cursor:pointer;user-select:none;">Costo cierre <span id="hh-closeValue"></span></th>
+              <th onclick="sortHist('openValue')"   style="cursor:pointer;user-select:none;">Apertura <span id="hh-openValue"></span></th>
+              <th onclick="sortHist('closeValue')"  style="cursor:pointer;user-select:none;">Cierre <span id="hh-closeValue"></span></th>
               <th>Journal</th>
             </tr></thead>
             <tbody id="hist-tbody">
@@ -395,8 +395,8 @@
               <th onclick="histSort('closeDate')"   style="cursor:pointer;user-select:none;">Cierre <span id="hs-closeDate"></span></th>
               <th onclick="histSort('stratType')"   style="cursor:pointer;user-select:none;">Tipo <span id="hs-stratType"></span></th>
               <th onclick="histSort('underlying')"  style="cursor:pointer;user-select:none;">Símbolo <span id="hs-underlying"></span></th>
-              <th onclick="histSort('openValue')"   style="cursor:pointer;user-select:none;">Recibido <span id="hs-openValue"></span></th>
-              <th onclick="histSort('closeValue')"  style="cursor:pointer;user-select:none;">Pagado Cierre <span id="hs-closeValue"></span></th>
+              <th onclick="histSort('openValue')"   style="cursor:pointer;user-select:none;">Apertura <span id="hs-openValue"></span></th>
+              <th onclick="histSort('closeValue')"  style="cursor:pointer;user-select:none;">Cierre <span id="hs-closeValue"></span></th>
               <th onclick="histSort('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="hs-pnl"></span></th>
               <th onclick="histSort('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="hs-durationDays"></span></th>
               <th onclick="histSort('win')"         style="cursor:pointer;user-select:none;">Resultado <span id="hs-win"></span></th>
@@ -562,8 +562,8 @@
               <th onclick="sortToday('durationDays')" style="cursor:pointer;user-select:none;">Duración <span id="th-durationDays"></span></th>
               <th onclick="sortToday('pnl')"         style="cursor:pointer;user-select:none;">P&amp;L <span id="th-pnl"></span></th>
               <th onclick="sortToday('capPct')"      style="cursor:pointer;user-select:none;">% Cap. <span id="th-capPct"></span></th>
-              <th onclick="sortToday('openValue')"   style="cursor:pointer;user-select:none;">Prima <span id="th-openValue"></span></th>
-              <th onclick="sortToday('closeValue')"  style="cursor:pointer;user-select:none;">Costo cierre <span id="th-closeValue"></span></th>
+              <th onclick="sortToday('openValue')"   style="cursor:pointer;user-select:none;">Apertura <span id="th-openValue"></span></th>
+              <th onclick="sortToday('closeValue')"  style="cursor:pointer;user-select:none;">Cierre <span id="th-closeValue"></span></th>
             </tr></thead>
             <tbody id="today-tbody">
               <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
@@ -982,12 +982,17 @@ function consolidateStrategies(legs) {
       map.set(key, { underlying:leg.underlying, openDate:leg.openDate,
         closeDate:leg.closeDate, closeExecAt:leg.closeExecAt, stratType:leg.stratType,
         durationDays:leg.durationDays, openValue:0, closeValue:0, pnl:0,
-        amPm:leg.amPm, win:leg.win, key:leg.key });
+        amPm:leg.amPm, win:leg.win, key:leg.key,
+        partialClose:false, positionOpen:false });
     }
     const s = map.get(key);
     s.openValue  += leg.openValue  || 0;
     s.closeValue += leg.closeValue || 0;
     s.pnl        += leg.pnl        || 0;
+    // Banderas de cierre parcial / posición todavía viva (metrics.js). Basta con
+    // que una pata las traiga para que el grupo entero quede marcado.
+    s.partialClose = s.partialClose || !!leg.partialClose;
+    s.positionOpen = s.positionOpen || !!leg.positionOpen;
   }
   return [...map.values()];
 }
@@ -1283,7 +1288,7 @@ async function calDayClick(dateStr, pnl) {
           <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
           <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">${s.durationDays===0?'Intradía':s.durationDays+'d'}</td>
-          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+          <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
           <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
           <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
         </tr>`;
@@ -1297,7 +1302,7 @@ async function calDayClick(dateStr, pnl) {
           <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
           <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
           <td class="td-mono dim">Abierto</td>
-          <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
+          <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
           <td class="td-mono dim">En curso</td>
           <td class="dim">—</td>
         </tr>`;
@@ -1333,8 +1338,8 @@ function calShowTradeDetail(tkey) {
       <!-- Grid de datos -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
         <div style="background:var(--bg);border-radius:8px;padding:10px;">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">PRIMA COBRADA</div>
-          <div style="font-size:18px;font-weight:700;color:var(--green);font-family:var(--mono);">+${fa$(Math.abs(s.openValue||0))}</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">${(s.openValue||0)<0?'COSTO APERTURA':'PRIMA COBRADA'}</div>
+          <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${(s.openValue||0)<0?'var(--red)':'var(--green)'};">${f$(s.openValue||0)}</div>
         </div>
         <div style="background:var(--bg);border-radius:8px;padding:10px;">
           <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">P&L REALIZADO</div>
@@ -1840,8 +1845,8 @@ async function loadHistory() {
               <td class="td-mono dim">${durLabel}</td>
               <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
               <td>${capHtml}</td>
-              <td class="td-mono pos">${s.openValue ? '+'+fa$(Math.abs(s.openValue)) : '—'}</td>
-              <td class="td-mono neg">${s.closeValue ? '-'+fa$(Math.abs(s.closeValue)) : '—'}</td>
+              <td class="td-mono ${cc(s.openValue)}">${s.openValue ? f$(s.openValue) : '—'}</td>
+              <td class="td-mono ${cc(s.closeValue)}">${s.closeValue ? f$(s.closeValue) : '—'}</td>
               <td><button onclick='openJournal(${JSON.stringify(s)})' class="btn" style="padding:4px 8px;font-size:11px;">${hasNote ? '📓✅' : '📓'}</button></td>
             </tr>`;
           }).join('');
@@ -2080,8 +2085,8 @@ async function loadReports(forceRefresh) {
       <td class="td-mono dim">${s.closeDate||'—'}</td>
       <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
       <td class="td-bright">${s.underlying||'—'}</td>
-      <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
-      <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
+      <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
+      <td class="td-mono ${cc(s.closeValue)}">${s.closeValue?f$(s.closeValue):'—'}</td>
       <td class="td-mono ${cc(s.pnl)}" style="font-weight:700">${f$(s.pnl)}</td>
       <td class="dim td-mono" style="font-size:10px;">${s.durationDays===0?'Intradía':s.durationDays===1?'1d':`${s.durationDays}d`}</td>
       <td><span class="badge ${s.pnl>0?'badge-green':'badge-red'}">${s.pnl>0?'✓ WIN':'✗ LOSS'}</span></td>
@@ -2179,7 +2184,7 @@ function openJournal(trade) {
       <div style="font-size:11px;color:var(--muted);margin-top:8px;">
         Duración: <span style="color:var(--bright);">${trade.durationDays===0?'Intradía':trade.durationDays===1?'1 día':trade.durationDays+' días'}</span>
         &nbsp;·&nbsp; P&L: <span class="${cc(trade.pnl)}">${f$(trade.pnl)}</span>
-        &nbsp;·&nbsp; Prima: <span class="pos">+${fa$(Math.abs(trade.openValue||0))}</span>
+        &nbsp;·&nbsp; ${(trade.openValue||0)<0?'Costo apertura':'Prima'}: <span class="${cc(trade.openValue)}">${f$(trade.openValue||0)}</span>
       </div>
     </div>
 
@@ -5034,15 +5039,20 @@ async function loadToday() {
         ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados hoy</td></tr>'
         : sorted.map(s => {
             const dur = s.durationDays===0?'Intradía':s.durationDays===1?'1 día':`${s.durationDays}d`;
+            // Un cierre parcial (o una posición que sigue viva) no es un trade
+            // cerrado: el P&L de la fila es solo el de los contratos que salieron.
+            const parcial = (s.partialClose || s.positionOpen)
+              ? ` <span class="badge" style="font-size:9px;background:rgba(255,176,32,.15);color:#ffb020;" title="${s.positionOpen?'La posición sigue abierta — este resultado es solo de la parte que se cerró':'Cierre parcial — se cerraron menos contratos de los que se abrieron'}">Parcial</span>`
+              : '';
             return `<tr>
               <td class="td-mono dim">${s.closeTime}</td>
               <td class="td-bright">${s.underlying}</td>
-              <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
+              <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span>${parcial}</td>
               <td class="td-mono dim">${dur}</td>
               <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
               <td>${s.capPct!==null?`<span class="${s.capPct>=0?'pos':'neg'}">${s.capPct>0?'+':''}${s.capPct}%</span>`:'—'}</td>
-              <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
-              <td class="td-mono neg">${s.closeValue?'-'+fa$(Math.abs(s.closeValue)):'—'}</td>
+              <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
+              <td class="td-mono ${cc(s.closeValue)}">${s.closeValue?f$(s.closeValue):'—'}</td>
             </tr>`;
           }).join('');
     };

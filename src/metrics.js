@@ -170,6 +170,18 @@ function signed(val, effect) {
   return effect === 'Credit' ? v : -v;
 }
 
+// Contratos (o acciones) de una pata. Devuelve 0 si el feed no la trae — quien
+// llama debe tratar el 0 como "cantidad desconocida", no como "cero contratos".
+function legQty(leg) {
+  return Math.abs(parseFloat(leg?.quantity || 0)) || 0;
+}
+
+// Vencimiento YYMMDD embebido en el símbolo OCC (`NFLX  260828P00068000`).
+// '' para acciones.
+function symExpiry(sym) {
+  return ((sym || '').match(/(\d{6})[CP]\d+$/) || [])[1] || '';
+}
+
 function weekKey(dateStr) {
   if (!dateStr) return '';
   const d    = new Date(dateStr + 'T12:00:00Z');
@@ -234,6 +246,11 @@ function buildMetrics(items) {
     const existingLeg = !isRDTx && o.legs.find(l => l.symbol === tx.symbol && l.action === txAction);
     if (existingLeg) {
       existingLeg['net-value'] = String(parseFloat(existingLeg['net-value']||0) + parseFloat(tx['net-value']||0));
+      // La cantidad tambien se acumula. Antes solo se sumaba el dinero y la pata
+      // agregada conservaba la cantidad del PRIMER fill, asi que una orden partida
+      // en varios fills quedaba con menos contratos de los reales — y el prorrateo
+      // del cierre parcial (mas abajo) consumia una fraccion equivocada.
+      existingLeg.quantity = String(parseFloat(existingLeg.quantity||0) + parseFloat(tx.quantity||0));
     } else {
       o.legs.push({ ...txWithAction });
     }
@@ -277,12 +294,14 @@ function buildMetrics(items) {
       const sym    = leg.symbol || '';
       const action = leg.action || '';
       const lv     = signed(leg['net-value'], leg['net-value-effect']);
+      const qty    = legQty(leg);
 
       if (/to Open/i.test(action)) {
         if (!inventory.has(sym)) inventory.set(sym, []);
         inventory.get(sym).push({
           orderId:    order.id,
           value:      lv,
+          qty,
           date:       order.date,
           execAt:     order.executedAt,
           underlying: order.underlying,
@@ -293,36 +312,77 @@ function buildMetrics(items) {
       } else if (/to Close|Expir|Assign|Cash|Exercise|Removal|Deliver|Settled/i.test(action)) {
         const stack = inventory.get(sym);
         if (stack?.length) {
-          // Tomar la apertura más cercana en fecha al cierre
-          let bestIdx = 0, bestDiff = Infinity;
-          for (let i = 0; i < stack.length; i++) {
-            const diff = Math.abs(new Date(order.date) - new Date(stack[i].date));
-            if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+          // Un cierre puede tapar solo UNA PARTE de la apertura (vender 1 de 2
+          // contratos) o abarcar varias aperturas. Antes se hacia splice de la
+          // entrada entera sin mirar la cantidad: cerrar 1 de 2 borraba los 2 del
+          // inventario y el P&L restaba el costo de 2 contra el ingreso de 1
+          // (NFLX 05-ago-2026: -104.37 reportado, -22.25 real). Ahora se consume
+          // contrato a contrato y el valor de apertura se prorratea.
+          let remaining = qty;
+          const taken   = [];
+
+          while (stack.length) {
+            // Tomar la apertura más cercana en fecha al cierre
+            let bestIdx = 0, bestDiff = Infinity;
+            for (let i = 0; i < stack.length; i++) {
+              const diff = Math.abs(new Date(order.date) - new Date(stack[i].date));
+              if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+            }
+            const open = stack[bestIdx];
+
+            // Sin cantidades fiables (Receive Deliver antiguos, acciones sin
+            // quantity) se conserva el comportamiento previo: consumir entera.
+            if (!qty || !open.qty) {
+              stack.splice(bestIdx, 1);
+              taken.push({ open, openValue: open.value, qty: open.qty || qty, partial: false });
+              break;
+            }
+
+            const take      = Math.min(remaining, open.qty);
+            const portion   = take / open.qty;
+            const openValue = open.value * portion;
+            if (portion >= 1) {
+              stack.splice(bestIdx, 1);
+            } else {
+              open.qty   -= take;
+              open.value -= openValue;
+            }
+            taken.push({ open, openValue, qty: take, partial: portion < 1 });
+            remaining -= take;
+            if (remaining <= 1e-9) break;
           }
-          const open = stack.splice(bestIdx, 1)[0];
 
           if (isRoll) {
             // Roll: consumir el inventario viejo pero NO crear par aquí
             // El par se crea abajo como evento único con el neto del roll
           } else {
-            const pnl = open.value + lv;
-            const key = `${open.orderId}_${order.id}_${sym}`;
-            rawPairs.push({
-              key,
-              closeOrderId: order.id,
-              underlying:   open.underlying || order.underlying,
-              symbol:       sym,
-              openDate:     open.date,
-              closeDate:    order.date,
-              closeExecAt:  order.executedAt,
-              desc:         open.desc || order.desc,
-              openValue:    open.value,
-              closeValue:   lv,
-              pnl,
-              stratType:    open.stratType || 'Otro',
-              amPm:         getAmPm(order.executedAt),
-              durationDays: Math.round((new Date(order.date) - new Date(open.date)) / 86400000),
-              durationCat:  getDurationCat(open.date, order.date),
+            taken.forEach((t, i) => {
+              // El cierre se reparte entre las aperturas que tapa
+              const closeValue = qty ? lv * (t.qty / qty) : lv;
+              // La clave se mantiene igual cuando hay una sola apertura detrás
+              // (el caso normal) para no alterar la deduplicación existente.
+              const key = taken.length > 1
+                ? `${t.open.orderId}_${order.id}_${sym}_${i}`
+                : `${t.open.orderId}_${order.id}_${sym}`;
+              rawPairs.push({
+                key,
+                closeOrderId: order.id,
+                underlying:   t.open.underlying || order.underlying,
+                symbol:       sym,
+                openDate:     t.open.date,
+                closeDate:    order.date,
+                closeExecAt:  order.executedAt,
+                desc:         t.open.desc || order.desc,
+                openValue:    t.openValue,
+                closeValue,
+                pnl:          t.openValue + closeValue,
+                qty:          t.qty,
+                partialClose: t.partial,
+                stratType:    t.open.stratType || 'Otro',
+                amPm:         getAmPm(order.executedAt),
+                durationDays: Math.round((new Date(order.date) - new Date(t.open.date)) / 86400000),
+                durationCat:  getDurationCat(t.open.date, order.date),
+              });
             });
           }
         }
@@ -355,18 +415,42 @@ function buildMetrics(items) {
   const seenKeys = new Set();
   const deduped  = rawPairs.filter(p => { if (seenKeys.has(p.key)) return false; seenKeys.add(p.key); return true; });
 
+  /* ── 2b-bis. Qué quedó vivo en el inventario ──
+     Lo que sobra tras recorrer todas las órdenes son las patas que siguen
+     abiertas. Sirve para no presentar como "cerrado" un trade cuyo subyacente
+     y vencimiento todavía tienen posición (NFLX 05-ago-2026: se vendió 1 de las
+     2 patas largas y el spread seguía vivo, pero la fila salía como cerrada).
+     Se exige vencimiento futuro: una opción vieja sin transacción de
+     expiración se queda colgada en el inventario para siempre y marcaría
+     abiertos trades que no lo están. */
+  const todayYmd  = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+  const openNow   = new Set();
+  for (const [sym, stack] of inventory) {
+    const exp = symExpiry(sym);
+    if (!exp || exp < todayYmd) continue;
+    for (const e of stack) {
+      if (e.qty > 0) openNow.add(`${e.underlying}|${exp}`);
+    }
+  }
+
   /* ── 2c. Consolidar patas del mismo cierre (multi-leg) ── */
   const consolidatedMap = new Map();
   for (const s of deduped) {
     const ckey = `${s.closeOrderId}_${s.underlying}_${s.closeDate}`;
     if (!consolidatedMap.has(ckey)) {
-      consolidatedMap.set(ckey, { ...s, key: ckey, _legs: 1 });
+      // _legs cuenta CONTRATOS DISTINTOS, no pares. Un cierre puede generar
+      // varios pares contra el mismo símbolo si tapa varias aperturas, y
+      // contarlos como patas convertía un cierre simple en "Iron Condor".
+      consolidatedMap.set(ckey, { ...s, key: ckey, _legs: 1, _symbols: new Set([s.symbol]) });
     } else {
       const g = consolidatedMap.get(ckey);
       g.openValue  += s.openValue;
       g.closeValue += s.closeValue;
       g.pnl        += s.pnl;
-      g._legs++;
+      g.qty         = (g.qty || 0) + (s.qty || 0);
+      g.partialClose = g.partialClose || s.partialClose;
+      g._symbols.add(s.symbol);
+      g._legs = g._symbols.size;
       if (s.openDate < g.openDate) {
         g.openDate     = s.openDate;
         g.durationDays = Math.round((new Date(s.closeDate) - new Date(s.openDate)) / 86400000);
@@ -375,6 +459,16 @@ function buildMetrics(items) {
       if (g._legs === 4) g.stratType = 'Iron Condor';
       // No sobreescribir — conservar el stratType de la apertura (Bear Call Spread, Bull Put Spread, etc.)
     }
+  }
+
+  // El vencimiento sale de cualquier pata del grupo (todas comparten expiry en
+  // un spread); si el grupo es de acciones no hay expiry y nunca se marca.
+  for (const g of consolidatedMap.values()) {
+    const exp = [...g._symbols].map(symExpiry).find(Boolean) || '';
+    // Un Roll SIEMPRE deja posición abierta — es lo que hace. Marcarlo no aporta
+    // nada y ensuciaría la mitad de las filas de La Rueda.
+    g.positionOpen = g.stratType !== 'Roll' && !!exp && openNow.has(`${g.underlying}|${exp}`);
+    delete g._symbols;
   }
 
   // Recalcular win con P&L final
