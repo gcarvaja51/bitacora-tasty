@@ -170,9 +170,11 @@ function computeWeeklyNlv(nlvHistory, currentNlv) {
 }
 
 // Mes = ultimo NLV del mes menos el ultimo NLV anterior al mes. Los buckets
-// asi calculados suman exactamente el cambio total de la cuenta (verificado:
-// 10644 + suma(feb..ago) = NLV actual al centavo), que es la propiedad que
-// hace util a esta metrica frente al P&L realizado.
+// asi calculados suman el cambio total de la cuenta -- verificado contra el
+// historial real: 10644 + suma(feb..ago) da el NLV actual con menos de 1
+// centavo de deriva (cada mes va redondeado a 2 decimales). Esa es la
+// propiedad que hace util a esta metrica frente al P&L realizado, que no
+// tiene por que cuadrar con el saldo.
 //
 // Limitacion que queda en pie: si un mes se queda sin snapshot en sus ultimos
 // dias de mercado, el resultado de esos dias se le acredita al mes siguiente

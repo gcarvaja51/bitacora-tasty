@@ -257,6 +257,108 @@ Ahora la columna P&L es **siempre** `strategyByMonth`, y el delta de NLV tiene s
 columna. Como es dato de cuenta y no de estrategias, no se puede recortar por rango: con un
 filtro activo se muestra vacío (`—`) en vez de mentir.
 
+## Curva de Capital — snapshots de NLV (2026-08-04)
+
+Disparada por un reporte del usuario: *"el dato de dinero ganado o perdido en julio y agosto
+los veo raros"*. La curva mensual mostraba julio **+262.80** y agosto **+21.96** mientras el
+realizado de esos meses era **−19.80** y **+236.84** — los dos meses parecían intercambiados.
+
+El bucket mensual es `nlvByMonth` = último NLV del mes menos el último NLV anterior al mes.
+Es una métrica legítima (sus buckets suman el cambio real de la cuenta, `10644 + suma(meses)`
+= NLV actual con <1c de deriva) pero **depende de que los snapshots existan y estén bien
+fechados**, y ahí había cuatro fallas:
+
+1. **Fecha UTC contra guard ET.** Los snapshots se fechaban con `todayStr()` (UTC) pero el
+   guard de día hábil usa `isWeekdayET()`. Pasadas las 8pm ET (7pm en invierno) la fecha UTC
+   ya es la del día siguiente: un arranque o redeploy un viernes de noche pasaba el guard
+   (ET dice viernes) y escribía el snapshot bajo la fecha del **sábado**. Así apareció
+   `"2026-08-01"` en el historial de producción. Si cae en la última noche hábil de un mes,
+   **corre la frontera del mes**. Se agregó `todayStrET()`; todo lo que fecha un día de
+   mercado la usa. `todayStr()` (UTC) queda solo para rangos de consulta a la API.
+2. **Horario del snapshot clavado en UTC.** `scheduleDaily`/`scheduleDailyTradier` apuntaban a
+   `20:35 UTC` como "4:35 PM ET" — cierto solo en EDT; en EST (nov-mar) dispara a las
+   **3:35pm ET**, con el mercado abierto. Mismo error de offset fijo que ya se había corregido
+   en `getETHour()`. Ahora usan `msUntilET(16, 35)`.
+3. **El snapshot de arranque pisaba el del cierre.** Se guardaba el NLV al levantar el proceso,
+   a la hora que fuera. Por eso la misma fecha valía distinto según el server (`2026-07-28` =
+   8493.04 en local vs 8472.80 en producción). Ahora el arranque usa `{ overwrite: false }`:
+   solo rellena huecos, nunca pisa el valor de las 4:35pm.
+4. **Snapshots de fin de semana.** `loadNlvHistory`/`loadNlvHistoryTradier` los descartan al
+   **leer** (`dropWeekendSnapshots`), no al escribir — así también se limpia lo que ya quedó
+   guardado en el volumen de Railway, donde el archivo no se puede editar a mano. ⚠️ El saneo
+   se aplica solo a lo leído del archivo: `NLV_SEED` se vuelve a poner encima porque
+   **`2026-02-28` es sábado a propósito** (cierre de mes cargado a mano). Hay test.
+
+**Limitación que queda en pie:** si un mes se queda sin snapshot en sus últimos días de
+mercado, el resultado de esos días se le acredita al mes siguiente — no se pierde ni se
+duplica, pero se corre de mes. Es lo que pasaba en el historial local, sin `07-30` ni `07-31`:
+julio daba −322.64 y agosto +635.20. No hay forma de repartirlo sin el dato; lo que se ataca
+es la causa (1-3).
+
+**Vista "Realizado" en la Curva de Capital.** El desplegable Acumulado/Periodo pasó a
+Acumulado / **Δ Net Liq** / **Realizado**. Las dos primeras son valor de cuenta (incluyen lo
+que se mueven las posiciones abiertas); "Realizado" sale de `metrics.stratByDay`/
+`strategyByWeek`/`strategyByMonth`, **la misma fuente que Reportes**, así los dos lugares no
+pueden contradecirse. Es el mismo criterio que ya se había aplicado al Desglose Mensual arriba;
+faltaba en el Dashboard, que era el único lugar donde se leía Δ NLV como "lo que gané".
+
+## Bitácora Tradier — coherencia entre hojas (2026-08-04)
+
+Validado a pedido del usuario (*"cierres hoy, dashboard, etc deben coincidir siempre, debe ser
+la misma fuente"*). **Sí coinciden**: Dashboard, Historial, Reportes, Calendario y Hoy pasan
+todas por `fetchTxnsTradier()` → `/api/transactions-tradier` → `metrics.strategies`.
+
+Dos cosas a tener presentes al comparar:
+
+- **El checkbox de errores de implementación es el que separa los números.** Dashboard,
+  Reportes, Historial y Calendario lo traen **desmarcado** por defecto (excluyen los trades
+  marcados como bug) y por eso concuerdan entre sí. Los agregados del server
+  (`metrics.totalPnL`, `strategyByMonth`) **no** conocen ese filtro, así que siempre van a dar
+  otro número: julio da **+3,129** en las hojas y **−1,728** en el agregado crudo — la
+  diferencia son exactamente los 13 ciclos marcados (−4,857). No es un error, es el filtro.
+- ⚠️ **La hoja "Hoy" es la única sin ese checkbox**: siempre incluye los marcados. Hoy no se
+  nota (ningún cierre del día está marcado) pero un día con un error marcado va a diferir del
+  Dashboard. Pendiente de unificar.
+- **Comparar siempre sobre UNA sola lectura.** `/api/transactions-tradier` tiene TTL de 60s y
+  trae P&L en vivo: dos consultas separadas por minutos en día de mercado dan números
+  distintos sin que haya ningún bug (agosto pasó de 1545 a 395 en una misma sesión).
+
+### Fecha de cierre de un ciclo de La Rueda — un ROLL no es un cierre
+
+> **Regla del usuario (2026-08-04), la que fija el criterio:** *"el resultado del calendario es
+> lo que cerré hoy, positivo o negativo. No importa si hice roll para septiembre o noviembre,
+> eso no tiene nada que ver."*
+
+Disparado por dos reportes del mismo día — *"aparece algo con fecha de septiembre"* y
+*"aparecen trades cerrados el 14 de agosto, hoy es 4 de agosto"*. `mapWheelExecution`
+(`src/metrics_tradier.js`) resolvía `closeDate` con `lastEventDate → reconciliado_manual_ →
+leg.expiry`, que viola las dos mitades de la regla: fechaba ciclos el día de un **roll** y
+fechaba ciclos en un **vencimiento** que ni siquiera había llegado. Encima **nunca leía
+`ex.closedAt`**, la marca explícita de cierre que `mapSpxExecution` sí usa.
+
+Casos reales verificados contra la cuenta (14 ciclos cerrados, 10 estaban mal fechados):
+
+| | antes | después | qué era la fecha vieja |
+|---|---|---|---|
+| JBLU | 2026-07-14 | **2026-08-04** | el día de su `ROLL_DEFENSIVO` — 3 semanas antes y en otro mes |
+| KO, BAC | 2026-08-03 | **2026-08-04** | el día de su `ROLL` |
+| PDD, MARA, NU | 2026-08-14 | **2026-08-03** | el vencimiento, en el futuro (`HUERFANO_SIN_POSICION`) |
+| ANET `wtex-1785796482836` | 2026-09-04 | **2026-08-04** | el vencimiento (`ENTRADA_NO_LLENO`, la orden nunca llenó) |
+| ANET `wtex-adopt-…` | 2026-08-14 | **2026-07-10** | el vencimiento; sin `closedAt`, cae a la apertura |
+| HOOD, BE | 2026-07-10 | **2026-07-11** | el día de su roll; ahora manda su `reconciliado_manual_` |
+
+**Orden nuevo, de más a menos confiable:** `ex.closedAt` → `reconciliado_manual_YYYY-MM-DD` →
+último evento (proxy, puede ser un roll) → vencimiento **solo si ya pasó** → apertura. Más un
+guard final: ningún proxy puede dejar la fecha en el futuro.
+
+Verificado que el total no se mueve: **$388 antes y después** — la plata solo se reubicó al día
+correcto, no se inventó ni se perdió. Fechas futuras: 5 antes, **0** después. Julio pasa de
+−359 a +163 y agosto de 747 a 225 (solo La Rueda).
+
+Es la segunda vez que esta función falla por la fecha (ver el fix 2026-07-28 arriba). Si vuelve
+a tocarse, los invariantes a sostener son: **`closeDate` nunca en el futuro**, **un roll no es
+un cierre**, y **un vencimiento nominal no es un cierre cuando existe una marca real**.
+
 ## SPX 0DTE — CIARG_V1 + Signal Center
 
 Sistema de señales para SPX 0DTE/1DTE, con ejecución automática en Tradier (sandbox) para

@@ -16,6 +16,15 @@
 // loadCalendar (portados de index.html) se reusen sin reescribir su logica
 // de presentacion.
 
+// Hoy en hora del Este ('YYYY-MM-DD'). Un dia de trading es un dia de mercado,
+// no un dia UTC: con la fecha UTC, entre las 8pm ET y la medianoche este
+// modulo creeria que ya es manana.
+function todayET() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(new Date());
+}
+
 function getDurationCat(openDate, closeDate) {
   const days = Math.round((new Date(closeDate) - new Date(openDate)) / 86400000);
   if (days === 0) return 'Intradía';
@@ -171,7 +180,38 @@ function mapWheelExecution(ex) {
   const eventDates = (ex.events || []).map(e => (e.date || '').slice(0, 10)).filter(Boolean);
   const lastEventDate = eventDates.length ? eventDates.sort().slice(-1)[0] : null;
   const reconciledMatch = /^reconciliado_manual_(\d{4}-\d{2}-\d{2})$/.exec(ex.pnlSource || '');
-  const closeDate = lastEventDate || (reconciledMatch && reconciledMatch[1]) || (ex.leg && ex.leg.expiry) || openDate;
+  // 4) FECHA, segunda pasada (2026-08-04). Dos reportes del usuario el mismo
+  //    dia — "aparece algo con fecha de septiembre" y "aparecen trades cerrados
+  //    el 14 de agosto, hoy es 4 de agosto" — y una regla suya que fija el
+  //    criterio: **"el resultado del calendario es lo que cerre hoy. No importa
+  //    si hice roll para septiembre o noviembre, eso no tiene nada que ver."**
+  //
+  //    Un ROLL no es un cierre y un VENCIMIENTO no es un cierre. La cadena
+  //    anterior (lastEventDate -> reconciliado_manual -> leg.expiry) violaba
+  //    las dos cosas y nunca leia `ex.closedAt`, la marca explicita de cierre
+  //    que mapSpxExecution si usa. Casos reales verificados contra la cuenta:
+  //      · JBLU  — cerro el 04-ago (closedAt) y se fechaba el 14-JUL, el dia de
+  //        su ROLL_DEFENSIVO: tres semanas antes y en el mes equivocado.
+  //      · KO / BAC — cerraron el 04-ago y se fechaban el 03-ago, dia del ROLL.
+  //      · PDD / MARA / NU — cerraron el 03-ago (HUERFANO_SIN_POSICION, con
+  //        closedAt) y se fechaban el 14-AGO, su vencimiento: en el FUTURO.
+  //      · ANET wtex-1785796482836 — cerro el 04-ago (ENTRADA_NO_LLENO, la
+  //        orden nunca lleno) y se fechaba el 04-SEP, inventando un bucket de
+  //        septiembre con $0 en la curva, el calendario y el desglose mensual.
+  //
+  //    Orden nuevo, de mas a menos confiable: marca explicita de cierre ->
+  //    fecha de reconciliacion manual -> ultimo evento (proxy, puede ser un
+  //    roll) -> vencimiento SOLO si ya paso -> apertura.
+  const closedAtDate = (ex.closedAt || '').slice(0, 10) || null;
+  const expiry       = (ex.leg && ex.leg.expiry) || null;
+  const hoy          = todayET();
+  let closeDate = closedAtDate
+    || (reconciledMatch && reconciledMatch[1])
+    || lastEventDate
+    || (expiry && expiry <= hoy ? expiry : null)   // un vencimiento futuro no fecha nada
+    || openDate;
+  // Cinturon y tirantes: ningun proxy puede dejar la fecha en el futuro.
+  if (closeDate > hoy) closeDate = openDate;
   if (!openDate) return null;
   return {
     key:              ex.id,
