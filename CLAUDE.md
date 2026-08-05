@@ -302,6 +302,64 @@ que se mueven las posiciones abiertas); "Realizado" sale de `metrics.stratByDay`
 pueden contradecirse. Es el mismo criterio que ya se había aplicado al Desglose Mensual arriba;
 faltaba en el Dashboard, que era el único lugar donde se leía Δ NLV como "lo que gané".
 
+## Cierres parciales — el FIFO ignoraba la cantidad (2026-08-05)
+
+Disparado por *"en el hoy hay un error en el trade de netflix"*. La fila mostraba un Bull Put
+Spread de NFLX cerrado con **−104.37**, y además las columnas Apertura/Cierre se leían como
+ganadoras (**+164.24 / −59.87**) contradiciendo ese P&L negativo.
+
+Lo que había pasado de verdad, en tres transacciones:
+
+| Fecha | Acción | Símbolo | Qty | Neto |
+|---|---|---|---|---|
+| 29-jul | Sell to Open | Put 70.00 | 2 | +257.74 crédito |
+| 29-jul | Buy to Open | Put 68.00 | 2 | −164.24 débito |
+| 05-ago | Sell to Close | Put 68.00 | **1** | +59.87 crédito |
+
+Se vendió **1 de las 2 patas largas**. El spread seguía vivo (2 puts 70 cortos + 1 put 68 largo,
+confirmado contra `/api/overview`). No era un trade cerrado.
+
+**Causa raíz — `src/metrics.js`, el matching FIFO no miraba cantidades.** El inventario guardaba
+una entrada por (orden, símbolo) con el valor total, y el cierre hacía `stack.splice(bestIdx, 1)`
+consumiendo **la entrada entera** sin importar cuántos contratos se cerraran. Cerrar 1 de 2
+borraba los 2 y restaba el costo de 2 contra el ingreso de 1: `−164.24 + 59.87 = −104.37`, cuando
+lo correcto es prorratear la mitad → `−82.12 + 59.87 = **−22.25**`.
+
+No era exclusivo de NFLX: **cualquier cierre parcial** del histórico estaba mal. El barrido
+encontró un segundo caso, SPY 0DTE del 25-jun (−88.77 → −55.02).
+
+Los cuatro arreglos:
+
+1. **Inventario con cantidad** (`legQty`). Cada entrada lleva `qty`; el cierre consume solo los
+   contratos que cierra, prorratea el valor de apertura, y deja el resto en el stack. Si el feed
+   no trae cantidad fiable (Receive Deliver antiguos, acciones) se conserva el comportamiento
+   previo de consumir la entrada entera.
+2. **La cantidad se acumula al agregar fills.** Al fusionar fills del mismo símbolo+acción solo
+   se sumaba el dinero; la pata quedaba con la cantidad del *primer* fill. Sin esto el prorrateo
+   del punto 1 consumiría una fracción equivocada.
+3. **`_legs` cuenta símbolos distintos, no pares.** Un cierre que tapa varias aperturas genera
+   varios pares del mismo contrato; contarlos como patas convertía un cierre simple en
+   "Iron Condor" (la regla `_legs === 4`).
+4. **Banderas `partialClose` y `positionOpen`.** La primera marca que el cierre dejó contratos
+   de esa apertura vivos; la segunda que el subyacente+vencimiento **todavía tiene posición**
+   (se exige vencimiento futuro, si no una opción vieja sin transacción de expiración queda
+   colgada en el inventario para siempre). Los `Roll` se excluyen de `positionOpen`: un roll
+   siempre deja posición abierta, marcarlo no aporta nada. En la pestaña **Hoy** salen como
+   badge ámbar "Parcial".
+
+**Verificación.** Para un vencimiento donde todo se abrió y cerró, la suma de P&L tiene que dar
+igual al flujo de caja crudo de esos contratos. Antes cuadraban **38 de 39** vencimientos (el que
+fallaba era SPY 260625: cash −66.61 vs P&L −100.36). Después cuadran los **39**. Ninguna fila
+apareció ni desapareció (99 antes y después) y ningún `stratType` cambió.
+
+**Bug de presentación, aparte del cálculo.** Las columnas Apertura/Cierre hacían `Math.abs()` y
+forzaban el signo (`'+'` verde a la apertura, `'-'` rojo al cierre). Vale para prima corta, pero
+en una pata larga la apertura es un **débito** y el cierre un **crédito**, así que la fila se leía
+al revés. Estaba repetido en Hoy, Historial, Reportes, Calendario, el modal del calendario y el
+journal — todos usan ahora el signo real (`f$` + `cc`). Los encabezados "Prima cobrada" /
+"Recibido" / "Costo cierre" pasaron a **"Apertura" / "Cierre"**, que es lo que la columna muestra
+de verdad ahora que puede ser negativa.
+
 ## Bitácora Tradier — coherencia entre hojas (2026-08-04)
 
 Validado a pedido del usuario (*"cierres hoy, dashboard, etc deben coincidir siempre, debe ser
@@ -1752,6 +1810,48 @@ vivo el 2026-07-30, causó horas de confusión porque el código leído no coinc
 con los inputs reales del estudio corriendo (`pineVersion` distinto). Antes de
 editar, verificar `Version history…` (menú del título del script) y confirmar que
 se está parado en la versión más reciente si hay dudas.
+
+## El gate de Crédito/Riesgo rechazaba el 100% de los direccionales de crédito (2026-08-05)
+
+Reportado por el usuario (*"hoy no hubo trades direccionales a pesar de tener un esquema
+bajista… vi 2 posibles entradas y no se dieron"*). No faltaron señales: ese día se generaron
+**27 señales direccionales válidas** y **las 27 murieron en el mismo gate, con el mismo número
+imposible — "Crédito/Riesgo 0%"**.
+
+**Bug de unidades.** `buildSignalSummary` (`src/spx.js`) devuelve `credit` en **dólares
+totales** (`premium * 100 * contratos`), pero el gate lo trataba como **puntos por acción**:
+
+```
+riesgoPorContrato = (spreadWidth - credito) * 100 = (15 - 200) * 100 = -18.500   ← negativo
+creditoRiesgoPct  = riesgoPorContrato > 0 ? ... : 0                              → 0, siempre
+```
+
+Con el ratio clavado en 0 y el mínimo en 20%, **ningún spread de crédito direccional podía
+pasar nunca**. Los débitos no lo notaron porque están exentos del gate (`!signal.isCredit`,
+exención agregada el 2026-07-08).
+
+**Evidencia de que no era teórico**: de **64 ejecuciones direccionales históricas, las 64 son
+de DÉBITO** (38 Bull Call + 26 Bear Put). **Cero de crédito, nunca.** El sesgo del sistema
+hacia el débito que se veía en los datos no era una lectura de mercado — era este bug.
+
+Con la fórmula corregida, 8 de las 27 señales de ese día superaban el 20% y habrían entrado
+(p.ej. crédito $290 contra riesgo $1.210 = 24%); las otras 19 se siguen rechazando, pero por
+un motivo real (14-19%) y no por un 0% inventado.
+
+**El fix usa `signal.maxRisk`**, que la misma `buildSignalSummary` ya calcula bien en dólares y
+contemplando los contratos, en vez de re-derivar el riesgo en el call site — que es
+exactamente cómo las dos fórmulas se separaron.
+
+**Mismo error de unidades en los 3 valores que se muestran en la UI**, corregidos en el mismo
+pase: `tpTarget`/`slTarget` multiplicaban por 100 una prima que ya venía en dólares (mostraban
+**$8.700** de objetivo para un spread cuyo máximo son $290), y `breakeven` le restaba
+**dólares** a un strike (7750 − 200 = **7550**, en vez de 7747.10).
+
+⚠️ **Al tocar cualquier cosa en el bloque `signal.trading` del webhook, tener presente que
+`credit`/`debit`/`maxRisk`/`maxProfit` vienen en DÓLARES TOTALES (ya con los contratos
+adentro) y `spreadWidth`/`strikes` en PUNTOS.** Es la misma familia de error que la auditoría
+de la Rueda Tradier del 2026-08-03 ("precio por acción vs dólares totales") — el sistema la ha
+cometido ya tres veces en tres archivos distintos.
 
 ## Rueda Automatizada — el loop de re-adopción: 21 órdenes reales por UNA posición (2026-08-05)
 
