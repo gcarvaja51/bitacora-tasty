@@ -1698,6 +1698,25 @@ conversación) para trabajo puntual de calibración/edición, nunca en el ciclo 
   crashea). La tarea vieja `BitacoraGammaRefresh` (agente por ciclo) quedó
   **deshabilitada, no borrada** — reversible si hiciera falta.
 
+**Bug real en `start.bat` (2026-08-05):** el wrapper esperaba con `timeout /t 5
+/nobreak`, que **sin consola interactiva falla al instante** ("Input redirection is
+not supported") en vez de esperar — y sin consola es exactamente el caso cuando lo
+lanza la Tarea Programada. El bucle de reinicio quedaba en caliente: ese día dejó
+**128 reinicios en un solo segundo** (`daemon_crash_log.txt`). Cambiado por
+`ping -n 16 127.0.0.1 >nul`, que no depende de stdin. No usar `timeout` acá.
+
+⚠️ **El daemon se muere si se cierra la consola que lo lanzó.** El 2026-08-05 apareció
+caído desde las 9:25am ET con `LastTaskResult 3221225786` (= `0xC000013A`,
+STATUS_CONTROL_C_EXIT) y `/api/spx/sigma-levels` congelado ~50 min **en pleno horario
+de mercado**, con los tres pipelines cayendo al cálculo interno de GEX sin que nadie
+se enterara. El síntoma se detecta en un segundo: `GET /api/spx/sigma-levels` →
+`fresh: false`. Para relanzarlo sin la Tarea Programada (que solo dispara "al iniciar
+sesión"), desde PowerShell:
+`Start-Process cmd.exe -ArgumentList "/c","<repo>\gamma_daemon\start.bat" -WorkingDirectory "<repo>\gamma_daemon" -WindowStyle Hidden`
+— queda colgado de un `cmd.exe` propio, independiente de la sesión que lo lanzó.
+**No hay alerta automática de esto**: el watchdog de ntfy que existe vigila el monitor
+direccional (`checkDirectionalMonitorHealth`), no la frescura de Sigma.
+
 **Límite real, sin resolver**: crear/modificar Tareas Programadas de Windows y usar
 `Set-ScheduledTask` requiere permisos que ni la sesión de Claude Code ni el usuario
 tienen vía la terminal embebida del chat — hace falta una terminal abierta como
@@ -1733,6 +1752,75 @@ vivo el 2026-07-30, causó horas de confusión porque el código leído no coinc
 con los inputs reales del estudio corriendo (`pineVersion` distinto). Antes de
 editar, verificar `Version history…` (menú del título del script) y confirmar que
 se está parado en la versión más reciente si hay dudas.
+
+## Validación de los 3 automatismos de Tradier (2026-08-05)
+
+A pedido del usuario (*"validame que los automatismos sobre tradier, reversión a la
+media, direccional y neutral estén funcionando bien"*). El pipeline funciona de punta
+a punta — durante la misma sesión la Reversión abrió y cerró un trade real
+(`tex-1785941840221`, Bull Put Spread, `PRECIO_OBJETIVO`, −$20 ya reconciliado, sin
+intervención) — y la contabilidad está limpia: 131 ejecuciones, **0 abiertas, 0 en
+`pendiente_verificar`**. Salieron tres problemas.
+
+**1. Los tres corrían sábados y domingos.** Ninguna de las tres funciones de entrada
+(`checkDirectionalAutonomous`, `checkIronCondor`, `checkAlejamientoSMA`) miraba el
+**día**, solo la hora ET. El fin de semana del 1-2 ago quedaron 1.134 evaluaciones de
+TENDENCIA, 414 de REVERSION y 73 de NEUTRAL contra un mercado cerrado. Además de
+gastar llamadas a Tradier/TastyTrade/Yahoo, **inunda `spx_strategy_log.json`** (topado
+en 5.000 entradas): un solo fin de semana se come un tercio del buffer y desaloja el
+diagnóstico de los días reales — por eso el log solo llegaba hasta el 28-jul. Se
+agregó `isMarketHours()` (ya valida fin de semana **y** feriados NYSE) a las tres.
+Verificado que las cuatro ventanas — Reversión 9:30-12:59, IC 0DTE 10:00-12:59, IC
+1DTE 15:40-15:49, Direccional 9:45-13:59 — caen **enteras** dentro de 9:30-16:00, así
+que el guard no recorta nada operable. Si alguna ventana se corre fuera de ese rango,
+revisar esto primero.
+
+**2. El Iron Condor era el único que no veía a Sigma Terminal.** Reversión y
+Direccional recibieron el fallback el 2026-07-21 y a esta se le pasó por alto — justo
+la que más depende del régimen. En 8 días: **295 evaluaciones, 0 señales**, y el
+bloqueo #1 fue "Gamma régimen NEGATIVO" (66 veces), con el cálculo interno que tiene
+un sesgo negativo ya medido. El `gammaFlip` también diverge fuerte: ese día el interno
+daba **7600** contra **7753** de Sigma — 153 puntos, con un buffer de gate de 20.
+`checkIronCondor` arma ahora `effectiveGex` (Sigma si está fresco <5 min, si no el
+interno) y lo escribe de vuelta en `ctx.gex` para que el log registre el que realmente
+decidió. `maxPain` se mantiene del cálculo interno porque Sigma no lo empuja
+(`POST /api/spx/sigma-levels` no recibe ese campo). Confirmado en vivo: sus entradas
+pasaron de `flip=7600` a 7753/7743 apenas aterrizó el deploy.
+
+**3. El daemon de Gamma estaba caído** — ver la sección `gamma_daemon` arriba.
+
+**Limitación conocida, NO corregida — el precio del SPX puede llegar congelado en la
+apertura.** De 9:31 a 9:41 ET, `tradier.getQuotes(['SPX']).last` devolvió exactamente
+**7736.52** en 12 llamadas independientes (el valor premercado de las 9:25), mientras
+el rango de apertura real de esa sesión fue 7771.62-7793.68. Verificado que se mueve
+normal el resto del día (6 valores distintos en 2 min a las 10:13). Es el **mismo modo
+de falla que Yahoo** demostró el 2026-07-24 y por el que se cambió a Tradier — o sea
+que la fuente nueva no es inmune, solo falla en otra ventana. Impacto mientras dura:
+`openingRangeRespected` da `false` sin serlo (es un gate del IC), la selección de
+strikes y el piso de 1.5×ATR trabajan con un precio ~50pts corrido, y `entrySpx`
+quedaría mal congelado en cualquier trade abierto ahí. **No se tocó a propósito**:
+arreglarlo cambia la selección de strikes de las tres estrategias, y eso ya no es
+corrección de bug sino cambio de alto impacto — congelado hasta juntar trades (ver
+memoria `congelar-cambios-para-medir`).
+
+**Cosmético, sin arreglar:** el snapshot de REVERSION en el log sigue registrando el
+`gammaFlip` **interno**, porque su `effectiveGex` nunca incluyó ese campo y no se
+escribe de vuelta en `ctx.gex` como sí hace ahora el IC. La estrategia no usa
+`gammaFlip` en su lógica (solo régimen y muros, que sí vienen de Sigma) — el log
+engaña, la decisión no.
+
+**Rendimiento medido** (contexto, no falla — muestra todavía chica, ver
+`congelar-cambios-para-medir`):
+
+| | cerradas | WR | avg gana | avg pierde | neto |
+|---|---|---|---|---|---|
+| TENDENCIA | 64 | 61% | $199 | −$353 | −$355 |
+| REVERSION | 65 | 26% | $113 | −$40 | +$45 |
+| NEUTRAL | 1 | 0% | — | −$10 | −$10 |
+
+Reversión está en break-even matemático: el mecanismo hace lo que debe (corta pérdidas
+cortas, deja correr ganadoras), el edge todavía no aparece. El neto negativo del
+Direccional lo carga el clúster del 23-jul; sus últimos 10 dan +$1.745.
 
 ## Notificaciones
 
