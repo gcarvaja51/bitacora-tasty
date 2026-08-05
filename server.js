@@ -5271,26 +5271,48 @@ async function processDirectionalEntry(direction, meta = {}) {
     signal.strategyFamily = 'TENDENCIA';
 
     // Agregar parámetros de trading y TP/SL calculados
-    const credito = signal.credit || signal.maxProfit || 0;
-    // Credito/Riesgo minimo 20% (playbook Alejandro) — riesgo = valor del ancho
-    // del spread menos el credito, ambos por contrato ($100 x puntos). Sin este
-    // filtro se podia entrar con primas muy chicas arriesgando mucho por poco.
-    const riesgoPorContrato   = spreadWidth > 0 ? (spreadWidth - credito) * 100 : 0;
-    const creditoPorContrato  = credito * 100;
-    const creditoRiesgoPct    = riesgoPorContrato > 0 ? +(creditoPorContrato / riesgoPorContrato * 100).toFixed(1) : 0;
+    // Credito/Riesgo minimo 20% (playbook Alejandro). Sin este filtro se podia
+    // entrar con primas muy chicas arriesgando mucho por poco.
+    //
+    // BUG DE UNIDADES, corregido 2026-08-05 — el gate llevaba desde su creacion
+    // rechazando el 100% de los direccionales de CREDITO. buildSignalSummary
+    // (src/spx.js) devuelve `credit` en DOLARES totales (premium * 100 *
+    // contratos), pero la formula vieja lo trataba como PUNTOS por accion:
+    //     riesgoPorContrato = (spreadWidth - credito) * 100
+    //                       = (15 - 200) * 100 = -18.500   <- negativo
+    // y como el resultado se guardaba con `riesgo > 0 ? ... : 0`, el ratio salia
+    // SIEMPRE 0%, o sea siempre por debajo del minimo de 20. Los debitos nunca
+    // lo notaron porque estan exentos del gate (`!signal.isCredit`). Evidencia:
+    // 64 ejecuciones direccionales historicas, las 64 de debito, CERO de credito.
+    // El 05-ago se generaron 27 señales de credito validas y las 27 murieron acá.
+    //
+    // Se usa `maxRisk`, que la misma buildSignalSummary ya calcula bien en
+    // dolares y contemplando los contratos — en vez de volver a derivarlo aca y
+    // arriesgar que las dos formulas se separen otra vez.
+    const primaUsd    = signal.credit || signal.debit || 0;   // dolares totales
+    const contratos   = signal.contracts || 1;
+    const primaPts    = primaUsd / (100 * contratos);         // puntos por accion
+    const riesgoUsd   = signal.maxRisk != null
+      ? signal.maxRisk
+      : (spreadWidth > 0 ? (spreadWidth * 100 * contratos) - primaUsd : 0);
+    const creditoRiesgoPct = riesgoUsd > 0 ? +(primaUsd / riesgoUsd * 100).toFixed(1) : 0;
     const MIN_CREDITO_RIESGO_PCT = 20;
     signal.trading = {
       delta:      targetDelta,
       tpPct:      Math.round(tpPct * 100),
       slMult:     slMult,
       spreadWidth: spreadWidth,
-      tpTarget:   credito > 0 ? Math.round(credito * tpPct * 100) : null,
-      slTarget:   credito > 0 ? Math.round(credito * slMult * 100) : null,
-      breakeven:  signal.strikes ? (
+      // Mismo bug de unidades que el gate de arriba, en los 3 valores que se
+      // muestran en la UI: la prima ya viene en dolares, no hay que volver a
+      // multiplicar por 100. El breakeven, al reves, necesita PUNTOS — sumarle
+      // dolares a un strike daba un nivel sin sentido (7750 - 200 = 7550).
+      tpTarget:   primaUsd > 0 ? Math.round(primaUsd * tpPct) : null,
+      slTarget:   primaUsd > 0 ? Math.round(primaUsd * slMult) : null,
+      breakeven:  signal.strikes ? +(
         sel.strategy === 'BEAR_CALL'
-          ? signal.strikes.shortStrike + credito
-          : signal.strikes.shortStrike - credito
-      ) : null,
+          ? signal.strikes.shortStrike + primaPts
+          : signal.strikes.shortStrike - primaPts
+      ).toFixed(2) : null,
       creditoRiesgoPct,
       minCreditoRiesgoPct: MIN_CREDITO_RIESGO_PCT,
     };
