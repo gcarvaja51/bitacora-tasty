@@ -3810,12 +3810,32 @@ function detectarPutsHuerfanas(posiciones, executions) {
   // Ahora un symbol adoptado no se vuelve a adoptar nunca, sin importar en que
   // fase quedo su registro.
   for (const e of executions) if (e.adoptedSymbol) yaRegistradas.add(e.adoptedSymbol);
+  // Patas que pertenecen a las estrategias de SPX, no a la Rueda (2026-08-05).
+  // Este filtro no existia y la adopcion se llevaba cualquier put corta de la
+  // cuenta: el 05-ago adopto SPXW260805P07730000 — una pata 0DTE del pipeline
+  // direccional — la registro como ciclo de la Rueda y la cerro al instante,
+  // inventando $700 de P&L (credito 7 x 100). El riesgo real no es contable:
+  // checkWheelPutManagementImpl podria haber intentado ROLAR una posicion que
+  // otra estrategia esta gestionando en paralelo, con dos monitores peleando
+  // por la misma pata.
+  const legsDeSPX = new Set();
+  try {
+    for (const e of (loadTradierExecutions() || [])) {
+      for (const s of (e.legSymbols || [])) legsDeSPX.add(s);
+      if (e.leg?.optionSymbol) legsDeSPX.add(e.leg.optionSymbol);
+    }
+  } catch(e) { /* si no se puede leer, el corte por root de abajo igual protege */ }
+
   const out = [];
   for (const p of (posiciones || [])) {
     const parsed = parseOccSymbol(p.symbol || '');
     if (!parsed || parsed.optType !== 'P') continue;
     if (parseFloat(p.quantity) >= 0) continue;
     if (yaRegistradas.has(p.symbol)) continue;
+    // La Rueda opera acciones, nunca el indice. SPX/SPXW son siempre de las
+    // estrategias de SPX — corte duro, no depende de leer ningun archivo.
+    if (parsed.root === 'SPX' || parsed.root === 'SPXW') continue;
+    if (legsDeSPX.has(p.symbol)) continue;
     out.push({ p, parsed });
   }
   return out;
