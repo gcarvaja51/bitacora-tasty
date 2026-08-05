@@ -4,9 +4,18 @@
 **solamente viernes y sábado**, para que empiecen a operar el lunes siguiente. De lunes a
 jueves las ideas se anotan acá, no se implementan.
 
-**Excepción:** los bugs que causan daño real se arreglan cuando aparecen (un loop
-colocando órdenes reales, un P&L mal calculado). Si cambia *cuándo se entra o se sale*, es
-ajuste y espera al viernes.
+**Los bugs se arreglan de inmediato** (regla explícita del usuario). No esperan al viernes
+ni entran a este backlog, sin importar el tamaño del daño.
+
+Lo único que hay que distinguir bien es **corrección vs. ajuste**:
+
+- Si el comportamiento actual es **incorrecto** — un cálculo mal, una orden que no debía
+  mandarse, un campo que no se escribe — es **bug**: se arregla ya.
+- Si el comportamiento es correcto y lo que se quiere es que sea **distinto o mejor** —
+  mover un umbral, agregar un veto, cambiar una ventana — es **ajuste**: se anota acá.
+
+Ante la duda, preguntar en vez de asumir: el costo de esperar un ajuste es bajo, el de
+dejar un bug corriendo no.
 
 **Al aplicar:** no mover dos cosas de impacto ALTO a la vez sobre la misma estrategia — si
 se mueven juntas, no se puede saber cuál funcionó. Regenerar el control de cambios después

@@ -997,6 +997,16 @@ function consolidateStrategies(legs) {
   return [...map.values()];
 }
 
+// Badge de cierre parcial / posición todavía viva. Un trade así no está cerrado:
+// el P&L de la fila es solo el de los contratos que efectivamente salieron.
+function badgeParcial(s) {
+  if (!s || (!s.partialClose && !s.positionOpen)) return '';
+  const t = s.positionOpen
+    ? 'La posición sigue abierta — este resultado es solo de la parte que se cerró'
+    : 'Cierre parcial — se cerraron menos contratos de los que se abrieron';
+  return ` <span class="badge" style="font-size:9px;background:rgba(255,176,32,.15);color:#ffb020;" title="${t}">Parcial</span>`;
+}
+
 function renderDashRecent(items=[], strategies=[]) {
   const consolidated = consolidateStrategies(strategies)
     .sort((a,b) => new Date(b.closeDate) - new Date(a.closeDate))
@@ -1286,7 +1296,7 @@ async function calDayClick(dateStr, pnl) {
         return `<tr style="cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
           <td><span class="badge badge-gold" style="font-size:9px;">Cierre</span></td>
           <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
-          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span>${badgeParcial(s)}</td>
           <td class="td-mono dim">${s.durationDays===0?'Intradía':s.durationDays+'d'}</td>
           <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
           <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
@@ -1841,7 +1851,7 @@ async function loadHistory() {
               <td class="td-mono dim">${s.closeDate||'—'}</td>
               <td class="td-mono dim">${s.openDate||'—'}</td>
               <td class="td-bright">${s.underlying||'—'}</td>
-              <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType||'—'}</span></td>
+              <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType||'—'}</span>${badgeParcial(s)}</td>
               <td class="td-mono dim">${durLabel}</td>
               <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
               <td>${capHtml}</td>
@@ -2083,7 +2093,7 @@ async function loadReports(forceRefresh) {
       $('strat-tbody').innerHTML = list.length ? list.map(s=>`<tr>
       <td class="td-mono dim">${s.openDate||'—'}</td>
       <td class="td-mono dim">${s.closeDate||'—'}</td>
-      <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+      <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span>${badgeParcial(s)}</td>
       <td class="td-bright">${s.underlying||'—'}</td>
       <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
       <td class="td-mono ${cc(s.closeValue)}">${s.closeValue?f$(s.closeValue):'—'}</td>
@@ -5039,11 +5049,7 @@ async function loadToday() {
         ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Sin trades cerrados hoy</td></tr>'
         : sorted.map(s => {
             const dur = s.durationDays===0?'Intradía':s.durationDays===1?'1 día':`${s.durationDays}d`;
-            // Un cierre parcial (o una posición que sigue viva) no es un trade
-            // cerrado: el P&L de la fila es solo el de los contratos que salieron.
-            const parcial = (s.partialClose || s.positionOpen)
-              ? ` <span class="badge" style="font-size:9px;background:rgba(255,176,32,.15);color:#ffb020;" title="${s.positionOpen?'La posición sigue abierta — este resultado es solo de la parte que se cerró':'Cierre parcial — se cerraron menos contratos de los que se abrieron'}">Parcial</span>`
-              : '';
+            const parcial = badgeParcial(s);
             return `<tr>
               <td class="td-mono dim">${s.closeTime}</td>
               <td class="td-bright">${s.underlying}</td>
