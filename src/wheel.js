@@ -85,7 +85,11 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
         // Assignment / Expiration: sin `action` y net-value 0 — no mueven plata.
         if (!type) continue;
         const qty = Math.abs(parseFloat(tx.quantity || 0)) || undefined;
-        events.push({ date, type, strike:parsed.strike, expiry:parsed.expiry, contracts:qty, amount:+nv.toFixed(3) });
+        // order-id: Tastytrade mete todas las patas de un spread o de un roll en
+        // UNA sola orden. Es la forma fiable de saber que van juntas, sin tener
+        // que adivinarlo por fecha (ver la consolidacion mas abajo).
+        events.push({ date, type, strike:parsed.strike, expiry:parsed.expiry, contracts:qty,
+                      amount:+nv.toFixed(3), orderId: tx['order-id'] ?? null });
         totalPremium += nv;
         syncBasis();
         continue;
@@ -149,49 +153,62 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       }
     }
 
-    // ── Consolidar rolls: BTC+STO mismo día (puts Y calls) ──────────
-    // Si el mismo día hay un BTC y un STO del mismo tipo (P o C),
-    // se trata como un ROLL y se consolida en un único evento neto.
-    // Solo entran las patas CORTAS: un BTO/STC (pata larga de un spread) no es un
-    // roll aunque caiga el mismo dia, y mezclarlo acá inventaría rolls que nunca
-    // ocurrieron. Quedan como eventos sueltos en el timeline.
-    const rollsByDate = {};
+    // ── Consolidar por ORDEN del broker (order-id) ──────────────────
+    // Antes se agrupaba por fecha+tipo y solo con patas cortas, para no inventar
+    // rolls que no ocurrieron. La precaucion era correcta pero dejaba mal los
+    // spreads: un roll de un bull put (4 patas en UNA orden) salia partido en
+    // tres lineas — un "ROLL +$301.74" con solo dos patas, mas la compra y el
+    // cierre de las largas sueltas por fuera. El total cuadraba pero era ilegible
+    // (caso BE del 2026-08-06: el roll fueron +$28.48, no +$301.74).
+    //
+    // Tastytrade ya agrupa las patas de un spread o un roll bajo el mismo
+    // `order-id`, asi que no hay nada que adivinar: si comparten orden, son la
+    // misma operacion. El evento consolidado lleva el NETO de todas sus patas.
+    const porOrden      = {};
     const nonRollEvents = [];
+    const ES_OPCION     = /^(STO|BTC|BTO|STC)_(PUT|CALL)$/;
 
     for (const ev of events) {
-      const isRollable = ev.type === 'BTC_PUT' || ev.type === 'STO_PUT' ||
-                         ev.type === 'BTC_CALL' || ev.type === 'STO_CALL';
-      if (isRollable) {
-        const kind = ev.type.endsWith('PUT') ? 'put' : 'call';
-        const key  = `${ev.date}::${kind}`;
-        if (!rollsByDate[key]) rollsByDate[key] = { btc: [], sto: [] };
-        if (ev.type.startsWith('BTC')) rollsByDate[key].btc.push(ev);
-        else                           rollsByDate[key].sto.push(ev);
+      if (ES_OPCION.test(ev.type) && ev.orderId != null) {
+        (porOrden[ev.orderId] ||= []).push(ev);
       } else {
         nonRollEvents.push(ev);
       }
     }
 
     const rollEvents = [];
-    for (const [key, { btc, sto }] of Object.entries(rollsByDate)) {
-      if (btc.length > 0 && sto.length > 0) {
-        // Es un roll — consolidar en un único evento ROLL neto
-        const netAmount = sto.reduce((s, e) => s + e.amount, 0) +
-                          btc.reduce((s, e) => s + e.amount, 0);
+    for (const patas of Object.values(porOrden)) {
+      if (patas.length === 1) { rollEvents.push(patas[0]); continue; }
+
+      const neto      = +patas.reduce((s, e) => s + e.amount, 0).toFixed(2);
+      const cierres   = patas.filter(e => /^(BTC|STC)_/.test(e.type));
+      const aperturas = patas.filter(e => /^(STO|BTO)_/.test(e.type));
+
+      // Cierra y abre en la misma orden => roll. Da igual que sea de una pata o
+      // de un spread entero: lo que importa es el credito neto de la maniobra.
+      if (cierres.length && aperturas.length) {
+        const btc = cierres.find(e => e.type.startsWith('BTC')) || cierres[0];
+        const sto = aperturas.find(e => e.type.startsWith('STO')) || aperturas[0];
         rollEvents.push({
-          date:       btc[0].date,
+          date:       patas[0].date,
           type:       'ROLL',
-          fromStrike: btc[0].strike,
-          fromExpiry: btc[0].expiry,
-          toStrike:   sto[0].strike,
-          toExpiry:   sto[0].expiry,
-          amount:     +netAmount.toFixed(2),
+          fromStrike: btc.strike,
+          fromExpiry: btc.expiry,
+          toStrike:   sto.strike,
+          toExpiry:   sto.expiry,
+          amount:     neto,
+          orderId:    patas[0].orderId,
         });
-      } else {
-        // Solo BTC o solo STO sin par → dejar como eventos individuales
-        btc.forEach(e => rollEvents.push(e));
-        sto.forEach(e => rollEvents.push(e));
+        continue;
       }
+
+      // Solo aperturas (spread abierto) o solo cierres (spread cerrado): se
+      // representa con la pata CORTA, que es la que define la operacion en la
+      // Rueda, pero con el importe NETO de todas las patas. Asi un bull put
+      // 150/145 sale como "Put vendida $150 +$53.75" y no como dos lineas de
+      // +336.87 y -283.12 que hay que restar a mano.
+      const corta = patas.find(e => /^(STO|BTC)_/.test(e.type)) || patas[0];
+      rollEvents.push({ ...corta, amount: neto, contracts: corta.contracts });
     }
 
     // ── Consolidar dividendos: bruto + retención del mismo día = UN pago ──
