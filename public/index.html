@@ -4191,9 +4191,9 @@ async function loadWheel() {
           <td class="td-sym">${r.w.underlying}</td>
           <td class="td-phase" style="color:${r.phaseCss[r.w.phase]||'var(--muted)'};">${r.estrategia}</td>
           <td>${r.marginReal > 0 ? '$'+r.marginReal.toFixed(0) : '<span class="dim">—</span>'}</td>
-          <td class="pos">+$${r.w.totalPremium.toFixed(2)}</td>
-          <td class="pos">${r.rentAcum.toFixed(1)}%</td>
-          <td class="pos">${r.rentMes.toFixed(2)}%/m</td>
+          <td class="${r.w.totalPremium>=0?'pos':'neg'}">${r.w.totalPremium>=0?'+$':'-$'}${Math.abs(r.w.totalPremium).toFixed(2)}</td>
+          <td class="${r.rentAcum>=0?'pos':'neg'}">${r.rentAcum.toFixed(1)}%</td>
+          <td class="${r.rentMes>=0?'pos':'neg'}">${r.rentMes.toFixed(2)}%/m</td>
           <td>${anualStr}</td>
           <td style="min-width:140px;">${metaCell}</td>
           <td class="dim">${r.mesesRaw >= 1 ? r.meses.toFixed(1)+' m' : '<1m'}</td>
@@ -4238,9 +4238,9 @@ async function loadWheel() {
               <tr>
                 <td colspan="2">TOTAL</td>
                 <td>$${totalMargin.toFixed(0)}</td>
-                <td class="pos">+$${totalPrem.toFixed(2)}</td>
-                <td class="pos">${(totalMargin>0?(totalPrem/totalMargin*100):0).toFixed(1)}%</td>
-                <td class="pos">${avgRentMes.toFixed(2)}%/m</td>
+                <td class="${totalPrem>=0?'pos':'neg'}">${totalPrem>=0?'+$':'-$'}${Math.abs(totalPrem).toFixed(2)}</td>
+                <td class="${totalPrem>=0?'pos':'neg'}">${(totalMargin>0?(totalPrem/totalMargin*100):0).toFixed(1)}%</td>
+                <td class="${avgRentMes>=0?'pos':'neg'}">${avgRentMes.toFixed(2)}%/m</td>
                 <td>—</td>
                 <td>${metaTotalCell}</td>
                 <td>—</td>
@@ -4372,8 +4372,8 @@ async function loadWheel() {
         return `<tr>
           <td class="td-sym">${t}</td>
           ${weekCells}
-          <td class="pos" style="font-weight:700;">+$${tickerTotal.toFixed(2)}</td>
-          <td class="dim">$${avg.toFixed(2)}</td>
+          <td class="${tickerTotal>=0?'pos':'neg'}" style="font-weight:700;">${tickerTotal>=0?'+$':'-$'}${Math.abs(tickerTotal).toFixed(2)}</td>
+          <td class="dim">${avg>=0?'$':'-$'}${Math.abs(avg).toFixed(2)}</td>
         </tr>`;
       }).join('');
 
@@ -4401,8 +4401,8 @@ async function loadWheel() {
               <tr style="background:rgba(19,214,143,.05);">
                 <td style="font-weight:700;color:var(--bright);">TOTAL</td>
                 ${totWeekCells}
-                <td class="pos" style="font-weight:700;">+$${grandTotal.toFixed(2)}</td>
-                <td class="dim">$${avgTotal.toFixed(2)}</td>
+                <td class="${grandTotal>=0?'pos':'neg'}" style="font-weight:700;">${grandTotal>=0?'+$':'-$'}${Math.abs(grandTotal).toFixed(2)}</td>
+                <td class="dim">${avgTotal>=0?'$':'-$'}${Math.abs(avgTotal).toFixed(2)}</td>
               </tr>
             </tfoot>
           </table>

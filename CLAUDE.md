@@ -17,14 +17,29 @@ Dashboard de trading personal conectado a TastyTrade. Node.js/Express + vanilla 
 | `src/wheel.js` | Lógica pura de La Rueda: `buildWheelData(items, positions, underlyings)` |
 | `src/tastytrade.js` | Cliente HTTP a la API de TastyTrade (auth, transacciones, posiciones, precios) |
 | `src/metrics.js` | Cálculo de P&L, equity curve, calendar |
-| `public/index.html` | SPA completa (~5000 líneas). Todo el frontend en un archivo |
-| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v5`) |
+| `public/index.html` | SPA completa (~8000 líneas). Todo el frontend en un archivo |
+| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v12`) |
 
-**Archivos sueltos sin usar (pendiente de revisar/limpiar):** `index.html` y
-`spx_backtester.html` en la raíz del repo, y un `public/server.js` duplicado — no están
-documentados en este archivo ni referenciados por `server.js` (el real, en la raíz). Parecen
-prototipos previos al `Backtester SPX` actual dentro de `public/index.html`. No se tocaron
-esta sesión — confirmar antes de borrar si tienen algo de valor.
+> ### ⚠️ El frontend que se sirve es `public/index.html` — el `index.html` de la raíz NO
+>
+> `server.js` monta `express.static(path.join(__dirname,'public'))` y el catch-all
+> `app.get('*')` responde con `public/index.html`. **Editar el `index.html` de la raíz no
+> tiene ningún efecto.** Se mantiene como copia por convención (ver commit `7f7e92f`
+> "sync: index.html raiz igual a public"), así que después de tocar el bueno hay que
+> hacer `cp public/index.html index.html`.
+>
+> El 2026-08-06 se perdió media sesión editando el de la raíz: cinco arreglos de la Rueda
+> que nunca llegaron a la pantalla y un commit inútil. **Antes de editar frontend,
+> comprobar cuál sirve el servidor.**
+>
+> Y al cambiar el frontend hay que **subir la versión de `public/sw.js`** (`CACHE = 'bitacora-vN'`),
+> o los clientes siguen con la copia cacheada y parece que el arreglo no funcionó.
+
+**Archivos sueltos sin usar (pendiente de revisar/limpiar):** `spx_backtester.html` en la
+raíz del repo y un `public/server.js` duplicado — no están documentados en este archivo ni
+referenciados por `server.js` (el real, en la raíz). Parecen prototipos previos al
+`Backtester SPX` actual dentro de `public/index.html`. No se tocaron esta sesión —
+confirmar antes de borrar si tienen algo de valor.
 
 ## Persistencia de datos
 
