@@ -3716,26 +3716,53 @@ async function loadBP() {
       <!-- Donut + detalle lado a lado -->
       <div style="display:grid;grid-template-columns:280px 1fr;gap:24px;align-items:start;">
 
-        <!-- Donut chart -->
-        <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:20px;text-align:center;">
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;">% del BP opciones</div>
-          <div style="position:relative;display:inline-block;">
-            <canvas id="bp-donut" width="200" height="200"></canvas>
-            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;">
-              <div id="bp-center-pct" style="font-size:22px;font-weight:700;">—</div>
-              <div id="bp-center-lbl" style="font-size:10px;color:var(--muted);">hover</div>
-            </div>
+        <!-- Columnas: meta vs real -->
+        <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:20px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;text-align:center;">Meta vs Real</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:18px;text-align:center;">lo que deberías usar contra lo que usas</div>
+          ${(() => {
+            // Escala comun a las 6 barras, para que se puedan comparar a ojo.
+            const filas = segments.map(s => ({ ...s, meta: d.base * s.target / 100 }));
+            const tope  = Math.max(...filas.flatMap(f => [f.meta, f.bp])) || 1;
+            const H     = 150;
+            return `
+            <div style="display:flex;justify-content:space-around;align-items:flex-end;height:${H + 34}px;gap:6px;">
+              ${filas.map(f => {
+                // Rueda y Especulacion: pasarse es malo. Libre: quedarse corto es malo.
+                const desvio = f.bp - f.meta;
+                const malo   = f.label === 'Libre' ? f.bp < f.meta * 0.85 : f.bp > f.meta * 1.15;
+                return `
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;">
+                  <div style="display:flex;align-items:flex-end;gap:5px;height:${H}px;">
+                    <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">
+                      <span style="font-size:9px;color:var(--muted);margin-bottom:3px;white-space:nowrap;">${fmt(f.meta)}</span>
+                      <div title="Meta ${f.target}% = ${fmt(f.meta)}"
+                           style="width:26px;height:${Math.max(2, f.meta / tope * (H - 16))}px;background:repeating-linear-gradient(45deg,var(--border2),var(--border2) 3px,transparent 3px,transparent 6px);border:1px dashed var(--muted);border-radius:3px 3px 0 0;"></div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">
+                      <span style="font-size:10px;font-weight:700;color:${malo ? '#e05c5c' : f.color};margin-bottom:3px;white-space:nowrap;">${fmt(f.bp)}</span>
+                      <div title="Real ${f.pct}% = ${fmt(f.bp)}"
+                           style="width:26px;height:${Math.max(2, f.bp / tope * (H - 16))}px;background:${malo ? '#e05c5c' : f.color};border-radius:3px 3px 0 0;transition:height .4s;"></div>
+                    </div>
+                  </div>
+                  <div style="font-size:11px;margin-top:7px;text-align:center;line-height:1.3;">
+                    <div style="color:var(--text);">${f.label}</div>
+                    <div style="font-size:10px;color:${malo ? '#e05c5c' : 'var(--muted)'};">
+                      ${desvio >= 0 ? '+' : '−'}${fmt(desvio)}
+                    </div>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>`;
+          })()}
+          <div style="margin-top:14px;display:flex;justify-content:center;gap:16px;font-size:10px;color:var(--muted);">
+            <span><span style="display:inline-block;width:9px;height:9px;border:1px dashed var(--muted);vertical-align:middle;margin-right:4px;"></span>Meta</span>
+            <span><span style="display:inline-block;width:9px;height:9px;background:#4f8ef7;vertical-align:middle;margin-right:4px;border-radius:2px;"></span>Real</span>
           </div>
-          <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
-            ${segments.map(s=>`
-              <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
-                <div style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
-                <span style="flex:1;text-align:left;">${s.label}</span>
-                <span style="color:${s.color};font-weight:600;">${s.pct}%</span>
-                <span style="color:var(--muted);">(meta ${s.target}%)</span>
-              </div>`).join('')}
+          <div style="margin-top:10px;font-size:10px;color:var(--muted);text-align:center;line-height:1.5;">
+            BP usado: <strong style="color:var(--text);">${fmt(d.base - d.libreBP)}</strong> de ${fmt(d.base)}
+            ${d.bpFuente === 'broker' ? '<br><span style="color:var(--pos);">✓ dato real del bróker</span>' : '<br><span style="color:var(--gold);">⚠ estimado</span>'}
           </div>
-          <div style="margin-top:12px;font-size:10px;color:var(--muted);">Líneas punteadas = targets</div>
         </div>
 
         <!-- Tablas de detalle -->

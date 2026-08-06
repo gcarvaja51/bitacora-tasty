@@ -569,30 +569,63 @@ app.get('/api/bp-dashboard', async (req, res) => {
       const ruedaStockBP = ruedaStockPos.reduce((s, p) => s + p.bpUsed, 0);
       const specStockBP  = specStockPos.reduce((s, p)  => s + p.bpUsed, 0);
 
-      // Base del pie = total derivative BP (options used + options available)
-      const optionsBase = ruedaOptBP + specOptBP + derivAvail || 1;
-      const ruedaBP = ruedaOptBP + ruedaStockBP;
-      const specBP  = specOptBP  + specStockBP;
+      // ── BP usado: el dato REAL del broker, no la estimacion ────────────
+      // Hasta el 2026-08-06 la base era `ruedaOptBP + specOptBP + derivAvail`,
+      // donde los dos primeros salen de estimar cada posicion (naked =
+      // strike x 100, spread = ancho x 100). Eso asume que todo esta asegurado
+      // al 100% en efectivo, pero la cuenta es de MARGEN: el requisito real es
+      // una fraccion. Resultado el 2026-08-06: la hoja decia 10.250 usados
+      // cuando Tastytrade reportaba 5.181,37 — casi el doble — y la base salia
+      // 13.698 en vez de 8.630.
+      //
+      // Ademas parecia "congelado": la estimacion solo depende de strikes y
+      // anchos, que no se mueven, asi que el numero no cambiaba en todo el dia
+      // aunque el BP real si fluctuara.
+      //
+      // `used-derivative-buying-power` viene en /balances y es el consumo real.
+      // (El endpoint por posicion, /margin-requirements, da 404 — ver CLAUDE.md.)
+      const usedReal = parseFloat(balances['used-derivative-buying-power'] || 0);
+      const estimado = ruedaOptBP + specOptBP;
+
+      // Tastytrade no desglosa el BP por estrategia, asi que el total real se
+      // reparte entre Rueda y Especulacion con la MISMA proporcion que daba la
+      // estimacion. El total y el % libre quedan exactos (que es lo que decide
+      // si se puede abrir otra posicion); el reparto interno sigue siendo
+      // aproximado y esta documentado como tal.
+      const usarReal   = usedReal > 0;
+      const factor     = usarReal && estimado > 0 ? usedReal / estimado : 1;
+      const ruedaOptBPReal = usarReal ? ruedaOptBP * factor : ruedaOptBP;
+      const specOptBPReal  = usarReal ? specOptBP  * factor : specOptBP;
+      const usadoTotal     = usarReal ? usedReal : estimado;
+
+      const optionsBase = usadoTotal + derivAvail || 1;
+      const ruedaBP = ruedaOptBPReal + ruedaStockBP;
+      const specBP  = specOptBPReal  + specStockBP;
       const libreBP = derivAvail;
       const base    = optionsBase;
 
-      // Pie = derivative BP (options only): used_rueda + used_spec + available
-      // Stocks se muestran por separado (equity BP pool diferente)
-      const pctRueda = +(ruedaOptBP / base * 100).toFixed(1);
-      const pctSpec  = +(specOptBP  / base * 100).toFixed(1);
-      const pctLibre = +(libreBP    / base * 100).toFixed(1);
+      // Reparto = BP de derivados (solo opciones): usado_rueda + usado_spec + libre
+      // Los stocks van aparte (pool de equity BP distinto)
+      const pctRueda = +(ruedaOptBPReal / base * 100).toFixed(1);
+      const pctSpec  = +(specOptBPReal  / base * 100).toFixed(1);
+      const pctLibre = +(libreBP        / base * 100).toFixed(1);
 
       return {
-        base,                             // optionsBase = total derivative BP capacity
-        ruedaBP:     +ruedaOptBP.toFixed(2),   // pie: solo opciones Rueda
-        specBP:      +specOptBP.toFixed(2),    // pie: solo opciones Spec
-        libreBP:     +libreBP.toFixed(2),      // pie: derivative BP disponible
+        base:        +base.toFixed(2),          // usado real + disponible
+        ruedaBP:     +ruedaOptBPReal.toFixed(2), // opciones Rueda (BP real repartido)
+        specBP:      +specOptBPReal.toFixed(2),  // opciones Spec  (BP real repartido)
+        libreBP:     +libreBP.toFixed(2),        // derivative BP disponible
         ruedaStockBP: +ruedaStockBP.toFixed(2), // info adicional: stocks Rueda
         specStockBP:  +specStockBP.toFixed(2),  // info adicional: stocks Spec
         nlv,
         pctRueda, pctSpec, pctLibre,
         derivAvail:  +derivAvail.toFixed(2),
         equityAvail: +equityAvail.toFixed(2),
+        // Trazabilidad del cambio del 2026-08-06: que dice el broker y que decia
+        // la estimacion vieja, para poder auditar la diferencia desde la UI.
+        usedReal:      +usedReal.toFixed(2),
+        usedEstimado:  +estimado.toFixed(2),
+        bpFuente:      usarReal ? 'broker' : 'estimado',
         targets:  { rueda: 50, spec: 25, libre: 25 },
         ruedaPos:  [...ruedaOptPos, ...ruedaStockPos],
         specPos:   [...specOptPos,  ...specStockPos],
