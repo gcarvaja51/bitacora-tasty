@@ -226,16 +226,46 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
 
     // ── Posiciones abiertas ────────────────────────────────────────
     // FIX multi-contrato: buscar TODAS las puts/calls abiertas, no solo la primera
-    const openPuts  = positions.filter(p => p['underlying-symbol']===und && (p.symbol||'').match(/P\d{8}$/));
-    const openCalls = positions.filter(p => p['underlying-symbol']===und && (p.symbol||'').match(/C\d{8}$/));
+    //
+    // FIX spreads (2026-08-06): hay que separar por DIRECCION. Antes se cogia
+    // openPuts[0] sin mirar si era comprada o vendida y se sumaban los contratos
+    // con Math.abs(), asi que un spread vertical salia con el strike de la pata
+    // PROTECTORA y el doble de contratos. Caso real: BE 170/165 (vendida la 170,
+    // comprada la 165) se mostraba como "165 Put x 2 ctr" en vez de "170 Put x 1",
+    // y el costo base y el margen se calculaban contra el strike equivocado
+    // (margen +47.3%, irreal). Lo mismo en NFLX 70/68: "68 Put x 3 ctr".
+    //
+    // La rueda VENDE primas: el strike, los contratos y el costo base salen solo
+    // de las patas cortas. Las largas son cobertura y se exponen aparte en
+    // `hedge` para que la vista pueda distinguir un CSP de un spread.
+    const allPuts   = positions.filter(p => p['underlying-symbol']===und && (p.symbol||'').match(/P\d{8}$/));
+    const allCalls  = positions.filter(p => p['underlying-symbol']===und && (p.symbol||'').match(/C\d{8}$/));
+    const esCorta   = p => String(p['quantity-direction']||'').toLowerCase() === 'short';
+    const esLarga   = p => String(p['quantity-direction']||'').toLowerCase() === 'long';
+
+    const openPuts   = allPuts.filter(esCorta);
+    const openCalls  = allCalls.filter(esCorta);
+    const hedgePuts  = allPuts.filter(esLarga);
+    const hedgeCalls = allCalls.filter(esLarga);
     const openStock = positions.find(p  => p['underlying-symbol']===und && p['instrument-type']==='Equity');
 
     const openPut  = openPuts[0]  || null;
     const openCall = openCalls[0] || null;
 
-    // Contratos totales (suma de todas las posiciones abiertas del mismo tipo)
+    // Contratos totales (suma de las patas CORTAS, que son las que obligan)
     const contractsPut  = openPuts.reduce((s, p)  => s + Math.abs(parseFloat(p.quantity||0)), 0);
     const contractsCall = openCalls.reduce((s, p) => s + Math.abs(parseFloat(p.quantity||0)), 0);
+
+    // Cobertura comprada: si existe, esto no es una rueda pura sino un spread.
+    // El riesgo esta definido y no hay asignacion de 100 acciones por contrato.
+    const mapHedge = list => list.map(p => ({
+      strike:    parseSymbol(p.symbol||'').strike || parseFloat(p['strike-price']||0),
+      expiry:    parseSymbol(p.symbol||'').expiry || (p['expires-at']||'').slice(0,10),
+      contracts: Math.abs(parseFloat(p.quantity||0)),
+    }));
+    const hedge = (hedgePuts.length || hedgeCalls.length)
+      ? { puts: mapHedge(hedgePuts), calls: mapHedge(hedgeCalls) }
+      : null;
     // Acciones reales desde posición equity (TastyTrade devuelve qty=200 para 2 contratos)
     const sharesFromPos = openStock ? Math.abs(parseFloat(openStock.quantity||0)) : Math.round(shares);
     // Contratos equivalentes: opciones abiertas, o acciones/100 si solo hay equity
@@ -273,11 +303,13 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       costBasis:    projectedCostBasis,
       isProjected:  costBasis === null && projectedCostBasis !== null,
       totalPremium: +totalPremium.toFixed(2),
-      contracts,          // ← total contratos abiertos
-      contractsPut,       // ← contratos put
-      contractsCall,      // ← contratos call
+      contracts,          // ← total contratos abiertos (solo patas cortas)
+      contractsPut,       // ← contratos put vendidos
+      contractsCall,      // ← contratos call vendidos
       activePut,
       activeCall,
+      hedge,              // ← patas compradas; si no es null, es un spread
+      isSpread: hedge !== null,
       openStock,
     });
   }

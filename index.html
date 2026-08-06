@@ -4390,7 +4390,13 @@ async function loadWheel() {
           : w.costBasis > 0 ? w.costBasis * shares * 0.45 : 0;
 
         // Fechas — usar SOLO eventos de prima (no compras de acciones)
-        const premTypes  = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
+        // FIX 2026-08-06: mismo olvido que en Primas/Semana. Las patas compradas
+        // de un spread (BTO/STC) son parte del trade, asi que tambien cuentan para
+        // fijar la fecha de la primera prima y los meses transcurridos.
+        const premTypes  = new Set([
+          'STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL',
+          'BTO_PUT','BTO_CALL','STC_PUT','STC_CALL',
+        ]);
         const premEvents = w.events.filter(e => premTypes.has(e.type));
         const firstDate  = premEvents.length > 0 ? new Date(premEvents[0].date) : null;
         // Meses transcurridos desde primera prima — mínimo 1 mes completo para no inflar
@@ -4453,9 +4459,9 @@ async function loadWheel() {
           <td class="td-sym">${r.w.underlying}</td>
           <td class="td-phase" style="color:${r.phaseCss[r.w.phase]||'var(--muted)'};">${r.estrategia}</td>
           <td>${r.marginReal > 0 ? '$'+r.marginReal.toFixed(0) : '<span class="dim">—</span>'}</td>
-          <td class="pos">+$${r.w.totalPremium.toFixed(2)}</td>
-          <td class="pos">${r.rentAcum.toFixed(1)}%</td>
-          <td class="pos">${r.rentMes.toFixed(2)}%/m</td>
+          <td class="${r.w.totalPremium>=0?'pos':'neg'}">${r.w.totalPremium>=0?'+$':'-$'}${Math.abs(r.w.totalPremium).toFixed(2)}</td>
+          <td class="${r.rentAcum>=0?'pos':'neg'}">${r.rentAcum.toFixed(1)}%</td>
+          <td class="${r.rentMes>=0?'pos':'neg'}">${r.rentMes.toFixed(2)}%/m</td>
           <td>${anualStr}</td>
           <td style="min-width:140px;">${metaCell}</td>
           <td class="dim">${r.mesesRaw >= 1 ? r.meses.toFixed(1)+' m' : '<1m'}</td>
@@ -4500,9 +4506,9 @@ async function loadWheel() {
               <tr>
                 <td colspan="2">TOTAL</td>
                 <td>$${totalMargin.toFixed(0)}</td>
-                <td class="pos">+$${totalPrem.toFixed(2)}</td>
-                <td class="pos">${(totalMargin>0?(totalPrem/totalMargin*100):0).toFixed(1)}%</td>
-                <td class="pos">${avgRentMes.toFixed(2)}%/m</td>
+                <td class="${totalPrem>=0?'pos':'neg'}">${totalPrem>=0?'+$':'-$'}${Math.abs(totalPrem).toFixed(2)}</td>
+                <td class="${totalPrem>=0?'pos':'neg'}">${(totalMargin>0?(totalPrem/totalMargin*100):0).toFixed(1)}%</td>
+                <td class="${avgRentMes>=0?'pos':'neg'}">${avgRentMes.toFixed(2)}%/m</td>
                 <td>—</td>
                 <td>${metaTotalCell}</td>
                 <td>—</td>
@@ -4525,7 +4531,16 @@ async function loadWheel() {
         return d.toISOString().slice(0,10);
       }
 
-      const premiumTypes = new Set(['STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL']);
+      // FIX 2026-08-06: faltaban las patas COMPRADAS. En un spread vertical la
+      // venta entraba (STO_PUT) pero la compra de cobertura no (BTO_PUT), asi que
+      // la semana mostraba la prima BRUTA en vez de la neta. Caso real: BE 150/145
+      // del 5-ago salia +$336.87 cuando el credito recibido fue +$53.75.
+      // wheel.js ya emite estos eventos con el signo correcto y totalPremium los
+      // resta bien — el filtro de aqui era el unico sitio donde se perdian.
+      const premiumTypes = new Set([
+        'STO_PUT','BTC_PUT','STO_CALL','BTC_CALL','ROLL',
+        'BTO_PUT','BTO_CALL','STC_PUT','STC_CALL',
+      ]);
       // tickerMap: { ticker: { weekStart: amount } }
       const tickerMap = {};
       const allWeeksSet = new Set();
@@ -4561,11 +4576,15 @@ async function loadWheel() {
         const tickerTotal = allWeeks.reduce((s,wk) => s + (tickerMap[t]?.[wk]||0), 0);
         const wksWithData = allWeeks.filter(wk => tickerMap[t]?.[wk]).length || 1;
         const avg = tickerTotal / wksWithData;
+        // FIX 2026-08-06: el signo iba hardcodeado a positivo ("pos" y "+$"), asi
+        // que un ticker con neto negativo se pintaba en verde y con un + delante.
+        // Con las patas compradas ya incluidas esto pasa de verse raro a ser un
+        // error de lectura directo.
         return `<tr>
           <td class="td-sym">${t}</td>
           ${weekCells}
-          <td class="pos" style="font-weight:700;">+$${tickerTotal.toFixed(2)}</td>
-          <td class="dim">$${avg.toFixed(2)}</td>
+          <td class="${tickerTotal>=0?'pos':'neg'}" style="font-weight:700;">${tickerTotal>=0?'+$':'-$'}${Math.abs(tickerTotal).toFixed(2)}</td>
+          <td class="dim">${avg>=0?'$':'-$'}${Math.abs(avg).toFixed(2)}</td>
         </tr>`;
       }).join('');
 
@@ -4593,8 +4612,8 @@ async function loadWheel() {
               <tr style="background:rgba(19,214,143,.05);">
                 <td style="font-weight:700;color:var(--bright);">TOTAL</td>
                 ${totWeekCells}
-                <td class="pos" style="font-weight:700;">+$${grandTotal.toFixed(2)}</td>
-                <td class="dim">$${avgTotal.toFixed(2)}</td>
+                <td class="${grandTotal>=0?'pos':'neg'}" style="font-weight:700;">${grandTotal>=0?'+$':'-$'}${Math.abs(grandTotal).toFixed(2)}</td>
+                <td class="dim">${avgTotal>=0?'$':'-$'}${Math.abs(avgTotal).toFixed(2)}</td>
               </tr>
             </tfoot>
           </table>
