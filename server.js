@@ -4248,8 +4248,10 @@ const SPX_CONFIG_DEFAULTS = {
       pinMaxDistPts:      5,    // "pegado al muro": distancia maxima al call/put wall
       pinMaxRange30mPts: 10,    // "quieto": rango de las ultimas 15 velas de 2m
       pinVelas:          15,    // 15 velas de 2m = 30 min
-      pinWindowStartET:  10,    // ventana medida: 10-14 ET (antes 10-13)
-      pinWindowEndET:    14,
+      // Sin ventana horaria (2026-08-08): el PIN decide, a la hora que sea. Solo
+      // queda un corte mecanico — que al trade le quede vida antes del cierre
+      // forzado de las 15:30 ET. minVidaMin: 0 lo desactiva.
+      minVidaMin:        20,
       minShortDistPts:   25,    // piso de distancia de las cortas al spot. Con PIN la
                                 // contencion a 90 min fue 100% a +-25 pts y 84% a +-20.
       maxHoldMin:        90,    // stop de TIEMPO. La contencion se midio a 90 min; un
@@ -4381,7 +4383,7 @@ function loadSPXConfig() {
     // el volumen de produccion (que es el que manda, no los defaults del codigo).
     if (saved?.trading?.ironCondor && saved.trading.ironCondor.pinMaxDistPts === undefined) {
       console.log('[SPX] Sumando parámetros del setup por PIN a ironCondor (no existían)');
-      for (const k of ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'pinWindowStartET', 'pinWindowEndET', 'minShortDistPts', 'maxHoldMin']) {
+      for (const k of ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'minVidaMin', 'minShortDistPts', 'maxHoldMin']) {
         saved.trading.ironCondor[k] = SPX_CONFIG_DEFAULTS.trading.ironCondor[k];
       }
       saveSPXConfig(saved);

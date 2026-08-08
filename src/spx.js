@@ -322,13 +322,23 @@ function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
   // tres ultimos checks intentaban inferir "el mercado no va a ningun lado";
   // calcPinState lo mide directo (ver la nota larga arriba).
   //
-  // La ventana pasa a 10-14 ET porque es la que se midio. El buffer de Gamma
-  // Flip se conserva: es el unico de los viejos que protege de un riesgo real
-  // (que el regimen se de vuelta de golpe), no un proxy de rango.
-  const winIni = icConfig.pinWindowStartET ?? 10;
-  const winFin = icConfig.pinWindowEndET ?? 14;
-  if (etHour < winIni || etHour >= winFin) {
-    return { valid: false, reason: `Iron Condor 0DTE solo en ventana ${winIni}:00-${winFin}:00 ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+  // SIN VENTANA HORARIA (decision del usuario, 2026-08-08): "no definamos ninguna
+  // hora para hacer un IC, el IC se dispara cuando tengamos el setup de pinneo".
+  // El estado manda sobre el reloj. El material de Sigma habla de una "zona dulce"
+  // a las 10:30, pero eso es una hora en la que SUELE haber compresion — el PIN la
+  // mide directo, a cualquier hora. isMarketHours() sigue cubriendo fin de semana,
+  // feriados y horario, asi que esto no abre la puerta a operar de madrugada.
+  //
+  // Unico corte que queda, y es MECANICO, no una opinion de mercado: no abrir si
+  // no alcanza a vivir. debeForzarCierrePorHorario (server.js) cierra todo 0DTE a
+  // las 15:30 ET, asi que una entrada a las 15:25 seria un ida y vuelta de 5 min
+  // que solo paga comisiones. minVidaMin es cuanto tiene que quedar para que valga
+  // la pena; ponerlo en 0 desactiva el corte.
+  const minVida = icConfig.minVidaMin ?? 20;
+  const minsAhora = etHour * 60 + etMin;
+  const minsCierreForzado = 15 * 60 + 30;
+  if (dte === '0DTE' && minsCierreForzado - minsAhora < minVida) {
+    return { valid: false, reason: `Faltan ${Math.max(0, minsCierreForzado - minsAhora)} min para el cierre forzado de las 15:30 ET (mínimo ${minVida}) — no alcanza a vivir.` };
   }
 
   const pinState = calcPinState(spxPrice, gex, indicators?.m2?.bars, icConfig);
