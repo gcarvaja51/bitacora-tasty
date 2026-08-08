@@ -699,7 +699,7 @@
           <span>Cuenta Tradier</span>
           <span id="rend-cuenta-kpi" style="font-size:11px;" class="td-mono"></span>
         </div>
-        <div class="card-body chart-wrap" style="height:260px;">
+        <div class="card-body chart-wrap" style="height:210px;min-height:210px;">
           <canvas id="rendCuenta"></canvas>
         </div>
       </div>
@@ -3908,7 +3908,7 @@ async function loadRendimiento(){
     const gMin = Math.min(0,...todos), gMax = Math.max(0,...todos);
 
     $('rend-estrategias').innerHTML = series.map(s=>`
-      <div class="card" style="margin-bottom:10px;${s.n?'':'opacity:.4'}">
+      <div class="card" style="margin-bottom:7px;${s.n?'':'opacity:.4'}">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
           <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${s.color};margin-right:7px;"></span>${s.label}</span>
           <span class="td-mono" style="font-size:11px;display:flex;align-items:center;gap:10px;">
@@ -3918,12 +3918,13 @@ async function loadRendimiento(){
             ${swBoton(s, estado)}
           </span>
         </div>
-        <div class="card-body chart-wrap" style="height:120px;padding-top:6px;">
+        <div class="card-body chart-wrap" style="height:${s.id==='RUEDA'?110:88}px;min-height:${s.id==='RUEDA'?110:88}px;padding:2px 16px 6px;">
           <canvas id="rend-${s.id}"></canvas>
         </div>
       </div>`).join('');
 
-    series.forEach(s=>{
+    series.forEach((s,idx)=>{
+      const ultima = idx === series.length-1;
       const el=$('rend-'+s.id); if(!el) return;
       if(S.charts['rend_'+s.id]) S.charts['rend_'+s.id].destroy();
       S.charts['rend_'+s.id]=new Chart(el.getContext('2d'),{ type:'line',
@@ -3932,8 +3933,8 @@ async function loadRendimiento(){
           backgroundColor:hexA(s.color,.10)}]},
         options:{responsive:true,maintainAspectRatio:false,
           plugins:{legend:{display:false},tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}}},
-          scales:{x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},maxTicksLimit:10},grid:{display:false}},
-            y:{...(norm?{min:gMin,max:gMax}:{}),ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.4)'}}}}});
+          scales:{x:{display:ultima,ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},maxTicksLimit:10},grid:{display:false}},
+            y:{...(norm?{min:gMin,max:gMax}:{}),ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},maxTicksLimit:3,callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.4)'}}}}});
     });
 
     const tot = cerradas.reduce((a,s)=>a+s.pnl,0);
