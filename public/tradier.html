@@ -4123,21 +4123,6 @@ async function loadCurvas(){
       return claves.map(k => +(por[k]||0).toFixed(2));
     };
     const aAcumulado = arr => { let a=0; return [0, ...arr.map(v=>{ a+=v; return +a.toFixed(2); })]; };
-    const peorRacha = d => { let pico=0,dd=0; d.forEach(v=>{ if(v>pico)pico=v; dd=Math.min(dd,v-pico); }); return dd; };
-
-    const series = CMP_DEFS.map(d=>{
-      const suyas = cerradas.filter(d.test);
-      const barras = porPeriodo(suyas);
-      const curva  = aAcumulado(barras);
-      const wins = suyas.filter(t=>t.pnl>0).length;
-      // total/maxDD salen SIEMPRE del acumulado: no dependen de como se este
-      // dibujando el grafico.
-      return { ...d, data: acum ? curva : barras, n:suyas.length,
-               wrData: acum ? wrAcumulado(suyas) : wrPeriodo(suyas),
-               total: curva[curva.length-1],
-               wr: suyas.length? Math.round(wins/suyas.length*100) : null,
-               maxDD: peorRacha(curva), apagada: d.sw ? estado[d.sw]===false : false };
-    });
     // ── Win rate ──────────────────────────────────────────────────────────
     // Un periodo SIN trades vale null, no 0%: pintar 0% una semana en la que no
     // se opero diria que se perdio todo, que es lo contrario de lo que paso.
@@ -4158,6 +4143,21 @@ async function loadCurvas(){
         return n? +(g/n*100).toFixed(1) : null; })];
     };
 
+    const peorRacha = d => { let pico=0,dd=0; d.forEach(v=>{ if(v>pico)pico=v; dd=Math.min(dd,v-pico); }); return dd; };
+
+    const series = CMP_DEFS.map(d=>{
+      const suyas = cerradas.filter(d.test);
+      const barras = porPeriodo(suyas);
+      const curva  = aAcumulado(barras);
+      const wins = suyas.filter(t=>t.pnl>0).length;
+      // total/maxDD salen SIEMPRE del acumulado: no dependen de como se este
+      // dibujando el grafico.
+      return { ...d, data: acum ? curva : barras, n:suyas.length,
+               wrData: acum ? wrAcumulado(suyas) : wrPeriodo(suyas),
+               total: curva[curva.length-1],
+               wr: suyas.length? Math.round(wins/suyas.length*100) : null,
+               maxDD: peorRacha(curva), apagada: d.sw ? estado[d.sw]===false : false };
+    });
     const totalBarras = porPeriodo(cerradas);
     const totalCurva  = aAcumulado(totalBarras);
     const totalData   = acum ? totalCurva : totalBarras;
