@@ -121,6 +121,36 @@
           <canvas id="equityChartTradier" height="240"></canvas>
         </div>
       </div>
+
+      <!-- Comparativa de estrategias (2026-08-08) — a pedido del usuario: correr
+           varias en paralelo y ver de un vistazo cual rinde. La curva es P&L
+           REALIZADO acumulado por familia, construida en el cliente desde
+           metrics.strategies (no hace falta endpoint nuevo). -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span>Comparativa de Estrategias <span style="color:var(--muted);font-size:10px;margin-left:6px;">P&amp;L realizado acumulado</span></span>
+          <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="cmp-total" checked onchange="renderComparativa()"> mostrar total
+          </label>
+        </div>
+        <div class="card-body chart-wrap">
+          <canvas id="cmpChart" height="260"></canvas>
+        </div>
+        <div class="card-body" style="padding-top:0;">
+          <div id="cmp-tabla"></div>
+        </div>
+      </div>
+
+      <!-- Interruptores por estrategia -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Encendido por Estrategia
+          <span style="color:var(--muted);font-size:10px;margin-left:6px;">apaga solo la ejecución automática; los monitores de las posiciones abiertas siguen corriendo</span>
+        </div>
+        <div class="card-body" id="cmp-switches">
+          <div class="loader"><div class="spinner"></div></div>
+        </div>
+      </div>
+
       <div class="grid-2b">
         <div class="card">
           <div class="card-header">Posiciones Abiertas</div>
@@ -3785,6 +3815,100 @@ function renderEquityChartTradier(curve, nlvSnapshots, _tipo, _chtype) {
 //  /api/curve-tradier ya devolvia el mismo shape de datos, no hizo falta
 //  tocar el backend.
 // ══════════════════════════════════════════
+// ── Comparativa de estrategias (2026-08-08) ────────────────────────────────
+// Cinco lineas, no cuatro: los dos Iron Condor comparten strategyFamily
+// 'NEUTRAL' pero son estrategias distintas — el 1DTE aguanta el gap overnight,
+// que no tiene monitoreo posible. Se separan por expType.
+const CMP_DEFS = [
+  { id:'TENDENCIA',    label:'Direccional',   color:'#4f8eff', test: s => fam(s)==='TENDENCIA' },
+  { id:'REVERSION',    label:'Reversión',     color:'#c084fc', test: s => fam(s)==='REVERSION' },
+  { id:'NEUTRAL_0DTE', label:'Neutral 0DTE',  color:'#13d68f', test: s => fam(s)==='NEUTRAL' && s.expType!=='1DTE' },
+  { id:'NEUTRAL_1DTE', label:'Neutral 1DTE',  color:'#f0a30a', test: s => fam(s)==='NEUTRAL' && s.expType==='1DTE' },
+  { id:'RUEDA',        label:'La Rueda',      color:'#ff8fa3', test: s => fam(s)==='RUEDA' },
+];
+function fam(s){ return getFamilia(s); }
+
+function renderComparativa(){
+  const m = S.txns?.metrics; if(!m) return;
+  const incluirErrores = !!$('dash-incluir-errores')?.checked;
+  // Mismo criterio que el resto de las hojas: sin pnlPending (P&L no confirmado
+  // por el broker) y respetando el checkbox de errores de implementacion.
+  const cerradas = (m.strategies||[])
+    .filter(s => !s.isOpen && !s.pnlPending && s.closeDate)
+    .filter(s => incluirErrores || !s.flaggedError)
+    .sort((a,b)=>a.closeDate.localeCompare(b.closeDate));
+  if(!cerradas.length){ $('cmp-tabla').innerHTML='<div style="text-align:center;padding:16px;color:var(--muted);">Sin operaciones cerradas todavía</div>'; return; }
+
+  const dias = [...new Set(cerradas.map(s=>s.closeDate))].sort();
+  const series = CMP_DEFS.map(d=>{
+    const suyas = cerradas.filter(d.test);
+    let acc = 0;
+    const porDia = {}; suyas.forEach(s=>{ porDia[s.closeDate]=(porDia[s.closeDate]||0)+s.pnl; });
+    const data = dias.map(f=>{ acc += (porDia[f]||0); return +acc.toFixed(2); });
+    const wins = suyas.filter(s=>s.pnl>0).length;
+    return { ...d, data, n:suyas.length, total:acc,
+             wr: suyas.length? Math.round(wins/suyas.length*100) : null };
+  });
+  let accT=0; const porDiaT={}; cerradas.forEach(s=>{porDiaT[s.closeDate]=(porDiaT[s.closeDate]||0)+s.pnl;});
+  const totalData = dias.map(f=>{ accT += (porDiaT[f]||0); return +accT.toFixed(2); });
+
+  const datasets = series.filter(s=>s.n>0).map(s=>({
+    label:s.label, data:s.data, borderColor:s.color, backgroundColor:s.color,
+    borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:.15, fill:false }));
+  if($('cmp-total')?.checked) datasets.push({
+    label:'TOTAL', data:totalData, borderColor:'#e8edf5', backgroundColor:'#e8edf5',
+    borderWidth:2.5, borderDash:[6,3], pointRadius:0, pointHoverRadius:4, tension:.15, fill:false });
+
+  const ctx=$('cmpChart').getContext('2d');
+  if(S.charts.cmp) S.charts.cmp.destroy();
+  S.charts.cmp=new Chart(ctx,{ type:'line', data:{labels:dias.map(d=>d.slice(5)),datasets},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,boxWidth:8}},
+        tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',
+          callbacks:{label:c=>' '+c.dataset.label+': '+f$(c.parsed.y)}}},
+      scales:{x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:14},grid:{display:false}},
+        y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v)},
+           grid:{color:'rgba(31,36,51,.5)'}}}}});
+
+  $('cmp-tabla').innerHTML = `<table style="width:100%;font-size:11px;"><thead><tr>
+      <th style="text-align:left;">Estrategia</th><th>Trades</th><th>Win rate</th><th>P&amp;L</th><th>Medio</th></tr></thead><tbody>
+    ${series.map(s=>`<tr${s.n?'':' style="opacity:.35"'}>
+      <td class="td-bright"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:6px;"></span>${s.label}</td>
+      <td class="td-mono" style="text-align:center;">${s.n}</td>
+      <td class="td-mono" style="text-align:center;">${s.wr==null?'—':s.wr+'%'}</td>
+      <td class="td-mono ${cc(s.total)}" style="text-align:center;font-weight:700;">${s.n?f$(s.total):'—'}</td>
+      <td class="td-mono" style="text-align:center;">${s.n?f$(s.total/s.n):'—'}</td></tr>`).join('')}
+    <tr style="border-top:1px solid var(--border);font-weight:700;">
+      <td class="td-bright">TOTAL</td><td class="td-mono" style="text-align:center;">${cerradas.length}</td>
+      <td class="td-mono" style="text-align:center;">${Math.round(cerradas.filter(s=>s.pnl>0).length/cerradas.length*100)}%</td>
+      <td class="td-mono ${cc(accT)}" style="text-align:center;">${f$(accT)}</td>
+      <td class="td-mono" style="text-align:center;">${f$(accT/cerradas.length)}</td></tr>
+    </tbody></table>`;
+}
+
+async function loadSwitchesTradier(){
+  try{
+    const r = await api('/api/spx/strategies');
+    const LBL = { DIRECCIONAL:'📈 Direccional', NEUTRAL:'🦅 Neutral (0DTE y 1DTE)', REVERSION:'🔄 Reversión' };
+    $('cmp-switches').innerHTML = Object.entries(r.estrategias).map(([k,on])=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:12px;">${LBL[k]||k}</span>
+        <button onclick="toggleEstrategia('${k}',${!on})"
+          style="border:none;border-radius:5px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;
+                 background:${on?'rgba(19,214,143,.15)':'rgba(240,79,90,.15)'};color:${on?'#13d68f':'#f04f5a'};">
+          ${on?'ENCENDIDA':'PAUSADA'}</button>
+      </div>`).join('')
+      + `<div style="font-size:10px;color:var(--muted);margin-top:8px;">Los dos Iron Condor comparten interruptor: usan el mismo motor. La Rueda tiene el suyo en su propia pestaña.</div>`;
+  }catch(e){ $('cmp-switches').innerHTML=`<div style="color:var(--red);font-size:11px;">Error: ${e.message}</div>`; }
+}
+async function toggleEstrategia(nombre, enabled){
+  if(!confirm(`${enabled?'Encender':'Pausar'} la ejecución automática de ${nombre}?`)) return;
+  try{
+    await api(`/api/spx/strategies/${nombre}`, 'POST', { enabled });   // api(path, method, body)
+    loadSwitchesTradier();
+  }catch(e){ alert('Error: '+e.message); }
+}
+
 async function loadDashboardTradier() {
   try {
     const [bp, curveData, txData, posData] = await Promise.all([
@@ -3891,6 +4015,11 @@ async function loadDashboardTradier() {
         </div>
         <div class="${cc(s.pnl)} td-mono" style="font-size:12px;">${f$(s.pnl)}</div>
       </div>`).join('') : '<div class="dim" style="font-size:12px;">Sin operaciones recientes</div>';
+
+    // Comparativa de estrategias e interruptores (2026-08-08). Van en su propio
+    // try: si algo falla aca, el resto del Dashboard ya se pinto y no se pierde.
+    try { renderComparativa(); } catch(e) { console.error('renderComparativa:', e); }
+    loadSwitchesTradier();
   } catch(e) {
     console.error('loadDashboardTradier error:', e);
     $('dash-kpis').innerHTML = `<div class="error-box">Error: ${e.message}</div>`;

@@ -4526,6 +4526,40 @@ app.post('/api/spx/config', (req, res) => {
 // solo acepta `{enabled: true|false}`. No toca posiciones ya abiertas (esas
 // siguen protegidas por sus propios monitores de TP/SL) — solo bloquea
 // entradas nuevas.
+// Encendido/apagado INDIVIDUAL por estrategia (2026-08-08). El boton de panico
+// mueve las tres a la vez, que es lo correcto para una emergencia; esto es para
+// lo otro: correr varias en paralelo y ir apagando la que no rinde.
+// Los tres kill-switches ya existian, solo faltaba una superficie para tocarlos
+// de a uno sin pasar por POST /api/spx/config, que hace merge superficial y
+// puede borrar el resto del objeto `trading` si se manda incompleto.
+const KILL_SWITCH = {
+  DIRECCIONAL: cfg => cfg.trading,
+  NEUTRAL:     cfg => cfg.trading.ironCondor,      // cubre 0DTE y 1DTE (comparten motor)
+  REVERSION:   cfg => cfg.trading.smaReversion,
+};
+app.get('/api/spx/strategies', (req, res) => {
+  const cfg = loadSPXConfig();
+  const out = {};
+  for (const [k, sel] of Object.entries(KILL_SWITCH)) {
+    const o = sel(cfg) || {};
+    out[k] = o.tradierAutoExecute !== false;       // ausente = habilitado
+  }
+  res.json({ ok: true, estrategias: out });
+});
+app.post('/api/spx/strategies/:nombre', (req, res) => {
+  const nombre = String(req.params.nombre || '').toUpperCase();
+  const { enabled } = req.body || {};
+  if (!KILL_SWITCH[nombre]) return res.status(404).json({ error: `estrategia desconocida: ${nombre}` });
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled debe ser true o false' });
+  const cfg = loadSPXConfig();
+  const destino = KILL_SWITCH[nombre](cfg);
+  if (!destino) return res.status(500).json({ error: `no existe el bloque de config de ${nombre}` });
+  destino.tradierAutoExecute = enabled;
+  saveSPXConfig(cfg);
+  console.log(`[SPX] ${nombre}: ejecución automática ${enabled ? 'ACTIVADA' : 'PAUSADA'}`);
+  res.json({ ok: true, estrategia: nombre, enabled });
+});
+
 app.post('/api/spx/panic', (req, res) => {
   const { enabled } = req.body || {};
   if (typeof enabled !== 'boolean') {

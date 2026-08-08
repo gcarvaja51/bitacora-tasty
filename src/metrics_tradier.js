@@ -114,6 +114,10 @@ function mapSpxExecution(ex) {
     entryFillPrice:   ex.entryFillPrice ?? null,
     desc:             ex.strategyFamily ? `${ex.strategyFamily} · ${ex.direction || ''}`.trim() : null,
     strategyFamily:   ex.strategyFamily || null,
+    // 0DTE / 1DTE. Los dos Iron Condor comparten strategyFamily 'NEUTRAL' pero
+    // son estrategias distintas — el 1DTE aguanta el gap overnight, que no tiene
+    // monitoreo posible. Sin este campo no se pueden separar en la curva.
+    expType:          ex.expType || null,
     stratType:        ex.strategy || 'Otro',
     openValue:        +openValue.toFixed(2),
     closeValue,
