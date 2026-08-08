@@ -732,7 +732,7 @@
 
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-          <span>P&amp;L realizado acumulado <span class="dim" style="font-weight:400;">· todas las estrategias, mismo eje</span></span>
+          <span>P&amp;L realizado acumulado <span class="dim" id="curv-subtitulo" style="font-weight:400;">· todas las estrategias, mismo eje</span></span>
           <span class="dim" style="font-size:10px;font-weight:400;">clic en la leyenda para ocultar una línea</span>
         </div>
         <div class="card-body chart-wrap" style="height:430px;min-height:430px;">
@@ -4096,6 +4096,10 @@ async function loadCurvas(){
       : `${cerradas.length} trades \u00b7 <b class="${cc(total)}">${f$(total)}</b>`
         + `<span class="dim"> \u00b7 peor racha ${f$(peorRacha(totalData))}</span>`;
 
+    const sub = $('curv-subtitulo');
+    if(sub) sub.textContent = foco
+      ? '· solo ' + foco.label + ', eje ajustado a su escala'
+      : '· todas las estrategias, mismo eje';
     $('curv-focos').innerHTML =
       `<button onclick="setCurvFoco(null)" style="border:1px solid ${curvFoco?'var(--border)':'#4e5a70'};border-radius:6px;
         padding:4px 12px;font-size:11px;cursor:pointer;background:${curvFoco?'transparent':'rgba(232,237,245,.08)'};
