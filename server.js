@@ -4240,7 +4240,13 @@ const SPX_CONFIG_DEFAULTS = {
       spreadWidth: 5,           // 10 -> 5 (2026-08-08, decision del usuario): riesgo maximo $500/contrato
                                 // en vez de $1000. Ojo: el ancho tambien es el denominador del gate
                                 // credito/ancho, ver minCreditoAnchoPct abajo.
-      tpPct:       25,          // 25-40% del credito — cerrar al 25% eleva la prob. de exito a 94%
+      tpPct:       30,          // 25 -> 30 (2026-08-08, decision del usuario). Mismo TP que ya usa
+                                // el direccional de credito (trading.tpPct), asi el sistema queda
+                                // coherente. Barrido sobre las 3 señales del backtest: 25%->+$62,
+                                // 30%->+$75, 35%->+$86, 40%->+$82 (a partir de 40 el objetivo no se
+                                // alcanza dentro de los 90 min y corta el stop de tiempo). NO se
+                                // eligio el maximo (35): optimizar sobre 3 observaciones es como se
+                                // construye un backtest que despues no funciona.
       slMult:      1.5,         // 1.5x o 2x el credito recibido
       gammaFlipBufferPts: 20,   // no operar si el precio esta a menos de esto del Gamma Flip
       tradierAutoExecute: true, // kill-switch propio del IC, separado del de las direccionales
