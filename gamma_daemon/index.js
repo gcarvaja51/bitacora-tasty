@@ -12,16 +12,37 @@ import path from 'path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATUS_PATH = path.join(__dirname, 'status.json');
 const HISTORY_PATH = path.join(__dirname, 'history.json');
-const HISTORY_CAP = 20; // sobra para "3 ciclos atras" (~6 min); ~40 min de margen total
+// Con el ciclo en 30s hacen falta ~12 entradas para cubrir los 6 min que mira
+// la tabla del indicador; 60 deja ~30 min de margen.
+const HISTORY_CAP = 60;
+const LOOKBACK_MS = 6 * 60 * 1000;   // "hace ~6 min" de la tabla de GEX/DEX/Vanna
 
 const PROD_BASE = 'https://web-production-23473.up.railway.app';
 const NTFY_TOPIC = 'bitacora_gcarvaja51'; // mismo topic que ya usa server.js
 
-const CYCLE_MS_NORMAL = 2 * 60 * 1000;
-const CYCLE_MS_DEGRADED = 5 * 60 * 1000;
-const FAILURE_THRESHOLD = 3; // ~ 6 min en modo normal antes de alertar
+// Ciclo de PRECIO: 30s desde el 2026-08-08. Antes eran 2 min, y esa cadencia
+// era la unica fuente de atraso que le quedaba al sistema una vez que Sigma paso
+// a ser la fuente por defecto del spot — el dato de Sigma cambia en el 99% de
+// las lecturas, o sea que se actualiza mas rapido de lo que se le preguntaba.
+// Medido sobre el 07-ago: con ciclo de 2 min el precio llegaba con ~60s de
+// antiguedad tipica y ~0.63 pts de desvio; a 30s eso baja a ~15s y ~0.16 pts.
+// Un ciclo cuesta ~3s (la pagina de Sigma se mantiene abierta, solo se lee el
+// DOM), asi que 30s es holgado.
+const CYCLE_MS_NORMAL = 30 * 1000;
+const CYCLE_MS_DEGRADED = 2 * 60 * 1000;   // al degradarse vuelve a la cadencia vieja
 
-let consecutiveFailures = 0;
+// El push a TradingView NO sigue el ciclo de precio: se queda en 2 min. Si el
+// push falla, pushToTradingViewWithRetry MATA Y RELANZA TradingView — a 30s eso
+// cuadruplicaria los relanzamientos, y dejar al usuario sin poder operar es
+// justo el incidente que este daemon ya provoco el 2026-08-06. El grafico es
+// una ayuda visual; el que decide es el servidor.
+const TV_PUSH_EVERY_MS = 2 * 60 * 1000;
+const FAILURE_THRESHOLD = 3;
+
+let consecutiveFailures = 0;   // fallos que dejan al SERVIDOR sin precio (Sigma o POST)
+let tvFailures = 0;            // fallos del push a TradingView — solo afectan al grafico
+let tvAlerted = false;
+let lastTvPushAt = 0;
 let alerted = false;
 let mode = 'normal';
 let stopped = false;
@@ -57,7 +78,14 @@ function loadHistory() {
 // ninguna comparacion.
 function recordAndGetPrevious(levels) {
   const history = loadHistory();
-  const prevEntry = history[2] || history[history.length - 1] || null;
+  // Antes era history[2] — "3 ciclos atras", que con el ciclo de 2 min daban
+  // los ~6 min que rotula la tabla del indicador. Con el ciclo en 30s esa
+  // cuenta posicional pasaria a ser 90s y la tabla mentiria. Ahora se busca por
+  // TIEMPO: la lectura mas reciente con al menos LOOKBACK_MS de antiguedad, y
+  // si el historial no llega tan atras, la mas vieja que haya.
+  const corte = Date.now() - LOOKBACK_MS;
+  const prevEntry = history.find(h => h.ts && new Date(h.ts).getTime() <= corte)
+    || history[history.length - 1] || null;
 
   const updated = [{ ts: new Date().toISOString(), netGex: levels.netGex, netDex: levels.netDex, netVanna: levels.netVanna }, ...history].slice(0, HISTORY_CAP);
   writeFileSync(HISTORY_PATH, JSON.stringify(updated, null, 2));
@@ -136,26 +164,12 @@ async function runCycle() {
     const levels = await sigma.readLevels();
     const prev = recordAndGetPrevious(levels);
 
-    const tvInputs = {
-      in_20: true,
-      in_21: levels.callWall,
-      in_22: levels.putWall,
-      in_23: levels.gammaFlip,
-      in_24: levels.mvs,
-      in_25: levels.netGex,
-      in_26: prev.netGex,
-      in_27: levels.netDex,
-      in_28: prev.netDex,
-      in_29: levels.netVanna,
-      in_30: prev.netVanna,
-    };
-
-    const tvWindows = await pushToTradingViewWithRetry(tvInputs);
-    const anyPaneUpdated = tvWindows.some((w) => w.results?.some((r) => r.updated));
-    if (!anyPaneUpdated) {
-      throw new Error(`Ninguna ventana/pane de TradingView se actualizo: ${JSON.stringify(tvWindows)}`);
-    }
-
+    // EL SERVIDOR VA PRIMERO. Antes el POST estaba DESPUES del push a
+    // TradingView, y un push fallido lanzaba excepcion antes de llegar aca: con
+    // TradingView cerrado o sin SPX cargado, el servidor se quedaba sin precio
+    // aunque Sigma se hubiera leido perfecto. Mientras Sigma era solo una
+    // referencia de muros eso era molesto; desde que es la fuente por defecto
+    // del spot, un problema del GRAFICO dejaria ciego al sistema que OPERA.
     await postSigmaLevels(levels);
 
     const wasDegraded = mode === 'degraded';
@@ -174,6 +188,49 @@ async function runCycle() {
         title: 'Gamma daemon: recuperado',
       });
       alerted = false;
+    }
+
+    // TradingView, en su propia cadencia (2 min) y en su propio try: aunque
+    // falle, el precio ya se entrego. Un problema del grafico no puede volver a
+    // dejar sin dato al servidor.
+    if (Date.now() - lastTvPushAt >= TV_PUSH_EVERY_MS) {
+      lastTvPushAt = Date.now();
+      try {
+        const tvWindows = await pushToTradingViewWithRetry({
+          in_20: true,
+          in_21: levels.callWall,
+          in_22: levels.putWall,
+          in_23: levels.gammaFlip,
+          in_24: levels.mvs,
+          in_25: levels.netGex,
+          in_26: prev.netGex,
+          in_27: levels.netDex,
+          in_28: prev.netDex,
+          in_29: levels.netVanna,
+          in_30: prev.netVanna,
+        });
+        const anyPaneUpdated = tvWindows.some((w) => w.results?.some((r) => r.updated));
+        if (!anyPaneUpdated) {
+          throw new Error(`Ninguna ventana/pane de TradingView se actualizo: ${JSON.stringify(tvWindows)}`);
+        }
+        if (tvAlerted) {
+          await ntfy('El push a TradingView volvio a funcionar.', { title: 'Gamma daemon: TradingView recuperado' });
+          tvAlerted = false;
+        }
+        tvFailures = 0;
+        saveStatus({ lastTvPushAt: new Date().toISOString(), tvFailures: 0 });
+      } catch (tvErr) {
+        tvFailures += 1;
+        saveStatus({ tvFailures, lastTvError: tvErr.message });
+        console.error(`[tv] fallo #${tvFailures}:`, tvErr.message);
+        if (tvFailures >= FAILURE_THRESHOLD && !tvAlerted) {
+          tvAlerted = true;
+          await ntfy(
+            `El push a TradingView lleva ${tvFailures} fallos seguidos (${tvErr.message}). Los muros del grafico estan congelados, pero el servidor SIGUE recibiendo el precio de Sigma.`,
+            { title: '⚠️ Gamma daemon: TradingView no actualiza', priority: 'high' }
+          );
+        }
+      }
     }
   } catch (e) {
     consecutiveFailures += 1;
