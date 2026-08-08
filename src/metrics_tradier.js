@@ -131,6 +131,7 @@ function mapSpxExecution(ex) {
     win:              pnlPending ? null : ex.pnl > 0,
     flaggedError:     !!ex.flaggedError,
     flaggedErrorNote: ex.flaggedErrorNote || null,
+    flaggedAt:        ex.flaggedAt || null,
   };
 }
 
@@ -258,6 +259,7 @@ function mapWheelExecution(ex) {
     win:              pnlPending ? null : pnl > 0,
     flaggedError:     !!ex.flaggedError,
     flaggedErrorNote: ex.flaggedErrorNote || null,
+    flaggedAt:        ex.flaggedAt || null,
   };
 }
 

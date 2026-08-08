@@ -1541,7 +1541,16 @@ const CIERRE_LABELS = {
 async function toggleTradeError(key, currentlyFlagged, stratType) {
   let note = '';
   if (!currentlyFlagged) {
-    note = prompt('Nota breve (opcional) — ¿qué bug/error causó este resultado?', '') || '';
+    // La nota era opcional y quedo al menos un marcado sin justificar (2026-07-31),
+    // imposible de auditar despues. Un trade excluido del analisis sin razon
+    // escrita es peor que no excluirlo: cambia los numeros y nadie sabe por que.
+    while (true) {
+      const r = prompt('¿Qué bug/error de implementación causó este resultado?\n\nEs obligatorio: sin la razón escrita, este trade sale del análisis sin que nadie pueda saber por qué.', note);
+      if (r === null) return;
+      note = r.trim();
+      if (note.length >= 10) break;
+      alert('Escribí la razón (al menos 10 caracteres) o cancelá.');
+    }
   } else if (!confirm('¿Desmarcar esta estrategia como error de implementación?')) {
     return;
   }
@@ -3113,7 +3122,7 @@ async function loadReportsTradier(forceRefresh) {
         const esLocal = s.key && !s.key.startsWith('broker-');
         const errorBtn = !esLocal ? `<span class="dim" style="font-size:10px;">—</span>`
           : s.flaggedError
-          ? `<button onclick="toggleTradeError('${s.key}', true, '${s.stratType}')" title="${(s.flaggedErrorNote||'').replace(/"/g,'&quot;')} — clic para desmarcar" style="background:rgba(240,79,90,.15);border:1px solid rgba(240,79,90,.4);color:var(--red);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🐛 Error</button>`
+          ? `<button onclick="toggleTradeError('${s.key}', true, '${s.stratType}')" title="${((s.flaggedErrorNote||'sin nota') + (s.flaggedAt?` (marcado ${s.flaggedAt.slice(0,10)})`:' (sin fecha de marcado)')).replace(/"/g,'&quot;')} — clic para desmarcar" style="background:rgba(240,79,90,.15);border:1px solid rgba(240,79,90,.4);color:var(--red);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">🐛 Error</button>`
           : `<button onclick="toggleTradeError('${s.key}', false, '${s.stratType}')" title="Marcar como bug/error de implementación" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 9px;font-size:10px;cursor:pointer;">🐛</button>`;
         return `<tr>
       <td class="td-mono dim">${s.openDate||'—'}</td>

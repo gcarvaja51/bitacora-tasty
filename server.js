@@ -3990,6 +3990,25 @@ app.post('/api/wheel-trading/executions/check-expiry', async (req, res) => {
   }
 });
 
+// Sella cuando se marca un trade como error de implementacion.
+//
+// 2026-08-08: Guillermo pregunto si habia marcado algo esta semana y no habia
+// forma de responderlo mirando el dato — el patch hacia un merge superficial y
+// no dejaba rastro de cuando. Habia ademas un marcado del 2026-07-31 con la nota
+// vacia, imposible de justificar despues.
+//
+// Solo sella la TRANSICION a marcado: editar la nota de un marcado viejo no le
+// pone fecha de hoy, que seria una fecha falsa. Si el body trae flaggedAt
+// explicito, se respeta (sirve para reconstruir marcados historicos).
+function sellarFlag(previo, body) {
+  const parche = { ...body };
+  if (body.flaggedError === true && !previo.flaggedError && !body.flaggedAt) {
+    parche.flaggedAt = new Date().toISOString();
+  }
+  if (body.flaggedError === false) parche.flaggedAt = null;
+  return parche;
+}
+
 // POST /api/wheel-trading/executions/:id/patch — correccion/flag manual puntual de un
 // registro existente (mismo patron que POST /api/tradier/executions/:id/patch de SPX).
 // Uso principal hoy: marcar neverAssign=true en una posicion (ver checkWheelPutManagementImpl)
@@ -4000,7 +4019,7 @@ app.post('/api/wheel-trading/executions/:id/patch', async (req, res) => {
     const executions = loadWheelTradingExecutions();
     const idx = executions.findIndex(e => e.id === req.params.id);
     if (idx === -1) return { ok: false, error: 'not_found' };
-    executions[idx] = { ...executions[idx], ...req.body };
+    executions[idx] = { ...executions[idx], ...sellarFlag(executions[idx], req.body) };
     saveWheelTradingExecutions(executions);
     return { ok: true, execution: executions[idx] };
   });
@@ -7694,7 +7713,7 @@ app.post('/api/tradier/executions/:id/patch', async (req, res) => {
     const executions = loadTradierExecutions();
     const idx = executions.findIndex(e => e.id === req.params.id);
     if (idx === -1) return { ok: false, error: 'not_found' };
-    executions[idx] = { ...executions[idx], ...req.body };
+    executions[idx] = { ...executions[idx], ...sellarFlag(executions[idx], req.body) };
     saveTradierExecutions(executions);
     return { ok: true, execution: executions[idx] };
   });
