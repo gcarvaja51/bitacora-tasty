@@ -4381,12 +4381,19 @@ function loadSPXConfig() {
     // Setup por PIN (2026-08-08). Migracion no-destructiva, mismo patron: solo
     // agrega las claves nuevas si no estan, sin tocar lo que ya haya guardado en
     // el volumen de produccion (que es el que manda, no los defaults del codigo).
-    if (saved?.trading?.ironCondor && saved.trading.ironCondor.pinMaxDistPts === undefined) {
-      console.log('[SPX] Sumando parámetros del setup por PIN a ironCondor (no existían)');
-      for (const k of ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'minVidaMin', 'minShortDistPts', 'maxHoldMin']) {
-        saved.trading.ironCondor[k] = SPX_CONFIG_DEFAULTS.trading.ironCondor[k];
+    // Guard POR CLAVE, no por una sola centinela. Con `if (pinMaxDistPts ===
+    // undefined)` el bloque solo corria la primera vez: al agregar despues
+    // minVidaMin, la centinela ya existia y la clave nueva nunca entraba al
+    // volumen (el codigo caia a su default con ?? y nadie se enteraba). Mismo
+    // tipo de fallo silencioso que el ATR: funciona, pero no es lo que dice.
+    if (saved?.trading?.ironCondor) {
+      const faltan = ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'minVidaMin', 'minShortDistPts', 'maxHoldMin']
+        .filter(k => saved.trading.ironCondor[k] === undefined);
+      if (faltan.length) {
+        console.log(`[SPX] Sumando a ironCondor claves que faltaban: ${faltan.join(', ')}`);
+        faltan.forEach(k => { saved.trading.ironCondor[k] = SPX_CONFIG_DEFAULTS.trading.ironCondor[k]; });
+        saveSPXConfig(saved);
       }
-      saveSPXConfig(saved);
     }
     // Suma los parametros de debito (Bull Call/Bear Put) si no existen todavia.
     if (saved?.trading && saved.trading.debit === undefined) {
