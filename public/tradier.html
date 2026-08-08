@@ -734,7 +734,7 @@
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
           <span><span id="curv-titulo">P&amp;L realizado acumulado</span> <span class="dim" id="curv-subtitulo" style="font-weight:400;">· todas las estrategias, mismo eje</span></span>
-          <span class="dim" style="font-size:10px;font-weight:400;">clic en la leyenda para ocultar una línea</span>
+          <span class="dim" style="font-size:10px;font-weight:400;">clic en la leyenda: oculta la línea en los dos gráficos</span>
         </div>
         <div class="card-body chart-wrap" style="height:430px;min-height:430px;">
           <canvas id="curvChart"></canvas>
@@ -744,7 +744,7 @@
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
           <span><span id="curvwr-titulo">Win rate acumulado</span> <span class="dim" id="curvwr-subtitulo" style="font-weight:400;"></span></span>
-          <span class="dim" style="font-size:10px;font-weight:400;">mismos filtros que el gráfico de arriba</span>
+          <span class="dim" style="font-size:10px;font-weight:400;">mismos filtros, mismo eje y misma leyenda que el gráfico de arriba</span>
         </div>
         <div class="card-body chart-wrap" style="height:290px;min-height:290px;">
           <canvas id="curvWrChart"></canvas>
@@ -4072,6 +4072,25 @@ let curvPeriodo = 'dia', curvTipo = 'line', curvModo = 'acum';
 function setCurvOpt(k,v){ ({periodo:()=>curvPeriodo=v, tipo:()=>curvTipo=v, modo:()=>curvModo=v})[k](); loadCurvas(); }
 
 const CURV_ROJO = '#f04f5a';
+
+// Los dos graficos de Curvas son la misma pregunta mirada de dos formas: plata y
+// win rate de las MISMAS estrategias. Los selectores de arriba ya gobernaban a
+// los dos, pero la leyenda no: ocultar Direccional en el de plata la dejaba
+// visible en el de win rate, y entonces los ejes de los dos dejaban de
+// corresponderse. Este toggle los mueve juntos.
+function curvToggleSerie(label){
+  const graficos = [S.charts.curvas, S.charts.curvasWr].filter(Boolean);
+  // El estado se lee del grafico que TIENE esa serie: la linea de objetivo solo
+  // existe en el de win rate.
+  const ref = graficos.find(g => g.data.datasets.some(d => d.label === label));
+  if(!ref) return;
+  const visible = !ref.isDatasetVisible(ref.data.datasets.findIndex(d => d.label === label));
+  graficos.forEach(g => {
+    let toco = false;
+    g.data.datasets.forEach((d,i) => { if(d.label === label){ g.setDatasetVisibility(i, visible); toco = true; } });
+    if(toco) g.update();
+  });
+}
 // Lunes de la semana ISO de una fecha, para agrupar por semana. Mediodia UTC
 // para que ningun huso empuje la fecha al dia anterior.
 function lunesDe(iso){ const d=new Date(iso+'T12:00:00Z'); const dow=(d.getUTCDay()+6)%7;
@@ -4165,11 +4184,15 @@ async function loadCurvas(){
     const total = totalCurva[totalCurva.length-1];
 
     const foco = curvFoco ? series.find(x=>x.id===curvFoco) : null;
+    // El encabezado cubre lo que muestran los DOS graficos: plata y win rate.
+    const wrTotal = Math.round(cerradas.filter(t=>t.pnl>0).length / cerradas.length * 100);
+    const chipWr = v => v==null ? '' :
+      ` \u00b7 <b class="${v>=55?'pos':'neg'}">${v}%</b><span class="dim"> WR</span>`;
     $('curv-kpi').innerHTML = foco
       ? `<span style="color:${foco.color};">${foco.label}</span> \u00b7 ${foco.n} trades \u00b7 `
-        + `<b class="${cc(foco.total)}">${f$(foco.total)}</b>`
+        + `<b class="${cc(foco.total)}">${f$(foco.total)}</b>` + chipWr(foco.wr)
         + `<span class="dim"> \u00b7 peor racha ${f$(foco.maxDD)}</span>`
-      : `${cerradas.length} trades \u00b7 <b class="${cc(total)}">${f$(total)}</b>`
+      : `${cerradas.length} trades \u00b7 <b class="${cc(total)}">${f$(total)}</b>` + chipWr(wrTotal)
         + `<span class="dim"> \u00b7 peor racha ${f$(peorRacha(totalCurva))}</span>`;
 
     // El titulo lleva el modo y el periodo; el subtitulo, solo el foco. Antes el
@@ -4249,7 +4272,8 @@ async function loadCurvas(){
       options:{ responsive:true, maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{
-          legend:{ labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,pointStyle:esBarra?'rect':'line',boxWidth:esBarra?12:22,padding:14} },
+          legend:{ onClick:(e,item)=>curvToggleSerie(item.text),
+            labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,pointStyle:esBarra?'rect':'line',boxWidth:esBarra?12:22,padding:14} },
           tooltip:{ backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
             bodyColor:'#c9d3e0', titleColor:'#8a96a8',
             itemSort:(a,b)=>b.parsed.y-a.parsed.y,
@@ -4315,7 +4339,8 @@ async function loadCurvas(){
         options:{ responsive:true, maintainAspectRatio:false,
           interaction:{mode:'index',intersect:false},
           plugins:{
-            legend:{ labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,pointStyle:esBarra?'rect':'line',boxWidth:esBarra?12:22,padding:14} },
+            legend:{ onClick:(e,item)=>curvToggleSerie(item.text),
+              labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,pointStyle:esBarra?'rect':'line',boxWidth:esBarra?12:22,padding:14} },
             tooltip:{ backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
               bodyColor:'#c9d3e0', titleColor:'#8a96a8',
               itemSort:(a,b)=>(b.parsed.y??-1)-(a.parsed.y??-1),
