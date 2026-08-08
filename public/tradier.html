@@ -3887,7 +3887,7 @@ async function loadRendimiento(){
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:false},tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}}},
         scales:{x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:12},grid:{display:false}},
-          y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.5)'}}}}});
+          y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:6,callback:v=>'$'+Math.round(v).toLocaleString('en-US')},grid:{color:'rgba(31,36,51,.5)'}}}}});
 
     // ── Una fila por estrategia ──
     const series = CMP_DEFS.map(d=>{
@@ -3934,7 +3934,7 @@ async function loadRendimiento(){
         options:{responsive:true,maintainAspectRatio:false,
           plugins:{legend:{display:false},tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}}},
           scales:{x:{display:ultima,ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},maxTicksLimit:10},grid:{display:false}},
-            y:{...(norm?{min:gMin,max:gMax}:{}),ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},maxTicksLimit:3,callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.4)'}}}}});
+            y:{...(norm?{min:gMin,max:gMax}:{}),ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},maxTicksLimit:4,callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.4)'}}}}});
     });
 
     const tot = cerradas.reduce((a,s)=>a+s.pnl,0);
