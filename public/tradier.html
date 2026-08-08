@@ -742,6 +742,16 @@
       </div>
 
       <div class="card" style="margin-bottom:14px;">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span><span id="curvwr-titulo">Win rate acumulado</span> <span class="dim" id="curvwr-subtitulo" style="font-weight:400;"></span></span>
+          <span class="dim" style="font-size:10px;font-weight:400;">mismos filtros que el gráfico de arriba</span>
+        </div>
+        <div class="card-body chart-wrap" style="height:290px;min-height:290px;">
+          <canvas id="curvWrChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
         <div class="card-header">Motor de ejecución <span class="dim" style="font-weight:400;">· apaga la estrategia en el servidor, no solo en el gráfico</span></div>
         <div class="card-body" id="curv-switches" style="display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;"></div>
       </div>
@@ -4123,13 +4133,35 @@ async function loadCurvas(){
       // total/maxDD salen SIEMPRE del acumulado: no dependen de como se este
       // dibujando el grafico.
       return { ...d, data: acum ? curva : barras, n:suyas.length,
+               wrData: acum ? wrAcumulado(suyas) : wrPeriodo(suyas),
                total: curva[curva.length-1],
                wr: suyas.length? Math.round(wins/suyas.length*100) : null,
                maxDD: peorRacha(curva), apagada: d.sw ? estado[d.sw]===false : false };
     });
+    // ── Win rate ──────────────────────────────────────────────────────────
+    // Un periodo SIN trades vale null, no 0%: pintar 0% una semana en la que no
+    // se opero diria que se perdio todo, que es lo contrario de lo que paso.
+    // Chart.js corta la linea en null; spanGaps la vuelve a unir.
+    const wrPeriodo = trades => {
+      const por={}; trades.forEach(t=>{ const k=cubo(t.closeDate); (por[k]=por[k]||[]).push(t); });
+      return claves.map(k=>{ const t=por[k]; if(!t||!t.length) return null;
+        return +(t.filter(x=>x.pnl>0).length / t.length * 100).toFixed(1); });
+    };
+    // Acumulado = win rate de todo lo cerrado HASTA esa fecha, no el del periodo.
+    // Arranca en null (antes del primer trade no hay win rate que mostrar) y por
+    // eso lleva el mismo punto ancla que la curva de plata, tambien en null.
+    const wrAcumulado = trades => {
+      const por={}; trades.forEach(t=>{ const k=cubo(t.closeDate); (por[k]=por[k]||[]).push(t); });
+      let n=0, g=0;
+      return [null, ...claves.map(k=>{ const t=por[k]||[];
+        n+=t.length; g+=t.filter(x=>x.pnl>0).length;
+        return n? +(g/n*100).toFixed(1) : null; })];
+    };
+
     const totalBarras = porPeriodo(cerradas);
     const totalCurva  = aAcumulado(totalBarras);
     const totalData   = acum ? totalCurva : totalBarras;
+    const totalWr     = acum ? wrAcumulado(cerradas) : wrPeriodo(cerradas);
     const total = totalCurva[totalCurva.length-1];
 
     const foco = curvFoco ? series.find(x=>x.id===curvFoco) : null;
@@ -4151,6 +4183,15 @@ async function loadCurvas(){
     if(sub) sub.textContent = foco
       ? '\u00b7 solo ' + foco.label + ', eje ajustado a su escala'
       : '\u00b7 todas las estrategias, mismo eje';
+
+    const titW = $('curvwr-titulo');
+    if(titW) titW.textContent = acum
+      ? 'Win rate acumulado'
+      : 'Win rate por ' + (semanal ? 'semana' : 'día');
+    const subW = $('curvwr-subtitulo');
+    if(subW) subW.textContent = foco
+      ? '· solo ' + foco.label + ' · referencia 55%'
+      : '· referencia 55% (el mismo umbral del KPI del Dashboard)';
 
     $('curv-controles').innerHTML =
         curvGrupoBtns('periodo', curvPeriodo, [['dia','Diario'],['semana','Semanal']])
@@ -4213,6 +4254,59 @@ async function loadCurvas(){
           y:{ grace:'8%',
               ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v).toLocaleString('en-US')},
               grid:{ color:c=>Math.abs(c.tick.value)<1e-9?'rgba(78,90,112,.55)':'rgba(31,36,51,.5)' } } } } });
+
+    // ── Grafico de win rate ───────────────────────────────────────────────
+    // Mismo esquema que el de plata pero el umbral no es cero, es 55%: es el
+    // benchmark que ya usa el KPI del Dashboard. Por debajo se pinta rojo.
+    const OBJETIVO_WR = 55;
+    const bajoObj = v => v != null && v < OBJETIVO_WR;
+    const pintarWr = (color, grueso, foc) => esBarra
+      ? { backgroundColor: c => bajoObj(c.parsed?.y) ? CURV_ROJO : color,
+          borderColor: c => bajoObj(c.parsed?.y) ? CURV_ROJO : color,
+          borderWidth: 0, borderRadius: 2 }
+      : { borderColor: color, borderWidth: grueso, pointRadius: 0, pointHoverRadius: 5,
+          tension: .15, spanGaps: true,
+          segment: { borderColor: c => (bajoObj(c.p0.parsed.y) || bajoObj(c.p1.parsed.y)) ? CURV_ROJO : color },
+          fill: foc ? { target:{value:OBJETIVO_WR}, above: hexA(color,.10), below: hexA(CURV_ROJO,.14) } : false,
+          backgroundColor: hexA(color,.06) };
+
+    const dsWr = series.filter(x=>x.n>0).map(x=>({
+      label: x.label + (x.apagada?' (pausada)':''),
+      data: x.wrData, type: curvTipo, order:2,
+      ...pintarWr(x.color, curvFoco===x.id?2.5:2, curvFoco===x.id),
+      ...(esBarra?{}:{ borderDash: x.apagada?[5,4]:[] }),
+      hidden: !!curvFoco && curvFoco!==x.id }));
+
+    if($('curv-total')?.checked) dsWr.push({
+      label:'TOTAL', data: totalWr, type: curvTipo, order:1,
+      ...pintarWr('#e8edf5', 4, !esBarra),
+      hidden: !!curvFoco });
+
+    // Linea de referencia. Va como dataset y no como gridline porque 55 no cae
+    // en ninguna marca del eje, y asi ademas queda rotulada en la leyenda.
+    dsWr.push({ label:'objetivo ' + OBJETIVO_WR + '%', type:'line',
+      data: etiquetas.map(()=>OBJETIVO_WR), borderColor:'#5c6880', borderWidth:1,
+      borderDash:[5,4], pointRadius:0, pointHoverRadius:0, fill:false, order:0 });
+
+    const elW = $('curvWrChart');
+    if(elW){
+      if(S.charts.curvasWr) S.charts.curvasWr.destroy();
+      S.charts.curvasWr = new Chart(elW.getContext('2d'),{ type: curvTipo,
+        data:{ labels: etiquetas, datasets: dsWr },
+        options:{ responsive:true, maintainAspectRatio:false,
+          interaction:{mode:'index',intersect:false},
+          plugins:{
+            legend:{ labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,pointStyle:esBarra?'rect':'line',boxWidth:esBarra?12:22,padding:14} },
+            tooltip:{ backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
+              bodyColor:'#c9d3e0', titleColor:'#8a96a8',
+              itemSort:(a,b)=>(b.parsed.y??-1)-(a.parsed.y??-1),
+              callbacks:{ label:c=>c.parsed.y==null?null:' '+c.dataset.label+': '+c.parsed.y+'%' } } },
+          scales:{
+            x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:14}, grid:{display:false} },
+            y:{ min:0, max:100,
+                ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},stepSize:25,callback:v=>v+'%'},
+                grid:{ color:'rgba(31,36,51,.5)' } } } } });
+    }
 
     $('curv-switches').innerHTML = series.map(s=>`
       <span style="display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:7px;padding:5px 10px;${s.n?'':'opacity:.45'}">
