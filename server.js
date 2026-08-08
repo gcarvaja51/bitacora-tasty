@@ -1426,6 +1426,68 @@ function avisarSpotNoFiable(quien, spot) {
   }
 }
 
+// Sigma Terminal es la fuente POR DEFECTO desde el 2026-08-08, por decisión
+// explícita del usuario: es el dato que paga, y medido contra las velas reales
+// del 07-ago da 1 min de desfase y 0.33 pts de error mediano — practicamente
+// tiempo real, muy por encima de los 16 min / 5.10 pts del sandbox de Tradier.
+//
+// Dos ventajas que no son obvias:
+//   · No cuesta ninguna llamada de red. El dato ya esta en el servidor, lo
+//     empuja el daemon cada 2 min (POST /api/spx/sigma-levels).
+//   · El precio queda COHERENTE con los muros. callWall/putWall/gammaFlip que
+//     usan las estrategias salen de Sigma; tomar el spot de otra fuente hacia
+//     que "distancia al muro" mezclara dos mediciones distintas.
+//
+// Su limite es la CADENCIA, no la exactitud: entre push y push el valor
+// envejece. Medido el 07-ago: mediana 123s entre lecturas, maximo 317s. Por eso
+// el umbral propio de 180s — cubre el ciclo normal y descarta los huecos, donde
+// Yahoo (segundos) pasa a ser mejor. Y si el daemon se cae, Sigma desaparece
+// sola y el plan B entra sin que nadie tenga que darse cuenta.
+const MAX_EDAD_SIGMA_SPOT_SEG = 180;
+
+// Con Sigma como fuente por defecto, que el daemon se caiga deja de ser un
+// detalle: el sistema sigue operando (cae a Yahoo) pero sobre otra medicion, y
+// los muros de gamma se congelan al mismo tiempo. Hasta ahora esa caida NO
+// tenia alerta — el 2026-08-05 estuvo ~50 min muerto en pleno mercado y se
+// descubrio de casualidad. Se avisa por TIEMPO, no por ciclos, porque a esta
+// funcion la llaman monitores con cadencias distintas (15s, 30s, 60s, 5min).
+let sigmaSpotAusenteDesde = null;
+let sigmaSpotAvisado = false;
+const SIGMA_SPOT_AVISO_MS = 6 * 60 * 1000;   // 3 ciclos del daemon
+
+function sigmaSpotOk() {
+  if (sigmaSpotAvisado) console.log('[SPX-SPOT] ✅ Sigma Terminal volvió — vuelve a ser la fuente por defecto.');
+  sigmaSpotAusenteDesde = null;
+  sigmaSpotAvisado = false;
+}
+
+function avisarSigmaSpotAusente(s) {
+  if (!isMarketHours()) return;            // fuera de mercado el daemon no corre: no es una falla
+  if (!sigmaSpotAusenteDesde) sigmaSpotAusenteDesde = Date.now();
+  const llevaMs = Date.now() - sigmaSpotAusenteDesde;
+  if (sigmaSpotAvisado || llevaMs < SIGMA_SPOT_AVISO_MS) return;
+  sigmaSpotAvisado = true;
+  const detalle = s ? `su última lectura tiene ${s.edadSeg}s` : 'no hay ninguna lectura guardada';
+  console.error(`[SPX-SPOT] ⚠️ Sigma Terminal sin dato fresco hace ${Math.round(llevaMs / 60000)} min — ${detalle}.`);
+  fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+    method: 'POST',
+    headers: { 'Title': '⚠️ Sigma Terminal sin precio — revisar el Daemon Muros y Gamma', 'Priority': 'high', 'Tags': 'warning', 'Content-Type': 'text/plain' },
+    body: `Hace ${Math.round(llevaMs / 60000)} min que no llega precio de Sigma (${detalle}). El sistema sigue con Yahoo, pero los muros de gamma también están congelados. Revisar el daemon.`,
+  }).catch(() => {});
+}
+
+function leerSpotSigma() {
+  try {
+    const d = loadSigmaLevelsHistory()[0];
+    if (!d?.spxPrice || !d.updatedAt) return null;
+    return {
+      price: d.spxPrice,
+      fuente: 'sigma',
+      edadSeg: Math.round((Date.now() - new Date(d.updatedAt).getTime()) / 1000),
+    };
+  } catch (e) { console.error('[SPX-SPOT] Sigma falló:', e.message); return null; }
+}
+
 async function leerSpotYahoo() {
   try {
     const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
@@ -1458,11 +1520,18 @@ async function leerSpotTradier() {
 // fetch suelto que hacian antes, con la diferencia de que ahora se sabe si el
 // numero sirve.
 async function precioSPXFresco({ rapido = false } = {}) {
+  // PLAN A — Sigma Terminal. Lectura local, sin red.
+  const s = leerSpotSigma();
+  if (s && s.edadSeg <= MAX_EDAD_SIGMA_SPOT_SEG) { sigmaSpotOk(); return s; }
+  avisarSigmaSpotAusente(s);
+
+  // PLAN B — Yahoo.
   const y = await leerSpotYahoo();
   if (rapido && y && y.edadSeg <= MAX_EDAD_SPOT_SEG) return y;
 
+  // PLAN C — Tradier (sandbox: ~16 min, es el ultimo recurso a proposito).
   const t = await leerSpotTradier();
-  const candidatos = [y, t].filter(Boolean);
+  const candidatos = [s, y, t].filter(Boolean);
   if (!candidatos.length) return null;
   candidatos.sort((a, b) => a.edadSeg - b.edadSeg);
   const elegido = candidatos[0];

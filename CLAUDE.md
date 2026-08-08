@@ -2363,10 +2363,42 @@ revés el 2026-07-24, cuando Yahoo sirvió 7411.02 congelado 2h44min y por eso s
 Las dos fuentes mintieron, cada una a su manera. Lo que faltaba era **mirar el sello de tiempo que
 las dos ya mandaban y nadie leía**: `regularMarketTime` en Yahoo, `trade_date` en Tradier.
 
-`precioSPXFresco()` pide a las dos, mide la antigüedad de cada una y **gana la más fresca**.
-Cualquiera de los dos modos de falla se delata solo. Verificado contra los cuatro escenarios
-históricos: Yahoo al día vs Tradier atrasado → Yahoo; Yahoo congelado → Tradier; una sola fuente
-viva → esa; ninguna → sin precio.
+`precioSPXFresco()` mide la antigüedad de cada fuente y elige. Cualquiera de los modos de falla se
+delata solo.
+
+### Orden de preferencia: Sigma Terminal primero (2026-08-08)
+
+> **Decisión del usuario:** *"sigma terminal debe traer por obligación la señal real, yo en sigma
+> terminal estoy pagando… tomemos el precio de Sigma Terminal como precio default y los demás como
+> plan B o plan C."*
+
+| | plan | atraso medido (07-ago) | error mediano |
+|---|---|---|---|
+| **Sigma Terminal** | **A** | **1 min** | **0,33 pts** |
+| Yahoo | B | segundos | (referencia) |
+| Tradier sandbox | C | 16 min | 5,10 pts |
+
+Dos ventajas de Sigma que no son obvias: **no cuesta ninguna llamada de red** (el dato ya está en
+el servidor, lo empuja el daemon) y el precio queda **coherente con los muros** — `callWall`/
+`putWall`/`gammaFlip` salen de Sigma, así que tomar el spot de otra fuente hacía que "distancia al
+muro" mezclara dos mediciones distintas.
+
+⚠️ **Su límite es la cadencia, no la exactitud.** El daemon empuja cada 2 min (medido: mediana
+**123s** entre lecturas, máximo **317s**), así que entre push y push el valor envejece — la edad
+típica ronda los 60s, contra los segundos de Yahoo. Por eso `MAX_EDAD_SIGMA_SPOT_SEG = 180`: cubre
+el ciclo normal y descarta los huecos, donde Yahoo pasa a ser mejor. **Si se quiere el spot más
+fresco posible, la palanca es bajar ese umbral o acortar el ciclo del daemon**, no cambiar el
+orden.
+
+**La caída del daemon ahora sí avisa.** Antes no había alerta —el 2026-08-05 estuvo ~50 min muerto
+en pleno mercado y se descubrió de casualidad— y con Sigma como fuente por defecto eso pasó a ser
+load-bearing: el sistema sigue operando con Yahoo, pero los muros de gamma se congelan al mismo
+tiempo. A los 6 min (3 ciclos) sin dato fresco sale un ntfy, una sola vez por episodio, y se avisa
+también cuando vuelve. Solo en horario de mercado: fuera de él el daemon no corre y no es falla.
+
+Verificado contra los seis escenarios: daemon al día → Sigma sin tocar la red; hueco de 317s →
+Yahoo; daemon caído → Yahoo; daemon caído + Yahoo congelado → Tradier, marcado **no usable**;
+todo caído menos Tradier → igual; nada → sin precio.
 
 - **`getQuotes` tiraba el `trade_date`.** El remapeo a forma fija lo descartaba, así que Tradier
   no podía ni entrar en la comparación — se agregó `tradeDate` al objeto. Sin eso el arreglo
