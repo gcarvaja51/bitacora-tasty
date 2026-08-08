@@ -733,7 +733,7 @@
 
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-          <span>P&amp;L realizado acumulado <span class="dim" id="curv-subtitulo" style="font-weight:400;">· todas las estrategias, mismo eje</span></span>
+          <span><span id="curv-titulo">P&amp;L realizado acumulado</span> <span class="dim" id="curv-subtitulo" style="font-weight:400;">· todas las estrategias, mismo eje</span></span>
           <span class="dim" style="font-size:10px;font-weight:400;">clic en la leyenda para ocultar una línea</span>
         </div>
         <div class="card-body chart-wrap" style="height:430px;min-height:430px;">
@@ -4131,11 +4131,17 @@ async function loadCurvas(){
       : `${cerradas.length} trades \u00b7 <b class="${cc(total)}">${f$(total)}</b>`
         + `<span class="dim"> \u00b7 peor racha ${f$(peorRacha(totalCurva))}</span>`;
 
+    // El titulo lleva el modo y el periodo; el subtitulo, solo el foco. Antes el
+    // encabezado decia "acumulado" incluso dibujando el P&L de cada semana, y el
+    // subtitulo repetia el periodo dos veces ("por semana, semanal").
+    const tit = $('curv-titulo');
+    if(tit) tit.textContent = acum
+      ? 'P&L realizado acumulado'
+      : 'P&L realizado por ' + (semanal ? 'semana' : 'd\u00eda');
     const sub = $('curv-subtitulo');
-    if(sub) sub.textContent = '\u00b7 ' + (acum ? 'acumulado' : 'por ' + (semanal?'semana':'d\u00eda'))
-      + ', ' + (semanal ? 'semanal' : 'diario')
-      + (foco ? ' \u00b7 solo ' + foco.label + ', eje ajustado a su escala'
-              : ' \u00b7 todas las estrategias, mismo eje');
+    if(sub) sub.textContent = foco
+      ? '\u00b7 solo ' + foco.label + ', eje ajustado a su escala'
+      : '\u00b7 todas las estrategias, mismo eje';
 
     $('curv-controles').innerHTML =
         curvGrupoBtns('periodo', curvPeriodo, [['dia','Diario'],['semana','Semanal']])
@@ -4188,7 +4194,7 @@ async function loadCurvas(){
       options:{ responsive:true, maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{
-          legend:{ labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,pointStyle:'line',boxWidth:22,padding:14} },
+          legend:{ labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,pointStyle:esBarra?'rect':'line',boxWidth:esBarra?12:22,padding:14} },
           tooltip:{ backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
             bodyColor:'#c9d3e0', titleColor:'#8a96a8',
             itemSort:(a,b)=>b.parsed.y-a.parsed.y,
