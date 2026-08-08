@@ -464,6 +464,12 @@ class TradierClient {
         bid:  parseFloat(q.bid  || 0),
         ask:  parseFloat(q.ask  || 0),
         last: parseFloat(q.last || 0),
+        // Sello de tiempo del dato (ms epoch). Tradier SI lo manda y este mapeo
+        // lo tiraba, asi que no habia forma de saber si una cotizacion era de
+        // ahora o de hace un rato — y el sandbox entrega el SPX con ~16 min de
+        // atraso (medido 2026-08-08). Sin este campo, precioSPXFresco() no
+        // puede comparar antiguedades y Tradier queda fuera de la eleccion.
+        tradeDate: q.trade_date ?? q.bid_date ?? null,
         delta: g && g.delta != null ? parseFloat(g.delta) : null,
         theta: g && g.theta != null ? parseFloat(g.theta) : null,
         gamma: g && g.gamma != null ? parseFloat(g.gamma) : null,

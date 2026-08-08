@@ -2129,6 +2129,11 @@ pasaron de `flip=7600` a 7753/7743 apenas aterrizó el deploy.
 
 **3. El daemon de Gamma estaba caído** — ver la sección `gamma_daemon` arriba.
 
+> ⚠️ **Esto no era "la apertura": era todo el día, y ya está corregido (2026-08-08).** No es un
+> congelamiento sino un **atraso de ~16 min** del sandbox de Tradier; a las 9:31 ese feed muestra
+> premercado, que por definición no se mueve, y de ahí la lectura equivocada. Ver la sección
+> "El precio spot llegaba 16 minutos tarde" abajo.
+
 **Limitación conocida, NO corregida — el precio del SPX puede llegar congelado en la
 apertura.** De 9:31 a 9:41 ET, `tradier.getQuotes(['SPX']).last` devolvió exactamente
 **7736.52** en 12 llamadas independientes (el valor premercado de las 9:25), mientras
@@ -2324,6 +2329,64 @@ esquinas) que pisaba el padding-top a 12px, muy por debajo de la altura real del
 panel (ej. la fila de filtros Desde/Hasta/Filtrar en Historial) detrás del navbar fijo.
 Al tocar `.panel`/`.content`/`.sidebar` en mobile, evitar `padding`/`margin` shorthand —
 usar propiedades explícitas (`padding-top`, etc.) para no resetear el ajuste de safe-area.
+
+## El precio spot llegaba 16 minutos tarde — y con eso se elegían los strikes (2026-08-08)
+
+El 2026-08-04 (`ad57e17`) se arregló el atraso de las **velas**, y quedó la impresión de que el
+problema estaba cerrado. **Estaba cerrado a medias.** Las velas sí quedaron a ~2 min
+(`fetchBarsSPXFrescas`: historial liquidado de Tradier + la cola de Yahoo, descartando la vela en
+curso). Pero el **precio spot** (`ctx.spxPrice`) seguía saliendo de `tradier.getQuotes(['SPX']).last`
+a ciegas, y ese es el que elige los strikes.
+
+**Medición** (267 snapshots del 2026-08-07 contra las velas de 1m reales de Yahoo, buscando qué
+desfase minimiza el error):
+
+| desfase supuesto | error mediano |
+|---|---|
+| 0 min | 5,10 pts |
+| 10 min | 2,96 pts |
+| **16 min** | **0,72 pts** ← mínimo limpio |
+| 20 min | 2,64 pts |
+
+Error contra el precio real del mismo instante: mediana **5,1 pts**, p90 **18,9**, máximo **36,1**
+— con strikes de SPX cada 5 puntos. A las 09:31 ET el sistema decidía con **7709,96** mientras el
+índice estaba en **7737,15**.
+
+**Qué decidía con ese precio:** selección de strikes de las tres estrategias
+(`findStrikesByDelta`), `openingRangeRespected` (gate del Iron Condor), el piso de 1,5×ATR del
+stop técnico, `entrySpx` congelado en cada ejecución y el `calcGEX` interno. Los monitores de
+salida no: esos ya usaban Yahoo en vivo. O sea que **se entraba mirando un precio de hace 16
+minutos y se salía mirando el de ahora.**
+
+**El arreglo no es "usar Yahoo en vez de Tradier"** — esa es la trampa en la que ya se cayó al
+revés el 2026-07-24, cuando Yahoo sirvió 7411.02 congelado 2h44min y por eso se pasó a Tradier.
+Las dos fuentes mintieron, cada una a su manera. Lo que faltaba era **mirar el sello de tiempo que
+las dos ya mandaban y nadie leía**: `regularMarketTime` en Yahoo, `trade_date` en Tradier.
+
+`precioSPXFresco()` pide a las dos, mide la antigüedad de cada una y **gana la más fresca**.
+Cualquiera de los dos modos de falla se delata solo. Verificado contra los cuatro escenarios
+históricos: Yahoo al día vs Tradier atrasado → Yahoo; Yahoo congelado → Tradier; una sola fuente
+viva → esa; ninguna → sin precio.
+
+- **`getQuotes` tiraba el `trade_date`.** El remapeo a forma fija lo descartaba, así que Tradier
+  no podía ni entrar en la comparación — se agregó `tradeDate` al objeto. Sin eso el arreglo
+  habría elegido Yahoo siempre, por la razón equivocada y sin cruce.
+- **El respaldo `5530` se cambió por `0`.** 5530 parece un nivel de índice legítimo y se colaba
+  entero hasta la selección de strikes; con 0 se dispara el rescate por `underlyingPrice` de la
+  cadena y, si tampoco está, no hay strike posible y la señal muere sola.
+- **`spotFuente`/`spotEdadSeg` quedan en el contexto y en el snapshot del strategy log.** Medir
+  este atraso exigió cruzar 267 snapshots contra Yahoo para inferirlo; ahora está en el registro.
+
+⚠️ **Sin validar en vivo**: el mercado estaba cerrado (sábado). Con las dos fuentes sirviendo el
+cierre del viernes, la selección no puede discriminar — **la primera prueba real es el lunes en la
+apertura.** Lo que sí se verificó: que `tradeDate` llega, que la selección resuelve los cuatro
+escenarios, y que la medición del atraso es sólida (mínimo limpio, 7x mejor que suponer 0).
+
+⚠️ **Queda una exposición conocida, a propósito**: los monitores de salida
+(`checkDirectionalTPSLImpl`, `checkAlejamientoSMATPSLImpl`) siguen leyendo Yahoo directo, sin el
+chequeo de frescura — si Yahoo se congela como en julio, un `TECHNICAL_STOP` puede dispararse
+sobre un precio viejo. No se unificó porque esos monitores corren cada 15-30s y `precioSPXFresco`
+duplicaría sus llamadas a la API.
 
 ## Control de cambios — NORMA: todo ajuste queda documentado (2026-08-08)
 

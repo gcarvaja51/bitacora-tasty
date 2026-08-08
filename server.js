@@ -1378,6 +1378,75 @@ function tradierRangeParams(daysBack) {
 const BAR_SEG      = { '2min': 120, '15min': 900 };
 const BAR_YAHOO_IV = { '2min': '2m', '15min': '15m' };
 
+// ── Precio spot del SPX: se elige por ANTIGUEDAD MEDIDA, no por confianza ───
+//
+// Las dos fuentes mintieron, cada una a su manera, y las dos veces el sistema
+// les creyo porque el valor "parecia" un precio de SPX:
+//
+//   · Yahoo (2026-07-24): sirvio 7411.02 congelado durante 2h44min mientras el
+//     indice se movia 54 puntos. Por eso se cambio a Tradier.
+//   · Tradier sandbox (medido el 2026-08-08 sobre los 267 snapshots del dia
+//     anterior): entrega el precio con ~16 min de atraso, TODO el dia. El
+//     minimo del error contra las velas reales de 1m cae limpio en 16 min
+//     (0.72 pts de error mediano, contra 5.10 si se asume que es de ahora).
+//     El sintoma que ya estaba documentado como "precio congelado en la
+//     apertura" (9:31-9:41) no era una ventana rara: es el mismo atraso, que a
+//     esa hora muestra premercado y por eso no se mueve.
+//
+// La leccion no es "Yahoo si / Tradier no" — es que un precio sin sello de
+// tiempo no se puede auditar. Las dos APIs SI traen ese sello
+// (`regularMarketTime` y `trade_date`), y nadie lo estaba mirando. Ahora se
+// pide a las dos, se mide la antiguedad de cada una y gana la mas fresca.
+// Cualquiera de los dos modos de falla se detecta solo: una fuente atrasada o
+// congelada delata su propio timestamp.
+//
+// Devuelve { price, fuente, edadSeg } — la fuente y la edad se registran en el
+// contexto y en el snapshot del strategy log, para que un analisis posterior
+// vea con que precio se decidio sin tener que reconstruirlo.
+const MAX_EDAD_SPOT_SEG = 180;
+
+async function precioSPXFresco() {
+  const candidatos = [];
+  const ahora = Date.now();
+
+  try {
+    const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
+      { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const meta = (await r.json()).chart?.result?.[0]?.meta;
+    const p = parseFloat(meta?.regularMarketPrice);
+    if (p > 1000 && meta?.regularMarketTime) {
+      candidatos.push({ price: p, fuente: 'yahoo', edadSeg: Math.round(ahora / 1000 - meta.regularMarketTime) });
+    }
+  } catch (e) { console.error('[SPX-SPOT] Yahoo falló:', e.message); }
+
+  try {
+    const q = await tradier.getQuotes(['SPX']);
+    const s = q[0];
+    const t = s?.tradeDate;          // agregado al mapeo de getQuotes — antes se descartaba
+    if (s?.last > 1000 && t) {
+      candidatos.push({ price: s.last, fuente: 'tradier', edadSeg: Math.round((ahora - t) / 1000) });
+    }
+  } catch (e) { console.error('[SPX-SPOT] Tradier falló:', e.message); }
+
+  if (!candidatos.length) return null;
+  candidatos.sort((a, b) => a.edadSeg - b.edadSeg);
+  const elegido = candidatos[0];
+
+  if (candidatos.length > 1) {
+    const otro = candidatos[1];
+    const dif = Math.abs(elegido.price - otro.price);
+    if (dif >= 3) {
+      console.log(`[SPX-SPOT] ${elegido.fuente} ${elegido.price} (${elegido.edadSeg}s) vs ` +
+        `${otro.fuente} ${otro.price} (${otro.edadSeg}s) — difieren ${dif.toFixed(2)} pts.`);
+    }
+  }
+  if (elegido.edadSeg > MAX_EDAD_SPOT_SEG) {
+    console.error(`[SPX-SPOT] ⚠️ La fuente más fresca (${elegido.fuente}) tiene ${elegido.edadSeg}s ` +
+      `de antigüedad, por encima del máximo de ${MAX_EDAD_SPOT_SEG}s. Se usa igual, marcada.`);
+  }
+  return elegido;
+}
+
 async function fetchBarsSPXFrescas(intervalo, daysBack = 7) {
   let barsT = [];
   try {
@@ -4379,7 +4448,11 @@ function logStrategyEvent(entry) {
 // usan los gates existentes, no inventa nada nuevo.
 function buildStrategySnapshot(ctx, extra = {}) {
   return {
-    spxPrice: ctx.spxPrice, vix: ctx.vix, ivRank: ctx.ivRank,
+    // spotFuente/spotEdadSeg: con que precio se decidio y cuan viejo era. Sin
+    // esto, medir el atraso del 2026-08-07 exigio cruzar 267 snapshots contra
+    // las velas de 1m de Yahoo para inferirlo; ahora esta en el registro.
+    spxPrice: ctx.spxPrice, spotFuente: ctx.spotFuente, spotEdadSeg: ctx.spotEdadSeg,
+    vix: ctx.vix, ivRank: ctx.ivRank,
     gex: ctx.gex ? { regime: ctx.gex.regime, callWall: ctx.gex.callWall, putWall: ctx.gex.putWall, gammaFlip: ctx.gex.gammaFlip, maxPain: ctx.gex.maxPain } : null,
     weinstein15m: ctx.indicators?.m15?.weinstein ? { fase: ctx.indicators.m15.weinstein.fase } : null,
     weinstein2m: ctx.indicators?.m2?.weinstein ? { fase: ctx.indicators.m2.weinstein.fase } : null,
@@ -4445,26 +4518,20 @@ async function buildSPXContext() {
     const chainData = await tt._req('/option-chains/SPX/nested');
     const expirations = chainData.data?.items?.[0]?.expirations || [];
 
-    // 2. Precio SPX — Tradier primero (mismo broker que ya usamos para ejecutar
-    // ordenes reales, mismo SLA del que ya depende todo el sistema), Yahoo como
-    // respaldo. Cambiado 2026-07-24: Yahoo demostro servir el mismo precio
-    // "congelado" durante 2h44min en vivo ese mismo dia (SPX se movio ~54pts
-    // reales mientras Yahoo devolvia siempre 7411.02), causa raiz confirmada de
-    // que el gate de confluencia Weinstein se quedara ciego a un rally real —
-    // ver nota completa en src/tradier.js (getTimesales).
-    let spxPrice = 5530;
-    try {
-      const q = await tradier.getQuotes(['SPX']);
-      if (q[0]?.last) spxPrice = q[0].last;
-    } catch(e) {}
-    if (!spxPrice || spxPrice < 1000) {
-      try {
-        const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
-          { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const j = await r.json();
-        spxPrice = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice || spxPrice);
-      } catch(e) {}
-    }
+    // 2. Precio SPX — la fuente mas FRESCA de las dos, medida por su propio
+    // sello de tiempo (ver precioSPXFresco arriba). Antes se tomaba el de
+    // Tradier a ciegas, que en el sandbox llega ~16 min atrasado: con eso se
+    // elegian los strikes de las tres estrategias, se evaluaba el rango de
+    // apertura del Iron Condor y se congelaba entrySpx.
+    const spot = await precioSPXFresco();
+    // Sin fuente usable se deja en 0, NO en el 5530 de antes: 5530 es un numero
+    // que parece un nivel de indice y se colaba entero hasta la seleccion de
+    // strikes. Con 0 se dispara el rescate de mas abajo (underlyingPrice de la
+    // cadena) y, si eso tampoco esta, no hay strike posible y la señal muere
+    // sola — que es el modo de falla correcto.
+    let spxPrice = spot?.price ?? 0;
+    const spotFuente = spot?.fuente ?? null;
+    const spotEdadSeg = spot?.edadSeg ?? null;
 
     // 3. VIX desde Yahoo
     let vix = 20;
@@ -4904,6 +4971,11 @@ async function buildSPXContext() {
 
     return {
       spxPrice: +spxPrice.toFixed(2),
+      // De donde salio ese precio y cuan viejo era. Se arrastra hasta el
+      // snapshot del strategy log a proposito: cuando un analisis posterior
+      // pregunte "¿con que precio decidio?", la respuesta tiene que estar en el
+      // registro, no reconstruida a mano. Mismo criterio que effectiveGex.
+      spotFuente, spotEdadSeg,
       vix:      +vix.toFixed(2),
       ivRank:   +ivRank.toFixed(1),
       isCredit: ivRank > 30 || vix > 20,
