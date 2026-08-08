@@ -2382,11 +2382,32 @@ cierre del viernes, la selección no puede discriminar — **la primera prueba r
 apertura.** Lo que sí se verificó: que `tradeDate` llega, que la selección resuelve los cuatro
 escenarios, y que la medición del atraso es sólida (mínimo limpio, 7x mejor que suponer 0).
 
-⚠️ **Queda una exposición conocida, a propósito**: los monitores de salida
-(`checkDirectionalTPSLImpl`, `checkAlejamientoSMATPSLImpl`) siguen leyendo Yahoo directo, sin el
-chequeo de frescura — si Yahoo se congela como en julio, un `TECHNICAL_STOP` puede dispararse
-sobre un precio viejo. No se unificó porque esos monitores corren cada 15-30s y `precioSPXFresco`
-duplicaría sus llamadas a la API.
+### Los monitores de salida, cerrados el mismo día
+
+Quedaban leyendo Yahoo directo, sin chequeo de frescura. El costo que lo frenaba resultó ser
+imaginario: **Yahoo manda `regularMarketTime` en la misma respuesta**, así que verificar la
+frescura no cuesta ninguna llamada extra. `precioSPXFresco({ rapido: true })` devuelve Yahoo si
+está fresco y **sólo entonces** paga la segunda consulta a Tradier — 1 llamada en el caso normal,
+exactamente lo que costaba el fetch suelto de antes.
+
+Ya no queda ninguna lectura cruda del spot en el código: las tres pasan por `leerSpotYahoo`.
+
+⚠️ **Decisión de diseño que conviene conocer: sin precio fiable, los monitores NO actúan.** Si
+ninguna fuente está por debajo de `MAX_EDAD_SPOT_SEG` (180s) se saltea el gatillo por nivel:
+
+- **Direccional** — pierde el `TECHNICAL_STOP` (Fractal/POC), pero el **stop económico sigue**,
+  porque sale de las cotizaciones de las patas, no del índice.
+- **Reversión** — queda sin ninguna salida automática: TP, SL y time-stop son *todos* por nivel de
+  precio. Una posición puede quedarse abierta hasta el vencimiento.
+
+Es el lado reversible del error —cerrar sobre un precio viejo es lo que se acaba de arreglar—
+pero **ciego y callado sería peor que ciego**: a los 4 ciclos consecutivos sin precio fiable sale
+un ntfy urgente (`avisarSpotNoFiable`, contador por monitor para que uno no enmascare al otro) y
+ahí corresponde cerrar a mano con el botón de pánico o el cierre manual.
+
+Nota: en el escenario del 2026-07-24 (Yahoo congelado) Tradier tampoco pasaría el umbral —los
+~16 min lo dejan fuera— así que ese día los monitores habrían quedado ciegos **y avisando**, en
+vez de operar sobre un precio inventado.
 
 ## Control de cambios — NORMA: todo ajuste queda documentado (2026-08-08)
 

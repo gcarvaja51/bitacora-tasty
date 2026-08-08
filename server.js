@@ -1405,29 +1405,64 @@ const BAR_YAHOO_IV = { '2min': '2m', '15min': '15m' };
 // vea con que precio se decidio sin tener que reconstruirlo.
 const MAX_EDAD_SPOT_SEG = 180;
 
-async function precioSPXFresco() {
-  const candidatos = [];
-  const ahora = Date.now();
+// Un monitor de salida sin precio fiable esta CIEGO para su gatillo por nivel:
+// no cierra de mas (eso seria peor), pero tampoco cierra cuando deberia. Es una
+// degradacion silenciosa, del mismo tipo que el atraso de 16 min que nadie noto
+// durante semanas — asi que avisa. Una sola vez por episodio, no en cada ciclo.
+// Contador POR monitor: si fuera compartido, un ciclo bueno de la Reversion
+// resetearia los fallos del Direccional y la alerta no llegaria nunca.
+const spotMonitorFallos = {};
+function spotOk(quien) { spotMonitorFallos[quien] = 0; }
+function avisarSpotNoFiable(quien, spot) {
+  const n = (spotMonitorFallos[quien] = (spotMonitorFallos[quien] || 0) + 1);
+  const detalle = spot ? `la fuente mas fresca (${spot.fuente}) tiene ${spot.edadSeg}s` : 'ninguna fuente respondio';
+  console.error(`[${quien}] ⚠️ Sin precio fiable del SPX — ${detalle}. Gatillo por nivel salteado este ciclo.`);
+  if (n === 4) {                          // ~1-2 min segun el monitor
+    fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+      method: 'POST',
+      headers: { 'Title': '⚠️ SPX sin precio fiable — monitores de salida a ciegas', 'Priority': 'high', 'Tags': 'warning', 'Content-Type': 'text/plain' },
+      body: `${quien}: ${detalle}. Los cierres por nivel (stop tecnico / objetivo) no se estan evaluando. El stop economico sigue activo.`,
+    }).catch(() => {});
+  }
+}
 
+async function leerSpotYahoo() {
   try {
     const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
       { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const meta = (await r.json()).chart?.result?.[0]?.meta;
     const p = parseFloat(meta?.regularMarketPrice);
     if (p > 1000 && meta?.regularMarketTime) {
-      candidatos.push({ price: p, fuente: 'yahoo', edadSeg: Math.round(ahora / 1000 - meta.regularMarketTime) });
+      return { price: p, fuente: 'yahoo', edadSeg: Math.round(Date.now() / 1000 - meta.regularMarketTime) };
     }
   } catch (e) { console.error('[SPX-SPOT] Yahoo falló:', e.message); }
+  return null;
+}
 
+async function leerSpotTradier() {
   try {
     const q = await tradier.getQuotes(['SPX']);
     const s = q[0];
     const t = s?.tradeDate;          // agregado al mapeo de getQuotes — antes se descartaba
     if (s?.last > 1000 && t) {
-      candidatos.push({ price: s.last, fuente: 'tradier', edadSeg: Math.round((ahora - t) / 1000) });
+      return { price: s.last, fuente: 'tradier', edadSeg: Math.round((Date.now() - t) / 1000) };
     }
   } catch (e) { console.error('[SPX-SPOT] Tradier falló:', e.message); }
+  return null;
+}
 
+// `rapido`: para los monitores de salida, que corren cada 15-30s. Yahoo manda
+// su sello de tiempo en la MISMA respuesta, asi que comprobar que esta fresco
+// no cuesta ninguna llamada extra; solo si resulta viejo se paga la segunda
+// consulta a Tradier. En el caso normal es exactamente el mismo costo que el
+// fetch suelto que hacian antes, con la diferencia de que ahora se sabe si el
+// numero sirve.
+async function precioSPXFresco({ rapido = false } = {}) {
+  const y = await leerSpotYahoo();
+  if (rapido && y && y.edadSeg <= MAX_EDAD_SPOT_SEG) return y;
+
+  const t = await leerSpotTradier();
+  const candidatos = [y, t].filter(Boolean);
   if (!candidatos.length) return null;
   candidatos.sort((a, b) => a.edadSeg - b.edadSeg);
   const elegido = candidatos[0];
@@ -6559,14 +6594,16 @@ async function checkDirectionalTPSLImpl() {
     // Precio actual del SPX — para el gatillo tecnico (Fractal 15m / POC), igual
     // de liviano que el que usa checkAlejamientoSMATPSLImpl, reusado para todas
     // las ejecuciones abiertas de este ciclo (normalmente solo hay una).
-    let spxPriceActual = null;
-    try {
-      const rPx = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const jPx = await rPx.json();
-      spxPriceActual = parseFloat(jPx.chart?.result?.[0]?.meta?.regularMarketPrice);
-      if (!spxPriceActual) spxPriceActual = null;
-    } catch(e) {}
+    // Antes se leia Yahoo directo, sin mirar si el dato era de ahora. Con un
+    // precio viejo un TECHNICAL_STOP se dispara sobre un nivel que el mercado
+    // ya no tiene — y Yahoo demostro congelarse 2h44min el 2026-07-24. Si no
+    // hay precio fresco no se inventa uno: queda null y el gatillo tecnico se
+    // salta este ciclo (el stop economico, que sale de las cotizaciones de las
+    // patas, sigue funcionando igual).
+    const spot = await precioSPXFresco({ rapido: true });
+    const spxPriceActual = (spot && spot.edadSeg <= MAX_EDAD_SPOT_SEG) ? spot.price : null;
+    if (!spxPriceActual) avisarSpotNoFiable('DIR-TPSL', spot);
+    else spotOk('DIR-TPSL');
 
     let cambios = false;
     for (const ex of abiertas) {
@@ -7294,16 +7331,17 @@ async function checkAlejamientoSMATPSLImpl() {
         continue;
       }
 
-      // Precio actual del SPX — liviano (mismo endpoint que usa buildSPXContext
-      // para el precio, sin reconstruir todo el contexto cada 15-20s).
-      let price;
-      try {
-        const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1d',
-          { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const j = await r.json();
-        price = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice);
-      } catch(e) { continue; }
-      if (!price) continue;
+      // Precio actual del SPX, verificando que sea de AHORA. Esta estrategia es
+      // la mas expuesta de las tres: TODA su salida es por nivel de precio
+      // (toca la SMA8, rompe la vela de entrada), no hay stop economico que la
+      // respalde si el numero esta viejo. Con un precio congelado podia tanto
+      // no cerrar un objetivo ya tocado como cerrar por una invalidacion que no
+      // ocurrio. Sin dato fiable se salta el ciclo, igual que ya hacia cuando
+      // el fetch fallaba — la posicion queda abierta, que es lo reversible.
+      const spot = await precioSPXFresco({ rapido: true });
+      if (!spot || spot.edadSeg > MAX_EDAD_SPOT_SEG) { avisarSpotNoFiable('REV-TPSL', spot); continue; }
+      spotOk('REV-TPSL');
+      const price = spot.price;
 
       const isBullish = ex.direction === 'BULLISH';
       const cfg = (loadSPXConfig().trading || {}).smaReversion || SPX_CONFIG_DEFAULTS.trading.smaReversion;
