@@ -4213,19 +4213,24 @@ async function loadCurvas(){
     // cualquiera de los dos extremos esta en negativo) y el relleno se parte en
     // origen; en barras, barra por barra.
     const esBarra = curvTipo === 'bar';
-    const pintar = (color, grueso, foc) => esBarra
-      ? { backgroundColor: c => (c.parsed?.y ?? 0) < 0 ? CURV_ROJO : color,
-          borderColor: c => (c.parsed?.y ?? 0) < 0 ? CURV_ROJO : color,
+    // El rojo bajo cero solo se aplica al TOTAL y a la estrategia enfocada.
+    // Aplicarlo a todas a la vez borraba la identidad de cada una: con la vista
+    // completa, Reversion (violeta) y La Rueda (rosa) caen las dos bajo cero y
+    // se pintaban identicas, imposibles de separar. Cuando estan todas, cada una
+    // conserva su color y el umbral se lee por la zona sombreada.
+    const pintar = (color, grueso, foc, marcaSigno) => esBarra
+      ? { backgroundColor: c => (marcaSigno && (c.parsed?.y ?? 0) < 0) ? CURV_ROJO : color,
+          borderColor: c => (marcaSigno && (c.parsed?.y ?? 0) < 0) ? CURV_ROJO : color,
           borderWidth: 0, borderRadius: 2 }
       : { borderColor: color, borderWidth: grueso, pointRadius: 0, pointHoverRadius: 5, tension: .15,
-          segment: { borderColor: c => (c.p0.parsed.y < 0 || c.p1.parsed.y < 0) ? CURV_ROJO : color },
+          ...(marcaSigno ? { segment: { borderColor: c => (c.p0.parsed.y < 0 || c.p1.parsed.y < 0) ? CURV_ROJO : color } } : {}),
           fill: foc ? { target:'origin', above: hexA(color,.10), below: hexA(CURV_ROJO,.14) } : false,
           backgroundColor: hexA(color,.06) };
 
     const datasets = series.filter(s=>s.n>0).map(s=>({
       label: s.label + (s.apagada?' (pausada)':''),
       data: s.data, type: curvTipo, order:2,
-      ...pintar(s.color, curvFoco===s.id?2.5:2, curvFoco===s.id),
+      ...pintar(s.color, curvFoco===s.id?2.5:2, curvFoco===s.id, curvFoco===s.id),
       ...(esBarra?{}:{ borderDash: s.apagada?[5,4]:[] }),
       hidden: !!curvFoco && curvFoco!==s.id }));
 
@@ -4234,7 +4239,7 @@ async function loadCurvas(){
     // lo quiere de vuelta.
     if($('curv-total')?.checked) datasets.push({
       label:'TOTAL', data:totalData, type: curvTipo, order:1,
-      ...pintar('#e8edf5', 4, !esBarra),
+      ...pintar('#e8edf5', 4, !esBarra, true),
       hidden: !!curvFoco });
 
     const el=$('curvChart'); if(!el) return;
@@ -4260,9 +4265,9 @@ async function loadCurvas(){
     // benchmark que ya usa el KPI del Dashboard. Por debajo se pinta rojo.
     const OBJETIVO_WR = 55;
     const bajoObj = v => v != null && v < OBJETIVO_WR;
-    const pintarWr = (color, grueso, foc) => esBarra
-      ? { backgroundColor: c => bajoObj(c.parsed?.y) ? CURV_ROJO : color,
-          borderColor: c => bajoObj(c.parsed?.y) ? CURV_ROJO : color,
+    const pintarWr = (color, grueso, foc, marcaSigno) => esBarra
+      ? { backgroundColor: c => (marcaSigno && bajoObj(c.parsed?.y)) ? CURV_ROJO : color,
+          borderColor: c => (marcaSigno && bajoObj(c.parsed?.y)) ? CURV_ROJO : color,
           borderWidth: 0, borderRadius: 2 }
       : { borderColor: color, borderWidth: grueso, pointHoverRadius: 5,
           tension: .15,
@@ -4276,27 +4281,31 @@ async function loadCurvas(){
             if(d[i]==null) return 0;
             const a=i>0?d[i-1]:null, b=i<d.length-1?d[i+1]:null;
             return (a==null && b==null) ? 3 : 0; },
-          segment: { borderColor: c => (bajoObj(c.p0.parsed.y) || bajoObj(c.p1.parsed.y)) ? CURV_ROJO : color },
+          ...(marcaSigno ? { segment: { borderColor: c => (bajoObj(c.p0.parsed.y) || bajoObj(c.p1.parsed.y)) ? CURV_ROJO : color } } : {}),
           fill: foc ? { target:{value:OBJETIVO_WR}, above: hexA(color,.10), below: hexA(CURV_ROJO,.14) } : false,
           backgroundColor: hexA(color,.06) };
 
     const dsWr = series.filter(x=>x.n>0).map(x=>({
       label: x.label + (x.apagada?' (pausada)':''),
       data: x.wrData, type: curvTipo, order:2,
-      ...pintarWr(x.color, curvFoco===x.id?2.5:2, curvFoco===x.id),
+      ...pintarWr(x.color, curvFoco===x.id?2.5:2, curvFoco===x.id, curvFoco===x.id),
       ...(esBarra?{}:{ borderDash: x.apagada?[5,4]:[] }),
       hidden: !!curvFoco && curvFoco!==x.id }));
 
     if($('curv-total')?.checked) dsWr.push({
       label:'TOTAL', data: totalWr, type: curvTipo, order:1,
-      ...pintarWr('#e8edf5', 4, !esBarra),
+      ...pintarWr('#e8edf5', 4, !esBarra, true),
       hidden: !!curvFoco });
 
     // Linea de referencia. Va como dataset y no como gridline porque 55 no cae
     // en ninguna marca del eje, y asi ademas queda rotulada en la leyenda.
     dsWr.push({ label:'objetivo ' + OBJETIVO_WR + '%', type:'line',
       data: etiquetas.map(()=>OBJETIVO_WR), borderColor:'#5c6880', borderWidth:1,
-      borderDash:[5,4], pointRadius:0, pointHoverRadius:0, fill:false, order:0 });
+      borderDash:[5,4], pointRadius:0, pointHoverRadius:0, order:0,
+      // Tinta todo lo que queda por debajo del objetivo. Con la vista completa
+      // las series conservan su color, asi que el umbral tiene que leerse por
+      // la zona y no por el color de la linea.
+      fill:'start', backgroundColor: hexA(CURV_ROJO,.05) });
 
     const elW = $('curvWrChart');
     if(elW){
