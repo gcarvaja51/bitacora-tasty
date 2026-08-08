@@ -24,6 +24,15 @@
 // Funcion pura, sin I/O.
 
 const { parseOccSymbol } = require('./bp_tradier_adapter');
+
+// Contraparte local de parseOccSymbol — misma convencion que
+// tradier.buildOccSymbol (src/tradier.js), replicada aca para que este modulo
+// siga siendo puro y no tenga que importar el cliente HTTP del broker.
+// {root}{YYMMDD}{C|P}{strike*1000 a 8 digitos}
+function buildOccSymbol(root, expiryISO, optType, strike) {
+  const [y, m, d] = String(expiryISO).split('-');
+  return `${root}${y.slice(2)}${m}${d}${optType}${String(Math.round(strike * 1000)).padStart(8, '0')}`;
+}
 const { SPX_FEE_PER_CONTRACT_PER_LEG, EQUITY_FEE_PER_CONTRACT_PER_LEG } = require('./broker_fees');
 
 // Claves "symbol|closeDate" ya cubiertas por ejecuciones trackeadas — para
@@ -42,6 +51,29 @@ function trackedLegKeys(spxExecutions = [], wheelExecutions = []) {
   }
   for (const ex of wheelExecutions) {
     if (ex.phase !== 'CERRADO' || !ex.leg || !ex.leg.optionSymbol) continue;
+    // Un ciclo puede haber pasado por VARIOS contratos: `ex.leg` guarda solo el
+    // ultimo, porque cada roll lo sobreescribe. Tapar unicamente ese dejaba
+    // aflorar como "operacion del broker" las patas ANTERIORES del mismo ciclo,
+    // cuyo dinero ya estaba contado adentro. Casos reales (2026-08-07):
+    //   · BE   — el ciclo vale -225 (tres round-trips reconstruidos a mano) y
+    //     ademas salia broker-BE -30, que es el primero de esos tres.
+    //   · HOOD — el ciclo vale -50 (dos round-trips) y ademas salia
+    //     broker-HOOD -25, uno de los dos.
+    //   · KO / BAC / JBLU — mismo patron, corregido a mano el mismo dia
+    //     devolviendo `leg` a la pata real.
+    // Los rolls guardan fromStrike/fromExpiry y toStrike/toExpiry, asi que las
+    // patas viejas se pueden reconstruir. El optType no se guarda: se emiten
+    // las dos variantes (P y C), que es inofensivo — una clave de mas solo
+    // puede tapar una fila del MISMO contrato, y un ciclo no tiene abiertas a
+    // la vez la put y la call del mismo strike/vencimiento.
+    for (const e of (ex.events || [])) {
+      for (const [strike, expiry] of [[e.fromStrike, e.fromExpiry], [e.toStrike, e.toExpiry]]) {
+        if (strike == null || !expiry) continue;
+        for (const optType of ['P', 'C']) {
+          keys.push(`${buildOccSymbol(ex.symbol, expiry, optType, strike)}|*`);
+        }
+      }
+    }
     // Sin fecha, a proposito (2026-08-04). Antes se aproximaba con el
     // VENCIMIENTO de la pata, que casi nunca es el dia en que el broker la da
     // por cerrada: nuestro ciclo de PDD cierra el 03-ago y Tradier reporta esa

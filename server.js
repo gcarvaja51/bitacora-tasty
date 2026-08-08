@@ -3196,6 +3196,13 @@ async function checkWheelPutManagementImpl() {
 
         let targetStrike = ex.leg.strike;
         let rollDate = null;
+        // Un roll SIEMPRE lleva la posicion hacia ADELANTE en el tiempo. El
+        // filtro existia solo dentro de la rama `porNorma` (agregado 2026-08-03
+        // por el BAC que rolo del 21-ago al 14-ago); las ramas defensiva y de
+        // respaldo seguian mirando TODOS los vencimientos y podian elegir uno
+        // mas cercano, que es exactamente lo que volvio a pasar el 2026-08-07
+        // con SOFI (260821 -> 260814). Se filtra una sola vez, para las tres.
+        const expsAdelante = expirations.filter(e => e.expiry > ex.leg.expiry);
         // Roll POR GANANCIA (>=70%): cerrar y reabrir, eligiendo entre 1 y 3
         // semanas el vencimiento de mejor beneficio (credito/dia), a pedido
         // explicito del usuario. Tiene prioridad sobre la caminata de strike:
@@ -3209,9 +3216,8 @@ async function checkWheelPutManagementImpl() {
           // posicion hacia ADELANTE en el tiempo. Bug real 2026-08-03: BAC rolo
           // del 21-ago al 14-ago porque el vencimiento mas corto daba mejor
           // credito/dia — matematicamente cierto, conceptualmente al reves.
-          const ventana = expirations.filter(e => e.dte != null
-            && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX
-            && e.expiry > ex.leg.expiry);
+          const ventana = expsAdelante.filter(e => e.dte != null
+            && e.dte >= WHEEL_PROFIT_ROLL_DTE_MIN && e.dte <= WHEEL_PROFIT_ROLL_DTE_MAX);
           rollDate = wheelTrading.findBestRollDate(ventana, ex.leg.strike);
           const motivo = triggerProfit ? `${(pnlPct*100).toFixed(0)}% capturado` : `extrinseco ${extrPct.toFixed(1)}% de la prima`;
           if (rollDate) console.log(`[WHEEL-MGMT] ${ex.symbol}: roll por norma (${motivo}) — mejor vencimiento entre 1-3 semanas: ${rollDate.expiry} (${rollDate.dte} DTE, $${rollDate.premium}, ${rollDate.creditPerDay}/dia).`);
@@ -3222,7 +3228,7 @@ async function checkWheelPutManagementImpl() {
         if (rollDate) {
           // Ya resuelto por el roll de ganancia — no se evalua defensa ni caminata.
         } else if (esDefensivo) {
-          rollDate = wheelTrading.findBestRollDate(expirations, ex.leg.strike);
+          rollDate = wheelTrading.findBestRollDate(expsAdelante, ex.leg.strike);
         } else {
           // 5c. Caminata — ¿un strike más bajo (hacia el fair value) sigue superando el piso de 2%?
           const cfg = loadWheelTradingConfig();
@@ -3232,7 +3238,7 @@ async function checkWheelPutManagementImpl() {
               .filter(s => s.strike < ex.leg.strike && s.strike >= ex.fairValue)
               .sort((a, b) => b.strike - a.strike);
             for (const cand of candidatosMenores) {
-              const rd = wheelTrading.findBestRollDate(expirations, cand.strike);
+              const rd = wheelTrading.findBestRollDate(expsAdelante, cand.strike);
               if (rd && rd.premium >= wheelTrading.minPremiumFor(cand.strike, rd.dte, minMonthlyPct) / 100) {
                 targetStrike = cand.strike;
                 rollDate = rd;
@@ -3240,10 +3246,21 @@ async function checkWheelPutManagementImpl() {
               }
             }
           }
-          if (!rollDate) rollDate = wheelTrading.findBestRollDate(expirations, ex.leg.strike);
+          if (!rollDate) rollDate = wheelTrading.findBestRollDate(expsAdelante, ex.leg.strike);
         }
 
-        if (!rollDate || rollDate.premium <= 0) {
+        // El piso de un roll es el CREDITO NETO (prima de la pata nueva menos lo
+        // que cuesta recomprar la vieja), no la prima de la pata nueva sola. Este
+        // gate miraba `rollDate.premium`, asi que un roll a DEBITO lo pasaba
+        // igual: mas abajo `netCreditMin` lo aplanaba con Math.max(0, ...) y la
+        // orden salia pidiendo credito 0. La orden hace lo correcto y no llena
+        // (nunca se paga por rolar), pero `ex.leg` YA quedo sobreescrito con la
+        // pata nueva — y un registro apuntando a un contrato inexistente es
+        // justo lo que vuelve huerfana a la posicion real y dispara la
+        // re-adopcion. Caso real 2026-08-07: SOFI, orden 36637660, netCredit 0.
+        const costoCerrarAhora = quote.mark || 0;
+        const creditoNetoRoll  = rollDate ? +(rollDate.premium - costoCerrarAhora).toFixed(2) : 0;
+        if (!rollDate || creditoNetoRoll <= 0) {
           // neverAssign=true: esta posición es especulación sobre la prima, nunca debe
           // llegar a asignación — si no hay roll por crédito neto disponible, se cierra
           // el put a mercado (aceptando el débito si hace falta) en vez de dejarla
@@ -3337,8 +3354,10 @@ async function checkWheelPutManagementImpl() {
         // posiciones (RIO, NBIS, HOOD, RKLB, BE, IBIT, ANET): era el modo de
         // falla dominante del pipeline, no un caso raro. Con multileg, o llenan
         // las dos patas o no llena ninguna y la posicion vieja sigue intacta.
-        const costoCerrar = quote.mark || 0;
-        const netCreditMin = Math.max(0, +(rollDate.premium - costoCerrar).toFixed(2));
+        // El credito neto ya se calculo y valido (> 0) en el gate de arriba: el
+        // Math.max(0, ...) que habia aca enmascaraba los rolls a debito en vez
+        // de impedirlos, que es lo que dejaba el registro huerfano.
+        const netCreditMin = creditoNetoRoll;
         let rollOrder;
         try {
           rollOrder = await tradier.placeRollOrder({
@@ -3694,13 +3713,20 @@ async function checkWheelCallManagementImpl() {
         const candidatosMayores = rollDate ? [] : (currentExp?.strikes || [])
           .filter(s => s.strike > ex.leg.strike && s.call)
           .sort((a, b) => a.strike - b.strike);
+        // Mismo criterio que el Put (2026-08-07): el respaldo miraba TODOS los
+        // vencimientos, asi que podia rolar hacia uno mas cercano; y aceptaba
+        // credito neto exactamente 0, que manda una orden que no va a llenar
+        // pero igual sobreescribe ex.leg. Esta rama nunca corrio en produccion
+        // (no hubo ningun ciclo en CC_ACTIVA todavia) — se alinea para que no
+        // estrene el mismo bug el dia que corra.
+        const expsAdelanteCall = expirations.filter(e => e.expiry > ex.leg.expiry);
         for (const cand of candidatosMayores) {
-          const rd = wheelTrading.findBestRollDate(expirations, cand.strike, 'C');
+          const rd = wheelTrading.findBestRollDate(expsAdelanteCall, cand.strike, 'C');
           if (rd && rd.premium > 0) {
             // Credito neto = prima de la call nueva - costo de cerrar la actual (aprox. por
             // la cotizacion viva, ya que esto solo decide SI vale la pena, no el pnl final).
             const creditoNeto = rd.premium - (quote.mark || 0);
-            if (creditoNeto >= 0) { targetStrike = cand.strike; rollDate = rd; break; }
+            if (creditoNeto > 0) { targetStrike = cand.strike; rollDate = rd; break; }
           }
         }
 

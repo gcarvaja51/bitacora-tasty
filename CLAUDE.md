@@ -435,6 +435,12 @@ HOOD `260821P100`. En cada caso nuestro registro guarda la pata *previa* al roll
 *posterior*. Eso es exactamente para lo que se creó la reconciliación (2026-07-24: aflorar las 91
 patas cerradas que nunca pasaron por el tracking) y sigue funcionando.
 
+> ⚠️ **Esta conclusión resultó equivocada — las 5 eran duplicados (corregido 2026-08-07).** Al
+> cruzarlas una por una contra el `/gainloss` real, las 5 ya estaban contadas: en BE y HOOD el
+> dinero está dentro del cash flow reconstruido a mano del propio ciclo, y en KO/BAC/JBLU el
+> ciclo no tenía `pnl` y mostraba la prima entera, así que el broker parecía traer algo nuevo.
+> Ver la sección "La Rueda contaba dos veces…" abajo.
+
 ⚠️ **Limitación aceptada, explícita:** si alguna vez se cierra dos veces el mismo contrato el
 mismo día y solo una queda registrada, la otra deja de aflorar. Es el precio de que Tradier no
 devuelva `order-id` en `gainloss` (ver cabecera del adaptador). Se prefiere no mostrar un trade
@@ -2155,6 +2161,89 @@ engaña, la decisión no.
 Reversión está en break-even matemático: el mecanismo hace lo que debe (corta pérdidas
 cortas, deja correr ganadoras), el edge todavía no aparece. El neto negativo del
 Direccional lo carga el clúster del 23-jul; sus últimos 10 dan +$1.745.
+
+## La Rueda contaba dos veces, o se anotaba la prima entera como ganancia (2026-08-07)
+
+A pedido del usuario (*"valida vs Tradier las posiciones cerradas de agosto… ayer y hoy vi cosas
+raras"*). Se cruzaron **los 38 cierres de agosto** contra el broker.
+
+**El SPX está bien: 28 de 28 exactas.** 21 verificadas leyendo la orden de cierre por ID; las
+otras 7 tenían la `closeOrderId` guardada en `rejected` y su orden real ya no es alcanzable
+(`/orders` de Tradier **ignora `start`/`end` y solo devuelve las de HOY**; `/history` viene
+vacío). Se verificaron al revés: buscando qué par de precios *de los que Tradier reporta para
+esas patas* reproduce el P&L grabado. En las 7 hay **una sola** combinación posible y es la que
+está. Ninguna viola el invariante del ancho del spread. `buscarOrdenDeCierreReal` funciona.
+
+**Los 6 errores estaban todos en La Rueda, y son dos bugs distintos:**
+
+**1. Sin `pnl` explícito, `mapWheelExecution` anotaba `totalCreditAccumulated`** — o sea "me
+quedé la prima entera", que solo es cierto si el put expiró sin valor. La prueba de que era
+eso: el `proceeds` de Tradier es *exactamente* el crédito acumulado de la bitácora. El error
+va **siempre a favor**.
+
+| | bitácora | Tradier | |
+|---|---|---|---|
+| PDD | +$68 el 03-ago | **−$88** el **24-jul** | −156, y otro mes |
+| MARA | +$49 el 03-ago | **−$85** el **17-jul** | −134, y otro mes |
+| NU | +$17 el 03-ago | **−$58** el **24-jul** | −75, y otro mes |
+
+La nota de esos registros decía *"P&L no verificable desde acá"*. **Era falso**: `getClosedPnl`
+lo tenía, con match exacto de symbol y sin la ambigüedad de los SPXW (que repiten strikes el
+mismo día). Corregido: sin `pnl` ya no se inventa un número, el ciclo sale con `pnlPending:true`
+— visible en Historial como pendiente, fuera de totales/curva/calendario/win rate. Excepción:
+`ENTRADA_NO_LLENO`, donde no hubo posición y el $0 sí es un dato.
+
+**2. `trackedLegKeys` solo tapaba `ex.leg.optionSymbol`, que el roll sobreescribe.** Un ciclo
+pasa por varios contratos; al tapar solo el último, las patas anteriores afloraban otra vez como
+"operación del broker" con plata ya contada. BE valía −225 (tres round-trips reconstruidos a
+mano) y encima salía `broker-BE −30`, que es el primero de esos tres; HOOD −50 (dos) más
+`broker-HOOD −25`. Corregido emitiendo también las claves derivadas de los eventos de ROLL
+(`fromStrike/fromExpiry`, `toStrike/toExpiry`, probando P y C porque el evento no guarda el
+tipo). Las filas broker-only de La Rueda pasaron de 5 a **0**, sin perder ninguna operación real.
+
+**Efecto en los totales** (agosto ya cuadra al centavo con el broker: 465 SPX + 502 Rueda):
+
+| | antes | después |
+|---|---|---|
+| Julio | −$1.168 | **−$1.544** |
+| Agosto | +$992 | **+$967** |
+
+Queda una diferencia de −$195 contra la suma cruda del `gainloss`, y es correcta: son los dos
+round-trips de BE que Tradier **no reporta** (`−2040+1925` y `−2090+2010`), ya contados dentro
+del −225 del ciclo. **El `gainloss` no es un inventario completo** — no asumir que lo es.
+
+## Un roll a débito igual sobreescribía `ex.leg` — la tercera vuelta del loop de re-adopción (2026-08-07)
+
+Encontrado en el mismo cruce. El 07-ago a las 14:06 SOFI roló de `260821` a **`260814`** — hacia
+**atrás** en el tiempo — con **crédito neto 0** (orden `36637660`). No llenó, pero `ex.leg` ya se
+había sobreescrito, así que la posición real volvió a quedar huérfana y se creó un segundo
+registro vivo (`wtex-adopt-1786111894686-SOFI`) para la **misma** posición, los dos con
+`credAcc 1.27`. Dos defectos independientes, los dos en el lado del **Put**:
+
+1. **El gate miraba la prima de la pata nueva, no el crédito neto.** `if (!rollDate ||
+   rollDate.premium <= 0)` dejaba pasar un roll a débito; más abajo `netCreditMin =
+   Math.max(0, premium - costoCerrar)` lo **aplanaba a 0** y la orden salía igual. La orden hace
+   lo correcto y no llena (nunca se paga por rolar), pero el registro ya quedó apuntando a un
+   contrato inexistente — que es justo el síntoma raíz del loop de re-adopción del 05-ago.
+2. **El filtro "nunca hacia un vencimiento más cercano" existía solo en la rama `porNorma`**
+   (agregado el 03-ago por el BAC que roló del 21-ago al 14-ago). Las ramas **defensiva** y de
+   **respaldo** seguían mirando todos los vencimientos. Ahora se filtra una sola vez para las tres.
+
+El lado de la **Call** ya tenía las dos cosas casi bien; se alineó (`> 0` en vez de `>= 0`, y el
+filtro en su rama de respaldo). Esa rama **nunca corrió en producción** — no hubo ningún ciclo en
+`CC_ACTIVA` todavía — así que el cambio no está validado contra un caso real.
+
+**Los frenos del 05-ago funcionaron**: se creó **un** registro en vez de 21 y los reintentos
+pararon solos a los 3 (14:11 / 14:46 / 15:21). El daño quedó acotado a un duplicado.
+
+Los dos registros de SOFI se consolidaron en uno: se conservó el raíz (`wtex-1783697266006`,
+tiene la historia desde el 10-jul), devuelto a `SOFI260821P00018000` y con `adoptedSymbol`
+fijado para blindarlo; el de hoy pasó a `ANULADO` conservando su `adoptedSymbol`, porque el
+guard de re-adopción recorre **todos** los registros, no solo los vivos.
+
+⚠️ **Al revisar un `HUERFANO_SIN_POSICION` o un `ROLL_REAPERTURA_NO_LLENO`, el primer reflejo
+sigue siendo mirar si `ex.leg` apunta a un contrato que no está en la cuenta** — pero ahora
+también: **preguntarle el P&L al `/gainloss` antes de dar por bueno el crédito acumulado.**
 
 ## Notificaciones
 

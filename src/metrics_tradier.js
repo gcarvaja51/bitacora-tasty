@@ -170,12 +170,30 @@ function mapSpxExecution(ex) {
 //    de lo real — un ciclo que cobro $127 de prima y expiro OTM figuraba como
 //    $1.27 en Reportes, Historial, calendario y curva. Se convierte igual que
 //    ya hacia mapSpxExecution unas lineas mas arriba (`* 100 * contracts`).
+// 5) SIN `pnl` EXPLICITO NO SE INVENTA UN NUMERO (2026-08-07). El respaldo era
+//    `totalCreditAccumulated`, o sea: "me quede la prima entera". Eso solo es
+//    cierto si el put expiro sin valor, y el error va SIEMPRE a favor — la
+//    direccion peligrosa. Cruzando agosto contra el /gainloss real de Tradier,
+//    seis ciclos estaban mal por esta via y en tres el broker decia lo
+//    contrario de lo que mostraba la bitacora:
+//      · PDD  +$68 anotado  ->  -$88 real (cerrada el 24-jul, no el 03-ago)
+//      · MARA +$49 anotado  ->  -$85 real (17-jul)
+//      · NU   +$17 anotado  ->  -$58 real (24-jul)
+//    Los otros tres (KO/BAC/JBLU) ademas se contaban dos veces, porque el roll
+//    sobreescribio `ex.leg` y trackedLegKeys dejo de tapar la fila del broker.
+//    Ahora, sin `pnl`, el ciclo se devuelve con `pnlPending: true` — igual que
+//    mapSpxExecution: sigue visible en Historial marcado como pendiente, pero
+//    queda fuera de `computed`, o sea fuera de totales, curva, calendario y win
+//    rate. Un hueco declarado es preferible a una ganancia inventada.
+//    Excepcion: ENTRADA_NO_LLENO. Ahi la orden de entrada nunca lleno, o sea
+//    que no hubo posicion en ningun momento — su $0 es un dato confirmado, no
+//    un hueco, y marcarlo pendiente inventaria una fila a verificar que no
+//    tiene nada que verificar.
 function mapWheelExecution(ex) {
   if (ex.phase !== 'CERRADO') return null;
-  const wheelContracts = (ex.leg && ex.leg.contracts) || 1;
-  const pnl      = typeof ex.pnl === 'number'
-    ? ex.pnl
-    : (ex.totalCreditAccumulated ?? ex.creditReceived ?? 0) * 100 * wheelContracts;
+  const nuncaHuboPosicion = ex.closeReason === 'ENTRADA_NO_LLENO';
+  const pnlPending = typeof ex.pnl !== 'number' && !nuncaHuboPosicion;
+  const pnl        = typeof ex.pnl === 'number' ? ex.pnl : 0;
   const openDate = (ex.timestamp || '').slice(0, 10);
   const eventDates = (ex.events || []).map(e => (e.date || '').slice(0, 10)).filter(Boolean);
   const lastEventDate = eventDates.length ? eventDates.sort().slice(-1)[0] : null;
@@ -219,17 +237,21 @@ function mapWheelExecution(ex) {
     openDate,
     closeDate,
     closeExecAt:      null,
-    desc:             'Ciclo de La Rueda (Tradier) — P&L de solo prima, ver limitación en el código',
+    desc:             pnlPending
+      ? 'Ciclo de La Rueda (Tradier) — sin P&L confirmado por el broker'
+      : 'Ciclo de La Rueda (Tradier)',
     strategyFamily:   null, // La Rueda no es parte de las 3 familias SPX — se identifica por stratType==='The Wheel'
     stratType:        'The Wheel',
     openValue:        0,
     closeValue:       0,
     pnl:              +(+pnl).toFixed(2),
+    pnlPending,                       // <- Historial lo usa para mostrar "pendiente"
+    pnlSource:        ex.pnlSource || null,
     commissionEstimate: estimateWheelCommission(ex),
     amPm:             null,
     durationDays: Math.round((new Date(closeDate) - new Date(openDate)) / 86400000),
     durationCat:  getDurationCat(openDate, closeDate),
-    win:              pnl > 0,
+    win:              pnlPending ? null : pnl > 0,
     flaggedError:     !!ex.flaggedError,
     flaggedErrorNote: ex.flaggedErrorNote || null,
   };
