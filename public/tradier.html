@@ -4264,8 +4264,18 @@ async function loadCurvas(){
       ? { backgroundColor: c => bajoObj(c.parsed?.y) ? CURV_ROJO : color,
           borderColor: c => bajoObj(c.parsed?.y) ? CURV_ROJO : color,
           borderWidth: 0, borderRadius: 2 }
-      : { borderColor: color, borderWidth: grueso, pointRadius: 0, pointHoverRadius: 5,
-          tension: .15, spanGaps: true,
+      : { borderColor: color, borderWidth: grueso, pointHoverRadius: 5,
+          tension: .15,
+          // Hueco real cuando no se opero: unir los extremos dibujaria un win
+          // rate que nunca existio. Pero un periodo suelto entre dos huecos no
+          // tiene con quien formar segmento y no se veria nada — Neutral 0DTE,
+          // con un unico trade, desaparecia del grafico. Por eso el punto se
+          // dibuja SOLO cuando el valor queda aislado.
+          spanGaps: false,
+          pointRadius: c => { const d=c.dataset.data, i=c.dataIndex;
+            if(d[i]==null) return 0;
+            const a=i>0?d[i-1]:null, b=i<d.length-1?d[i+1]:null;
+            return (a==null && b==null) ? 3 : 0; },
           segment: { borderColor: c => (bajoObj(c.p0.parsed.y) || bajoObj(c.p1.parsed.y)) ? CURV_ROJO : color },
           fill: foc ? { target:{value:OBJETIVO_WR}, above: hexA(color,.10), below: hexA(CURV_ROJO,.14) } : false,
           backgroundColor: hexA(color,.06) };
