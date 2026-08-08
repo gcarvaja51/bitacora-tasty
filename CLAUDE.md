@@ -2325,6 +2325,46 @@ panel (ej. la fila de filtros Desde/Hasta/Filtrar en Historial) detrás del navb
 Al tocar `.panel`/`.content`/`.sidebar` en mobile, evitar `padding`/`margin` shorthand —
 usar propiedades explícitas (`padding-top`, etc.) para no resetear el ajuste de safe-area.
 
+## Control de cambios — NORMA: todo ajuste queda documentado (2026-08-08)
+
+> **Regla del usuario:** *"necesito que sea una norma, siempre que cualquier ajuste o cambio se
+> documente"*. No es opcional ni depende de acordarse.
+
+`scripts/control_cambios.py` genera **seis** libros de Excel (uno por familia) desde el historial
+de git, en `mentoria alejandro/`. Lo dispara solo el hook **`.git/hooks/post-commit`** después de
+cada commit, en segundo plano (consulta producción para atribuir trades y no debe demorar el
+commit). Log en `.git/control_cambios.log`; para saltarlo una vez, `SKIP_CONTROL_CAMBIOS=1`.
+
+⚠️ **`.git/hooks/` no se versiona.** La copia buena está en `scripts/hooks/post-commit` — en un
+clon nuevo hay que copiarla a mano (`cp scripts/hooks/post-commit .git/hooks/ && chmod +x`), o el
+registro deja de actualizarse sin avisar. Así fue como los libros llegaron a estar **240 commits
+desactualizados** (tenían 49) antes del 2026-08-08.
+
+**Declarar impacto y familia en el commit.** La heurística solo mira el *asunto*, así que un
+commit que hace dos cosas se clasifica por la que quedó en el título. Caso real: `89941f9`
+("La Rueda contaba dos veces…") también arreglaba el gate del roll —una decisión de trading— y
+quedó como BAJO. Cuando el commit toca algo que cambia decisiones, **declararlo**; el trailer
+manda sobre la heurística:
+
+```
+Impacto: ALTO
+Estrategia: RUEDA, DIRECCIONAL
+```
+
+**Las columnas de seguimiento se llenan solas** (antes estaban siempre vacías, o sea que el libro
+registraba el cambio pero nunca cerraba el ciclo). Reglas, tomadas de la propia hoja *Seguimiento*:
+
+| | |
+|---|---|
+| Un período | Cada cambio **ALTO** abre uno; lo cierra el ALTO siguiente de esa familia |
+| Atribución | Por fecha de commit. La huella de `algoVersion` va aparte, en su propia tabla: **no se mueve con un cambio de código**, solo de config |
+| Muestra mínima | **30 trades cerrados**. Con menos: `insuficiente (n/30)` |
+| Corte de fiabilidad | Nada anterior al **2026-08-03** es comparable — 39 de 62 direccionales tienen el P&L mal calculado por el `/gainloss` viejo |
+
+Los trades salen de **producción** (`/api/tradier/executions`), no de los JSON locales, que están
+viejos. Si no hay red cae a los locales y lo dice en la hoja (`Fuente de los trades`), en vez de
+reportar en silencio sobre datos rancios.
+
 ## Desarrollo local
 
 - `npm run dev` — nodemon (recomendado). Configurado en `nodemon.json` para ignorar `*.json` y `public/*`, evitando bucle de reinicios cuando el servidor escribe datos.

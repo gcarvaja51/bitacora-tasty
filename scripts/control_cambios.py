@@ -37,11 +37,14 @@ MENTORIA = (r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal"
             r"\01_Sigma\mentoria alejandro")
 BASE = os.path.join(MENTORIA, "estrategias automatizadas")
 
+# Las carpetas se renumeraron (01_..05_) despues de la primera version de este
+# script; apuntar a los nombres viejos no fallaba con error, creaba carpetas
+# nuevas vacias al lado de las buenas y el libro real quedaba sin actualizar.
 DESTINOS = {
-    "DIRECCIONAL": (os.path.join(BASE, "estrategia direccional"), "control_cambios_direccional.xlsx"),
-    "NEUTRAL":     (os.path.join(BASE, "neutral"),                "control_cambios_neutral.xlsx"),
-    "REVERSION":   (os.path.join(BASE, "reversion a la media"),   "control_cambios_reversion.xlsx"),
-    "RUEDA":       (BASE,                                          "control_cambios_rueda.xlsx"),
+    "DIRECCIONAL": (os.path.join(BASE, "02_estrategia direccional"), "control_cambios_direccional.xlsx"),
+    "NEUTRAL":     (os.path.join(BASE, "03_neutral"),                "control_cambios_neutral.xlsx"),
+    "REVERSION":   (os.path.join(BASE, "04_reversion a la media"),   "control_cambios_reversion.xlsx"),
+    "RUEDA":       (os.path.join(BASE, "01_ciclo rueda"),            "control_cambios_rueda.xlsx"),
     # Las dos bitacoras tambien llevan control (pedido del usuario). No son
     # estrategias, pero un error ahi puede hacer que una estrategia PAREZCA
     # buena o mala sin serlo — se vio el 2026-08-03: 39 de 62 trades tenian el
@@ -129,6 +132,34 @@ def clasificar_familias(msg, archivos=''):
     return fams
 
 
+# Trailers opcionales en el mensaje del commit. Cuando estan, MANDAN sobre la
+# heuristica — que solo mira el asunto y por eso puede errar en un commit que
+# hace dos cosas. Caso real: 89941f9 ("La Rueda contaba dos veces...") arreglaba
+# ademas el gate del roll, un cambio de decision de trading, y quedo como BAJO
+# porque el asunto hablaba de contabilidad.
+#
+#   Impacto: ALTO|MEDIO|BAJO
+#   Estrategia: DIRECCIONAL, RUEDA        (varias separadas por coma)
+_TRAILER_IMPACTO = re.compile(r'^\s*impacto\s*:\s*(ALTO|MEDIO|BAJO)\s*$', re.I | re.M)
+_TRAILER_FAMILIA = re.compile(r'^\s*estrategias?\s*:\s*(.+)$', re.I | re.M)
+FAMILIAS_VALIDAS = {"DIRECCIONAL", "NEUTRAL", "REVERSION", "RUEDA",
+                    "BITACORA_TASTY", "BITACORA_TRADIER"}
+
+
+def impacto_declarado(cuerpo):
+    m = _TRAILER_IMPACTO.search(cuerpo or "")
+    return m.group(1).upper() if m else None
+
+
+def familias_declaradas(cuerpo):
+    m = _TRAILER_FAMILIA.search(cuerpo or "")
+    if not m:
+        return None
+    fams = {p.strip().upper().replace(" ", "_") for p in m.group(1).split(",")}
+    fams &= FAMILIAS_VALIDAS
+    return fams or None
+
+
 def clasificar_impacto(msg):
     m = msg.lower()
     # Un fix de datos/reporte no cambia decisiones aunque mencione palabras de alto impacto.
@@ -156,18 +187,116 @@ def leer_git():
     return filas
 
 
+# Cache de las llamadas a git: sin esto cada sha se consultaba una vez por
+# familia (6) y otra al escribir la fila, o sea ~7 subprocesos por commit. Con
+# el hook de post-commit corriendo esto en cada commit, eso se nota.
+_CACHE_CUERPO, _CACHE_ARCHIVOS = {}, {}
+
+
 def cuerpo_commit(sha):
+    if sha in _CACHE_CUERPO:
+        return _CACHE_CUERPO[sha]
     out = subprocess.run(["git", "log", "-1", "--format=%b", sha], cwd=REPO,
                          capture_output=True, text=True, encoding="utf-8", errors="replace")
     txt = " ".join(l.strip() for l in out.stdout.strip().split("\n")
-                   if l.strip() and not l.startswith("Co-Authored-By"))
-    return txt[:1200]
+                   if l.strip() and not l.startswith("Co-Authored-By")
+                   and not l.startswith("Claude-Session"))
+    _CACHE_CUERPO[sha] = txt[:1200]
+    return _CACHE_CUERPO[sha]
 
 
 def archivos_commit(sha):
+    if sha in _CACHE_ARCHIVOS:
+        return _CACHE_ARCHIVOS[sha]
     out = subprocess.run(["git", "show", "--stat", "--format=", "--name-only", sha], cwd=REPO,
                          capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return ", ".join([f for f in out.stdout.strip().split("\n") if f][:6])
+    _CACHE_ARCHIVOS[sha] = ", ".join([f for f in out.stdout.strip().split("\n") if f][:6])
+    return _CACHE_ARCHIVOS[sha]
+
+
+# ── Atribucion de trades a versiones ────────────────────────────────────────
+#
+# Las columnas "Trades bajo esta version" / "Win rate despues" / "Validado"
+# estuvieron SIEMPRE vacias: el libro registraba el cambio pero nunca cerraba
+# el ciclo, que es justo lo que hace falta para responder "¿esto mejoro o
+# empeoro?". Se llenan siguiendo las reglas que la propia hoja Seguimiento ya
+# declaraba:
+#
+#   1. Cada cambio de impacto ALTO abre un periodo. El periodo va desde ese
+#      commit hasta el siguiente ALTO de la MISMA familia.
+#   2. La huella de algoVersion separa por configuracion, pero NO se mueve con
+#      un cambio de codigo (lo dice src/algo_version.js y se vio con
+#      stopTimeframe el 2026-08-05). Por eso el periodo se delimita por fecha
+#      de commit y la huella se reporta aparte, en la hoja Seguimiento.
+#   3. Nada anterior al 2026-08-03 es comparable: 39 de 62 trades direccionales
+#      tienen el P&L mal calculado por el /gainloss viejo, y son irrecuperables.
+#   4. Muestra minima para concluir: 30 trades cerrados.
+CORTE_PNL_FIABLE = "2026-08-03"
+MUESTRA_MINIMA = 30
+FAMILIA_A_EJECUCION = {"DIRECCIONAL": "TENDENCIA", "NEUTRAL": "NEUTRAL", "REVERSION": "REVERSION"}
+PROD = "https://web-production-23473.up.railway.app"
+
+
+def _get_json(url, timeout=25):
+    import json as _json
+    from urllib.request import urlopen
+    with urlopen(url, timeout=timeout) as r:
+        return _json.loads(r.read().decode("utf-8"))
+
+
+def cargar_ejecuciones():
+    """Trades reales. Produccion primero (es donde vive el volumen con los datos
+    de verdad); si no hay red, cae a los archivos locales, que pueden estar
+    viejos — y lo dice, en vez de reportar en silencio sobre datos rancios."""
+    import json as _json
+    try:
+        spx = _get_json(f"{PROD}/api/tradier/executions").get("executions", [])
+        w = _get_json(f"{PROD}/api/wheel-trading/executions")
+        rueda = w if isinstance(w, list) else w.get("executions", [])
+        return spx, rueda, "produccion"
+    except Exception as e:
+        print(f"   (sin acceso a produccion: {e} — se usan los archivos locales)")
+        def _local(n):
+            p = os.path.join(REPO, n)
+            if not os.path.exists(p):
+                return []
+            with open(p, encoding="utf-8") as fh:
+                d = _json.load(fh)
+            return d if isinstance(d, list) else d.get("executions", [])
+        return _local("tradier_executions.json"), _local("wheel_trading_executions.json"), "local (posiblemente desactualizado)"
+
+
+def trades_de_familia(familia, spx, rueda):
+    if familia == "RUEDA":
+        return [e for e in rueda if e.get("phase") == "CERRADO"]
+    fam = FAMILIA_A_EJECUCION.get(familia)
+    if not fam:
+        return []          # las dos bitacoras no son estrategias, no se atribuyen trades
+    return [e for e in spx if e.get("strategyFamily") == fam]
+
+
+def _abierto_en(e):
+    return (e.get("timestamp") or e.get("filledAt") or "")[:16].replace("T", " ")
+
+
+def medir(trades, desde, hasta):
+    """desde/hasta en 'YYYY-MM-DD HH:MM'. hasta=None -> abierto hasta hoy."""
+    dentro = [e for e in trades if _abierto_en(e) >= desde and (hasta is None or _abierto_en(e) < hasta)]
+    cerrados = [e for e in dentro if isinstance(e.get("pnl"), (int, float))]
+    ganadores = [e for e in cerrados if e["pnl"] > 0]
+    pnl = round(sum(e["pnl"] for e in cerrados), 2)
+    wr = round(len(ganadores) / len(cerrados) * 100) if cerrados else None
+    return dict(n=len(dentro), cerrados=len(cerrados), ganadores=len(ganadores), wr=wr, pnl=pnl)
+
+
+def veredicto(m, desde):
+    if m["cerrados"] == 0:
+        return "sin trades aun"
+    if desde[:10] < CORTE_PNL_FIABLE:
+        return f"no comparable (P&L previo al {CORTE_PNL_FIABLE})"
+    if m["cerrados"] < MUESTRA_MINIMA:
+        return f"insuficiente ({m['cerrados']}/{MUESTRA_MINIMA})"
+    return "SI"
 
 
 def construir():
@@ -178,15 +307,19 @@ def construir():
     commits = leer_git()
     print(f"commits leidos: {len(commits)}")
     dry = "--dry-run" in sys.argv
+    spx, rueda, fuente = cargar_ejecuciones()
+    print(f"trades para atribuir: {len(spx)} de SPX + {len(rueda)} de la Rueda  (fuente: {fuente})")
 
     COLORES = {"ALTO": "FFC7CE", "MEDIO": "FFEB9C", "BAJO": "C6EFCE"}
 
     for familia, (carpeta, archivo) in DESTINOS.items():
         filas = []
         for c in commits:
-            if familia not in clasificar_familias(c["asunto"], archivos_commit(c["sha"])):
+            cuerpo = cuerpo_commit(c["sha"])
+            fams = familias_declaradas(cuerpo) or clasificar_familias(c["asunto"], archivos_commit(c["sha"]))
+            if familia not in fams:
                 continue
-            filas.append(dict(c, impacto=clasificar_impacto(c["asunto"])))
+            filas.append(dict(c, impacto=impacto_declarado(cuerpo) or clasificar_impacto(c["asunto"])))
         filas.sort(key=lambda r: (r["fecha"], r["hora"]), reverse=True)
 
         print(f"\n{familia}: {len(filas)} cambios  "
@@ -209,10 +342,40 @@ def construir():
             cel.font = Font(bold=True, color="FFFFFF")
             cel.fill = PatternFill("solid", fgColor="1F3864")
             cel.alignment = Alignment(vertical="center", wrap_text=True)
+        # Periodos de medicion: cada ALTO abre uno y lo cierra el ALTO siguiente
+        # de la misma familia (regla 1 de la hoja Seguimiento). `filas` viene en
+        # orden descendente, asi que el "siguiente" cronologico es el ALTO que
+        # aparece ANTES en la lista.
+        trades = trades_de_familia(familia, spx, rueda)
+        altos = [f for f in filas if f["impacto"] == "ALTO"]
+        periodos = []
+        for i, f in enumerate(altos):
+            desde = f"{f['fecha']} {f['hora']}"
+            hasta = f"{altos[i-1]['fecha']} {altos[i-1]['hora']}" if i > 0 else None
+            m = medir(trades, desde, hasta)
+            periodos.append(dict(sha=f["sha"], asunto=f["asunto"], desde=desde, hasta=hasta, **m))
+        medicion = {p["sha"]: p for p in periodos}
+
         for f in filas:
+            p = medicion.get(f["sha"])
+            if p is None:
+                # Solo los ALTO abren periodo; el resto no se mide, y decirlo es
+                # mas util que dejar la celda en blanco (blanco se lee como
+                # "falta llenar", y no es que falte: no aplica).
+                col_i = col_j = col_k = "no abre periodo (solo ALTO)"
+            elif not trades and familia.startswith("BITACORA"):
+                col_i = col_j = col_k = "n/a — no es una estrategia"
+            else:
+                col_i = f"{p['n']} abiertos / {p['cerrados']} cerrados"
+                col_j = f"{p['wr']}%  ({p['ganadores']}/{p['cerrados']})" if p["wr"] is not None else "sin datos"
+                col_k = veredicto(p, p["desde"])
             ws.append([f["fecha"], f["hora"], f["impacto"], f["asunto"], cuerpo_commit(f["sha"]),
-                       f["autor"], archivos_commit(f["sha"]), f["sha"], "", "", ""])
+                       f["autor"], archivos_commit(f["sha"]), f["sha"], col_i, col_j, col_k])
             ws.cell(ws.max_row, 3).fill = PatternFill("solid", fgColor=COLORES[f["impacto"]])
+            if p is not None:
+                v = str(col_k)
+                ws.cell(ws.max_row, 11).fill = PatternFill(
+                    "solid", fgColor="C6EFCE" if v == "SI" else "FFEB9C" if v.startswith("insuf") else "F2F2F2")
         for col, ancho in zip("ABCDEFGHIJK", [11, 7, 9, 52, 80, 14, 34, 10, 22, 17, 11]):
             ws.column_dimensions[col].width = ancho
         for r in range(2, ws.max_row + 1):
@@ -263,14 +426,59 @@ def construir():
         ws3.append(["4", "Muestra mínima antes de concluir: 30 trades. Con menos, la diferencia "
                          "entre 60% y 80% no es distinguible del azar."])
         ws3.append([])
-        ws3.append(["Período (huella)", "Desde", "Hasta", "Trades", "Ganadores", "Win rate", "P&L", "Notas"])
-        for i in range(1, 9):
+        ws3.append(["Período (commit)", "Qué cambió", "Desde", "Hasta", "Trades", "Ganadores",
+                    "Win rate", "P&L", "Validado"])
+        for i in range(1, 10):
             ws3.cell(10, i).font = Font(bold=True, color="FFFFFF")
             ws3.cell(10, i).fill = PatternFill("solid", fgColor="1F3864")
-        ws3.column_dimensions["A"].width = 20
-        ws3.column_dimensions["B"].width = 92
-        for col in "CDEFGH":
-            ws3.column_dimensions[col].width = 13
+        for p in periodos:
+            ws3.append([p["sha"], p["asunto"], p["desde"], p["hasta"] or "(vigente)",
+                        f"{p['n']} / {p['cerrados']} cerrados",
+                        p["ganadores"],
+                        f"{p['wr']}%" if p["wr"] is not None else "—",
+                        p["pnl"], veredicto(p, p["desde"])])
+            v = str(ws3.cell(ws3.max_row, 9).value)
+            ws3.cell(ws3.max_row, 9).fill = PatternFill(
+                "solid", fgColor="C6EFCE" if v == "SI" else "FFEB9C" if v.startswith("insuf") else "F2F2F2")
+            ws3.cell(ws3.max_row, 2).alignment = Alignment(wrap_text=True, vertical="top")
+
+        # Huellas de algoVersion observadas: separan por CONFIGURACION, que es
+        # ortogonal a los periodos por commit (un cambio de codigo no mueve la
+        # huella). Se listan aparte para poder cruzar las dos vistas.
+        huellas = {}
+        for e in trades_de_familia(familia, spx, rueda):
+            hv = (e.get("algoVersion") or {}).get("huella")
+            if not hv:
+                continue
+            d = huellas.setdefault(hv, dict(n=0, cerrados=0, gan=0, pnl=0.0, desde="9999", hasta=""))
+            d["n"] += 1
+            t = _abierto_en(e)
+            d["desde"], d["hasta"] = min(d["desde"], t), max(d["hasta"], t)
+            if isinstance(e.get("pnl"), (int, float)):
+                d["cerrados"] += 1
+                d["pnl"] += e["pnl"]
+                if e["pnl"] > 0:
+                    d["gan"] += 1
+        if huellas:
+            ws3.append([])
+            ws3.append(["Huella (algoVersion)", "= misma configuración", "Desde", "Hasta", "Trades",
+                        "Ganadores", "Win rate", "P&L", "Validado"])
+            enc = ws3.max_row
+            for i in range(1, 10):
+                ws3.cell(enc, i).font = Font(bold=True, color="FFFFFF")
+                ws3.cell(enc, i).fill = PatternFill("solid", fgColor="404040")
+            for hv, d in sorted(huellas.items(), key=lambda kv: kv[1]["desde"]):
+                wr = round(d["gan"] / d["cerrados"] * 100) if d["cerrados"] else None
+                m = dict(cerrados=d["cerrados"])
+                ws3.append([hv, "", d["desde"], d["hasta"], f"{d['n']} / {d['cerrados']} cerrados",
+                            d["gan"], f"{wr}%" if wr is not None else "—", round(d["pnl"], 2),
+                            veredicto(m, d["desde"])])
+
+        ws3.append([])
+        ws3.append(["Fuente de los trades", fuente])
+        ws3.append(["Generado", datetime.now().strftime("%Y-%m-%d %H:%M")])
+        for col, ancho in zip("ABCDEFGHI", [22, 60, 18, 18, 20, 11, 10, 11, 26]):
+            ws3.column_dimensions[col].width = ancho
         for r in range(4, 9):
             ws3.cell(r, 2).alignment = Alignment(wrap_text=True, vertical="top")
 

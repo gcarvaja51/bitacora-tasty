@@ -1,0 +1,27 @@
+#!/bin/sh
+# Control de cambios automatico (2026-08-08).
+#
+# Norma pedida por el usuario: TODO ajuste queda documentado. Depender de que
+# alguien se acuerde de correr el script no es una norma, es una intencion —
+# los libros llegaron a estar 240 commits desactualizados (tenian 49).
+#
+# Corre en segundo plano: el script consulta produccion para atribuir los
+# trades y puede tardar unos segundos; un commit no deberia esperar por eso.
+# post-commit no puede abortar el commit, asi que un fallo aca nunca bloquea.
+# Salida en .git/control_cambios.log.
+#
+# Para saltarlo puntualmente:  SKIP_CONTROL_CAMBIOS=1 git commit ...
+
+[ -n "$SKIP_CONTROL_CAMBIOS" ] && exit 0
+command -v python >/dev/null 2>&1 || exit 0
+
+RAIZ=$(git rev-parse --show-toplevel)
+(
+  cd "$RAIZ" || exit 0
+  {
+    echo "───────── $(date '+%Y-%m-%d %H:%M:%S')  commit $(git rev-parse --short HEAD)"
+    python scripts/control_cambios.py
+  } >> "$RAIZ/.git/control_cambios.log" 2>&1
+) &
+
+exit 0
