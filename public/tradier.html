@@ -42,6 +42,7 @@
     <div class="nav-item" onclick="nav('history',this)"><span class="icon">≡</span> Historial</div>
     <div class="nav-item" onclick="nav('reports',this)"><span class="icon">◑</span> Reportes</div>
     <div class="nav-item" onclick="nav('rendimiento',this)"><span class="icon">▨</span> Rendimiento</div>
+    <div class="nav-item" onclick="nav('curvas',this)"><span class="icon">⌁</span> Curvas</div>
     <div class="nav-item" onclick="nav('watchlist',this)"><span class="icon">👁</span> Watchlist</div>
     <div class="nav-item" onclick="nav('backtester',this)"><span class="icon">🔬</span> Backtester SPX</div>
     <div class="nav-item" onclick="nav('monitor',this)"><span class="icon">📊</span> Monitor SPX</div>
@@ -712,6 +713,42 @@
       </div>
     </div>
 
+    <!-- ══ CURVAS (2026-08-08) — todas las estrategias en un solo plano ══════
+         Complemento de Rendimiento, no reemplazo: alli cada estrategia tiene su
+         propia escala y se lee sola; aqui comparten eje y se leen unas CONTRA
+         otras. Las dos hojas salen de metrics.strategies, la misma fuente. -->
+    <div id="panel-curvas" class="panel">
+      <div class="filters">
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;" title="Trades marcados a mano como bug/error de implementación — no reflejan la calidad real de la estrategia.">
+          <input type="checkbox" id="curv-incluir-errores" onchange="loadCurvas()"> Incluir trades con error de implementación
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:14px;">
+          <input type="checkbox" id="curv-total" checked onchange="loadCurvas()"> Mostrar total
+        </label>
+        <span id="curv-kpi" class="td-mono" style="margin-left:auto;font-size:11px;"></span>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span>P&amp;L realizado acumulado <span class="dim" style="font-weight:400;">· todas las estrategias, mismo eje</span></span>
+          <span class="dim" style="font-size:10px;font-weight:400;">clic en la leyenda para ocultar una línea</span>
+        </div>
+        <div class="card-body chart-wrap" style="height:430px;min-height:430px;">
+          <canvas id="curvChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-header">Motor de ejecución <span class="dim" style="font-weight:400;">· apaga la estrategia en el servidor, no solo en el gráfico</span></div>
+        <div class="card-body" id="curv-switches" style="display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Resumen</div>
+        <div class="table-wrap"><div id="curv-tabla"></div></div>
+      </div>
+    </div>
+
     <!-- ══ HOY (2026-07-28 — reusa fetchTxnsTradier de Historial/Calendario) ══ -->
     <div id="panel-today" class="panel">
       <!-- Checkbox agregado el 2026-08-04: "Hoy" era la UNICA hoja sin el, asi
@@ -1282,6 +1319,7 @@ function renderMonitorSPX() {
 
 const TABS = {
   rendimiento: () => loadRendimiento(),
+  curvas:      () => loadCurvas(),
   backtester:  () => loadBacktester(),
   monitor:     () => loadMonitorSPX(),
   wheel:       () => loadWheelTrading(),
@@ -3978,17 +4016,132 @@ async function loadRendimiento(){
 // Interruptor por estrategia. La Rueda no lleva boton: no tiene ejecucion
 // automatica de entrada que pausar (cada ciclo se aprueba a mano), y poner un
 // switch que no hace nada seria peor que no ponerlo.
-function swBoton(s, estado){
+function swBoton(s, estado, recargar){
+  const cb = recargar || 'loadRendimiento';
   if(!s.sw) return `<span class="dim" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:5px;" title="La Rueda no entra sola: cada ciclo se aprueba a mano desde su pestaña.">entrada manual</span>`;
   const on = estado[s.sw] !== false;
   const compartido = s.sw==='NEUTRAL' ? ' title="Los dos Iron Condor comparten interruptor: usan el mismo motor."' : '';
-  return `<button onclick="toggleEstrategia('${s.sw}',${!on},loadRendimiento)"${compartido}
+  return `<button onclick="toggleEstrategia('${s.sw}',${!on},${cb})"${compartido}
     style="border:none;border-radius:5px;padding:4px 11px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.04em;
            background:${on?'rgba(19,214,143,.15)':'rgba(240,79,90,.15)'};color:${on?'#13d68f':'#f04f5a'};">
     ${on?'● ENCENDIDA':'⏸ PAUSADA'}</button>`;
 }
 function hexA(hex,a){ const n=parseInt(hex.slice(1),16);
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
+
+// == HOJA CURVAS (2026-08-08) ==============================================
+// Todas las curvas en un solo plano. Rendimiento responde "como va cada una";
+// esta responde "cual va mejor", que no es lo mismo: para compararlas tienen
+// que compartir eje. El TOTAL va mas grueso porque es la linea de referencia,
+// no una estrategia mas.
+async function loadCurvas(){
+  try{
+    const [tx, sw] = await Promise.all([
+      fetchTxnsTradier(),
+      api('/api/spx/strategies').catch(()=>({estrategias:{}})) ]);
+    const estado = sw.estrategias || {};
+    const m = tx.metrics || {};
+    const incErr = !!$('curv-incluir-errores')?.checked;
+
+    // Mismo filtro que Rendimiento/Historial: sin pnlPending (P&L que el broker
+    // todavia no confirmo) y respetando el checkbox de errores.
+    const cerradas = (m.strategies||[])
+      .filter(s => !s.isOpen && !s.pnlPending && s.closeDate)
+      .filter(s => incErr || !s.flaggedError)
+      .sort((a,b)=>a.closeDate.localeCompare(b.closeDate));
+
+    if(!cerradas.length){
+      $('curv-tabla').innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);">Sin operaciones cerradas todav\u00eda</div>';
+      $('curv-kpi').innerHTML = ''; return;
+    }
+
+    const dias = [...new Set(cerradas.map(s=>s.closeDate))].sort();
+    // Igual que en Rendimiento: el punto ancla en 0 es "todavia no habia ganado
+    // ni perdido nada". Sin el, la curva arranca ya movida y la peor racha no
+    // cuenta una perdida del primer dia.
+    const etiquetas = ['', ...dias.map(d=>d.slice(5))];
+    const acumular = trades => {
+      let acc=0; const porDia={};
+      trades.forEach(t=>{ porDia[t.closeDate]=(porDia[t.closeDate]||0)+t.pnl; });
+      return [0, ...dias.map(f=>{ acc += (porDia[f]||0); return +acc.toFixed(2); })];
+    };
+    const peorRacha = d => { let pico=0,dd=0; d.forEach(v=>{ if(v>pico)pico=v; dd=Math.min(dd,v-pico); }); return dd; };
+
+    const series = CMP_DEFS.map(d=>{
+      const suyas = cerradas.filter(d.test);
+      const data = acumular(suyas);
+      const wins = suyas.filter(t=>t.pnl>0).length;
+      return { ...d, data, n:suyas.length, total:data[data.length-1],
+               wr: suyas.length? Math.round(wins/suyas.length*100) : null,
+               maxDD: peorRacha(data), apagada: d.sw ? estado[d.sw]===false : false };
+    });
+    const totalData = acumular(cerradas);
+    const total = totalData[totalData.length-1];
+
+    $('curv-kpi').innerHTML = `${cerradas.length} trades \u00b7 <b class="${cc(total)}">${f$(total)}</b>`
+      + `<span class="dim"> \u00b7 peor racha ${f$(peorRacha(totalData))}</span>`;
+
+    // Una estrategia pausada se dibuja punteada: sigue siendo historia real, no
+    // se puede esconder, pero tiene que verse que ya no esta corriendo.
+    const datasets = series.filter(s=>s.n>0).map(s=>({
+      label: s.label + (s.apagada?' (pausada)':''),
+      data: s.data, borderColor:s.color, backgroundColor:hexA(s.color,.06),
+      borderWidth:2, borderDash: s.apagada?[5,4]:[], pointRadius:0, pointHoverRadius:5,
+      tension:.15, fill:false, order:2 }));
+
+    if($('curv-total')?.checked) datasets.push({
+      label:'TOTAL', data:totalData, borderColor:'#e8edf5', backgroundColor:'rgba(232,237,245,.05)',
+      borderWidth:4, pointRadius:0, pointHoverRadius:5, tension:.15, fill:true, order:1 });
+
+    const el=$('curvChart'); if(!el) return;
+    if(S.charts.curvas) S.charts.curvas.destroy();
+    S.charts.curvas = new Chart(el.getContext('2d'),{ type:'line',
+      data:{ labels: etiquetas, datasets },
+      options:{ responsive:true, maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{ labels:{color:'#c9d3e0',font:{family:'JetBrains Mono',size:10},usePointStyle:true,pointStyle:'line',boxWidth:22,padding:14} },
+          tooltip:{ backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
+            bodyColor:'#c9d3e0', titleColor:'#8a96a8',
+            itemSort:(a,b)=>b.parsed.y-a.parsed.y,
+            callbacks:{ label:c=>' '+c.dataset.label+': '+f$(c.parsed.y) } } },
+        scales:{
+          x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:14}, grid:{display:false} },
+          y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v).toLocaleString('en-US')},
+              grid:{ color:c=>Math.abs(c.tick.value)<1e-9?'rgba(78,90,112,.55)':'rgba(31,36,51,.5)' } } } } });
+
+    $('curv-switches').innerHTML = series.map(s=>`
+      <span style="display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:7px;padding:5px 10px;${s.n?'':'opacity:.45'}">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${s.color};"></span>
+        <span style="font-size:11px;">${s.label}</span>
+        ${swBoton(s, estado, 'loadCurvas')}
+      </span>`).join('');
+
+    $('curv-tabla').innerHTML = `<table><thead><tr>
+        <th style="text-align:left;">Estrategia</th><th>Trades</th><th>Win rate</th>
+        <th>P&amp;L</th><th>Medio</th><th>Peor racha</th><th>Motor</th></tr></thead><tbody>
+      ${series.map(s=>`<tr${s.n?'':' style="opacity:.35"'}>
+        <td class="td-bright"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:6px;"></span>${s.label}</td>
+        <td class="td-mono" style="text-align:center;">${s.n}</td>
+        <td class="td-mono ${s.wr>=50?'pos':'neg'}" style="text-align:center;">${s.wr==null?'\u2014':s.wr+'%'}</td>
+        <td class="td-mono ${cc(s.total)}" style="text-align:center;font-weight:700;">${s.n?f$(s.total):'\u2014'}</td>
+        <td class="td-mono" style="text-align:center;">${s.n?f$(s.total/s.n):'\u2014'}</td>
+        <td class="td-mono neg" style="text-align:center;">${s.n?f$(s.maxDD):'\u2014'}</td>
+        <td class="td-mono" style="text-align:center;">${!s.sw?'<span class="dim">manual</span>':(s.apagada?'<span class="neg">pausada</span>':'<span class="pos">activa</span>')}</td></tr>`).join('')}
+      <tr style="border-top:1px solid var(--border);font-weight:700;">
+        <td class="td-bright">TOTAL</td>
+        <td class="td-mono" style="text-align:center;">${cerradas.length}</td>
+        <td class="td-mono" style="text-align:center;">${Math.round(cerradas.filter(t=>t.pnl>0).length/cerradas.length*100)}%</td>
+        <td class="td-mono ${cc(total)}" style="text-align:center;">${f$(total)}</td>
+        <td class="td-mono" style="text-align:center;">${f$(total/cerradas.length)}</td>
+        <td class="td-mono neg" style="text-align:center;">${f$(peorRacha(totalData))}</td>
+        <td></td></tr>
+      </tbody></table>`;
+  }catch(e){
+    console.error('loadCurvas:',e);
+    $('curv-tabla').innerHTML=`<div class="error-box">Error: ${e.message}</div>`;
+  }
+}
 
 // ── Comparativa de estrategias (2026-08-08) ────────────────────────────────
 // Cinco lineas, no cuatro: los dos Iron Condor comparten strategyFamily
