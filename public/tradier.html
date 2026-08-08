@@ -728,6 +728,8 @@
         <span id="curv-kpi" class="td-mono" style="margin-left:auto;font-size:11px;"></span>
       </div>
 
+      <div id="curv-focos" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;"></div>
+
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
           <span>P&amp;L realizado acumulado <span class="dim" style="font-weight:400;">· todas las estrategias, mismo eje</span></span>
@@ -3996,7 +3998,7 @@ async function loadRendimiento(){
     $('rend-tabla').innerHTML = `<table><thead><tr>
         <th style="text-align:left;">Estrategia</th><th>Trades</th><th>Win rate</th><th>P&amp;L</th>
         <th>Gana</th><th>Pierde</th><th>Peor racha</th></tr></thead><tbody>
-      ${series.map(s=>`<tr${s.n?'':' style="opacity:.35"'}>
+      ${series.map(s=>`<tr${s.n?(curvFoco===s.id?' style="background:rgba(255,255,255,.03);"':''):' style="opacity:.35"'}>
         <td class="td-bright"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:6px;"></span>${s.label}</td>
         <td class="td-mono">${s.n}</td>
         <td class="td-mono ${s.wr>=50?'pos':'neg'}">${s.wr==null?'—':s.wr+'%'}</td>
@@ -4034,6 +4036,14 @@ function hexA(hex,a){ const n=parseInt(hex.slice(1),16);
 // esta responde "cual va mejor", que no es lo mismo: para compararlas tienen
 // que compartir eje. El TOTAL va mas grueso porque es la linea de referencia,
 // no una estrategia mas.
+// Foco: null = todas. Con una estrategia elegida las demas quedan ocultas (no
+// borradas: siguen en la leyenda y se pueden volver a encender), y como Chart.js
+// calcula min/max solo sobre los datasets visibles, el eje Y se reajusta solo.
+// Sin esto, Reversion (-$155) quedaba aplastada contra el cero porque el eje lo
+// fijaba el Direccional/TOTAL, que van diez veces mas arriba.
+let curvFoco = null;
+function setCurvFoco(id){ curvFoco = (curvFoco===id ? null : id); loadCurvas(); }
+
 async function loadCurvas(){
   try{
     const [tx, sw] = await Promise.all([
@@ -4078,20 +4088,40 @@ async function loadCurvas(){
     const totalData = acumular(cerradas);
     const total = totalData[totalData.length-1];
 
-    $('curv-kpi').innerHTML = `${cerradas.length} trades \u00b7 <b class="${cc(total)}">${f$(total)}</b>`
-      + `<span class="dim"> \u00b7 peor racha ${f$(peorRacha(totalData))}</span>`;
+    const foco = curvFoco ? series.find(x=>x.id===curvFoco) : null;
+    $('curv-kpi').innerHTML = foco
+      ? `<span style="color:${foco.color};">${foco.label}</span> \u00b7 ${foco.n} trades \u00b7 `
+        + `<b class="${cc(foco.total)}">${f$(foco.total)}</b>`
+        + `<span class="dim"> \u00b7 peor racha ${f$(foco.maxDD)}</span>`
+      : `${cerradas.length} trades \u00b7 <b class="${cc(total)}">${f$(total)}</b>`
+        + `<span class="dim"> \u00b7 peor racha ${f$(peorRacha(totalData))}</span>`;
+
+    $('curv-focos').innerHTML =
+      `<button onclick="setCurvFoco(null)" style="border:1px solid ${curvFoco?'var(--border)':'#4e5a70'};border-radius:6px;
+        padding:4px 12px;font-size:11px;cursor:pointer;background:${curvFoco?'transparent':'rgba(232,237,245,.08)'};
+        color:${curvFoco?'var(--muted)':'#e8edf5'};">Todas</button>`
+      + series.filter(x=>x.n>0).map(x=>`
+        <button onclick="setCurvFoco('${x.id}')" style="border:1px solid ${curvFoco===x.id?x.color:'var(--border)'};border-radius:6px;
+          padding:4px 12px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+          background:${curvFoco===x.id?hexA(x.color,.14):'transparent'};color:${curvFoco===x.id?x.color:'var(--muted)'};">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${x.color};"></span>${x.label}</button>`).join('');
 
     // Una estrategia pausada se dibuja punteada: sigue siendo historia real, no
     // se puede esconder, pero tiene que verse que ya no esta corriendo.
     const datasets = series.filter(s=>s.n>0).map(s=>({
       label: s.label + (s.apagada?' (pausada)':''),
       data: s.data, borderColor:s.color, backgroundColor:hexA(s.color,.06),
-      borderWidth:2, borderDash: s.apagada?[5,4]:[], pointRadius:0, pointHoverRadius:5,
-      tension:.15, fill:false, order:2 }));
+      borderWidth: curvFoco===s.id?2.5:2, borderDash: s.apagada?[5,4]:[], pointRadius:0, pointHoverRadius:5,
+      tension:.15, fill: curvFoco===s.id, order:2,
+      hidden: !!curvFoco && curvFoco!==s.id }));
 
+    // Con foco el TOTAL se oculta: es el que mantiene el eje arriba y volveria a
+    // aplastar la estrategia que se quiere mirar. Sigue en la leyenda por si se
+    // lo quiere de vuelta.
     if($('curv-total')?.checked) datasets.push({
       label:'TOTAL', data:totalData, borderColor:'#e8edf5', backgroundColor:'rgba(232,237,245,.05)',
-      borderWidth:4, pointRadius:0, pointHoverRadius:5, tension:.15, fill:true, order:1 });
+      borderWidth:4, pointRadius:0, pointHoverRadius:5, tension:.15, fill:true, order:1,
+      hidden: !!curvFoco });
 
     const el=$('curvChart'); if(!el) return;
     if(S.charts.curvas) S.charts.curvas.destroy();
@@ -4107,7 +4137,8 @@ async function loadCurvas(){
             callbacks:{ label:c=>' '+c.dataset.label+': '+f$(c.parsed.y) } } },
         scales:{
           x:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:14}, grid:{display:false} },
-          y:{ ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v).toLocaleString('en-US')},
+          y:{ grace:'8%',
+              ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},callback:v=>'$'+Math.round(v).toLocaleString('en-US')},
               grid:{ color:c=>Math.abs(c.tick.value)<1e-9?'rgba(78,90,112,.55)':'rgba(31,36,51,.5)' } } } } });
 
     $('curv-switches').innerHTML = series.map(s=>`
@@ -4120,7 +4151,7 @@ async function loadCurvas(){
     $('curv-tabla').innerHTML = `<table><thead><tr>
         <th style="text-align:left;">Estrategia</th><th>Trades</th><th>Win rate</th>
         <th>P&amp;L</th><th>Medio</th><th>Peor racha</th><th>Motor</th></tr></thead><tbody>
-      ${series.map(s=>`<tr${s.n?'':' style="opacity:.35"'}>
+      ${series.map(s=>`<tr${s.n?(curvFoco===s.id?' style="background:rgba(255,255,255,.03);"':''):' style="opacity:.35"'}>
         <td class="td-bright"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:6px;"></span>${s.label}</td>
         <td class="td-mono" style="text-align:center;">${s.n}</td>
         <td class="td-mono ${s.wr>=50?'pos':'neg'}" style="text-align:center;">${s.wr==null?'\u2014':s.wr+'%'}</td>
