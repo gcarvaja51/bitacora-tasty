@@ -329,16 +329,18 @@ function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
   // mide directo, a cualquier hora. isMarketHours() sigue cubriendo fin de semana,
   // feriados y horario, asi que esto no abre la puerta a operar de madrugada.
   //
-  // Unico corte que queda, y es MECANICO, no una opinion de mercado: no abrir si
-  // no alcanza a vivir. debeForzarCierrePorHorario (server.js) cierra todo 0DTE a
-  // las 15:30 ET, asi que una entrada a las 15:25 seria un ida y vuelta de 5 min
-  // que solo paga comisiones. minVidaMin es cuanto tiene que quedar para que valga
-  // la pena; ponerlo en 0 desactiva el corte.
-  const minVida = icConfig.minVidaMin ?? 20;
+  // Corte de apertura (decision del usuario, 2026-08-08): "no abrir ningun trade
+  // despues de las 2:30 pm". No es una ventana preferida —el PIN sigue decidiendo
+  // la hora— sino un tope: pasada esa hora no se abre nada, haya pin o no.
+  // Reemplaza al minVidaMin anterior, que era la misma idea expresada al reves y
+  // se entendia peor. Con apertura hasta 14:30 y cierre forzado a las 15:00, todo
+  // IC tiene al menos 30 min de vida garantizados.
+  // Nota: las otras dos estrategias ya cierran antes por su cuenta (direccional
+  // 14:00, reversion 13:00), asi que en la practica este tope solo ata al IC.
+  const [ahH, ahM] = String(icConfig.noAbrirDespuesET || '14:30').split(':').map(Number);
   const minsAhora = etHour * 60 + etMin;
-  const minsCierreForzado = 15 * 60 + 30;
-  if (dte === '0DTE' && minsCierreForzado - minsAhora < minVida) {
-    return { valid: false, reason: `Faltan ${Math.max(0, minsCierreForzado - minsAhora)} min para el cierre forzado de las 15:30 ET (mínimo ${minVida}) — no alcanza a vivir.` };
+  if (dte === '0DTE' && minsAhora >= ahH * 60 + (ahM || 0)) {
+    return { valid: false, reason: `Son las ${etHour}:${String(etMin).padStart(2,'0')} ET — no se abren trades después de las ${icConfig.noAbrirDespuesET || '14:30'}.` };
   }
 
   const pinState = calcPinState(spxPrice, gex, indicators?.m2?.bars, icConfig);

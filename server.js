@@ -4248,10 +4248,13 @@ const SPX_CONFIG_DEFAULTS = {
       pinMaxDistPts:      5,    // "pegado al muro": distancia maxima al call/put wall
       pinMaxRange30mPts: 10,    // "quieto": rango de las ultimas 15 velas de 2m
       pinVelas:          15,    // 15 velas de 2m = 30 min
-      // Sin ventana horaria (2026-08-08): el PIN decide, a la hora que sea. Solo
-      // queda un corte mecanico — que al trade le quede vida antes del cierre
-      // forzado de las 15:30 ET. minVidaMin: 0 lo desactiva.
-      minVidaMin:        20,
+      // Sin ventana horaria (2026-08-08): el PIN decide CUANDO entrar. Lo unico
+      // que queda son dos topes de fin de dia, pedidos por el usuario:
+      noAbrirDespuesET: '14:30', // pasada esa hora no se abre nada, haya pin o no
+      cierreForzadoET:  '15:30', // decision del usuario: MISMA hora para las tres
+                                 // estrategias. Queda parametrizado igual (y
+                                 // congelado en cada registro) para poder
+                                 // apretarlo solo al IC sin tocar codigo.
       minShortDistPts:   25,    // piso de distancia de las cortas al spot. Con PIN la
                                 // contencion a 90 min fue 100% a +-25 pts y 84% a +-20.
       maxHoldMin:        90,    // stop de TIEMPO. La contencion se midio a 90 min; un
@@ -4387,7 +4390,7 @@ function loadSPXConfig() {
     // volumen (el codigo caia a su default con ?? y nadie se enteraba). Mismo
     // tipo de fallo silencioso que el ATR: funciona, pero no es lo que dice.
     if (saved?.trading?.ironCondor) {
-      const faltan = ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'minVidaMin', 'minShortDistPts', 'maxHoldMin']
+      const faltan = ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'noAbrirDespuesET', 'cierreForzadoET', 'minShortDistPts', 'maxHoldMin']
         .filter(k => saved.trading.ironCondor[k] === undefined);
       if (faltan.length) {
         console.log(`[SPX] Sumando a ironCondor claves que faltaban: ${faltan.join(', ')}`);
@@ -6303,6 +6306,7 @@ async function checkIronCondor() {
             // entraron (mismo criterio que debitTpPct). pinEntrada queda para
             // poder medir despues si el PIN discriminaba de verdad.
             maxHoldMin:    icCfg.maxHoldMin ?? null,
+            cierreForzadoET: icCfg.cierreForzadoET ?? '15:30',
             pinEntrada:    gate.pinState ?? null,
             filledAt:      null,
             closedAt:      null,
@@ -6549,7 +6553,14 @@ function debeForzarCierrePorHorario(ex) {
   if (ex.expType === '1DTE') return false;
   const et = getETHour();
   const mins = et.hour * 60 + et.min;
-  return mins >= 15 * 60 + 30;
+  // Hora de cierre forzado, congelada en el registro al entrar (2026-08-08).
+  // El Iron Condor cierra a las 15:00 por decision del usuario — la ultima hora
+  // del 0DTE es la de gamma mas violenta y una neutral no tiene nada que ganar
+  // ahi. Las otras dos estrategias siguen con 15:30, que es lo que habia.
+  // Se lee del registro y no de la config para que un cambio de parametro no
+  // altere la regla de una posicion ya abierta (mismo criterio que maxHoldMin).
+  const [hh, mm] = String(ex.cierreForzadoET || '15:30').split(':').map(Number);
+  return mins >= hh * 60 + (mm || 0);
 }
 
 // ── Monitor activo de TP/SL para Iron Condor (primer cierre activo del sistema —
