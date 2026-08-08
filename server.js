@@ -4850,16 +4850,30 @@ async function buildSPXContext() {
         }
         indicators.poc15m = calcPOC(bars15hoy);
 
-        // ATR(15m) de sesion (2026-07-23, a pedido del usuario) — usado para exigir
-        // una distancia minima entre la entrada y el Fractal/POC que actua de stop
-        // tecnico (ver mas abajo, donde se congelan signal.fractalLevel/pocLevel).
-        // Caso real que lo origino: 5 trades del mismo dia con el Fractal 15m a
-        // 0.65x-1.14x ATR de la entrada -- una sola vela de retroceso normal (dentro
-        // de una tendencia que el ADX seguia confirmando como fuerte) bastaba para
-        // tocar el stop. Simulado con Black-Scholes sobre precios reales: las 5
-        // habrian tocado el TP economico (30%) si el stop tecnico no hubiera
-        // disparado antes -- diferencia de ~$2,700 en ese cluster.
-        const atr15arr = calcATR(bars15hoy, 14);
+        // ATR(15m) — usado para exigir una distancia minima entre la entrada y el
+        // Fractal/POC que actua de stop tecnico (ver mas abajo, donde se congelan
+        // signal.fractalLevel/pocLevel). Caso real que lo origino (2026-07-23): 5
+        // trades del mismo dia con el Fractal a 0.65x-1.14x ATR de la entrada --
+        // una sola vela de retroceso bastaba para tocar el stop.
+        //
+        // ⚠️ VENTANA RODANTE, NO LA SESION DE HOY (corregido 2026-08-08). Se
+        // calculaba sobre `bars15hoy`, y un ATR de 14 periodos necesita 15 velas
+        // de 15 min: no existia hasta las ~13:15 ET. La ventana del direccional es
+        // 9:45-14:00 ET, asi que durante casi toda la franja operable `atr15m`
+        // valia null — y el guard de abajo es `if (atr15m != null && ...)`, o sea
+        // que el piso NUNCA se aplico. Medido: los 10 stops tecnicos de la muestra
+        // fiable dispararon todos antes de las 13:00 ET, con el POC a 2.6-5.4 pts
+        // de la entrada; realizaron -$295 donde mantenerlos daba +$990.
+        //
+        // El POC sigue usando bars15hoy a proposito: es un concepto de SESION y
+        // debe reiniciar cada dia. El ATR no — mide volatilidad, y la de ayer
+        // sigue siendo informativa a las 9:45 de hoy.
+        const bars15rolling = [];
+        for (let i = 0; i < ts15.length; i++) {
+          if (rawHighs15[i] == null || rawLows15[i] == null || rawCloses15[i] == null) continue;
+          bars15rolling.push({ high: rawHighs15[i], low: rawLows15[i], close: rawCloses15[i] });
+        }
+        const atr15arr = calcATR(bars15rolling, 14);
         indicators.atr15m = atr15arr.length ? atr15arr[atr15arr.length - 1] : null;
       }
 
