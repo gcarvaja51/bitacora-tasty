@@ -205,6 +205,23 @@ def cuerpo_commit(sha):
     return _CACHE_CUERPO[sha]
 
 
+_CACHE_CRUDO = {}
+
+
+def cuerpo_crudo(sha):
+    """Cuerpo SIN aplanar. cuerpo_commit() une las lineas con espacios para que
+    quepa en una celda, y eso rompe cualquier match anclado a linea: los
+    trailers `Impacto:`/`Estrategia:` quedaban en medio del parrafo y no los
+    veia nadie. Se detecto al estrenar la convencion — el propio commit que la
+    introdujo no se clasifico."""
+    if sha in _CACHE_CRUDO:
+        return _CACHE_CRUDO[sha]
+    out = subprocess.run(["git", "log", "-1", "--format=%b", sha], cwd=REPO,
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+    _CACHE_CRUDO[sha] = out.stdout
+    return _CACHE_CRUDO[sha]
+
+
 def archivos_commit(sha):
     if sha in _CACHE_ARCHIVOS:
         return _CACHE_ARCHIVOS[sha]
@@ -315,11 +332,11 @@ def construir():
     for familia, (carpeta, archivo) in DESTINOS.items():
         filas = []
         for c in commits:
-            cuerpo = cuerpo_commit(c["sha"])
-            fams = familias_declaradas(cuerpo) or clasificar_familias(c["asunto"], archivos_commit(c["sha"]))
+            crudo = cuerpo_crudo(c["sha"])          # trailers: hace falta el cuerpo sin aplanar
+            fams = familias_declaradas(crudo) or clasificar_familias(c["asunto"], archivos_commit(c["sha"]))
             if familia not in fams:
                 continue
-            filas.append(dict(c, impacto=impacto_declarado(cuerpo) or clasificar_impacto(c["asunto"])))
+            filas.append(dict(c, impacto=impacto_declarado(crudo) or clasificar_impacto(c["asunto"])))
         filas.sort(key=lambda r: (r["fecha"], r["hora"]), reverse=True)
 
         print(f"\n{familia}: {len(filas)} cambios  "
