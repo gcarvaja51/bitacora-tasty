@@ -3856,7 +3856,10 @@ function renderEquityChartTradier(curve, nlvSnapshots, _tipo, _chtype) {
 // aparecio tres veces en esta bitacora.
 async function loadRendimiento(){
   try{
-    const [tx, curva] = await Promise.all([ fetchTxnsTradier(), api('/api/curve-tradier') ]);
+    const [tx, curva, sw] = await Promise.all([
+      fetchTxnsTradier(), api('/api/curve-tradier'),
+      api('/api/spx/strategies').catch(()=>({estrategias:{}})) ]);
+    const estado = sw.estrategias || {};
     const m = tx.metrics || {};
     const incErr = !!$('rend-incluir-errores')?.checked;
     const norm   = !!$('rend-normalizar')?.checked;
@@ -3873,7 +3876,7 @@ async function loadRendimiento(){
     const ini = cv.length? cv[0] : 0, fin = cv.length? cv[cv.length-1] : 0;
     $('rend-cuenta-kpi').innerHTML = cv.length
       ? `${f$(ini)} <span class="dim">→</span> <b class="${cc(fin-ini)}">${f$(fin)}</b>
-         <span class="${cc(fin-ini)}">(${fin-ini>=0?'+':''}${f$(fin-ini)})</span>`
+         <span class="${cc(fin-ini)}">(${f$(fin-ini)})</span>`
       : '<span class="dim">sin datos</span>';
     const ctxC = $('rendCuenta').getContext('2d');
     if(S.charts.rendCuenta) S.charts.rendCuenta.destroy();
@@ -3908,10 +3911,11 @@ async function loadRendimiento(){
       <div class="card" style="margin-bottom:10px;${s.n?'':'opacity:.4'}">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
           <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${s.color};margin-right:7px;"></span>${s.label}</span>
-          <span class="td-mono" style="font-size:11px;">
-            ${s.n} trades · <span class="${s.wr>=50?'pos':'neg'}">${s.wr==null?'—':s.wr+'%'}</span>
+          <span class="td-mono" style="font-size:11px;display:flex;align-items:center;gap:10px;">
+            <span>${s.n} trades · <span class="${s.wr>=50?'pos':'neg'}">${s.wr==null?'—':s.wr+'%'}</span>
             · <b class="${cc(s.total)}">${s.n?f$(s.total):'—'}</b>
-            <span class="dim" style="margin-left:8px;">peor racha ${s.n?f$(s.maxDD):'—'}</span>
+            <span class="dim" style="margin-left:6px;">peor racha ${s.n?f$(s.maxDD):'—'}</span></span>
+            ${swBoton(s, estado)}
           </span>
         </div>
         <div class="card-body chart-wrap" style="height:120px;padding-top:6px;">
@@ -3953,6 +3957,18 @@ async function loadRendimiento(){
     $('rend-estrategias').innerHTML=`<div class="error-box">Error: ${e.message}</div>`;
   }
 }
+// Interruptor por estrategia. La Rueda no lleva boton: no tiene ejecucion
+// automatica de entrada que pausar (cada ciclo se aprueba a mano), y poner un
+// switch que no hace nada seria peor que no ponerlo.
+function swBoton(s, estado){
+  if(!s.sw) return `<span class="dim" style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:5px;" title="La Rueda no entra sola: cada ciclo se aprueba a mano desde su pestaña.">entrada manual</span>`;
+  const on = estado[s.sw] !== false;
+  const compartido = s.sw==='NEUTRAL' ? ' title="Los dos Iron Condor comparten interruptor: usan el mismo motor."' : '';
+  return `<button onclick="toggleEstrategia('${s.sw}',${!on},loadRendimiento)"${compartido}
+    style="border:none;border-radius:5px;padding:4px 11px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.04em;
+           background:${on?'rgba(19,214,143,.15)':'rgba(240,79,90,.15)'};color:${on?'#13d68f':'#f04f5a'};">
+    ${on?'● ENCENDIDA':'⏸ PAUSADA'}</button>`;
+}
 function hexA(hex,a){ const n=parseInt(hex.slice(1),16);
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
 
@@ -3960,12 +3976,15 @@ function hexA(hex,a){ const n=parseInt(hex.slice(1),16);
 // Cinco lineas, no cuatro: los dos Iron Condor comparten strategyFamily
 // 'NEUTRAL' pero son estrategias distintas — el 1DTE aguanta el gap overnight,
 // que no tiene monitoreo posible. Se separan por expType.
+// `sw` es el kill-switch que gobierna cada una (ver KILL_SWITCH en server.js).
+// Los dos Iron Condor comparten NEUTRAL: usan el mismo motor. La Rueda no tiene:
+// nunca entra sola, cada ciclo se abre con aprobacion manual.
 const CMP_DEFS = [
-  { id:'TENDENCIA',    label:'Direccional',   color:'#4f8eff', test: s => fam(s)==='TENDENCIA' },
-  { id:'REVERSION',    label:'Reversión',     color:'#c084fc', test: s => fam(s)==='REVERSION' },
-  { id:'NEUTRAL_0DTE', label:'Neutral 0DTE',  color:'#13d68f', test: s => fam(s)==='NEUTRAL' && s.expType!=='1DTE' },
-  { id:'NEUTRAL_1DTE', label:'Neutral 1DTE',  color:'#f0a30a', test: s => fam(s)==='NEUTRAL' && s.expType==='1DTE' },
-  { id:'RUEDA',        label:'La Rueda',      color:'#ff8fa3', test: s => fam(s)==='RUEDA' },
+  { id:'TENDENCIA',    label:'Direccional',   color:'#4f8eff', sw:'DIRECCIONAL', test: s => fam(s)==='TENDENCIA' },
+  { id:'REVERSION',    label:'Reversión',     color:'#c084fc', sw:'REVERSION',   test: s => fam(s)==='REVERSION' },
+  { id:'NEUTRAL_0DTE', label:'Neutral 0DTE',  color:'#13d68f', sw:'NEUTRAL',     test: s => fam(s)==='NEUTRAL' && s.expType!=='1DTE' },
+  { id:'NEUTRAL_1DTE', label:'Neutral 1DTE',  color:'#f0a30a', sw:'NEUTRAL',     test: s => fam(s)==='NEUTRAL' && s.expType==='1DTE' },
+  { id:'RUEDA',        label:'La Rueda',      color:'#ff8fa3', sw:null,          test: s => fam(s)==='RUEDA' },
 ];
 function fam(s){ return getFamilia(s); }
 
@@ -4042,11 +4061,12 @@ async function loadSwitchesTradier(){
       + `<div style="font-size:10px;color:var(--muted);margin-top:8px;">Los dos Iron Condor comparten interruptor: usan el mismo motor. La Rueda tiene el suyo en su propia pestaña.</div>`;
   }catch(e){ $('cmp-switches').innerHTML=`<div style="color:var(--red);font-size:11px;">Error: ${e.message}</div>`; }
 }
-async function toggleEstrategia(nombre, enabled){
-  if(!confirm(`${enabled?'Encender':'Pausar'} la ejecución automática de ${nombre}?`)) return;
+async function toggleEstrategia(nombre, enabled, despues){
+  const aviso = enabled ? '' : [ '', '', 'Las posiciones que ya esten abiertas se siguen gestionando (TP/SL) — solo se dejan de abrir nuevas.' ].join(String.fromCharCode(10));
+  if(!confirm(`${enabled?'Encender':'Pausar'} la ejecución automática de ${nombre}?`+aviso)) return;
   try{
     await api(`/api/spx/strategies/${nombre}`, 'POST', { enabled });   // api(path, method, body)
-    loadSwitchesTradier();
+    (despues || loadSwitchesTradier)();
   }catch(e){ alert('Error: '+e.message); }
 }
 
