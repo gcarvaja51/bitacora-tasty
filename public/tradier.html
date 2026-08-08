@@ -3905,7 +3905,6 @@ async function loadRendimiento(){
     // Escala comun: permite comparar formas entre estrategias. Apagada por
     // defecto porque con escalas distintas se lee mejor cada una por separado.
     const todos = series.filter(s=>s.n).flatMap(s=>s.data);
-    const gMin = Math.min(0,...todos), gMax = Math.max(0,...todos);
 
     $('rend-estrategias').innerHTML = series.map(s=>`
       <div class="card" style="margin-bottom:7px;${s.n?'':'opacity:.4'}">
@@ -3923,9 +3922,22 @@ async function loadRendimiento(){
         </div>
       </div>`).join('');
 
+    // Con 88px de alto, el algoritmo de "numeros redondos" de Chart.js
+    // degenera: para una curva de 0 a 4090 saltaba al escalon de 5000 y
+    // pintaba el eje -5000/0/5000, aplastando la serie en la mitad de arriba.
+    // Se fijan min/max desde los datos (siempre incluyendo el 0) y se piden
+    // 3 marcas exactas.
+    const rango = arr => {
+      const v = (norm ? todos : arr);
+      let lo = Math.min(0, ...v), hi = Math.max(0, ...v);
+      const pad = Math.max(1, (hi - lo) * 0.12);
+      return { min: lo - (lo < 0 ? pad : 0), max: hi + (hi > 0 ? pad : 0) };
+    };
+
     series.forEach((s,idx)=>{
       const ultima = idx === series.length-1;
       const el=$('rend-'+s.id); if(!el) return;
+      const { min:yMin, max:yMax } = rango(s.data);
       if(S.charts['rend_'+s.id]) S.charts['rend_'+s.id].destroy();
       S.charts['rend_'+s.id]=new Chart(el.getContext('2d'),{ type:'line',
         data:{labels:dias.map(d=>d.slice(5)),datasets:[{data:s.data,borderColor:s.color,
@@ -3934,7 +3946,7 @@ async function loadRendimiento(){
         options:{responsive:true,maintainAspectRatio:false,
           plugins:{legend:{display:false},tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}}},
           scales:{x:{display:ultima,ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},maxTicksLimit:10},grid:{display:false}},
-            y:{...(norm?{min:gMin,max:gMax}:{}),ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},maxTicksLimit:4,callback:v=>'$'+Math.round(v)},grid:{color:'rgba(31,36,51,.4)'}}}}});
+            y:{min:yMin,max:yMax,ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:8},count:3,callback:v=>(Math.abs(v)>=1000?(v<0?'-$':'$')+Math.round(Math.abs(v)/100)/10+'k':'$'+Math.round(v))},grid:{color:c=>Math.abs(c.tick.value)<1e-9?'rgba(78,90,112,.55)':'rgba(31,36,51,.4)'}}}}});
     });
 
     const tot = cerradas.reduce((a,s)=>a+s.pnl,0);
