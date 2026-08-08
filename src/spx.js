@@ -214,6 +214,63 @@ function evaluateReversionGate(etHour, etMin) {
 // Gate PROPIO, en paralelo a selectStrategy() (no lo reemplaza): el Iron Condor no
 // depende de una alerta direccional de Pine — se evalúa de forma periódica
 // server-side buscando condiciones de rango/no-tendencia, no de tendencia.
+// ── PIN: el mercado clavado contra un muro ─────────────────────────────────
+//
+// Medido el 2026-08-08 sobre 10 dias de muros de Sigma + velas reales de 2m,
+// excursion maxima del SPX en los 90 min siguientes (ventana 10-14 ET):
+//
+//   gamma NEGATIVO ................. mediana 25.9 pts  |  se queda en +-25: 49%
+//   base (todos los momentos) ...... mediana 17.9      |  67%
+//   gamma POSITIVO ................. mediana 17.6      |  72%
+//   POSITIVO + lejos del muro ...... mediana 18.8      |  68%   <- control
+//   POSITIVO + pegado al muro ...... mediana 14.4      |  78%
+//   POSITIVO + PIN ................. mediana 13.5      |  100%
+//
+// El control (positivo pero lejos del muro) es peor que el promedio: el que
+// hace el trabajo es el MURO, no el regimen por si solo.
+//
+// ⚠️ La muestra son 74 barras de 2m repartidas en 4 dias — probablemente 5 a 12
+// episodios distintos, no 74 observaciones independientes. El 100% es real
+// sobre lo observado y NO es una probabilidad; un solo dia de tendencia lo
+// rompe. Por eso el setup arranca midiendose, no apostando fuerte.
+//
+// Reemplaza a tres gates que eran PROXIES de esto mismo (rango de apertura,
+// Fase Weinstein 1/3, MACD 15m aplanado). Ninguno de los tres midio nunca el
+// rango de verdad, y el de apertura ademas fallaba como DATO el 10% de las
+// veces — bloqueaba por no saber, no por una condicion de mercado.
+function calcPinState(spxPrice, gex, bars2m, cfg = {}) {
+  const maxDist  = cfg.pinMaxDistPts ?? 5;
+  const maxRango = cfg.pinMaxRange30mPts ?? 10;
+  const velas    = cfg.pinVelas ?? 15;              // 15 velas de 2m = 30 min
+
+  if (spxPrice == null || !gex) return { pin: false, reason: 'sin precio o sin GEX' };
+  const cw = gex.callWall, pw = gex.putWall;
+  if (cw == null && pw == null) return { pin: false, reason: 'sin muros' };
+
+  const dCall = cw != null ? Math.abs(spxPrice - cw) : Infinity;
+  const dPut  = pw != null ? Math.abs(spxPrice - pw) : Infinity;
+  const dist  = Math.min(dCall, dPut);
+  const muro  = dCall <= dPut ? 'call' : 'put';
+
+  const b = Array.isArray(bars2m) ? bars2m.slice(-velas) : [];
+  if (b.length < velas) return { pin: false, dist: +dist.toFixed(1), muro, reason: `solo ${b.length}/${velas} velas de 2m` };
+  const rango30 = Math.max(...b.map(x => x.high)) - Math.min(...b.map(x => x.low));
+
+  const regimenOk = gex.regime === 'POSITIVO';
+  const cerca     = dist <= maxDist;
+  const quieto    = rango30 <= maxRango;
+
+  return {
+    pin: regimenOk && cerca && quieto,
+    dist: +dist.toFixed(1), muro, rango30: +rango30.toFixed(1),
+    regimenOk, cerca, quieto,
+    reason: !regimenOk ? `GEX ${gex.regime || 'desconocido'}, no POSITIVO`
+      : !cerca  ? `precio a ${dist.toFixed(1)}pts del muro ${muro} (máx ${maxDist})`
+      : !quieto ? `rango de 30min ${rango30.toFixed(1)}pts (máx ${maxRango}) — todavía se mueve`
+      : `PIN contra el muro ${muro} a ${dist.toFixed(1)}pts, rango 30min ${rango30.toFixed(1)}pts`,
+  };
+}
+
 function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
   const { spxPrice, vix, gex, indicators, openingRangeRespected, etHour, etMin, highImpactEventsTomorrow } = ctx;
   const etMins = etHour * 60 + etMin;
@@ -257,28 +314,34 @@ function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
     };
   }
 
-  // ── 0DTE ──
-  if (classifyWindow(etMins) !== 'IC_FAVORABLE') {
-    return { valid: false, reason: `Iron Condor 0DTE solo en ventana 10:00am-1:00pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+  // ── 0DTE — setup por PIN (2026-08-08) ──
+  //
+  // Antes: ventana 10-13, rango de apertura respetado, Fase Weinstein 1 o 3 y
+  // MACD 15m aplanado. Resultado real de ese gate: 317 evaluaciones, CERO
+  // señales, y un unico Iron Condor cerrado en toda la historia (-$10). Los
+  // tres ultimos checks intentaban inferir "el mercado no va a ningun lado";
+  // calcPinState lo mide directo (ver la nota larga arriba).
+  //
+  // La ventana pasa a 10-14 ET porque es la que se midio. El buffer de Gamma
+  // Flip se conserva: es el unico de los viejos que protege de un riesgo real
+  // (que el regimen se de vuelta de golpe), no un proxy de rango.
+  const winIni = icConfig.pinWindowStartET ?? 10;
+  const winFin = icConfig.pinWindowEndET ?? 14;
+  if (etHour < winIni || etHour >= winFin) {
+    return { valid: false, reason: `Iron Condor 0DTE solo en ventana ${winIni}:00-${winFin}:00 ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
   }
-  if (openingRangeRespected === false) {
-    return { valid: false, reason: 'Rango de apertura (9:30-10:00) roto — Iron Condor no recomendado, esperar nueva estructura.' };
-  }
-  if (openingRangeRespected == null) {
-    return { valid: false, reason: 'No se pudo determinar si el rango de apertura fue respetado — sin datos suficientes para Iron Condor.' };
-  }
-  const fase15m = indicators?.m15?.weinstein?.fase;
-  if (fase15m !== 1 && fase15m !== 3) {
-    return { valid: false, reason: `Fase Weinstein 15m = ${fase15m ?? '—'} — Iron Condor requiere Fase 1 o 3 (consolidación/rango, sin tendencia clara).` };
-  }
-  const macdHist = indicators?.m15?.macd?.hist;
-  const flatThreshold = spxPrice * 0.0005;
-  if (macdHist == null || Math.abs(macdHist) >= flatThreshold) {
-    return { valid: false, reason: `MACD 15m no está aplanado (hist=${macdHist ?? '—'}, umbral ±${flatThreshold.toFixed(2)}) — todavía hay momentum direccional, Mundo 3 no cumplido.` };
+
+  const pinState = calcPinState(spxPrice, gex, indicators?.m2?.bars, icConfig);
+  if (!pinState.pin) {
+    return { valid: false, reason: `Sin PIN: ${pinState.reason}.`, pinState };
   }
   if (vix > 24) spreadWidth = Math.min(spreadWidth, 10); // playbook: alas mas ajustadas, no bloquea
 
-  return { valid: true, dte: '0DTE', spreadWidth };
+  // pinState viaja en la respuesta para que quede en el snapshot del strategy
+  // log: sin eso, dentro de tres semanas no vamos a poder responder "¿con que
+  // PIN entro?" sin reconstruirlo a mano, que es exactamente el agujero que nos
+  // obligo a inferir el atraso de 16 min cruzando 267 snapshots contra Yahoo.
+  return { valid: true, dte: '0DTE', spreadWidth, pinState, note: pinState.reason };
 }
 
 // ── Selecciona estrategia según contexto ──────────────────────
@@ -635,4 +698,4 @@ function buildSignalSummary(strategy, strikes, sel, context) {
   };
 }
 
-module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow };
+module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, calcPinState, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow };

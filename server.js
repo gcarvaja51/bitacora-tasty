@@ -4236,15 +4236,37 @@ const SPX_CONFIG_DEFAULTS = {
     // Iron Condor — playbook profesor Alejandro. Parametros propios, separados de los
     // de las direccionales de arriba (no comparten targetDelta/spreadWidth/tpPct/slMult).
     ironCondor: {
-      targetDelta: 0.12,        // delta 0.10-0.14, 0.12 = ~88% prob. de expirar sin valor
-      spreadWidth: 10,          // ancho estandar del playbook (10-15, hasta 20-25 con mas experiencia)
+      targetDelta: 0.10,        // 0.12 -> 0.10 (2026-08-08, decision del usuario con el setup por PIN)
+      spreadWidth: 5,           // 10 -> 5 (2026-08-08, decision del usuario): riesgo maximo $500/contrato
+                                // en vez de $1000. Ojo: el ancho tambien es el denominador del gate
+                                // credito/ancho, ver minCreditoAnchoPct abajo.
       tpPct:       25,          // 25-40% del credito — cerrar al 25% eleva la prob. de exito a 94%
       slMult:      1.5,         // 1.5x o 2x el credito recibido
       gammaFlipBufferPts: 20,   // no operar si el precio esta a menos de esto del Gamma Flip
       tradierAutoExecute: true, // kill-switch propio del IC, separado del de las direccionales
-      minCreditoAnchoPct: 25,   // 2026-07-09, a pedido del usuario: credito/ancho minimo (no credito/riesgo,
-                                // distinto del gate de las direccionales) — "regla del tercio" del playbook
-                                // pide ~33%, el usuario eligio 25% como su propio piso
+      // ── Setup por PIN (2026-08-08) — ver calcPinState en src/spx.js ──
+      pinMaxDistPts:      5,    // "pegado al muro": distancia maxima al call/put wall
+      pinMaxRange30mPts: 10,    // "quieto": rango de las ultimas 15 velas de 2m
+      pinVelas:          15,    // 15 velas de 2m = 30 min
+      pinWindowStartET:  10,    // ventana medida: 10-14 ET (antes 10-13)
+      pinWindowEndET:    14,
+      minShortDistPts:   25,    // piso de distancia de las cortas al spot. Con PIN la
+                                // contencion a 90 min fue 100% a +-25 pts y 84% a +-20.
+      maxHoldMin:        90,    // stop de TIEMPO. La contencion se midio a 90 min; un
+                                // 0DTE abierto a las 11 vive hasta las 16, y para ese
+                                // horizonte NO hay medicion. Se cierra dentro de la
+                                // ventana que si se midio, en vez de extrapolar.
+      // 25 -> 0 (2026-08-08, decision explicita del usuario: "no le pongamos limite
+      // a la prima recibida por ahora"). Con delta 0.10 y ancho 5 el piso del 25%
+      // exigia 1.25 pts de credito sobre 5 de ancho, que un short tan OTM casi nunca
+      // paga — habria bloqueado las 3 señales del backtest y el IC seguiria en cero.
+      //
+      // ⚠️ Consecuencia a vigilar: TP y SL son PORCENTAJES del credito recibido
+      // (tpPct 25%, slMult 1.5x). Con un credito chico esos umbrales quedan en
+      // centavos y la posicion cierra por ruido. Y el perfil queda feo: arriesgar
+      // ~$500 para cobrar poco. Es el precio de ver si el setup dispara; revisar
+      // en cuanto haya 5-10 operaciones reales.
+      minCreditoAnchoPct: 0,
       ivRankThreshold: 25,      // 2026-07-09: IV Rank por debajo de esto -> Condor de DEBITO (Long Put Condor,
                                 // Vega positiva) en vez de Iron Condor de credito — vender prima barata "es
                                 // operar sin ventaja" segun el playbook. IV Rank >= esto sigue siendo credito.
@@ -4352,6 +4374,16 @@ function loadSPXConfig() {
       saved.trading.ironCondor.ivRankThreshold   = SPX_CONFIG_DEFAULTS.trading.ironCondor.ivRankThreshold;
       saved.trading.ironCondor.minCreditoAnchoPct = SPX_CONFIG_DEFAULTS.trading.ironCondor.minCreditoAnchoPct;
       saved.trading.ironCondor.debitCondor       = SPX_CONFIG_DEFAULTS.trading.ironCondor.debitCondor;
+      saveSPXConfig(saved);
+    }
+    // Setup por PIN (2026-08-08). Migracion no-destructiva, mismo patron: solo
+    // agrega las claves nuevas si no estan, sin tocar lo que ya haya guardado en
+    // el volumen de produccion (que es el que manda, no los defaults del codigo).
+    if (saved?.trading?.ironCondor && saved.trading.ironCondor.pinMaxDistPts === undefined) {
+      console.log('[SPX] Sumando parámetros del setup por PIN a ironCondor (no existían)');
+      for (const k of ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'pinWindowStartET', 'pinWindowEndET', 'minShortDistPts', 'maxHoldMin']) {
+        saved.trading.ironCondor[k] = SPX_CONFIG_DEFAULTS.trading.ironCondor[k];
+      }
       saveSPXConfig(saved);
     }
     // Suma los parametros de debito (Bull Call/Bear Put) si no existen todavia.
@@ -6143,6 +6175,21 @@ async function checkIronCondor() {
         logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime, stage: 'NO_STRIKES_CREDIT', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { highImpactEventsTomorrow: dte === '1DTE' ? highImpactEventsTomorrow : undefined }) });
         return;
       }
+      // Piso de distancia de las cortas (2026-08-08, setup por PIN). El delta
+      // objetivo puede dejar las cortas muy cerca del spot en un dia comprimido —
+      // justo el dia en que el PIN dispara. La medicion dice que con PIN el precio
+      // se quedo dentro de +-25 pts en el 100% de los casos y de +-20 en el 84%,
+      // asi que 25 es el numero que respalda el dato, no el delta.
+      const minShortDist = icCfg.minShortDistPts ?? 25;
+      const distPut  = ctx.spxPrice - strikes.shortStrike;         // cortas del lado put, abajo
+      const distCall = strikes.callShortStrike - ctx.spxPrice;     // cortas del lado call, arriba
+      const distMin  = Math.min(distPut, distCall);
+      if (!(distMin >= minShortDist)) {
+        const reason = `Cortas a ${distMin.toFixed(1)}pts del spot (put ${distPut.toFixed(1)} / call ${distCall.toFixed(1)}) — el piso con PIN es ${minShortDist}pts.`;
+        console.log(`[SPX-IC ${dte}] ❌ ${reason}`);
+        logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime, stage: 'CORTAS_MUY_CERCA', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { pinState: gate.pinState, distMin: +distMin.toFixed(1) }) });
+        return;
+      }
       // Gate credito/ancho (2026-07-09, a pedido del usuario): distinto del gate
       // credito/riesgo de las direccionales — este es directamente credito/ANCHO,
       // "regla del tercio" del playbook (~33%), el usuario eligio 25% como su piso.
@@ -6241,6 +6288,13 @@ async function checkIronCondor() {
             slMult:        icCfg.slMult,
             debitTpPct:    (icCfg.debitCondor||{}).tpPct ?? 50,
             debitSlPct:    (icCfg.debitCondor||{}).slPct ?? 50,
+            // Setup por PIN (2026-08-08). maxHoldMin se CONGELA en el registro,
+            // no se lee de la config al cerrar: si mañana se cambia el parametro,
+            // las posiciones ya abiertas tienen que salir con la regla con la que
+            // entraron (mismo criterio que debitTpPct). pinEntrada queda para
+            // poder medir despues si el PIN discriminaba de verdad.
+            maxHoldMin:    icCfg.maxHoldMin ?? null,
+            pinEntrada:    gate.pinState ?? null,
             filledAt:      null,
             closedAt:      null,
             closeReason:   null,
@@ -6584,6 +6638,20 @@ async function checkIronCondorTPSLImpl() {
         const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
+      }
+
+      // Stop de TIEMPO del setup por PIN (2026-08-08). La contencion del precio
+      // con PIN se midio sobre una ventana de 90 min; para un 0DTE sostenido
+      // hasta el cierre NO hay medicion. Se sale dentro de la ventana medida en
+      // vez de extrapolar a un horizonte del que no sabemos nada. Solo aplica a
+      // ejecuciones que traen maxHoldMin (las nuevas): las viejas no lo tienen y
+      // siguen exactamente como antes.
+      if (!cerrarPor && ex.maxHoldMin && ex.filledAt) {
+        const minutos = (Date.now() - new Date(ex.filledAt).getTime()) / 60000;
+        if (minutos >= ex.maxHoldMin) {
+          cerrarPor = 'TIME_STOP_PIN';
+          console.log(`[Tradier-IC-TPSL] ⏱️ Stop de tiempo: ${Math.round(minutos)} min abiertos (máx ${ex.maxHoldMin}) — orden ${ex.orderId}`);
+        }
       }
 
       if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
