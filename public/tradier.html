@@ -3869,6 +3869,11 @@ async function loadRendimiento(){
       .filter(s => incErr || !s.flaggedError)
       .sort((a,b)=>a.closeDate.localeCompare(b.closeDate));
     const dias = [...new Set(cerradas.map(s=>s.closeDate))].sort();
+    // Ancla en cero: la curva de una estrategia es P&L acumulado, y el dia 0 es
+    // "todavia no habia ganado ni perdido nada". Sin este punto el primer valor
+    // ya era el resultado del primer dia, y la peor racha no contaba una perdida
+    // inicial (el pico arrancaba en ese valor negativo en vez de en 0).
+    const ejeDias = dias.length ? ['inicio', ...dias] : [];
 
     // ── Cuenta: valor real, no P&L. Sale de /api/curve-tradier, que ancla el
     // ultimo punto al NLV en vivo. Es plata de la cuenta, no de una estrategia.
@@ -3893,14 +3898,14 @@ async function loadRendimiento(){
     const series = CMP_DEFS.map(d=>{
       const suyas = cerradas.filter(d.test);
       let acc=0; const porDia={}; suyas.forEach(s=>{porDia[s.closeDate]=(porDia[s.closeDate]||0)+s.pnl;});
-      const data = dias.map(f=>{ acc += (porDia[f]||0); return +acc.toFixed(2); });
+      const data = [0, ...dias.map(f=>{ acc += (porDia[f]||0); return +acc.toFixed(2); })];
       const wins = suyas.filter(s=>s.pnl>0).length;
       const gan = suyas.filter(s=>s.pnl>0), per = suyas.filter(s=>s.pnl<=0);
       return { ...d, data, n:suyas.length, total:acc,
         wr: suyas.length? Math.round(wins/suyas.length*100):null,
         avgW: gan.length? gan.reduce((a,s)=>a+s.pnl,0)/gan.length : 0,
         avgL: per.length? per.reduce((a,s)=>a+s.pnl,0)/per.length : 0,
-        maxDD: (()=>{ let pico=-Infinity,dd=0; data.forEach(v=>{ if(v>pico)pico=v; dd=Math.min(dd,v-pico); }); return dd; })() };
+        maxDD: (()=>{ let pico=0,dd=0; data.forEach(v=>{ if(v>pico)pico=v; dd=Math.min(dd,v-pico); }); return dd; })() };
     });
     // Escala comun: permite comparar formas entre estrategias. Apagada por
     // defecto porque con escalas distintas se lee mejor cada una por separado.
@@ -3940,7 +3945,7 @@ async function loadRendimiento(){
       const { min:yMin, max:yMax } = rango(s.data);
       if(S.charts['rend_'+s.id]) S.charts['rend_'+s.id].destroy();
       S.charts['rend_'+s.id]=new Chart(el.getContext('2d'),{ type:'line',
-        data:{labels:dias.map(d=>d.slice(5)),datasets:[{data:s.data,borderColor:s.color,
+        data:{labels:ejeDias.map(d=>d==='inicio'?'':d.slice(5)),datasets:[{data:s.data,borderColor:s.color,
           borderWidth:2,pointRadius:0,pointHoverRadius:4,tension:.15,fill:true,
           backgroundColor:hexA(s.color,.10)}]},
         options:{responsive:true,maintainAspectRatio:false,
