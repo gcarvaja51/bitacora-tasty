@@ -728,7 +728,8 @@
         <span id="curv-kpi" class="td-mono" style="margin-left:auto;font-size:11px;"></span>
       </div>
 
-      <div id="curv-focos" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;"></div>
+      <div id="curv-focos" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;"></div>
+      <div id="curv-controles" style="display:flex;gap:16px;flex-wrap:wrap;margin:0 0 12px;"></div>
 
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -4044,6 +4045,27 @@ function hexA(hex,a){ const n=parseInt(hex.slice(1),16);
 let curvFoco = null;
 function setCurvFoco(id){ curvFoco = (curvFoco===id ? null : id); loadCurvas(); }
 
+// Periodo (dia/semana), tipo (linea/barras) y modo (acumulado/por periodo).
+// El modo importa: en acumulado la curva casi nunca baja de cero, asi que el
+// rojo no tendria nada que mostrar. Es en "por periodo" donde se lee de un
+// vistazo que semanas se perdio plata.
+let curvPeriodo = 'dia', curvTipo = 'line', curvModo = 'acum';
+function setCurvOpt(k,v){ ({periodo:()=>curvPeriodo=v, tipo:()=>curvTipo=v, modo:()=>curvModo=v})[k](); loadCurvas(); }
+
+const CURV_ROJO = '#f04f5a';
+// Lunes de la semana ISO de una fecha, para agrupar por semana. Mediodia UTC
+// para que ningun huso empuje la fecha al dia anterior.
+function lunesDe(iso){ const d=new Date(iso+'T12:00:00Z'); const dow=(d.getUTCDay()+6)%7;
+  d.setUTCDate(d.getUTCDate()-dow); return d.toISOString().slice(0,10); }
+function curvGrupoBtns(k, actual, opciones){
+  return `<span style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;">`
+    + opciones.map(([v,txt])=>`<button onclick="setCurvOpt('${k}','${v}')"
+        style="border:none;padding:4px 12px;font-size:11px;cursor:pointer;
+        background:${actual===v?'rgba(232,237,245,.10)':'transparent'};
+        color:${actual===v?'#e8edf5':'var(--muted)'};">${txt}</button>`).join('')
+    + `</span>`;
+}
+
 async function loadCurvas(){
   try{
     const [tx, sw] = await Promise.all([
@@ -4066,27 +4088,40 @@ async function loadCurvas(){
     }
 
     const dias = [...new Set(cerradas.map(s=>s.closeDate))].sort();
-    // Igual que en Rendimiento: el punto ancla en 0 es "todavia no habia ganado
-    // ni perdido nada". Sin el, la curva arranca ya movida y la peor racha no
-    // cuenta una perdida del primer dia.
-    const etiquetas = ['', ...dias.map(d=>d.slice(5))];
-    const acumular = trades => {
-      let acc=0; const porDia={};
-      trades.forEach(t=>{ porDia[t.closeDate]=(porDia[t.closeDate]||0)+t.pnl; });
-      return [0, ...dias.map(f=>{ acc += (porDia[f]||0); return +acc.toFixed(2); })];
+    const semanal = curvPeriodo === 'semana';
+    const cubo = f => semanal ? lunesDe(f) : f;
+    const claves = semanal ? [...new Set(dias.map(lunesDe))].sort() : dias;
+    const acum = curvModo === 'acum';
+
+    // Acumulado lleva un punto ancla en 0 ("todavia no habia ganado ni perdido
+    // nada"); sin el la curva arranca ya movida y la peor racha no contaria una
+    // perdida del primer dia. Por periodo no lo lleva: cada barra es un periodo.
+    const etiquetas = (acum ? [''] : []).concat(
+      claves.map(d => (semanal ? 'sem ' : '') + d.slice(5)));
+
+    const porPeriodo = trades => {
+      const por={}; trades.forEach(t=>{ const k=cubo(t.closeDate); por[k]=(por[k]||0)+t.pnl; });
+      return claves.map(k => +(por[k]||0).toFixed(2));
     };
+    const aAcumulado = arr => { let a=0; return [0, ...arr.map(v=>{ a+=v; return +a.toFixed(2); })]; };
     const peorRacha = d => { let pico=0,dd=0; d.forEach(v=>{ if(v>pico)pico=v; dd=Math.min(dd,v-pico); }); return dd; };
 
     const series = CMP_DEFS.map(d=>{
       const suyas = cerradas.filter(d.test);
-      const data = acumular(suyas);
+      const barras = porPeriodo(suyas);
+      const curva  = aAcumulado(barras);
       const wins = suyas.filter(t=>t.pnl>0).length;
-      return { ...d, data, n:suyas.length, total:data[data.length-1],
+      // total/maxDD salen SIEMPRE del acumulado: no dependen de como se este
+      // dibujando el grafico.
+      return { ...d, data: acum ? curva : barras, n:suyas.length,
+               total: curva[curva.length-1],
                wr: suyas.length? Math.round(wins/suyas.length*100) : null,
-               maxDD: peorRacha(data), apagada: d.sw ? estado[d.sw]===false : false };
+               maxDD: peorRacha(curva), apagada: d.sw ? estado[d.sw]===false : false };
     });
-    const totalData = acumular(cerradas);
-    const total = totalData[totalData.length-1];
+    const totalBarras = porPeriodo(cerradas);
+    const totalCurva  = aAcumulado(totalBarras);
+    const totalData   = acum ? totalCurva : totalBarras;
+    const total = totalCurva[totalCurva.length-1];
 
     const foco = curvFoco ? series.find(x=>x.id===curvFoco) : null;
     $('curv-kpi').innerHTML = foco
@@ -4094,12 +4129,18 @@ async function loadCurvas(){
         + `<b class="${cc(foco.total)}">${f$(foco.total)}</b>`
         + `<span class="dim"> \u00b7 peor racha ${f$(foco.maxDD)}</span>`
       : `${cerradas.length} trades \u00b7 <b class="${cc(total)}">${f$(total)}</b>`
-        + `<span class="dim"> \u00b7 peor racha ${f$(peorRacha(totalData))}</span>`;
+        + `<span class="dim"> \u00b7 peor racha ${f$(peorRacha(totalCurva))}</span>`;
 
     const sub = $('curv-subtitulo');
-    if(sub) sub.textContent = foco
-      ? '· solo ' + foco.label + ', eje ajustado a su escala'
-      : '· todas las estrategias, mismo eje';
+    if(sub) sub.textContent = '\u00b7 ' + (acum ? 'acumulado' : 'por ' + (semanal?'semana':'d\u00eda'))
+      + ', ' + (semanal ? 'semanal' : 'diario')
+      + (foco ? ' \u00b7 solo ' + foco.label + ', eje ajustado a su escala'
+              : ' \u00b7 todas las estrategias, mismo eje');
+
+    $('curv-controles').innerHTML =
+        curvGrupoBtns('periodo', curvPeriodo, [['dia','Diario'],['semana','Semanal']])
+      + curvGrupoBtns('tipo',    curvTipo,    [['line','L\u00ednea'],['bar','Barras']])
+      + curvGrupoBtns('modo',    curvModo,    [['acum','Acumulado'],['periodo','Por per\u00edodo']]);
     $('curv-focos').innerHTML =
       `<button onclick="setCurvFoco(null)" style="border:1px solid ${curvFoco?'var(--border)':'#4e5a70'};border-radius:6px;
         padding:4px 12px;font-size:11px;cursor:pointer;background:${curvFoco?'transparent':'rgba(232,237,245,.08)'};
@@ -4112,24 +4153,37 @@ async function loadCurvas(){
 
     // Una estrategia pausada se dibuja punteada: sigue siendo historia real, no
     // se puede esconder, pero tiene que verse que ya no esta corriendo.
+    // Bajo cero se pinta rojo. En linea el tramo se colorea por segmento (si
+    // cualquiera de los dos extremos esta en negativo) y el relleno se parte en
+    // origen; en barras, barra por barra.
+    const esBarra = curvTipo === 'bar';
+    const pintar = (color, grueso, foc) => esBarra
+      ? { backgroundColor: c => (c.parsed?.y ?? 0) < 0 ? CURV_ROJO : color,
+          borderColor: c => (c.parsed?.y ?? 0) < 0 ? CURV_ROJO : color,
+          borderWidth: 0, borderRadius: 2 }
+      : { borderColor: color, borderWidth: grueso, pointRadius: 0, pointHoverRadius: 5, tension: .15,
+          segment: { borderColor: c => (c.p0.parsed.y < 0 || c.p1.parsed.y < 0) ? CURV_ROJO : color },
+          fill: foc ? { target:'origin', above: hexA(color,.10), below: hexA(CURV_ROJO,.14) } : false,
+          backgroundColor: hexA(color,.06) };
+
     const datasets = series.filter(s=>s.n>0).map(s=>({
       label: s.label + (s.apagada?' (pausada)':''),
-      data: s.data, borderColor:s.color, backgroundColor:hexA(s.color,.06),
-      borderWidth: curvFoco===s.id?2.5:2, borderDash: s.apagada?[5,4]:[], pointRadius:0, pointHoverRadius:5,
-      tension:.15, fill: curvFoco===s.id, order:2,
+      data: s.data, type: curvTipo, order:2,
+      ...pintar(s.color, curvFoco===s.id?2.5:2, curvFoco===s.id),
+      ...(esBarra?{}:{ borderDash: s.apagada?[5,4]:[] }),
       hidden: !!curvFoco && curvFoco!==s.id }));
 
     // Con foco el TOTAL se oculta: es el que mantiene el eje arriba y volveria a
     // aplastar la estrategia que se quiere mirar. Sigue en la leyenda por si se
     // lo quiere de vuelta.
     if($('curv-total')?.checked) datasets.push({
-      label:'TOTAL', data:totalData, borderColor:'#e8edf5', backgroundColor:'rgba(232,237,245,.05)',
-      borderWidth:4, pointRadius:0, pointHoverRadius:5, tension:.15, fill:true, order:1,
+      label:'TOTAL', data:totalData, type: curvTipo, order:1,
+      ...pintar('#e8edf5', 4, !esBarra),
       hidden: !!curvFoco });
 
     const el=$('curvChart'); if(!el) return;
     if(S.charts.curvas) S.charts.curvas.destroy();
-    S.charts.curvas = new Chart(el.getContext('2d'),{ type:'line',
+    S.charts.curvas = new Chart(el.getContext('2d'),{ type: curvTipo,
       data:{ labels: etiquetas, datasets },
       options:{ responsive:true, maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
@@ -4169,7 +4223,7 @@ async function loadCurvas(){
         <td class="td-mono" style="text-align:center;">${Math.round(cerradas.filter(t=>t.pnl>0).length/cerradas.length*100)}%</td>
         <td class="td-mono ${cc(total)}" style="text-align:center;">${f$(total)}</td>
         <td class="td-mono" style="text-align:center;">${f$(total/cerradas.length)}</td>
-        <td class="td-mono neg" style="text-align:center;">${f$(peorRacha(totalData))}</td>
+        <td class="td-mono neg" style="text-align:center;">${f$(peorRacha(totalCurva))}</td>
         <td></td></tr>
       </tbody></table>`;
   }catch(e){
