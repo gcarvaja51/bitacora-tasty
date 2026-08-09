@@ -5891,6 +5891,61 @@ const SIGMA_LEVELS_MAX_ENTRIES = 10000;
 // siquiera para incidentes futuros. Ahora es un array, mas reciente primero
 // (unshift, mismo patron que logStrategyEvent), para poder cruzar contra
 // spx_strategy_log.json mas adelante.
+// ── Serie de cierres de 5m construida con el spot de Sigma ────────────────
+// Decision del usuario (2026-08-09): "vamos a tomar toda la informacion de sigma
+// terminal y dejamos yahoo como soporte si algo pasa... necesitamos una sola
+// fuente". El motivo es correcto: hasta hoy la reversion mezclaba Yahoo (velas
+// 5m), Tradier (velas 2m) y Sigma (gamma y spot) para decidir una sola cosa, y
+// cada fuente es un reloj distinto.
+//
+// El daemon empuja el spot cada ~2 min, asi que una vela de 5m contiene 2 o 3
+// lecturas; se toma la ULTIMA de cada ventana como cierre. Medido sobre el
+// 2026-08-07 contra las velas de Yahoo: diferencia mediana 1.16 pts, p90 4.52.
+// No es identico —el "cierre" de Sigma puede ser hasta 2 min anterior al cierre
+// real de la vela— pero viene del mismo reloj que el gamma, que es lo que se
+// buscaba.
+//
+// Devuelve null si la serie no sirve, y entonces el caller cae a Yahoo. NUNCA se
+// mezclan las dos: o toda la serie es de Sigma o toda es de Yahoo. Mezclarlas
+// reintroduciria exactamente el problema que esto viene a resolver.
+function serie5mDesdeSigma({ minVelas = 9, maxEdadSeg = 420 } = {}) {
+  const hist = loadSigmaLevelsHistory();          // mas reciente primero
+  if (!hist.length) return null;
+  const ahora = Date.now();
+
+  // Se agrupa por ventana de 5 min en hora de Nueva York, la misma reticula que
+  // usan las velas de Yahoo, para que la SMA8 sea comparable entre fuentes.
+  const balde = new Map();                        // clave -> { t, precio }
+  for (const e of hist) {
+    if (!e || e.spxPrice == null || !e.updatedAt) continue;
+    const t = new Date(e.updatedAt).getTime();
+    if (!Number.isFinite(t)) continue;
+    if (ahora - t > 6 * 60 * 60 * 1000) break;    // el historial esta ordenado; medio dia alcanza
+    const clave = Math.floor(t / (5 * 60 * 1000));
+    // hist viene de mas nuevo a mas viejo, asi que la PRIMERA que se ve de cada
+    // ventana es la mas tardia: esa es el cierre.
+    if (!balde.has(clave)) balde.set(clave, { t, precio: e.spxPrice });
+  }
+  const claves = [...balde.keys()].sort((a, b) => a - b);
+  if (claves.length < minVelas) return null;
+
+  // Las ultimas `minVelas` ventanas tienen que ser CONSECUTIVAS: un hueco en el
+  // medio deforma la SMA8 sin que se note. Medido sobre 5 dias, la cobertura va
+  // de 71% a 102%, asi que los huecos existen y hay que detectarlos.
+  const ultimas = claves.slice(-minVelas);
+  for (let i = 1; i < ultimas.length; i++) {
+    if (ultimas[i] !== ultimas[i - 1] + 1) return null;
+  }
+  const ultima = balde.get(ultimas[ultimas.length - 1]);
+  if ((ahora - ultima.t) / 1000 > maxEdadSeg) return null;
+
+  return {
+    closes: ultimas.map(k => balde.get(k).precio),
+    edadSeg: Math.round((ahora - ultima.t) / 1000),
+    velas: ultimas.length,
+  };
+}
+
 function loadSigmaLevelsHistory() {
   try {
     const parsed = JSON.parse(fs.readFileSync(SIGMA_LEVELS_FILE, 'utf8'));
@@ -7321,6 +7376,20 @@ async function checkAlejamientoSMA() {
     // Edad de la ultima vela y contraste contra Sigma. Se mide SIEMPRE, aunque no
     // bloquee, para que quede en el registro de cada señal.
     let edadVela5Seg = null, desfaseVsSigma = null, fuenteContraste = null;
+    let fuenteSerie = 'yahoo';
+
+    // SIGMA PRIMERO (2026-08-09). Si la serie sirve, el alejamiento se decide con
+    // el mismo reloj y el mismo proveedor que el gamma. Si no, se cae a Yahoo.
+    // 9 velas, no 25: la SMA8 necesita 8 consecutivas mas la actual, y exigir 25
+    // bajaba la cobertura del 73% al 29% sin aportar nada (el RSI y el compas, que
+    // si necesitarian mas historia, hoy no bloquean: el score esta desactivado).
+    const serieSigma = serie5mDesdeSigma({ minVelas: 9, maxEdadSeg: cfg.maxEdadVela5Seg ?? 420 });
+    if (serieSigma) {
+      closes5 = serieSigma.closes;
+      edadVela5Seg = serieSigma.edadSeg;
+      fuenteSerie = 'sigma';
+    }
+
     try {
       const r5 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=5d',
         { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -7328,7 +7397,10 @@ async function checkAlejamientoSMA() {
       const res5 = j5.chart?.result?.[0];
       const q5 = res5?.indicators?.quote?.[0] || {};
       const ts5 = res5?.timestamp || [];
-      closes5 = (q5.close || []).filter(v => v != null);
+      // Con la serie de Sigma en mano, Yahoo solo aporta los high/low que hacen
+      // falta para anclar el stop cuando stopMinPts es 0. Los cierres NO se pisan:
+      // mezclar las dos series es justo lo que se quiere evitar.
+      if (fuenteSerie !== 'sigma') closes5 = (q5.close || []).filter(v => v != null);
       bars5 = (q5.close || [])
         .map((c, i) => ({ high: q5.high?.[i], low: q5.low?.[i], close: c }))
         .filter(b => b.close != null && b.high != null && b.low != null);
@@ -7340,7 +7412,7 @@ async function checkAlejamientoSMA() {
       // y sobre ellas se calcula el alejamiento, que desde hoy es la puerta de
       // entrada. Si el feed llega tarde, la puerta decide sobre un precio viejo
       // y no hay forma de enterarse.
-      if (ts5.length) {
+      if (fuenteSerie !== 'sigma' && ts5.length) {
         const ultimo = ts5[ts5.length - 1] * 1000;
         edadVela5Seg = Math.round((Date.now() - ultimo) / 1000);
       }
@@ -7366,10 +7438,13 @@ async function checkAlejamientoSMA() {
       const reason = `Velas de 5m con ${edadVela5Seg}s de antigüedad (máximo ${maxEdad}s) — no se decide el alejamiento con precio viejo`;
       console.warn(`[SPX-REV] ⚠️ ${reason}`);
       logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'VELAS_5M_VIEJAS',
-        passed: false, reason, snapshot: buildStrategySnapshot(ctx, { edadVela5Seg, desfaseVsSigma }) });
+        passed: false, reason, snapshot: buildStrategySnapshot(ctx, { edadVela5Seg, desfaseVsSigma, fuenteSerie }) });
       return;
     }
-    if (closes5.length < 25) {
+    // El minimo de 25 aplica al respaldo de Yahoo, que trae 5 dias completos. La
+    // serie de Sigma se valida en su propia funcion (9 velas consecutivas y
+    // frescas) y es legitimamente mas corta.
+    if (fuenteSerie !== 'sigma' && closes5.length < 25) {
       logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'INSUFFICIENT_5M_BARS', passed: false, reason: `Solo ${closes5.length} velas de 5m disponibles (mínimo 25) — el "Juez" no tiene suficiente historia`, snapshot: buildStrategySnapshot(ctx) });
       return;
     }
@@ -7431,7 +7506,7 @@ async function checkAlejamientoSMA() {
       if (!(abs >= lo && abs < hi)) {
         const reason = `Alejamiento ${ext8}% fuera de la banda ${lo}-${hi}% — sin estiramiento no hay setup de reversión`;
         logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SIN_ALEJAMIENTO',
-          passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, edadVela5Seg, desfaseVsSigma }) });
+          passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, edadVela5Seg, desfaseVsSigma, fuenteSerie }) });
         return;
       }
     }
@@ -7650,6 +7725,14 @@ async function checkAlejamientoSMA() {
             entryPrice:      price5m,
             entryPrice2m:    price,
             entryDesfase2v5: +(price - price5m).toFixed(2),
+            // Con que datos se decidio esta entrada (2026-08-09). fuenteSerie dice
+            // si la serie de 5m salio de Sigma o del respaldo de Yahoo, y
+            // edadVela5Seg cuan vieja era la ultima lectura. Sin esto, dentro de un
+            // mes no habria forma de separar las muestras por fuente ni de detectar
+            // que un dia entero corrio con el respaldo sin que nadie se enterara.
+            fuenteSerie,
+            edadVela5Seg,
+            desfaseVsSigma,
             smaTarget:       sma8,
             pattern:         patronReversion.pattern,
             // Checklist completo congelado al momento de entrar (2026-08-02, a
