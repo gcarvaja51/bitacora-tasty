@@ -7342,12 +7342,26 @@ async function checkAlejamientoSMA() {
     // ~500 setups con gamma (unos 55 dias) para poder medirlo. Se implementa
     // porque es la tesis de la metodologia, y se deja el flag para poder
     // separar las muestras despues.
-    if (cfg.requiereGammaPositivo && effectiveGex.regime !== 'POSITIVO') {
-      const reason = `Gamma ${effectiveGex.regime || 'desconocido'} al momento de entrar — la reversión solo opera con gamma positivo`;
-      console.log(`[SPX-REV] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GAMMA_NO_POSITIVO',
-        passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
-      return;
+    //
+    // FALLA ABIERTA si no hay dato: bloquear por AUSENCIA de gamma es lo que dejo
+    // al sistema 4 dias sin generar ni una señal en julio (ver el analisis del
+    // 14/07/2026, que por eso quito el bloqueo duro). La puerta solo se cierra
+    // cuando el dato existe y dice NEGATIVO. Sin dato, decide el score como antes
+    // y queda registrado para poder auditarlo.
+    if (cfg.requiereGammaPositivo) {
+      const reg = effectiveGex.regime;
+      if (!reg) {
+        console.warn('[SPX-REV] ⚠️ Sin dato de gamma (ni Sigma ni cálculo interno) — la puerta NO bloquea, decide el score.');
+        logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GAMMA_SIN_DATO',
+          passed: true, reason: 'Sin régimen de gamma disponible: la puerta se abre para no repetir el bloqueo silencioso del 14/07',
+          snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
+      } else if (reg !== 'POSITIVO') {
+        const reason = `Gamma ${reg} al momento de entrar (fuente: ${effectiveGex.source}) — la reversión solo opera con gamma positivo`;
+        console.log(`[SPX-REV] ❌ ${reason}`);
+        logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GAMMA_NO_POSITIVO',
+          passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
+        return;
+      }
     }
 
     const scoreResult = calcReversionScore({
