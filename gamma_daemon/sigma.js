@@ -239,6 +239,63 @@ export async function readCandles5m({ velas = 30, diasAtras = 5 } = {}) {
   }));
 }
 
+// ── VIX y su rango de 52 semanas, del mismo proxy ─────────────────────────
+// Directriz del usuario (2026-08-09): "creamosle a sigma terminal y tomemos ese
+// dato como opcion 1". El VIX de Sigma y el de Yahoo son el MISMO numero —
+// verificado: 14.9 y 14.9, con la misma marca de tiempo al segundo (7-ago
+// 16:15:01)— asi que esto no cambia ningun valor. Lo que gana es dejar de
+// depender de Yahoo, donde un fallo silencioso dejaba el VIX en 20 fijo.
+//
+// El rango de 52 semanas se pide una vez por dia: son 257 velas diarias y no se
+// mueve entre ciclos. Sirve para calcular el IV Rank sin preguntarle a
+// TastyTrade, que es la cuenta REAL y no tiene por que estar en el camino de una
+// decision del sandbox.
+let vix52Cache = null;   // { dia, high, low }
+
+export async function readVix() {
+  const p = await ensurePage();
+  if (!apiToken) return null;
+
+  const hoy = new Date();
+  const diaET = hoy.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const necesitaRango = !vix52Cache || vix52Cache.dia !== diaET;
+
+  const desde = new Date(hoy.getTime() - 372 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const hasta = hoy.toISOString().slice(0, 10);
+
+  const r = await p.evaluate(async (tok, necesitaRango, desde, hasta) => {
+    const base = 'https://market.opcionsigma.com/api/v1/polygon-proxy';
+    const get = async (ruta) => {
+      const res = await fetch(base + ruta, { headers: { authorization: tok } });
+      if (!res.ok) return { error: res.status };
+      return res.json();
+    };
+    const out = {};
+    const snap = await get('/v3/snapshot/indices?ticker.any_of=I:VIX');
+    out.vix = snap?.results?.[0]?.value ?? null;
+    out.err = snap?.error ?? null;
+    if (necesitaRango) {
+      const d = await get(`/v2/aggs/ticker/I:VIX/range/1/day/${desde}/${hasta}?adjusted=true&sort=asc&limit=1000`);
+      out.cierres = (d?.results || []).map((b) => b.c).filter((c) => c != null);
+    }
+    return out;
+  }, apiToken, necesitaRango, desde, hasta);
+
+  if (r?.err === 401) { apiToken = null; return null; }
+  if (!r || r.vix == null) return null;
+
+  if (necesitaRango && r.cierres?.length > 200) {
+    // Ventana movil de 252 ruedas, que es como se calcula un IV Rank de verdad.
+    const ventana = r.cierres.slice(-252);
+    vix52Cache = { dia: diaET, high: Math.max(...ventana), low: Math.min(...ventana) };
+  }
+  return {
+    vix: r.vix,
+    vix52High: vix52Cache?.high ?? null,
+    vix52Low: vix52Cache?.low ?? null,
+  };
+}
+
 export async function close() {
   if (browser) {
     try { await browser.close(); } catch { /* noop */ }

@@ -390,15 +390,21 @@ function selectStrategy(context) {
   // el playbook marca como no sostenible. Gamma POSITIVO sigue decidiéndose por
   // IV Rank/VIX como antes (ahí sí conviene cobrar prima, el mercado tiene frenos).
   const gammaForcesDebit = gammaRegime === 'NEGATIVO' && (direction === 'BULLISH' || direction === 'BEARISH');
-  const isCredit = !gammaForcesDebit && (ivRank > 30 || vix > 20);
+  // El umbral viaja en el contexto (2026-08-09). Era un 30 fijo, calibrado contra
+  // el IV Rank de TastyTrade; al pasar la fuente a Sigma —que rankea el VIX y no
+  // la cadena del SPX— la escala baja ~20 puntos y un 30 fijo no se alcanzaria
+  // nunca, dejando la decision credito/debito gobernada solo por el VIX. Que es,
+  // exactamente, el sintoma del bug del IV Rank clavado en 30.
+  const ivRankCredito = context.ivRankCredito ?? 30;
+  const isCredit = !gammaForcesDebit && (ivRank > ivRankCredito || vix > 20);
   // ivRank puede venir null (sin dato) desde 2026-08-04: antes caía a un 30 fijo
-  // que era justo el umbral de decisión. `null > 30` es falso, así que la regla
-  // no cambia — pero el texto tiene que decir "sin dato", no "IV Rank null%".
+  // que era justo el umbral de decisión. `null > umbral` es falso, así que la
+  // regla no cambia — pero el texto tiene que decir "sin dato", no "IV Rank null%".
   const ivTxt = ivRank != null ? `IV Rank ${ivRank}%` : 'IV Rank sin dato';
-  const creditReason = ivRank > 30 ? `${ivTxt} > 30%` : `VIX ${vix} > 20`;
+  const creditReason = ivRank > ivRankCredito ? `${ivTxt} > ${ivRankCredito}%` : `VIX ${vix} > 20`;
   const debitReason  = gammaForcesDebit
     ? `Gamma NEGATIVO — movimiento explosivo, evitar vender crédito (playbook Alejandro)`
-    : `${ivTxt} ≤ 30% y VIX ${vix} ≤ 20 — primas baratas`;
+    : `${ivTxt} ≤ ${ivRankCredito}% y VIX ${vix} ≤ 20 — primas baratas`;
 
   // 3. Seleccionar estrategia
   let strategy, legs;

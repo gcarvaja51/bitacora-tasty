@@ -177,6 +177,17 @@ async function runCycle() {
       console.error('[sigma] velas 5m no disponibles (%s) -- se sigue sin ellas', e.message);
     }
 
+    // VIX y su rango de 52 semanas, mismo criterio best-effort.
+    try {
+      const v = await sigma.readVix();
+      if (v?.vix != null) {
+        levels.vix = v.vix;
+        if (v.vix52High != null) { levels.vix52High = v.vix52High; levels.vix52Low = v.vix52Low; }
+      }
+    } catch (e) {
+      console.error('[sigma] VIX no disponible (%s) -- se sigue sin el', e.message);
+    }
+
     // EL SERVIDOR VA PRIMERO. Antes el POST estaba DESPUES del push a
     // TradingView, y un push fallido lanzaba excepcion antes de llegar aca: con
     // TradingView cerrado o sin SPX cargado, el servidor se quedaba sin precio

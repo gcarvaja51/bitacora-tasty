@@ -4229,6 +4229,15 @@ const SPX_CONFIG_DEFAULTS = {
                           // valor, usa el balance real de Tradier (tradier.getBalances()).
     experiencia: 'intermedio', // principiante / intermedio / avanzado
     riesgoPct:   2,       // % máximo de riesgo por operación
+    // De donde sale el IV Rank (2026-08-09, directriz del usuario de concentrar
+    // todo en Sigma). 'sigma' = rank del VIX contra sus 252 ruedas, del mismo
+    // proxy que las velas. 'tastytrade' = el de la cadena del SPX, que ademas
+    // obliga a preguntarle a la cuenta REAL para decidir en el sandbox.
+    // OJO: las dos escalas NO coinciden (~20 puntos de desfase medido). Si se
+    // vuelve a 'tastytrade' hay que devolver ivRankCredito a 30 y
+    // ironCondor.ivRankThreshold a 25.
+    ivRankFuente:  'sigma',
+    ivRankCredito: 10,    // por encima de esto -> credito. Era 30 en la escala de Tasty.
     targetDelta: 0.40,    // Delta objetivo para el strike short
     tpPct:       25,      // Take Profit % del crédito (25% → 94% prob. éxito, playbook Alejandro)
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
@@ -4297,9 +4306,13 @@ const SPX_CONFIG_DEFAULTS = {
       // ~$500 para cobrar poco. Es el precio de ver si el setup dispara; revisar
       // en cuanto haya 5-10 operaciones reales.
       minCreditoAnchoPct: 0,
-      ivRankThreshold: 25,      // 2026-07-09: IV Rank por debajo de esto -> Condor de DEBITO (Long Put Condor,
+      ivRankThreshold: 5,       // 2026-07-09: IV Rank por debajo de esto -> Condor de DEBITO (Long Put Condor,
                                 // Vega positiva) en vez de Iron Condor de credito — vender prima barata "es
                                 // operar sin ventaja" segun el playbook. IV Rank >= esto sigue siendo credito.
+                                // 2026-08-09: era 25, calibrado contra el IV Rank de TastyTrade. Al pasar la
+                                // fuente a Sigma (rank del VIX, no de la cadena) la escala cambia ~20 puntos
+                                // hacia abajo; con 25 TODO seria debito. Ver la medicion de 3 dias en
+                                // buildSPXContext. Si se vuelve a 'tastytrade', hay que volver este a 25.
       debitCondor: {
         targetDelta: 0.12,      // delta de las patas internas (vendidas) — mismo criterio que el IC de credito
         spreadWidth: 10,        // ancho ala externa (comprada) a interna (vendida), cada lado
@@ -4427,6 +4440,19 @@ function loadSPXConfig() {
       saved.trading.ironCondor.ivRankThreshold   = SPX_CONFIG_DEFAULTS.trading.ironCondor.ivRankThreshold;
       saved.trading.ironCondor.minCreditoAnchoPct = SPX_CONFIG_DEFAULTS.trading.ironCondor.minCreditoAnchoPct;
       saved.trading.ironCondor.debitCondor       = SPX_CONFIG_DEFAULTS.trading.ironCondor.debitCondor;
+      saveSPXConfig(saved);
+    }
+    // Fuente del IV Rank (2026-08-09). Mismo patron no-destructivo. Se migra el
+    // TRIO junto —fuente, umbral de credito y umbral del Condor— porque cambiar
+    // la fuente sin mover los umbrales deja la escala descalibrada ~20 puntos y
+    // vuelve todo debito en silencio, que es peor que no haber cambiado nada.
+    if (saved?.trading && saved.trading.ivRankFuente === undefined) {
+      console.log('[SPX] Migrando IV Rank a Sigma (umbrales 30->10 y 25->5 por el cambio de escala)');
+      saved.trading.ivRankFuente  = SPX_CONFIG_DEFAULTS.trading.ivRankFuente;
+      saved.trading.ivRankCredito = SPX_CONFIG_DEFAULTS.trading.ivRankCredito;
+      if (saved.trading.ironCondor) {
+        saved.trading.ironCondor.ivRankThreshold = SPX_CONFIG_DEFAULTS.trading.ironCondor.ivRankThreshold;
+      }
       saveSPXConfig(saved);
     }
     // Setup por PIN (2026-08-08). Migracion no-destructiva, mismo patron: solo
@@ -4764,14 +4790,32 @@ async function buildSPXContext() {
     const spotFuente = spot?.fuente ?? null;
     const spotEdadSeg = spot?.edadSeg ?? null;
 
-    // 3. VIX desde Yahoo
-    let vix = 20;
-    try {
-      const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1d',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const j = await r.json();
-      vix = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice || vix);
-    } catch(e) {}
+    // 3. VIX — Sigma primero (2026-08-09, directriz del usuario: "creamosle a
+    // sigma terminal y tomemos ese dato como opcion 1").
+    //
+    // No cambia el numero: el VIX de Sigma y el de Yahoo son el mismo dato del
+    // CBOE. Verificado el 2026-08-09 — 14.9 y 14.9, misma marca de tiempo al
+    // segundo. Lo que cambia es el modo de falla. Antes, si Yahoo no respondia,
+    // el catch vacio dejaba `vix` en el 20 de la inicializacion y NADIE se
+    // enteraba: 20 es exactamente el umbral de `isCredit = ... || vix > 20`, o
+    // sea el peor valor posible para un respaldo mudo (mismo error que ya nos
+    // costo semanas con el IV Rank clavado en 30).
+    let vix = null, vixFuente = null;
+    const nivelesVix = getFreshSigmaLevels();
+    if (nivelesVix?.vix != null) { vix = nivelesVix.vix; vixFuente = 'sigma'; }
+    if (vix == null) {
+      try {
+        const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1d',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const j = await r.json();
+        const p = parseFloat(j.chart?.result?.[0]?.meta?.regularMarketPrice);
+        if (p > 0) { vix = p; vixFuente = 'yahoo'; }
+      } catch(e) { console.error('[SPX] VIX de Yahoo fallo:', e.message); }
+    }
+    if (vix == null) {
+      vix = 20; vixFuente = 'respaldo_fijo';
+      console.error('[SPX] ⚠️ Sin VIX de ninguna fuente — se usa 20, que es el umbral de decision. Revisar.');
+    }
 
     // 4. IV Rank SPX desde TastyTrade
     //
@@ -4803,15 +4847,50 @@ async function buildSPXContext() {
     // ya tratan null como "sin dato" (useDebit exige != null; `null > 30` es
     // falso y cae al VIX). Y el error se loguea — el catch mudo es la razon por
     // la que esto paso semanas sin que nadie lo notara.
-    let ivRank = null;
+    let ivRankTasty = null;
     try {
       const mktData = await tt._req('/market-metrics?symbols=SPX');
       const raw = mktData.data?.items?.[0]?.['implied-volatility-index-rank'];
-      if (raw != null) ivRank = Math.round(parseFloat(raw) * 100);
+      if (raw != null) ivRankTasty = Math.round(parseFloat(raw) * 100);
       else console.error('[SPX] market-metrics respondió sin implied-volatility-index-rank para SPX');
     } catch(e) {
       console.error('[SPX] No se pudo leer el IV Rank de SPX:', e.message);
     }
+
+    // IV Rank de Sigma — rank del VIX contra su rango de 252 ruedas.
+    //
+    // OJO, y esta es la parte que hay que mirar: NO es el mismo numero que el de
+    // TastyTrade y no hay forma de que lo sea. Tasty rankea el IV index de la
+    // CADENA del SPX; esto rankea el VIX. Medido contra los unicos 3 dias con
+    // dato valido de Tasty (del 30-jul al 4-ago el IV Rank estaba clavado en 30
+    // por el bug ya documentado, asi que esos dias no sirven para comparar):
+    //
+    //     2026-08-05   Tasty 35   Sigma 13   dif -22
+    //     2026-08-06   Tasty 30   Sigma 10   dif -20
+    //     2026-08-07   Tasty 28   Sigma  8   dif -20
+    //
+    // El desfase es consistente (~20 puntos) pero son TRES DIAS. Por eso los
+    // umbrales se mudan a la escala de Sigma en vez de dejarse en 25/30, que en
+    // la escala nueva no se alcanzarian nunca y volverian todo debito en silencio.
+    // Con 5 y 10 los tres dias se reproducen exactos. Revisar cuando haya mas.
+    let ivRankSigma = null;
+    if (nivelesVix?.vix != null && nivelesVix.vix52High != null && nivelesVix.vix52Low != null
+        && nivelesVix.vix52High > nivelesVix.vix52Low) {
+      ivRankSigma = Math.round(
+        (nivelesVix.vix - nivelesVix.vix52Low) / (nivelesVix.vix52High - nivelesVix.vix52Low) * 100);
+    }
+
+    // Interruptor de vuelta atras sin deploy: si el IV Rank de Sigma resulta no
+    // servir, se pone 'tastytrade' en la config y listo.
+    const cfgIv = loadSPXConfig()?.trading || {};
+    const ivRankFuenteCfg = cfgIv.ivRankFuente ?? 'sigma';
+    const ivRankCredito   = cfgIv.ivRankCredito ?? 10;
+    let ivRank, ivRankFuente;
+    if (ivRankFuenteCfg === 'sigma' && ivRankSigma != null) { ivRank = ivRankSigma; ivRankFuente = 'sigma'; }
+    else if (ivRankTasty != null) { ivRank = ivRankTasty; ivRankFuente = 'tastytrade'; }
+    else { ivRank = ivRankSigma; ivRankFuente = ivRankSigma != null ? 'sigma' : null; }
+    console.log(`[SPX] IV Rank ${ivRank ?? 'sin dato'} (fuente: ${ivRankFuente || 'ninguna'}) ` +
+      `— sigma ${ivRankSigma ?? '—'} / tasty ${ivRankTasty ?? '—'} · VIX ${vix} (${vixFuente})`);
 
     // 5. Calcular GEX
     // Necesitamos precios/greeks de la cadena — usar los que ya vienen en nested
@@ -5222,8 +5301,14 @@ async function buildSPXContext() {
       // registro, no reconstruida a mano. Mismo criterio que effectiveGex.
       spotFuente, spotEdadSeg,
       vix:      +vix.toFixed(2),
-      ivRank:   +ivRank.toFixed(1),
-      isCredit: ivRank > 30 || vix > 20,
+      vixFuente,
+      // ivRank es nullable desde el fix del 2026-08-04, pero esta linea seguia
+      // haciendo `+ivRank.toFixed(1)` a secas: con ivRank null eso tira
+      // TypeError y se lleva puesta la construccion entera del contexto. No
+      // habia saltado porque TastyTrade venia respondiendo siempre.
+      ivRank:   ivRank != null ? +ivRank.toFixed(1) : null,
+      ivRankFuente, ivRankSigma, ivRankTasty,
+      isCredit: (ivRank != null && ivRank > ivRankCredito) || vix > 20,
       gex,
       ema20,
       ema50,
@@ -5560,6 +5645,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     const sel = selectStrategy({
       direction,
       ivRank:      ctx.ivRank,
+      ivRankCredito: loadSPXConfig()?.trading?.ivRankCredito ?? 10,
       vix:         ctx.vix,
       gammaRegime: effectiveGex.regime,
       etHour:      ctx.etHour,
@@ -6036,7 +6122,8 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // el historial guarda 10000 entradas, lo inflaria por tres ordenes de magnitud
   // sin ganar nada (solo importan las ultimas). Se escriben aparte, pisando.
   const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
-          totalGamma, maxPain, putCallOi, ivPromedio, velas5m } = req.body || {};
+          totalGamma, maxPain, putCallOi, ivPromedio, velas5m,
+          vix, vix52High, vix52Low } = req.body || {};
   if (Array.isArray(velas5m) && velas5m.length) {
     try {
       fs.writeFileSync(SIGMA_VELAS_FILE,
@@ -6047,7 +6134,8 @@ app.post('/api/spx/sigma-levels', (req, res) => {
     return res.status(400).json({ ok: false, error: 'regime debe ser POSITIVO o NEGATIVO' });
   }
   const entry = { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
-                  totalGamma, maxPain, putCallOi, ivPromedio, updatedAt: new Date().toISOString() };
+                  totalGamma, maxPain, putCallOi, ivPromedio,
+                  vix, vix52High, vix52Low, updatedAt: new Date().toISOString() };
   const history = loadSigmaLevelsHistory();
 
   // Filtro de cordura (2026-08-03, a pedido del usuario tras verlo en el
