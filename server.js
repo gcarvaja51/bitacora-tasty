@@ -7625,11 +7625,22 @@ async function checkAlejamientoSMA() {
             // esa distancia es ~1.4 pts en cualquier marco temporal.
             //
             // stopMinPts=0 deja el comportamiento anterior intacto.
-            entryCandleLow:  stopMinPts > 0 ? Math.min(stopBar.low,  price - stopMinPts) : stopBar.low,
-            entryCandleHigh: stopMinPts > 0 ? Math.max(stopBar.high, price + stopMinPts) : stopBar.high,
+            entryCandleLow:  stopMinPts > 0 ? Math.min(stopBar.low,  price5m - stopMinPts) : stopBar.low,
+            entryCandleHigh: stopMinPts > 0 ? Math.max(stopBar.high, price5m + stopMinPts) : stopBar.high,
             stopMinPts,
             stopTimeframe:   entryBar5 ? '5m' : '2m',
-            entryPrice:      price, // precio SPX al momento de la señal (close de entryBar) — ancla para el % de salida anticipada hacia smaTarget
+            // 2026-08-09: el ancla pasa a ser price5m, el MISMO precio que decidio
+            // la puerta, en vez de `price` (cierre de la ultima vela de 2m ya
+            // cerrada). Eran dos relojes distintos: la puerta se evalua con la
+            // vela de 5m en curso (el precio de ahora) y el trade se anclaba a un
+            // precio de ~1 min atras. Medido sobre 1050 muestras al minuto, solo
+            // en los momentos que pasan la banda: mediana 0.18 pts pero p90 3.48 —
+            // la mitad del objetivo tipico de 7 pts. El objetivo se calculaba
+            // desde un precio que no era el que habia disparado la entrada.
+            // `price` (2m) se sigue guardando aparte para poder medir el desfase.
+            entryPrice:      price5m,
+            entryPrice2m:    price,
+            entryDesfase2v5: +(price - price5m).toFixed(2),
             smaTarget:       sma8,
             pattern:         patronReversion.pattern,
             // Checklist completo congelado al momento de entrar (2026-08-02, a
