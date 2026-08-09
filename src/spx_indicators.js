@@ -473,7 +473,14 @@ function calcReversionScore(indicators, config) {
   const ext8 = indicators.ext8;
   const extAbs = ext8 != null ? Math.abs(ext8) : null;
   const direccionCorrecta = ext8 != null && (dir === 'BULLISH' ? ext8 < 0 : ext8 > 0);
-  const w1 = weights.alejamiento_sma8 ?? 35;
+  // 2026-08-09: cuando el alejamiento y el gamma son PUERTAS BINARIAS (se decide
+  // antes de llegar aca, en checkAlejamientoSMA), no deben ademas puntuar — seria
+  // contarlos dos veces. Con `puertasBinarias` el check se sigue calculando y
+  // reportando, para que quede el registro de con que valores entro, pero su peso
+  // sale del total: el score pasa a medir SOLO el contexto (patron, RSI,
+  // Weinstein, Compas), que es lo que decide si un setup valido se opera o no.
+  const puertasBinarias = !!cfg.puertasBinarias;
+  const w1 = puertasBinarias ? 0 : (weights.alejamiento_sma8 ?? 35);
   totalWeight += w1;
   let banda = 'ninguna', fracAlejamiento = 0;
   if (direccionCorrecta) {
@@ -568,7 +575,7 @@ function calcReversionScore(indicators, config) {
   // GEX negativo resta el peso completo de este check (ok:false, 0.5 de w5)
   // pero NO anula la entrada — el resto del score puede compensar si es lo
   // bastante fuerte (ver incidente del gate amplio de GEX-solo, 17-20 jul).
-  const w5 = weights.regimen_gex ?? 10;
+  const w5 = puertasBinarias ? 0 : (weights.regimen_gex ?? 10);
   totalWeight += w5;
   const regimenPositivo = indicators.gammaRegime === 'POSITIVO';
   const muroRelevante = dir === 'BULLISH' ? indicators.putWall : indicators.callWall;
