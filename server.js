@@ -7231,10 +7231,31 @@ async function checkAlejamientoSMA() {
       return;
     }
 
-    // Exclusividad propia — no comparte hasOpenPosition('SPXW') con las otras dos
-    const yaHayReversionAbierta = executions.some(e =>
-      e.strategyFamily === 'REVERSION' && (e.status === 'submitted' || e.status === 'filled')
-    );
+    // Exclusividad propia — no comparte hasOpenPosition('SPXW') con las otras dos.
+    //
+    // 2026-08-09: una posicion YA CERRADA seguia contando como abierta. El monitor
+    // de salida deja status='filled' a proposito (para que la reconciliacion pasiva
+    // complete el P&L real, ver la nota en checkAlejamientoSMATPSL), y esa
+    // reconciliacion corre cada 5 min (TRADIER_TRACK_MS). Entre el cierre y el
+    // cambio de etiqueta la estrategia quedaba ciega.
+    //
+    // Medido sobre el log: 135 evaluaciones (8% del total) rechazadas por
+    // POSITION_OPEN, en 23 rachas de mediana 4 min y hasta 31 min — y once de esas
+    // rachas duran exactamente 4 minutos, la firma del ciclo de 5. Justo despues de
+    // cerrar es cuando el precio suele seguir estirado, asi que el bloqueo caia en
+    // el peor momento posible.
+    //
+    // Ahora: si la orden de cierre ya se mando, la posicion deja de bloquear. Se
+    // conserva una gracia corta para que el cierre alcance a llenarse y no se apilen
+    // dos posiciones por un cierre que todavia no ejecuto.
+    const CIERRE_ENVIADO_GRACIA_MS = 90 * 1000;
+    const yaHayReversionAbierta = executions.some(e => {
+      if (e.strategyFamily !== 'REVERSION') return false;
+      if (e.status !== 'submitted' && e.status !== 'filled') return false;
+      if (e.closeOrderSentAt &&
+          (Date.now() - new Date(e.closeOrderSentAt).getTime()) > CIERRE_ENVIADO_GRACIA_MS) return false;
+      return true;
+    });
     if (yaHayReversionAbierta) {
       logStrategyEvent({ strategyFamily: 'REVERSION', etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: 'Ya hay una Reversión abierta — se pausa para evitar apilar posiciones.' });
       return;
