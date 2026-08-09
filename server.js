@@ -4364,6 +4364,11 @@ const SPX_CONFIG_DEFAULTS = {
       // de la banda no hay trade, tenga el score que tenga. Los limites son los
       // mismos que ya usaba la banda "optimo" del check (ver spx_indicators.js).
       alejamientoEsPuerta: false,
+      // Frescura de las velas de 5m con las que se decide el alejamiento
+      // (2026-08-09). 420s = 7 min: una vela de 5m recien cerrada tiene hasta
+      // 5 min de antiguedad por definicion, mas dos de margen. Falla CERRADA.
+      maxEdadVela5Seg: 420,
+      maxDesfaseVsSigmaPts: 8,
       extBandMinPct: 0.07,
       extBandMaxPct: 0.14,
     },
@@ -7277,17 +7282,56 @@ async function checkAlejamientoSMA() {
     // (alejamiento/RSI/direccion/compas) y no se le toca el filtro, para que este
     // cambio no pueda alterar ninguna decision de ENTRADA.
     let bars5 = [];
+    // Edad de la ultima vela y contraste contra Sigma. Se mide SIEMPRE, aunque no
+    // bloquee, para que quede en el registro de cada señal.
+    let edadVela5Seg = null, desfaseVsSigma = null, fuenteContraste = null;
     try {
       const r5 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=5d',
         { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const j5 = await r5.json();
-      const q5 = j5.chart?.result?.[0]?.indicators?.quote?.[0] || {};
+      const res5 = j5.chart?.result?.[0];
+      const q5 = res5?.indicators?.quote?.[0] || {};
+      const ts5 = res5?.timestamp || [];
       closes5 = (q5.close || []).filter(v => v != null);
       bars5 = (q5.close || [])
         .map((c, i) => ({ high: q5.high?.[i], low: q5.low?.[i], close: c }))
         .filter(b => b.close != null && b.high != null && b.low != null);
+
+      // ── ¿Con que antiguedad estamos decidiendo? (2026-08-09) ──────────────
+      // Esta ruta NO tenia ninguna verificacion de tiempo: tomaba lo que Yahoo
+      // devolviera. El arreglo del 2026-08-08 (precioSPXFresco con Sigma por
+      // defecto) cubrio el SPOT y los monitores de salida, pero no estas velas —
+      // y sobre ellas se calcula el alejamiento, que desde hoy es la puerta de
+      // entrada. Si el feed llega tarde, la puerta decide sobre un precio viejo
+      // y no hay forma de enterarse.
+      if (ts5.length) {
+        const ultimo = ts5[ts5.length - 1] * 1000;
+        edadVela5Seg = Math.round((Date.now() - ultimo) / 1000);
+      }
+      const sig = leerSpotSigma();
+      if (sig && sig.edadSeg <= MAX_EDAD_SIGMA_SPOT_SEG && closes5.length) {
+        desfaseVsSigma = +(closes5[closes5.length - 1] - sig.price).toFixed(2);
+        fuenteContraste = 'sigma';
+        if (Math.abs(desfaseVsSigma) > (cfg.maxDesfaseVsSigmaPts ?? 8)) {
+          console.warn(`[SPX-REV] ⚠️ Las velas de 5m difieren ${desfaseVsSigma} pts de Sigma ` +
+                       `(velas ${closes5[closes5.length-1]}, Sigma ${sig.price}) — posible atraso del feed.`);
+        }
+      }
     } catch(e) {
       console.error('[SPX-REV] Error trayendo velas 5m:', e.message);
+    }
+
+    // Falla CERRADA a proposito, al reves que la puerta de gamma: operar el
+    // alejamiento sobre un precio viejo es peor que no operar, porque la banda
+    // 0.11-0.30% mide justamente distancias de 8 a 23 puntos y el atraso que se
+    // midio el 2026-08-07 era de 16 minutos, suficiente para invertir el signo.
+    const maxEdad = (cfg.maxEdadVela5Seg ?? 420);
+    if (edadVela5Seg != null && edadVela5Seg > maxEdad) {
+      const reason = `Velas de 5m con ${edadVela5Seg}s de antigüedad (máximo ${maxEdad}s) — no se decide el alejamiento con precio viejo`;
+      console.warn(`[SPX-REV] ⚠️ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'VELAS_5M_VIEJAS',
+        passed: false, reason, snapshot: buildStrategySnapshot(ctx, { edadVela5Seg, desfaseVsSigma }) });
+      return;
     }
     if (closes5.length < 25) {
       logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'INSUFFICIENT_5M_BARS', passed: false, reason: `Solo ${closes5.length} velas de 5m disponibles (mínimo 25) — el "Juez" no tiene suficiente historia`, snapshot: buildStrategySnapshot(ctx) });
@@ -7351,7 +7395,7 @@ async function checkAlejamientoSMA() {
       if (!(abs >= lo && abs < hi)) {
         const reason = `Alejamiento ${ext8}% fuera de la banda ${lo}-${hi}% — sin estiramiento no hay setup de reversión`;
         logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SIN_ALEJAMIENTO',
-          passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
+          passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, edadVela5Seg, desfaseVsSigma }) });
         return;
       }
     }
