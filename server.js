@@ -4360,6 +4360,12 @@ const SPX_CONFIG_DEFAULTS = {
       // Puerta de gamma (2026-08-09). Si esta en true, no se abre reversion con
       // gamma negativo, sin importar el score. Ver la nota en checkAlejamientoSMA.
       requiereGammaPositivo: false,
+      // Puerta del alejamiento (2026-08-09). El estiramiento ES el setup: fuera
+      // de la banda no hay trade, tenga el score que tenga. Los limites son los
+      // mismos que ya usaba la banda "optimo" del check (ver spx_indicators.js).
+      alejamientoEsPuerta: false,
+      extBandMinPct: 0.07,
+      extBandMaxPct: 0.14,
     },
   }
 };
@@ -7325,6 +7331,30 @@ async function checkAlejamientoSMA() {
     // ya traidas arriba, sin fetch adicional.
     const compasMedias5m = calcCompasMedias5m(closes5, direction);
     const weinstein5m = wheelTrading.calcWeinstein(closes5);
+
+    // ── PUERTA DEL ALEJAMIENTO (2026-08-09, a pedido del usuario) ─────────
+    // El alejamiento ES el setup, no un componente del score. Sin el no hay
+    // trade, tenga el score que tenga.
+    //
+    // Por que hizo falta: `alejamiento_sma8` valia 45 de 100 pero era puntos, no
+    // puerta. En banda "leve" daba 22.5, y los otros 55 (patron 20 + Weinstein 10
+    // + GEX 10 + Compas 15) alcanzaban para llegar a 75 sin que hubiera setup.
+    // Medido sobre las 34 señales reales que dispararon entre el 30/07 y el 7/08:
+    // 24 (71%) entraron FUERA de la banda optima, y 10 de ellas con el precio a
+    // 0.02-0.03% de la media — o sea, encima de la SMA8, sin ningun estiramiento.
+    // Caso testigo, el 2026-08-07 12:49: ext 0.03%, score 77.5, entro; mientras
+    // que a las 12:33, con el alejamiento en banda optima y Vela 9 confirmada, el
+    // score fue 73 y NO entro. El sistema rechazaba los setups y tomaba el ruido.
+    if (cfg.alejamientoEsPuerta) {
+      const lo = cfg.extBandMinPct ?? 0.07, hi = cfg.extBandMaxPct ?? 0.14;
+      const abs = Math.abs(ext8);
+      if (!(abs >= lo && abs < hi)) {
+        const reason = `Alejamiento ${ext8}% fuera de la banda ${lo}-${hi}% — sin estiramiento no hay setup de reversión`;
+        logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SIN_ALEJAMIENTO',
+          passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
+        return;
+      }
+    }
 
     // ── PUERTA DE GAMMA (2026-08-09, a pedido del usuario) ────────────────
     // El regimen se lee del gex EFECTIVO en este instante, no del titular del
