@@ -5880,6 +5880,7 @@ app.get('/api/spx/strategy-log', (req, res) => {
 // claude-in-chrome) ahora TAMBIÉN los manda aquí, para que el servidor pueda
 // usar la fuente que el usuario mira a mano en vez de (o además de) la propia.
 const SIGMA_LEVELS_FILE = path.join(DATA_DIR, 'sigma_terminal_levels.json');
+const SIGMA_VELAS_FILE = path.join(DATA_DIR, 'sigma_velas_5m.json');
 const SIGMA_LEVELS_MAX_AGE_MS = 5 * 60 * 1000; // 5 min — margen sobre el ciclo de 2 min
 // Cap generoso — cada 2 min ⇒ ~720/dia, 10000 cubre ~2 semanas sin crecer sin
 // control (mismo criterio que SPX_STRATEGY_LOG_FILE, ver logStrategyEvent).
@@ -5909,6 +5910,16 @@ const SIGMA_LEVELS_MAX_ENTRIES = 10000;
 // mezclan las dos: o toda la serie es de Sigma o toda es de Yahoo. Mezclarlas
 // reintroduciria exactamente el problema que esto viene a resolver.
 function serie5mDesdeSigma({ minVelas = 9, maxEdadSeg = 420 } = {}) {
+  // Las VELAS REALES mandan (2026-08-09). El usuario pregunto como hace Sigma
+  // Terminal para mostrar los indicadores completos en la primera hora, si aca
+  // hacian falta 45 min de sesion para juntar 8 velas. Resulto que Sigma no
+  // acumula nada: le pide el historico a Polygon por su propio proxy. Reconstruir
+  // la serie desde el spot era una limitacion que nos habiamos puesto solos.
+  // El daemon ahora trae esas mismas velas; esto las usa y deja la
+  // reconstruccion desde el spot como segundo intento.
+  const porVelas = velas5mDeSigma({ minVelas, maxEdadSeg });
+  if (porVelas) return porVelas;
+
   const hist = loadSigmaLevelsHistory();          // mas reciente primero
   if (!hist.length) return null;
   const ahora = Date.now();
@@ -5943,6 +5954,47 @@ function serie5mDesdeSigma({ minVelas = 9, maxEdadSeg = 420 } = {}) {
     closes: ultimas.map(k => balde.get(k).precio),
     edadSeg: Math.round((ahora - ultima.t) / 1000),
     velas: ultimas.length,
+    modo: 'spot',
+  };
+}
+
+// Velas de 5m del SPX tal como las sirve Sigma (I:SPX via su proxy de Polygon),
+// empujadas por el daemon en cada ciclo. Verificado el 2026-08-09 contra el
+// endpoint real: 159 velas del 6-ago 09:30 al 7-ago 16:00, indice de verdad y
+// reticula alineada a las 09:30 en punto.
+function velas5mDeSigma({ minVelas = 9, maxEdadSeg = 420 } = {}) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(SIGMA_VELAS_FILE, 'utf8')); }
+  catch { return null; }                            // todavia no hay archivo
+  const velas = doc?.velas;
+  if (!Array.isArray(velas) || velas.length < minVelas) return null;
+
+  const ult = velas.slice(-minVelas);
+  const diaET = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+  // Un hueco DENTRO de la sesion deforma la SMA8 sin que se note, asi que se
+  // rechaza. Pero el salto de un dia a otro NO es un hueco: la SMA8 de un grafico
+  // de 5m a las 09:35 se calcula con las ultimas velas de ayer, y asi la lee
+  // Luis. Exigir continuidad de reloj aca reintroduciria el agujero de la primera
+  // hora, que es justo lo que esto viene a cerrar.
+  for (let i = 1; i < ult.length; i++) {
+    const salto = ult[i].t - ult[i - 1].t;
+    if (salto === 5 * 60 * 1000) continue;
+    if (diaET(ult[i].t) !== diaET(ult[i - 1].t)) continue;   // cambio de sesion
+    return null;
+  }
+
+  // `t` es el arranque de la vela; la ultima puede estar formandose. Misma
+  // convencion y misma tolerancia que tenia la serie de Yahoo.
+  const edadSeg = Math.round((Date.now() - ult[ult.length - 1].t) / 1000);
+  if (edadSeg > maxEdadSeg) return null;
+  if (ult.some(v => v.c == null)) return null;
+
+  return {
+    closes: ult.map(v => v.c),
+    edadSeg,
+    velas: ult.length,
+    modo: 'velas',
   };
 }
 
@@ -5980,8 +6032,17 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // para poder medirlos. ivPromedio es el que mas falta hace: hoy los spreads se
   // valuan con el VIX (el indice entero) en vez de la IV ATM de la cadena del SPX,
   // que es la que de verdad se opera.
+  // velas5m agregado 2026-08-09. NO entra al historial: son 30 velas por lectura y
+  // el historial guarda 10000 entradas, lo inflaria por tres ordenes de magnitud
+  // sin ganar nada (solo importan las ultimas). Se escriben aparte, pisando.
   const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
-          totalGamma, maxPain, putCallOi, ivPromedio } = req.body || {};
+          totalGamma, maxPain, putCallOi, ivPromedio, velas5m } = req.body || {};
+  if (Array.isArray(velas5m) && velas5m.length) {
+    try {
+      fs.writeFileSync(SIGMA_VELAS_FILE,
+        JSON.stringify({ velas: velas5m, updatedAt: new Date().toISOString() }), 'utf8');
+    } catch (e) { console.error('[SIGMA] no se pudieron guardar las velas 5m:', e.message); }
+  }
   if (regime !== 'POSITIVO' && regime !== 'NEGATIVO') {
     return res.status(400).json({ ok: false, error: 'regime debe ser POSITIVO o NEGATIVO' });
   }
@@ -7383,11 +7444,17 @@ async function checkAlejamientoSMA() {
     // 9 velas, no 25: la SMA8 necesita 8 consecutivas mas la actual, y exigir 25
     // bajaba la cobertura del 73% al 29% sin aportar nada (el RSI y el compas, que
     // si necesitarian mas historia, hoy no bloquean: el score esta desactivado).
-    const serieSigma = serie5mDesdeSigma({ minVelas: 9, maxEdadSeg: cfg.maxEdadVela5Seg ?? 420 });
+    // Se piden 25 primero y 9 si no alcanzan: con las velas reales del proxy las
+    // 25 salen casi siempre (el daemon manda 30), y eso devuelve historia
+    // suficiente para el RSI. La reconstruccion desde el spot rara vez llega a 25
+    // —de ahi el segundo intento—, pero 9 bastan para la SMA8, que es la puerta.
+    const maxEdadSerie = cfg.maxEdadVela5Seg ?? 420;
+    const serieSigma = serie5mDesdeSigma({ minVelas: 25, maxEdadSeg: maxEdadSerie })
+                    || serie5mDesdeSigma({ minVelas: 9,  maxEdadSeg: maxEdadSerie });
     if (serieSigma) {
       closes5 = serieSigma.closes;
       edadVela5Seg = serieSigma.edadSeg;
-      fuenteSerie = 'sigma';
+      fuenteSerie = serieSigma.modo === 'velas' ? 'sigma-velas' : 'sigma-spot';
     }
 
     try {
@@ -7400,7 +7467,7 @@ async function checkAlejamientoSMA() {
       // Con la serie de Sigma en mano, Yahoo solo aporta los high/low que hacen
       // falta para anclar el stop cuando stopMinPts es 0. Los cierres NO se pisan:
       // mezclar las dos series es justo lo que se quiere evitar.
-      if (fuenteSerie !== 'sigma') closes5 = (q5.close || []).filter(v => v != null);
+      if (!fuenteSerie.startsWith('sigma')) closes5 = (q5.close || []).filter(v => v != null);
       bars5 = (q5.close || [])
         .map((c, i) => ({ high: q5.high?.[i], low: q5.low?.[i], close: c }))
         .filter(b => b.close != null && b.high != null && b.low != null);
@@ -7412,7 +7479,7 @@ async function checkAlejamientoSMA() {
       // y sobre ellas se calcula el alejamiento, que desde hoy es la puerta de
       // entrada. Si el feed llega tarde, la puerta decide sobre un precio viejo
       // y no hay forma de enterarse.
-      if (fuenteSerie !== 'sigma' && ts5.length) {
+      if (!fuenteSerie.startsWith('sigma') && ts5.length) {
         const ultimo = ts5[ts5.length - 1] * 1000;
         edadVela5Seg = Math.round((Date.now() - ultimo) / 1000);
       }
@@ -7444,7 +7511,7 @@ async function checkAlejamientoSMA() {
     // El minimo de 25 aplica al respaldo de Yahoo, que trae 5 dias completos. La
     // serie de Sigma se valida en su propia funcion (9 velas consecutivas y
     // frescas) y es legitimamente mas corta.
-    if (fuenteSerie !== 'sigma' && closes5.length < 25) {
+    if (!fuenteSerie.startsWith('sigma') && closes5.length < 25) {
       logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'INSUFFICIENT_5M_BARS', passed: false, reason: `Solo ${closes5.length} velas de 5m disponibles (mínimo 25) — el "Juez" no tiene suficiente historia`, snapshot: buildStrategySnapshot(ctx) });
       return;
     }

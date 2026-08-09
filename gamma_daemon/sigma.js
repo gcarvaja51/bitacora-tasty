@@ -41,6 +41,25 @@ const LABEL_MAP = {
 let browser = null;
 let page = null;
 
+// Token del proxy de datos de Sigma (ver readCandles5m). No esta en localStorage
+// ni embebido en el bundle: solo viaja en la cabecera `authorization` de las
+// llamadas que hace la propia pagina. Se captura al vuelo. Medido el 2026-08-09:
+// la pestaña de greeks —la que el daemon deja abierta— lo re-emite sola 8 veces
+// en 75s (/health/sources y /gex/snapshot/SPX), asi que no hace falta navegar a
+// ningun lado ni cablear la clave en el codigo.
+let apiToken = null;
+let listenerPuesto = null;   // la pagina a la que ya se le engancho el listener
+
+function engancharCapturaToken(p) {
+  if (listenerPuesto === p) return;
+  listenerPuesto = p;
+  p.on('request', (r) => {
+    if (!r.url().includes('opcionsigma.com')) return;
+    const a = r.headers()['authorization'];
+    if (a) apiToken = a;
+  });
+}
+
 export async function ensurePage() {
   // isClosed() NO alcanza: una pagina puede quedar con su frame "detached"
   // (renderer recargado/navegado por fuera) y seguir reportando isClosed()
@@ -52,6 +71,7 @@ export async function ensurePage() {
   if (browser && page && !page.isClosed()) {
     try {
       await page.evaluate(() => true);
+      engancharCapturaToken(page);
       return page;
     } catch (e) {
       console.error('[sigma] Pagina cacheada invalida (%s) -- reconstruyendo', e.message);
@@ -64,6 +84,7 @@ export async function ensurePage() {
           page = await browser.newPage();
           await page.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded' });
           await new Promise((r) => setTimeout(r, 6000));
+          engancharCapturaToken(page);
           return page;
         } catch (e2) {
           console.error('[sigma] No se pudo abrir pestaña nueva (%s) -- relanzando browser', e2.message);
@@ -84,6 +105,7 @@ export async function ensurePage() {
   });
   const pages = await browser.pages();
   page = pages[0] || (await browser.newPage());
+  engancharCapturaToken(page);
   await page.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded' });
   await new Promise((r) => setTimeout(r, 6000));
   return page;
@@ -168,6 +190,53 @@ export async function readLevels() {
   }
   levels.regime = levels.netGex > 0 ? 'POSITIVO' : 'NEGATIVO';
   return levels;
+}
+
+// ── Velas de 5m del SPX, de la misma fuente que el gamma ──────────────────
+// De donde sale esto (2026-08-09): el usuario pregunto como hace Sigma Terminal
+// para mostrar los indicadores completos en la primera hora, si nosotros
+// necesitabamos 45 min de sesion para juntar 8 velas. La respuesta es que Sigma
+// NO acumula nada: le pide el historico a Polygon a traves de su propio proxy, y
+// lo dibuja entero de una. Nuestra reconstruccion a partir del spot que empuja el
+// daemon era una limitacion autoimpuesta.
+//
+// Verificado contra el endpoint real: /v2/aggs/ticker/I:SPX/range/5/minute/...
+// devolvio 159 velas cubriendo 6-ago 09:30 a 7-ago 16:00, o sea el indice de
+// verdad (I:SPX, no el ETF) con la reticula alineada a las 09:30 en punto. Con
+// eso la SMA8 esta lista en la primera vela del dia.
+//
+// Es best-effort: si falla, devuelve null y el que llama sigue sin velas. NUNCA
+// debe tumbar el push de niveles, que es lo critico.
+export async function readCandles5m({ velas = 30, diasAtras = 5 } = {}) {
+  const p = await ensurePage();
+  if (!apiToken) return null;              // todavia no se capturo; el proximo ciclo lo tendra
+
+  const hoy = new Date();
+  const desde = new Date(hoy.getTime() - diasAtras * 24 * 3600 * 1000);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const ruta = `/v2/aggs/ticker/I:SPX/range/5/minute/${iso(desde)}/${iso(hoy)}`
+             + `?adjusted=true&sort=asc&limit=50000`;
+
+  // El fetch va DENTRO de la pagina: el proxy valida el Origin, desde Node daria CORS.
+  const bars = await p.evaluate(async (ruta, tok) => {
+    try {
+      const r = await fetch('https://market.opcionsigma.com/api/v1/polygon-proxy' + ruta,
+                            { headers: { authorization: tok } });
+      if (!r.ok) return { error: 'HTTP ' + r.status };
+      const j = await r.json();
+      return { results: j?.results || [] };
+    } catch (e) { return { error: String(e).slice(0, 120) }; }
+  }, ruta, apiToken);
+
+  if (!bars || bars.error || !bars.results?.length) {
+    if (bars?.error === 'HTTP 401') apiToken = null;   // caduco: que lo recapture
+    return null;
+  }
+  // `t` es el ARRANQUE de la vela (misma convencion que Yahoo, que es contra lo
+  // que estaba calibrada la reversion). No se re-etiqueta.
+  return bars.results.slice(-velas).map((b) => ({
+    t: b.t, o: b.o, h: b.h, l: b.l, c: b.c,
+  }));
 }
 
 export async function close() {

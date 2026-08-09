@@ -164,6 +164,19 @@ async function runCycle() {
     const levels = await sigma.readLevels();
     const prev = recordAndGetPrevious(levels);
 
+    // Velas de 5m del SPX, de la misma fuente que el gamma (2026-08-09). Van
+    // adjuntas al mismo push para que el servidor decida el alejamiento con la
+    // misma serie con la que Sigma dibuja su grafico, en vez de reconstruirla a
+    // partir de las lecturas de spot (que no existen en la primera hora).
+    // Deliberadamente best-effort y en su propio try: si la API de velas falla,
+    // el push de NIVELES —que es lo critico— tiene que salir igual.
+    try {
+      const velas = await sigma.readCandles5m();
+      if (velas?.length) levels.velas5m = velas;
+    } catch (e) {
+      console.error('[sigma] velas 5m no disponibles (%s) -- se sigue sin ellas', e.message);
+    }
+
     // EL SERVIDOR VA PRIMERO. Antes el POST estaba DESPUES del push a
     // TradingView, y un push fallido lanzaba excepcion antes de llegar aca: con
     // TradingView cerrado o sin SPX cargado, el servidor se quedaba sin precio
