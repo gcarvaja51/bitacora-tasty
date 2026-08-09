@@ -4341,7 +4341,12 @@ const SPX_CONFIG_DEFAULTS = {
       maxCandlesTimeStop: 5,  // tope duro: 5 velas de 2m (10 min) sin excepcion
       maxDailyDrawdownPct: 3.5, // circuito diario restante -- 2026-07-27: se quito el freno de 2 perdidas consecutivas (maxStopsPerDay) a pedido del usuario, para poder acumular ~100 trades reales por estrategia y medir el win rate real
       wallProximityPts:   15,  // "cerca" de un muro de gamma para la confluencia del score
-      riskPctPerTrade:    1,   // (2026-07-14) % del capital arriesgado por trade — sizing "division sagrada" de Luis Sigma, ver sizeContractsByRisk
+      // riskPctPerTrade se quito de aca (2026-08-09): la reversion usa
+      // `const contracts = 1` fijo desde el 2026-07-27, asi que este porcentaje no
+      // sizeaba nada. Igual que maxStopsPerDay, que anunciaba un freno de 2 stops
+      // diarios que no existe en el codigo desde esa misma fecha. Una config que
+      // dice cosas que el robot no hace es peor que una incompleta: se toman
+      // decisiones creyendo que hay protecciones puestas.
       tradierAutoExecute: true, // kill-switch propio, independiente de IC y direccionales
       earlyExitPct: 0.9, // 0.6->0.9 (2026-08-02, a pedido explicito del usuario -- deja solo
                          // un 10% de la distancia sin cubrir, en vez de un 40%). Originalmente
