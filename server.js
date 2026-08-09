@@ -6795,6 +6795,68 @@ async function colocarOrdenDeCierre(ex, { worstNetPrice } = {}) {
   });
 }
 
+// ── Sombra de la cadena: Tasty (en vivo) contra Tradier (sandbox, diferido) ──
+// A pedido del usuario (2026-08-09): "evaluar en la sombra el cambio de la cadena
+// de opciones para entender en el momento que se ejecuta el trade cual fue la
+// prima que se ejecuto en tradier vs la prima que debimos tener en tasty".
+//
+// Hoy el hueco entre lo esperado y lo ejecutado esta MEZCLADO: parte es el
+// retraso del sandbox y parte es cruzar el bid/ask con una orden a mercado.
+// Midiendo las dos cadenas en el MISMO instante, se separa limpio:
+//
+//   netTasty - netTradier   -> el retraso, en dolares
+//   netTradier - fill real  -> el cruce del bid/ask
+//
+// Es puramente observacional: no decide nada, no bloquea nada, y va en su propio
+// try. Si falla, el trade sigue igual y el campo queda sin dato.
+async function capturarSombraCadena({ expiry, shortStrike, longStrike, tipo, legs }) {
+  const out = { at: new Date().toISOString(), tasty: null, tradier: null };
+
+  // Lado TASTY — la misma cadena con la que se decide.
+  try {
+    const r = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX?expiry=${expiry}`);
+    const j = await r.json();
+    const exp = (j.expirations || []).find(e => e.expiry === expiry) || (j.expirations || [])[0];
+    const buscar = (k) => (exp?.strikes || []).find(s => s.strike === k);
+    const sC = buscar(shortStrike), lC = buscar(longStrike);
+    const rama = (s) => tipo === 'P' ? s?.put : s?.call;
+    const sMark = rama(sC)?.mark, lMark = rama(lC)?.mark;
+    if (sMark != null && lMark != null) {
+      out.tasty = { short: +sMark.toFixed(2), long: +lMark.toFixed(2), net: +(sMark - lMark).toFixed(2) };
+    }
+  } catch (e) { out.tastyError = e.message.slice(0, 80); }
+
+  // Lado TRADIER — el libro contra el que de verdad se ejecuta.
+  try {
+    const q = await tradier.getQuotes([legs.shortSym, legs.longSym]);
+    const m = {};
+    q.forEach(x => { m[x.symbol] = x; });
+    const s = m[legs.shortSym], l = m[legs.longSym];
+    if (s?.mark != null && l?.mark != null) {
+      // getQuotes SI trae tradeDate. Con eso el retraso deja de ser un supuesto
+      // ("~15 min") y pasa a ser un numero medido en cada trade.
+      const edad = (x) => x?.tradeDate ? Math.round((Date.now() - Number(x.tradeDate)) / 1000) : null;
+      out.tradier = {
+        short: +s.mark.toFixed(2), long: +l.mark.toFixed(2), net: +(s.mark - l.mark).toFixed(2),
+        shortBidAsk: [s.bid, s.ask], longBidAsk: [l.bid, l.ask],
+        // Credito que daria cruzar: vender la corta al bid, comprar la larga al ask.
+        netCruzando: (s.bid != null && l.ask != null) ? +(s.bid - l.ask).toFixed(2) : null,
+        anchoCorta: (s.ask != null && s.bid != null) ? +(s.ask - s.bid).toFixed(2) : null,
+        anchoLarga: (l.ask != null && l.bid != null) ? +(l.ask - l.bid).toFixed(2) : null,
+        edadCotizacionSeg: edad(s) ?? edad(l),
+      };
+    }
+  } catch (e) { out.tradierError = e.message.slice(0, 80); }
+
+  if (out.tasty && out.tradier) {
+    out.difRetraso = +(out.tasty.net - out.tradier.net).toFixed(2);
+    if (out.tradier.netCruzando != null) {
+      out.difCruce = +(out.tradier.net - out.tradier.netCruzando).toFixed(2);
+    }
+  }
+  return out;
+}
+
 function calcLivePnl(ex, q) {
   try {
     const legs = ex.legs || {};
@@ -7855,6 +7917,21 @@ async function checkAlejamientoSMA() {
         signal.actionAt = new Date().toISOString();
         console.log(`[Tradier-REV] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${strategy} ${strikes.shortStrike}/${strikes.longStrike}`);
 
+        // Sombra de la cadena en el instante de ejecutar. DESPUES de mandar la
+        // orden a proposito: medir no puede retrasar la entrada.
+        let sombraApertura = null;
+        try {
+          sombraApertura = await capturarSombraCadena({
+            expiry: strikes.expiry, shortStrike: strikes.shortStrike, longStrike: strikes.longStrike,
+            tipo: strategy === 'BULL_PUT_SPREAD' ? 'P' : 'C', legs: order.legs,
+          });
+          if (sombraApertura?.difRetraso != null) {
+            console.log(`[SOMBRA-REV] apertura — tasty ${sombraApertura.tasty.net} vs tradier ` +
+              `${sombraApertura.tradier.net} (retraso ${sombraApertura.difRetraso}) · ` +
+              `cruzando ${sombraApertura.tradier.netCruzando ?? '—'} (cruce ${sombraApertura.difCruce ?? '—'})`);
+          }
+        } catch (e) { console.warn('[SOMBRA-REV] no se pudo capturar la apertura:', e.message); }
+
         await withExecutionsLock(() => {
           const execs = loadTradierExecutions();
           execs.unshift({
@@ -7936,6 +8013,10 @@ async function checkAlejamientoSMA() {
             // con el respaldo se mezcla con los demas y la muestra queda sucia.
             gammaFuente:     effectiveGex.source,
             gammaRegimen:    effectiveGex.regime,
+            // Las dos cadenas en el instante de ejecutar (ver capturarSombraCadena).
+            // Contra entryFillPrice, cuando llegue, permite repartir el hueco entre
+            // lo que cuesta el retraso del sandbox y lo que cuesta cruzar el bid/ask.
+            sombraApertura,
             smaTarget:       sma8,
             pattern:         patronReversion.pattern,
             // Checklist completo congelado al momento de entrar (2026-08-02, a
@@ -8128,6 +8209,19 @@ async function checkAlejamientoSMATPSLImpl() {
         // Guardar el orderId de cierre (2026-07-27, ver resolverPnlDesdeOrdenes) —
         // permite calcular el P&L real desde los fills reales en vez de /gainloss.
         ex.closeOrderId = closeResultRev?.orderId ?? null;
+
+        // Sombra de la cadena tambien al CERRAR: el retraso se paga en las dos
+        // puntas y hasta ahora solo se podia estimar en la apertura.
+        try {
+          ex.sombraCierre = await capturarSombraCadena({
+            expiry: ex.expiry, shortStrike: ex.strikes.shortStrike, longStrike: ex.strikes.longStrike,
+            tipo: ex.strategy === 'BULL_PUT_SPREAD' ? 'P' : 'C', legs: ex.legs,
+          });
+          if (ex.sombraCierre?.difRetraso != null) {
+            console.log(`[SOMBRA-REV] cierre — tasty ${ex.sombraCierre.tasty.net} vs tradier ` +
+              `${ex.sombraCierre.tradier.net} (retraso ${ex.sombraCierre.difRetraso})`);
+          }
+        } catch (e) { console.warn('[SOMBRA-REV] no se pudo capturar el cierre:', e.message); }
         // Bug real encontrado 2026-07-10 (misma familia que el fix de IC/direccional,
         // ver comentario en checkIronCondorTPSLImpl): acá se marcaba status='closed' de
         // inmediato con pnlSource='precio_spx_auto', pero NINGÚN código calculaba el pnl
