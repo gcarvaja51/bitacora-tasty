@@ -4236,8 +4236,13 @@ const SPX_CONFIG_DEFAULTS = {
     // OJO: las dos escalas NO coinciden (~20 puntos de desfase medido). Si se
     // vuelve a 'tastytrade' hay que devolver ivRankCredito a 30 y
     // ironCondor.ivRankThreshold a 25.
-    ivRankFuente:  'sigma',
-    ivRankCredito: 10,    // por encima de esto -> credito. Era 30 en la escala de Tasty.
+    // Hay DOS umbrales porque hay dos escalas, y el que se aplica lo decide la
+    // fuente que de verdad respondio — no la preferencia de config. Si Sigma se
+    // cae, el ivRank vuelve a la escala de Tasty y tiene que compararse contra
+    // el umbral de Tasty, o el respaldo invierte la decision en silencio.
+    ivRankFuente:       'sigma',
+    ivRankCredito:      10,   // escala Sigma (rank del VIX)
+    ivRankCreditoTasty: 30,   // escala TastyTrade (rank de la cadena del SPX)
     targetDelta: 0.40,    // Delta objetivo para el strike short
     tpPct:       25,      // Take Profit % del crédito (25% → 94% prob. éxito, playbook Alejandro)
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
@@ -4306,6 +4311,7 @@ const SPX_CONFIG_DEFAULTS = {
       // ~$500 para cobrar poco. Es el precio de ver si el setup dispara; revisar
       // en cuanto haya 5-10 operaciones reales.
       minCreditoAnchoPct: 0,
+      ivRankThresholdTasty: 25, // el mismo umbral en la escala de TastyTrade, para cuando Sigma se cae
       ivRankThreshold: 5,       // 2026-07-09: IV Rank por debajo de esto -> Condor de DEBITO (Long Put Condor,
                                 // Vega positiva) en vez de Iron Condor de credito — vender prima barata "es
                                 // operar sin ventaja" segun el playbook. IV Rank >= esto sigue siendo credito.
@@ -4448,10 +4454,22 @@ function loadSPXConfig() {
     // vuelve todo debito en silencio, que es peor que no haber cambiado nada.
     if (saved?.trading && saved.trading.ivRankFuente === undefined) {
       console.log('[SPX] Migrando IV Rank a Sigma (umbrales 30->10 y 25->5 por el cambio de escala)');
-      saved.trading.ivRankFuente  = SPX_CONFIG_DEFAULTS.trading.ivRankFuente;
-      saved.trading.ivRankCredito = SPX_CONFIG_DEFAULTS.trading.ivRankCredito;
+      saved.trading.ivRankFuente       = SPX_CONFIG_DEFAULTS.trading.ivRankFuente;
+      saved.trading.ivRankCredito      = SPX_CONFIG_DEFAULTS.trading.ivRankCredito;
+      saved.trading.ivRankCreditoTasty = SPX_CONFIG_DEFAULTS.trading.ivRankCreditoTasty;
       if (saved.trading.ironCondor) {
-        saved.trading.ironCondor.ivRankThreshold = SPX_CONFIG_DEFAULTS.trading.ironCondor.ivRankThreshold;
+        saved.trading.ironCondor.ivRankThreshold      = SPX_CONFIG_DEFAULTS.trading.ironCondor.ivRankThreshold;
+        saved.trading.ironCondor.ivRankThresholdTasty = SPX_CONFIG_DEFAULTS.trading.ironCondor.ivRankThresholdTasty;
+      }
+      saveSPXConfig(saved);
+    }
+    // La config ya migrada el 2026-08-09 antes de este arreglo se quedo sin los
+    // umbrales de la escala de Tasty. Sin esto, esa config queda con el respaldo
+    // roto y el `??` del codigo la salva solo por casualidad.
+    if (saved?.trading && saved.trading.ivRankCreditoTasty === undefined) {
+      saved.trading.ivRankCreditoTasty = SPX_CONFIG_DEFAULTS.trading.ivRankCreditoTasty;
+      if (saved.trading.ironCondor) {
+        saved.trading.ironCondor.ivRankThresholdTasty = SPX_CONFIG_DEFAULTS.trading.ironCondor.ivRankThresholdTasty;
       }
       saveSPXConfig(saved);
     }
@@ -4884,13 +4902,24 @@ async function buildSPXContext() {
     // servir, se pone 'tastytrade' en la config y listo.
     const cfgIv = loadSPXConfig()?.trading || {};
     const ivRankFuenteCfg = cfgIv.ivRankFuente ?? 'sigma';
-    const ivRankCredito   = cfgIv.ivRankCredito ?? 10;
     let ivRank, ivRankFuente;
     if (ivRankFuenteCfg === 'sigma' && ivRankSigma != null) { ivRank = ivRankSigma; ivRankFuente = 'sigma'; }
     else if (ivRankTasty != null) { ivRank = ivRankTasty; ivRankFuente = 'tastytrade'; }
     else { ivRank = ivRankSigma; ivRankFuente = ivRankSigma != null ? 'sigma' : null; }
-    console.log(`[SPX] IV Rank ${ivRank ?? 'sin dato'} (fuente: ${ivRankFuente || 'ninguna'}) ` +
-      `— sigma ${ivRankSigma ?? '—'} / tasty ${ivRankTasty ?? '—'} · VIX ${vix} (${vixFuente})`);
+    // EL UMBRAL SIGUE A LA FUENTE, no a la config (2026-08-09, encontrado en la
+    // auditoria previa a la apertura). Antes el umbral era un valor fijo de
+    // config y eso rompia el respaldo: con Sigma caido el IV Rank vuelve a
+    // TastyTrade —bien— pero se comparaba contra 10, que es la escala de Sigma.
+    // Caso real medido contra produccion: Tasty 27 contra 10 daba CREDITO,
+    // cuando con la calibracion correcta (27 contra 30) daba DEBITO. O sea que
+    // el respaldo invertia la decision en silencio, que es justo el modo de
+    // falla que este cambio venia a eliminar.
+    const ivRankCredito = ivRankFuente === 'tastytrade'
+      ? (cfgIv.ivRankCreditoTasty ?? 30)
+      : (cfgIv.ivRankCredito ?? 10);
+    console.log(`[SPX] IV Rank ${ivRank ?? 'sin dato'} (fuente: ${ivRankFuente || 'ninguna'}, ` +
+      `umbral credito ${ivRankCredito}) — sigma ${ivRankSigma ?? '—'} / tasty ${ivRankTasty ?? '—'} ` +
+      `· VIX ${vix} (${vixFuente})`);
 
     // 5. Calcular GEX
     // Necesitamos precios/greeks de la cadena — usar los que ya vienen en nested
@@ -5308,6 +5337,10 @@ async function buildSPXContext() {
       // habia saltado porque TastyTrade venia respondiendo siempre.
       ivRank:   ivRank != null ? +ivRank.toFixed(1) : null,
       ivRankFuente, ivRankSigma, ivRankTasty,
+      // El umbral viaja EN EL CONTEXTO, junto al ivRank que le corresponde. Si
+      // se recalcula aparte, se vuelve a abrir la puerta a compararlo contra la
+      // escala equivocada cuando la fuente cambia por respaldo.
+      ivRankCredito,
       isCredit: (ivRank != null && ivRank > ivRankCredito) || vix > 20,
       gex,
       ema20,
@@ -5645,7 +5678,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     const sel = selectStrategy({
       direction,
       ivRank:      ctx.ivRank,
-      ivRankCredito: loadSPXConfig()?.trading?.ivRankCredito ?? 10,
+      ivRankCredito: ctx.ivRankCredito ?? 30,   // el que corresponde a la fuente que de verdad respondio
       vix:         ctx.vix,
       gammaRegime: effectiveGex.regime,
       etHour:      ctx.etHour,
@@ -6442,7 +6475,12 @@ async function checkIronCondor() {
     // Credito vs debito segun IV Rank (2026-07-09, a pedido del usuario): con IV Rank
     // bajo, vender prima "es operar sin ventaja" (playbook) — se cambia a Long Put
     // Condor (debito, Vega positiva) en vez de forzar el Iron Condor de credito.
-    const ivRankThreshold = icCfg.ivRankThreshold ?? 25;
+    // Mismo criterio que el umbral de credito: sigue a la FUENTE que respondio,
+    // no a un valor fijo. Con Sigma caido el ivRank vuelve a la escala de Tasty
+    // y compararlo contra 5 dejaria de disparar el Condor de debito para siempre.
+    const ivRankThreshold = ctx.ivRankFuente === 'tastytrade'
+      ? (icCfg.ivRankThresholdTasty ?? 25)
+      : (icCfg.ivRankThreshold ?? 5);
     const useDebit = ctx.ivRank != null && ctx.ivRank < ivRankThreshold;
 
     let strategyName, strikes, sel;
