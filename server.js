@@ -4476,14 +4476,15 @@ function loadSPXConfig() {
       saved.trading.smaReversion.earlyExitPct = SPX_CONFIG_DEFAULTS.trading.smaReversion.earlyExitPct;
       saveSPXConfig(saved);
     }
-    // Sube earlyExitPct de 0.6 a 0.9 (2026-08-02, a pedido explicito del
-    // usuario) -- se detecta por el valor viejo especifico (0.6), mismo
-    // patron que las migraciones de weights basadas en valor.
-    if (saved?.trading?.smaReversion?.earlyExitPct === 0.6) {
-      console.log('[SPX] Subiendo earlyExitPct de 0.6 a 0.9 en Alejamiento de SMA');
-      saved.trading.smaReversion.earlyExitPct = SPX_CONFIG_DEFAULTS.trading.smaReversion.earlyExitPct;
-      saveSPXConfig(saved);
-    }
+    // 2026-08-09: aca vivia una migracion que subia earlyExitPct de 0.6 a 0.9
+    // "por unica vez" (2026-08-02). Nunca se apago: corria en CADA carga de
+    // config, detectando el valor por igualdad, asi que 0.6 quedo convertido en
+    // un valor imposible de fijar. Hoy el usuario pidio 0.60 y el POST se
+    // aplicaba y se revertia solo, en silencio.
+    //
+    // Se elimina. El valor lo decide la config, no el arranque. Si en el futuro
+    // hace falta otra migracion por valor, tiene que llevar un sello (una clave
+    // tipo migradoEarlyExit_20260802) para no repetirse eternamente.
     // Migra los pesos de smaReversion a v3 (2026-08-01): repesaje tras cruzar
     // reglas de Luis Silva contra trades reales + renombre regimen_gex ->
     // regimen_gex_dex (ahora incluye DEX). Se detecta por la ausencia de la
