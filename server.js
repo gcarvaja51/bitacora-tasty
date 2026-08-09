@@ -4294,6 +4294,10 @@ const SPX_CONFIG_DEFAULTS = {
                                  // estrategias. Queda parametrizado igual (y
                                  // congelado en cada registro) para poder
                                  // apretarlo solo al IC sin tocar codigo.
+      // Hora tope del 1DTE al DIA SIGUIENTE (2026-08-09, decision del usuario).
+      // Si a esa hora no alcanzo el TP del 30%, se cierra al precio que haya.
+      // Solo aplica al 1DTE; el 0DTE sale por maxHoldMin/cierreForzadoET.
+      cierre1DTE_ET:     '10:30',
       minShortDistPts:   25,    // piso de distancia de las cortas al spot. Con PIN la
                                 // contencion a 90 min fue 100% a +-25 pts y 84% a +-20.
       maxHoldMin:        90,    // stop de TIEMPO. La contencion se midio a 90 min; un
@@ -4482,7 +4486,7 @@ function loadSPXConfig() {
     // volumen (el codigo caia a su default con ?? y nadie se enteraba). Mismo
     // tipo de fallo silencioso que el ATR: funciona, pero no es lo que dice.
     if (saved?.trading?.ironCondor) {
-      const faltan = ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'noAbrirDespuesET', 'cierreForzadoET', 'minShortDistPts', 'maxHoldMin']
+      const faltan = ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'noAbrirDespuesET', 'cierreForzadoET', 'minShortDistPts', 'maxHoldMin', 'cierre1DTE_ET']
         .filter(k => saved.trading.ironCondor[k] === undefined);
       if (faltan.length) {
         console.log(`[SPX] Sumando a ironCondor claves que faltaban: ${faltan.join(', ')}`);
@@ -6692,7 +6696,14 @@ async function checkIronCondor() {
             // las posiciones ya abiertas tienen que salir con la regla con la que
             // entraron (mismo criterio que debitTpPct). pinEntrada queda para
             // poder medir despues si el PIN discriminaba de verdad.
-            maxHoldMin:    icCfg.maxHoldMin ?? null,
+            // maxHoldMin es del 0DTE por PIN: la contencion se midio sobre una
+            // ventana de 90 min intradia. Un 1DTE se sostiene A PROPOSITO toda la
+            // noche (decision del usuario 2026-08-09), asi que no le aplica — con
+            // 90 min se habria cerrado solo en la apertura del dia siguiente.
+            maxHoldMin:    dte === '1DTE' ? null : (icCfg.maxHoldMin ?? null),
+            // Hora tope del 1DTE al dia siguiente: si a esa hora no llego al TP,
+            // se cierra al precio que haya.
+            cierre1DTE_ET: dte === '1DTE' ? (icCfg.cierre1DTE_ET ?? '10:30') : null,
             cierreForzadoET: icCfg.cierreForzadoET ?? '15:30',
             pinEntrada:    gate.pinState ?? null,
             filledAt:      null,
@@ -7120,6 +7131,22 @@ async function checkIronCondorTPSLImpl() {
         if (minutos >= ex.maxHoldMin) {
           cerrarPor = 'TIME_STOP_PIN';
           console.log(`[Tradier-IC-TPSL] ⏱️ Stop de tiempo: ${Math.round(minutos)} min abiertos (máx ${ex.maxHoldMin}) — orden ${ex.orderId}`);
+        }
+      }
+
+      // ── Tope del 1DTE al dia siguiente (2026-08-09, decision del usuario:
+      // "si a las 10:30 am no lo ha logrado lo cerramos en el valor que sea") ──
+      // Solo dispara en un dia POSTERIOR al de la entrada: un 1DTE abierto a las
+      // 15:45 no puede cerrarse por esta regla el mismo dia, aunque las 10:30 ya
+      // hayan pasado. La hora viaja congelada en el registro, igual que maxHoldMin.
+      if (!cerrarPor && ex.expType === '1DTE' && ex.cierre1DTE_ET && ex.filledAt) {
+        const etTope = getETHour();
+        const diaEntrada = new Date(ex.filledAt).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const hoyET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const [ch, cm] = String(ex.cierre1DTE_ET).split(':').map(Number);
+        if (hoyET > diaEntrada && (etTope.hour * 60 + etTope.min) >= ch * 60 + (cm || 0)) {
+          cerrarPor = 'CIERRE_1DTE_HORA_TOPE';
+          console.log(`[Tradier-IC-TPSL] ⏰ 1DTE: son las ${etTope.time} y no llegó al TP — cierre al precio que haya (orden ${ex.orderId}).`);
         }
       }
 

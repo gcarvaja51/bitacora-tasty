@@ -184,7 +184,12 @@ function classifyWindow(etMins) {
   if (etMins >= 10 * 60     && etMins < 13 * 60)          return 'IC_FAVORABLE';
   if (etMins >= 13 * 60     && etMins < 13 * 60 + 30)     return 'IMPULSO';
   if (etMins >= 13 * 60 + 30 && etMins < 15 * 60)         return 'GENERAL';
-  if (etMins >= 15 * 60 + 40 && etMins < 15 * 60 + 50)    return 'CIERRE_1DTE';
+  // 15:45 (antes 15:40) — decision del usuario 2026-08-09: "vamos a abrirlo
+  // siempre a las 15:45 de cada dia". checkIronCondor corre cada 5 min con fase
+  // libre (depende de cuando arranco el server), asi que la ventana se deja de 7
+  // minutos: garantiza que caiga UN tick dentro aunque el intervalo derive un
+  // poco. La entrada queda en el primer tick a partir de las 15:45.
+  if (etMins >= 15 * 60 + 45 && etMins < 15 * 60 + 52)    return 'CIERRE_1DTE';
   return 'FUERA_VENTANA';
 }
 
