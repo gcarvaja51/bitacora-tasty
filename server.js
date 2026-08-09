@@ -8245,6 +8245,97 @@ async function checkAlejamientoSMATPSLImpl() {
 }
 setInterval(checkAlejamientoSMATPSL, 15 * 1000); // cada 15s — hold de minutos, necesita reaccionar rapido
 
+// ── Muestreo periodico de la sombra Tasty vs Tradier ──────────────────────
+// La sombra pegada a cada trade (sombraApertura/sombraCierre) da 2 o 3 muestras
+// por dia: para caracterizar cuanto cuesta el retraso del sandbox harian falta
+// semanas. Esto muestrea las mismas dos cadenas cada 5 min en la ventana de
+// Reversion, sobre los strikes que la estrategia usaria AHORA (ATM delta 0.50,
+// ancho 10), haya trade o no. Unas 42 muestras por dia en vez de 3.
+//
+// Es solo observacional: no decide, no ejecuta, no bloquea. Va entero en un try
+// y cualquier fallo se traga sin tocar nada mas.
+const SOMBRA_FILE = path.join(DATA_DIR, 'sombra_cadenas.json');
+const SOMBRA_MAX = 5000;
+
+async function muestrearSombraCadena() {
+  try {
+    if (!isMarketHours()) return;
+    const et = getETHour();                       // nowET() NO existe — es getETHour()
+    const gate = evaluateReversionGate(et.hour, et.min);
+    if (!gate.valid) return;                      // misma ventana que la estrategia
+
+    const cfgRev = (loadSPXConfig().trading || {}).smaReversion || {};
+    const spot = await precioSPXFresco({ rapido: true });
+    if (!spot?.price) return;
+
+    const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
+    const chainData = await chainRes.json();
+    // Se muestrean los dos lados: los strikes que se usarian si la señal fuera
+    // alcista y si fuera bajista. Asi la muestra no depende de hacia donde se
+    // movio el mercado ese dia.
+    for (const estrategia of ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD']) {
+      const k = findStrikesByDelta(chainData.expirations || [], estrategia, spot.price, '0DTE',
+                                   cfgRev.targetDelta ?? 0.50, cfgRev.spreadWidth ?? 10);
+      if (!k?.shortStrike || !k?.longStrike) continue;
+      const tipo = estrategia === 'BULL_PUT_SPREAD' ? 'P' : 'C';
+      const legs = {
+        shortSym: tradier.buildOccSymbol('SPXW', k.expiry, tipo, k.shortStrike),
+        longSym:  tradier.buildOccSymbol('SPXW', k.expiry, tipo, k.longStrike),
+      };
+      const s = await capturarSombraCadena({
+        expiry: k.expiry, shortStrike: k.shortStrike, longStrike: k.longStrike, tipo, legs,
+      });
+      if (!s?.tasty || !s?.tradier) continue;
+
+      let hist = [];
+      try { hist = JSON.parse(fs.readFileSync(SOMBRA_FILE, 'utf8')); } catch { /* primera vez */ }
+      if (!Array.isArray(hist)) hist = [];
+      hist.unshift({
+        at: s.at, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`,
+        estrategia, spx: spot.price, spotFuente: spot.fuente,
+        shortStrike: k.shortStrike, longStrike: k.longStrike,
+        tastyNet: s.tasty.net, tradierNet: s.tradier.net,
+        tradierCruzando: s.tradier.netCruzando,
+        difRetraso: s.difRetraso, difCruce: s.difCruce,
+        edadCotizacionSeg: s.tradier.edadCotizacionSeg,
+        anchoCorta: s.tradier.anchoCorta, anchoLarga: s.tradier.anchoLarga,
+      });
+      fs.writeFileSync(SOMBRA_FILE, JSON.stringify(hist.slice(0, SOMBRA_MAX), null, 2), 'utf8');
+    }
+  } catch (e) {
+    console.warn('[SOMBRA] muestreo fallido (no afecta nada):', e.message);
+  }
+}
+setInterval(muestrearSombraCadena, 5 * 60 * 1000);
+
+// Lectura del muestreo, con el reparto ya calculado.
+app.get('/api/spx/sombra-cadenas', (req, res) => {
+  let hist = [];
+  try { hist = JSON.parse(fs.readFileSync(SOMBRA_FILE, 'utf8')); } catch { /* sin datos aun */ }
+  if (!Array.isArray(hist)) hist = [];
+  let filtrado = hist;
+  if (req.query.date) filtrado = filtrado.filter(e => (e.at || '').slice(0, 10) === req.query.date);
+
+  const med = (a) => { if (!a.length) return null; const s = [...a].sort((x,y)=>x-y); return +s[Math.floor(s.length/2)].toFixed(3); };
+  const conDato = filtrado.filter(e => e.difRetraso != null);
+  const resumen = {
+    muestras: filtrado.length,
+    conRetrasoMedido: conDato.length,
+    // Lo que cuesta el RETRASO: cuanto se separa la cadena en vivo de la diferida.
+    retrasoMedianoPts: med(conDato.map(e => e.difRetraso)),
+    retrasoAbsMedianoPts: med(conDato.map(e => Math.abs(e.difRetraso))),
+    // Lo que cuesta CRUZAR el bid/ask.
+    cruceMedianoPts: med(filtrado.filter(e => e.difCruce != null).map(e => e.difCruce)),
+    // Cuan viejo esta de verdad el dato del sandbox.
+    edadCotizacionMedianaMin: (() => {
+      const m = med(filtrado.filter(e => e.edadCotizacionSeg != null).map(e => e.edadCotizacionSeg));
+      return m == null ? null : +(m / 60).toFixed(1);
+    })(),
+    creditoMedianoTasty: med(filtrado.map(e => e.tastyNet).filter(v => v != null)),
+  };
+  res.json({ ok: true, resumen, muestras: req.query.full === 'true' ? filtrado : filtrado.slice(0, 50) });
+});
+
 // POST /api/tradier/executions/clear — limpieza manual del historial (uso puntual,
 // para arrancar en limpio antes de una sesion de mercado real).
 app.post('/api/tradier/executions/clear', async (req, res) => {
