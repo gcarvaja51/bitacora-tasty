@@ -13,15 +13,29 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROFILE_DIR = path.join(__dirname, 'sigma_profile');
 const TERMINAL_URL = 'https://web.sigma.trade/terminal/?tab=greeks';
 
+// El panel de Greeks Exposure expone DOCE metricas; se leian ocho (2026-08-09).
+// Las cuatro que faltaban:
+//   Total Gamma  — |calls|+|puts|, lo que Luis llama "gama absoluto" y dice
+//                  preferir sobre el neto ("el strike con mayor gama total es la
+//                  zona de atraccion, el iman del precio").
+//   Max Pain     — nivel de maximo dolor, contexto hacia el cierre.
+//   P/C (OI)     — put/call ratio por open interest, sesgo del posicionamiento.
+//   IV Promedio  — volatilidad implicita ATM de la cadena del SPX. Es la que mas
+//                  falta hacia: hoy los spreads se valuan con el VIX, que es del
+//                  indice entero y no de la cadena que realmente se opera.
 const LABEL_MAP = {
   'Spot SPX': 'spxPrice',
   'Net GEX': 'netGex',
+  'Total Gamma': 'totalGamma',
   'Net DEX': 'netDex',
   'Net Vanna': 'netVanna',
   'Gamma Flip': 'gammaFlip',
+  'Max Pain': 'maxPain',
   'Put Wall': 'putWall',
   'Call Wall': 'callWall',
+  'P/C (OI)': 'putCallOi',
   'MVS': 'mvs',
+  'IV Promedio': 'ivPromedio',
 };
 
 let browser = null;

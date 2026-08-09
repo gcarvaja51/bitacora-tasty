@@ -5918,11 +5918,20 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // (mismo agujero que ya nos obligo a reconstruir el RSI a mano para los 63
   // trades de Reversion). Hoy ninguna estrategia lo usa para decidir; se
   // guarda solo para poder medirlo cuando haga falta.
-  const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice } = req.body || {};
+  // totalGamma / maxPain / putCallOi / ivPromedio agregados 2026-08-09: el panel
+  // de Greeks Exposure expone 12 metricas y el daemon solo leia 8. Mismo criterio
+  // opcional que netDex y netVanna — si un caller viejo no los manda quedan
+  // undefined y nada se rompe. Ninguna estrategia los usa todavia; se guardan
+  // para poder medirlos. ivPromedio es el que mas falta hace: hoy los spreads se
+  // valuan con el VIX (el indice entero) en vez de la IV ATM de la cadena del SPX,
+  // que es la que de verdad se opera.
+  const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
+          totalGamma, maxPain, putCallOi, ivPromedio } = req.body || {};
   if (regime !== 'POSITIVO' && regime !== 'NEGATIVO') {
     return res.status(400).json({ ok: false, error: 'regime debe ser POSITIVO o NEGATIVO' });
   }
-  const entry = { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice, updatedAt: new Date().toISOString() };
+  const entry = { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
+                  totalGamma, maxPain, putCallOi, ivPromedio, updatedAt: new Date().toISOString() };
   const history = loadSigmaLevelsHistory();
 
   // Filtro de cordura (2026-08-03, a pedido del usuario tras verlo en el
