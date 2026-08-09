@@ -292,18 +292,62 @@ function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
   const gammaFlipBufferPts = icConfig.gammaFlipBufferPts || 20;
   let spreadWidth = icConfig.spreadWidth || 10;
 
+  // MODO CAPTURA del 1DTE (2026-08-09, decision del usuario: "entremos sin
+  // condiciones... pongamos solo como restriccion de entrada estar en gamma
+  // positivo, solo eso").
+  //
+  // La UNICA condicion de mercado que bloquea es el gamma positivo. Las demas
+  // —distancia al gamma flip, VIX, calendario economico— se siguen EVALUANDO y
+  // viajan en la respuesta para quedar en el registro de cada trade: solo dejan
+  // de bloquear. Sin eso la muestra seria incondicional pero ciega, y no se
+  // podria responder despues "¿los trades que fallaron eran los que el gate
+  // habria filtrado?", que es justo el analisis que esta captura habilita.
+  //
+  // El horario tampoco se toca: es el calendario del experimento, no una
+  // condicion de mercado.
+  const soloGamma = dte === '1DTE' && icConfig.soloGammaPositivo1DTE === true;
+  const cond = {
+    gammaPositivo: gex?.regime === 'POSITIVO',
+    regimenGex:    gex?.regime ?? null,
+    lejosDelFlip:  !(gex?.gammaFlip != null && Math.abs(spxPrice - gex.gammaFlip) < gammaFlipBufferPts),
+    distFlipPts:   gex?.gammaFlip != null ? +Math.abs(spxPrice - gex.gammaFlip).toFixed(1) : null,
+  };
+
   // ── Checks compartidos (0DTE y 1DTE) ──
-  if (gex?.regime !== 'POSITIVO') {
+  if (!cond.gammaPositivo) {   // bloquea SIEMPRE, tambien en modo captura
     return { valid: false, reason: `Gamma régimen ${gex?.regime || 'desconocido'} — Iron Condor requiere GEX POSITIVO.` };
   }
-  if (gex?.gammaFlip != null && Math.abs(spxPrice - gex.gammaFlip) < gammaFlipBufferPts) {
+  if (!soloGamma && !cond.lejosDelFlip) {
     return { valid: false, reason: `Precio (${spxPrice}) a menos de ${gammaFlipBufferPts}pts del Gamma Flip (${gex.gammaFlip}) — el régimen puede cambiar de golpe.` };
   }
 
   if (dte === '1DTE') {
+    // El horario aplica SIEMPRE, tambien en modo captura.
     if (classifyWindow(etMins) !== 'CIERRE_1DTE') {
-      return { valid: false, reason: `Iron Condor 1DTE solo en ventana 3:40-3:50pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+      return { valid: false, reason: `Iron Condor 1DTE solo en ventana 3:45-3:52pm ET (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
     }
+    cond.vix = vix ?? null;
+    cond.vixOk = !(vix > 24);
+    cond.calendarioVerificado = highImpactEventsTomorrow != null;
+    cond.eventosManana = Array.isArray(highImpactEventsTomorrow)
+      ? highImpactEventsTomorrow.map(e => e.name) : null;
+    cond.sinEventos = Array.isArray(highImpactEventsTomorrow) && highImpactEventsTomorrow.length === 0;
+
+    if (soloGamma) {
+      const pendientes = [
+        !cond.lejosDelFlip  ? `a ${cond.distFlipPts}pts del flip` : null,
+        !cond.vixOk         ? `VIX ${vix}` : null,
+        !cond.calendarioVerificado ? 'calendario sin verificar'
+          : (!cond.sinEventos ? `eventos: ${cond.eventosManana.join(', ')}` : null),
+      ].filter(Boolean);
+      return {
+        valid: true, dte: '1DTE', spreadWidth, condiciones: cond,
+        note: pendientes.length
+          ? `MODO CAPTURA — se entra igual pese a: ${pendientes.join(' · ')}`
+          : 'MODO CAPTURA — todas las condiciones se cumplian igual.',
+      };
+    }
+
     if (vix > 24) {
       return { valid: false, reason: `VIX ${vix} > 24 — el playbook 1DTE indica NO entrar (riesgo overnight demasiado alto).` };
     }

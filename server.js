@@ -4298,6 +4298,16 @@ const SPX_CONFIG_DEFAULTS = {
       // Si a esa hora no alcanzo el TP del 30%, se cierra al precio que haya.
       // Solo aplica al 1DTE; el 0DTE sale por maxHoldMin/cierreForzadoET.
       cierre1DTE_ET:     '10:30',
+      // Modo captura del 1DTE (2026-08-09): la unica condicion de mercado que
+      // bloquea es el gamma positivo. Distancia al flip, VIX y calendario
+      // economico se evaluan y se REGISTRAN, pero no impiden entrar — la idea es
+      // juntar una muestra limpia para analizar despues si esas condiciones
+      // aportaban. Poner en false para volver al gate completo.
+      soloGammaPositivo1DTE: true,
+      // Sin stop hasta la hora tope (2026-08-09, decision del usuario). El 1DTE
+      // sale por TP 30% o por cierre1DTE_ET, nunca por SL. OJO: sin stop, la
+      // perdida maxima de una pata es el ancho menos el credito.
+      sinStop1DTE:       true,
       minShortDistPts:   25,    // piso de distancia de las cortas al spot. Con PIN la
                                 // contencion a 90 min fue 100% a +-25 pts y 84% a +-20.
       maxHoldMin:        90,    // stop de TIEMPO. La contencion se midio a 90 min; un
@@ -4486,7 +4496,7 @@ function loadSPXConfig() {
     // volumen (el codigo caia a su default con ?? y nadie se enteraba). Mismo
     // tipo de fallo silencioso que el ATR: funciona, pero no es lo que dice.
     if (saved?.trading?.ironCondor) {
-      const faltan = ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'noAbrirDespuesET', 'cierreForzadoET', 'minShortDistPts', 'maxHoldMin', 'cierre1DTE_ET']
+      const faltan = ['pinMaxDistPts', 'pinMaxRange30mPts', 'pinVelas', 'noAbrirDespuesET', 'cierreForzadoET', 'minShortDistPts', 'maxHoldMin', 'cierre1DTE_ET', 'soloGammaPositivo1DTE', 'sinStop1DTE']
         .filter(k => saved.trading.ironCondor[k] === undefined);
       if (faltan.length) {
         console.log(`[SPX] Sumando a ironCondor claves que faltaban: ${faltan.join(', ')}`);
@@ -6662,6 +6672,30 @@ async function checkIronCondor() {
         signal.actionAt = new Date().toISOString();
         console.log(`[Tradier-IC] ✅ Orden enviada (${strategyName}): ${order.orderId} (${order.status})`);
 
+        // Sombra de la cadena tambien para el IC (2026-08-09, a pedido del
+        // usuario: "registra toda la informacion en la sombra para que la
+        // analicemos despues"). Va DESPUES de mandar la orden y en su propio
+        // try: medir no puede retrasar ni tumbar la entrada. Las dos patas
+        // cortas son las que llevan la prima, asi que la comparacion se hace
+        // sobre ellas.
+        let sombraApertura = null;
+        try {
+          const esCondor4 = !!order.legs?.putShortSym;
+          if (esCondor4) {
+            const [putS, callS] = [order.legs.putShortSym, order.legs.callShortSym];
+            sombraApertura = {
+              put:  await capturarSombraCadena({ expiry: strikes.expiry, shortStrike: strikes.shortStrike,
+                      longStrike: strikes.longStrike, tipo: 'P',
+                      legs: { shortSym: putS, longSym: order.legs.putLongSym } }),
+              call: await capturarSombraCadena({ expiry: strikes.expiry, shortStrike: strikes.callShortStrike,
+                      longStrike: strikes.callLongStrike, tipo: 'C',
+                      legs: { shortSym: callS, longSym: order.legs.callLongSym } }),
+            };
+            const dr = [sombraApertura.put?.difRetraso, sombraApertura.call?.difRetraso].filter(v => v != null);
+            if (dr.length) console.log(`[SOMBRA-IC ${dte}] retraso put/call: ${dr.join(' / ')}`);
+          }
+        } catch (e) { console.warn('[SOMBRA-IC] no se pudo capturar la apertura:', e.message); }
+
         await withExecutionsLock(() => {
           const executions = loadTradierExecutions();
           executions.unshift({
@@ -6688,7 +6722,14 @@ async function checkIronCondor() {
             entryFillPrice: null,
             creditReceived: null,
             tpPct:         icCfg.tpPct,
-            slMult:        icCfg.slMult,
+            // slMult null = SIN STOP. El 1DTE sale por TP o por hora tope
+            // (decision del usuario 2026-08-09). Se congela en el registro para
+            // que un cambio de config no altere una posicion ya abierta.
+            slMult:        (dte === '1DTE' && icCfg.sinStop1DTE === true) ? null : icCfg.slMult,
+            // Que decia cada condicion al entrar, aunque no bloqueara (modo
+            // captura). Es lo que permite preguntarse despues si el gate servia.
+            condiciones:   gate.condiciones ?? null,
+            sombraApertura,
             debitTpPct:    (icCfg.debitCondor||{}).tpPct ?? 50,
             debitSlPct:    (icCfg.debitCondor||{}).slPct ?? 50,
             // Setup por PIN (2026-08-08). maxHoldMin se CONGELA en el registro,
@@ -7110,14 +7151,19 @@ async function checkIronCondorTPSLImpl() {
         // Costo de cerrar ahora = recomprar las cortas + vender las largas
         const costoDeCerrar = (q[ex.legs.putShortSym] - q[ex.legs.putLongSym]) + (q[ex.legs.callShortSym] - q[ex.legs.callLongSym]);
         pnlActual = ex.creditReceived - costoDeCerrar;
+        // slMult === null significa SIN STOP a proposito (1DTE, decision del
+        // usuario 2026-08-09: "dejalo sin stop hasta las 10:30 am"). Se distingue
+        // null de ausente: `ex.slMult || 1.5` habria puesto 1.5 en los dos casos
+        // y el stop habria seguido vivo sin que nada lo delatara.
+        const sinStop1DTE = ex.slMult === null;
         const tpUmbral    = ex.creditReceived * ((ex.tpPct || 25) / 100);
         // El multiplicador de SL aplica al COSTO DE CERRAR (bruto), no al P&L neto —
         // a 1.5x credito=$200 el costo de cerrar llega a $300, perdida neta real=200-300=-$100
         // (-0.5x), NO -$300 (-1.5x) como se calculaba antes (bug: comparaba el neto contra
         // -slMult directo, esperando que el neto cayera 1.5x en vez de que el costo SUBIERA 1.5x).
-        const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
+        const slCostoUmbral = ex.creditReceived * (ex.slMult ?? 1.5);
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
-        else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
+        else if (!sinStop1DTE && costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
       }
 
       // Stop de TIEMPO del setup por PIN (2026-08-08). La contencion del precio
