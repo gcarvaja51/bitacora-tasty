@@ -479,7 +479,7 @@ function calcReversionScore(indicators, config) {
   // reportando, para que quede el registro de con que valores entro, pero su peso
   // sale del total: el score pasa a medir SOLO el contexto (patron, RSI,
   // Weinstein, Compas), que es lo que decide si un setup valido se opera o no.
-  const puertasBinarias = !!cfg.puertasBinarias;
+  const puertasBinarias = !!config.puertasBinarias;
   const w1 = puertasBinarias ? 0 : (weights.alejamiento_sma8 ?? 35);
   totalWeight += w1;
   let banda = 'ninguna', fracAlejamiento = 0;
