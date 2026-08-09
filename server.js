@@ -4761,6 +4761,40 @@ function hasLocalOpenSPXWPosition() {
   );
 }
 
+// ¿TODO lo que Tradier tiene abierto en SPXW se explica como patas de una
+// Reversion nuestra? (2026-08-09, ver el bloque del Iron Condor.)
+//
+// Se compara contra las patas REALES, no contra un conteo: si el broker tiene
+// una posicion que no figura como pata de ninguna Reversion abierta —una abierta
+// a mano, por ejemplo— devuelve false y el IC se bloquea. Un heuristico del tipo
+// "todas mis ejecuciones abiertas son reversiones" no cubriria ese caso, porque
+// una posicion manual no esta en nuestro registro.
+//
+// Ante cualquier fallo devuelve false: sin poder verificar, se bloquea.
+async function todoLoAbiertoEsReversion() {
+  try {
+    const posList = await tradier.getPositions();
+    const spxw = (posList || []).filter(p => (p.symbol || '').startsWith('SPXW'));
+    if (!spxw.length) return true;                 // el broker no tiene nada que explicar
+
+    const patasRev = new Set();
+    for (const e of loadTradierExecutions()) {
+      if (e.strategyFamily !== 'REVERSION') continue;
+      if (e.status !== 'submitted' && e.status !== 'filled') continue;
+      for (const s of Object.values(e.legs || {})) if (typeof s === 'string') patasRev.add(s);
+    }
+    const huerfanas = spxw.filter(p => !patasRev.has(p.symbol));
+    if (huerfanas.length) {
+      console.log(`[SPX-IC] Posiciones SPXW que no son de ninguna Reversión: ${huerfanas.map(p => p.symbol).join(', ')}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[SPX-IC] No se pudieron leer las posiciones para verificar:', e.message);
+    return false;                                   // sin verificacion, se bloquea
+  }
+}
+
 // ── Historial de ejecuciones en Tradier (dashboard independiente) ──
 const TRADIER_EXECUTIONS_FILE = path.join(DATA_DIR, 'tradier_executions.json');
 function loadTradierExecutions() {
@@ -6410,10 +6444,29 @@ async function checkIronCondor() {
     if (tradierDiceAbiertoIC !== localDiceAbiertoIC) {
       logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbiertoIC}, registro local dice ${localDiceAbiertoIC} — se usa el mas conservador (bloquear si cualquiera dice true).` });
     }
-    const yaHayTradeAbierto = tradierDiceAbiertoIC || localDiceAbiertoIC;
+    // REVERSION E IRON CONDOR NO SON EXCLUYENTES (2026-08-09, aclaracion del
+    // usuario: "IC aparece cuando tengo un strike pinneado y un gamma positivo").
+    //
+    // hasLocalOpenSPXWPosition() ya excluia REVERSION a proposito, pero el OR con
+    // el chequeo del broker la pisaba: hasOpenPosition('SPXW') no distingue
+    // estrategias y la Reversion opera el mismo subyacente. Resultado medido: 96
+    // bloqueos por POSITION_OPEN, y el Iron Condor no llego a operar NUNCA.
+    //
+    // Se mantiene la proteccion que ese doble chequeo si tenia sentido para
+    // (2026-07-16: Tradier no detecto una posicion genuinamente abierta): si el
+    // broker ve algo que nuestro registro NO puede explicar como una reversion
+    // nuestra —una posicion abierta a mano, por ejemplo— se bloquea igual.
+    const soloReversion = tradierDiceAbiertoIC ? await todoLoAbiertoEsReversion() : true;
+    const yaHayTradeAbierto = localDiceAbiertoIC || (tradierDiceAbiertoIC && !soloReversion);
     if (yaHayTradeAbierto) {
-      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: 'Ya hay un trade SPXW abierto/en curso en Tradier — se pausa para evitar apilar posiciones.' });
+      const motivo = localDiceAbiertoIC
+        ? 'Ya hay un trade SPXW abierto/en curso (no es una Reversión) — se pausa para evitar apilar posiciones.'
+        : 'Tradier reporta una posición SPXW que no corresponde a ninguna pata de una Reversión abierta — se bloquea por precaución.';
+      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: motivo });
       return;
+    }
+    if (tradierDiceAbiertoIC && soloReversion) {
+      console.log(`[SPX-IC ${dte}] Hay una Reversión abierta — no bloquea: el IC es independiente (PIN + gamma positivo).`);
     }
 
     ctx = await buildSPXContext();
