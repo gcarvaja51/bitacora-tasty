@@ -4353,6 +4353,10 @@ const SPX_CONFIG_DEFAULTS = {
                          // real que lo motivo originalmente: un trade cerro en -$30 pese a "tocar"
                          // el objetivo, porque el spread ya habia
                          // perdido valor en el camino antes de que el cierre se ejecutara.
+      // Piso de distancia del stop, en puntos de SPX (2026-08-08). 0 = extremo de
+      // la vela, el comportamiento historico. Ver la nota larga en
+      // checkAlejamientoSMA, donde se arma entryCandleLow/High.
+      stopMinPts: 0,
     },
   }
 };
@@ -7392,6 +7396,8 @@ async function checkAlejamientoSMA() {
     // en vez de quedarse sin stop; stopTimeframe deja registrado cual se uso,
     // que es lo que permite separar las muestras despues (algoVersion no
     // alcanza: su huella sale de la config, y esto es un cambio de codigo).
+    const stopMinPts = cfg.stopMinPts ?? 0;
+
     let entryBar5 = null;
     if (bars5.length) {
       let i5 = bars5.length - 1;
@@ -7463,8 +7469,23 @@ async function checkAlejamientoSMA() {
             // (ver la nota larga donde se calcula stopBar). Se conservan los
             // nombres para no romper checkAlejamientoSMATPSL ni los registros ya
             // abiertos; stopTimeframe dice de que marco salio realmente.
-            entryCandleLow:  stopBar.low,
-            entryCandleHigh: stopBar.high,
+            // Piso de distancia del stop (2026-08-08, stopMinPts). Medido sobre
+            // 1037 momentos de alejamiento optimo en 60 dias: la distancia
+            // mediana del precio de entrada al extremo de la vela es de 1.44
+            // pts, contra 6.46 pts hasta el objetivo. En el 93% de los casos el
+            // stop queda MAS CERCA que el objetivo, y hay que recorrer 4.5x mas
+            // para ganar que para perder — de ahi el 20% de aciertos, que es lo
+            // que esa geometria predice, no una anomalia.
+            //
+            // No alcanzaba con mover el ancla de 2m a 5m (fix del 2026-08-05):
+            // lo que importa no es el RANGO de la vela sino la distancia desde
+            // la entrada hasta el extremo, y como se entra justo en el extremo
+            // esa distancia es ~1.4 pts en cualquier marco temporal.
+            //
+            // stopMinPts=0 deja el comportamiento anterior intacto.
+            entryCandleLow:  stopMinPts > 0 ? Math.min(stopBar.low,  price - stopMinPts) : stopBar.low,
+            entryCandleHigh: stopMinPts > 0 ? Math.max(stopBar.high, price + stopMinPts) : stopBar.high,
+            stopMinPts,
             stopTimeframe:   entryBar5 ? '5m' : '2m',
             entryPrice:      price, // precio SPX al momento de la señal (close de entryBar) — ancla para el % de salida anticipada hacia smaTarget
             smaTarget:       sma8,
