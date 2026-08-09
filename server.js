@@ -4357,6 +4357,9 @@ const SPX_CONFIG_DEFAULTS = {
       // la vela, el comportamiento historico. Ver la nota larga en
       // checkAlejamientoSMA, donde se arma entryCandleLow/High.
       stopMinPts: 0,
+      // Puerta de gamma (2026-08-09). Si esta en true, no se abre reversion con
+      // gamma negativo, sin importar el score. Ver la nota en checkAlejamientoSMA.
+      requiereGammaPositivo: false,
     },
   }
 };
@@ -7322,6 +7325,30 @@ async function checkAlejamientoSMA() {
     // ya traidas arriba, sin fetch adicional.
     const compasMedias5m = calcCompasMedias5m(closes5, direction);
     const weinstein5m = wheelTrading.calcWeinstein(closes5);
+
+    // ── PUERTA DE GAMMA (2026-08-09, a pedido del usuario) ────────────────
+    // El regimen se lee del gex EFECTIVO en este instante, no del titular del
+    // dia: el daemon empuja lecturas de Sigma cada ~2 min y el signo cambia
+    // varias veces por sesion (medido: hasta 4 cambios en un mismo dia).
+    //
+    // Es una PUERTA, no puntos. Hasta ahora `regimen_gex` era un check blando
+    // (positivo 0.8-1.0 del peso, negativo 0.5), asi que un trade podia entrar
+    // con gamma negativo si el resto compensaba.
+    //
+    // ⚠️ Lo que NO esta demostrado: que mejore el resultado. Medido sobre los
+    // unicos 8 dias con historial de gamma denso (71 setups, 40 en la celda
+    // "GEX>0 + sobre el flip"), el aporte cambia de signo segun donde se ponga
+    // la salida — 6 configuraciones a favor y 6 en contra. Hace falta llegar a
+    // ~500 setups con gamma (unos 55 dias) para poder medirlo. Se implementa
+    // porque es la tesis de la metodologia, y se deja el flag para poder
+    // separar las muestras despues.
+    if (cfg.requiereGammaPositivo && effectiveGex.regime !== 'POSITIVO') {
+      const reason = `Gamma ${effectiveGex.regime || 'desconocido'} al momento de entrar — la reversión solo opera con gamma positivo`;
+      console.log(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GAMMA_NO_POSITIVO',
+        passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
+      return;
+    }
 
     const scoreResult = calcReversionScore({
       direction, ext8, patronReversion, rsi,
