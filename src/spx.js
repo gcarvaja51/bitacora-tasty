@@ -202,10 +202,20 @@ function classifyWindow(etMins) {
 // tecnico. El nuevo check compas_medias_5m del score (v2) es en parte una
 // mitigacion para este tramo: busca ritmo direccional limpio en 5m antes de
 // confiar en una reversion durante la siesta.
+// Arranque movido de 9:30 a 9:45 el 2026-08-09, a pedido del usuario: "asi
+// evitamos la volatilidad de la apertura". Vuelve al horario original de la
+// ventana, que ya excluia ese tramo a proposito.
+//
+// Hay un motivo tecnico que apunta en la misma direccion, medido este fin de
+// semana: en los primeros 25 minutos la SMA8 de 5m se calcula ENTERA con velas
+// del dia anterior, asi que cualquier diferencia entre fuentes pesa el 100%. Los
+// unicos 4 desacuerdos entre Yahoo y Sigma en 383 momentos comparados caen ahi
+// —09:30, 09:35 y 09:55— y ninguno despues. A partir de las 09:45 ya hay 3
+// velas del dia propio dentro de la media y las series convergen.
 function evaluateReversionGate(etHour, etMin) {
   const etMins = etHour * 60 + etMin;
-  if (etMins < 9 * 60 + 30 || etMins >= 13 * 60) {
-    return { valid: false, reason: `Alejamiento de SMA solo opera 9:30am-1pm ET (8:30am-12pm Colombia), fuera de ventana (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
+  if (etMins < 9 * 60 + 45 || etMins >= 13 * 60) {
+    return { valid: false, reason: `Alejamiento de SMA solo opera 9:45am-1pm ET (8:45am-12pm Colombia), fuera de ventana (ahora ${etHour}:${String(etMin).padStart(2,'0')}).` };
   }
   return { valid: true };
 }

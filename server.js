@@ -7508,8 +7508,8 @@ setInterval(checkTradierOrderCapability, 15 * 60 * 1000); // cada 15 min; el gua
 async function checkAlejamientoSMA() {
   try {
     // Guard de dia habil/feriado — ver nota completa en checkDirectionalAutonomous.
-    // La ventana de evaluateReversionGate (9:30am-1pm ET) cae entera dentro de
-    // 9:30-16:00, asi que esto no recorta nada operable.
+    // La ventana de evaluateReversionGate (9:45am-1pm ET desde el 2026-08-09)
+    // cae entera dentro de 9:30-16:00, asi que esto no recorta nada operable.
     if (!isMarketHours()) return;
 
     const et = getETHour();
