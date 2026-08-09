@@ -207,14 +207,14 @@ export async function readLevels() {
 //
 // Es best-effort: si falla, devuelve null y el que llama sigue sin velas. NUNCA
 // debe tumbar el push de niveles, que es lo critico.
-export async function readCandles5m({ velas = 30, diasAtras = 5 } = {}) {
+export async function readCandles5m({ velas = 30, diasAtras = 5, minutos = 5 } = {}) {
   const p = await ensurePage();
   if (!apiToken) return null;              // todavia no se capturo; el proximo ciclo lo tendra
 
   const hoy = new Date();
   const desde = new Date(hoy.getTime() - diasAtras * 24 * 3600 * 1000);
   const iso = (d) => d.toISOString().slice(0, 10);
-  const ruta = `/v2/aggs/ticker/I:SPX/range/5/minute/${iso(desde)}/${iso(hoy)}`
+  const ruta = `/v2/aggs/ticker/I:SPX/range/${minutos}/minute/${iso(desde)}/${iso(hoy)}`
              + `?adjusted=true&sort=asc&limit=50000`;
 
   // El fetch va DENTRO de la pagina: el proxy valida el Origin, desde Node daria CORS.

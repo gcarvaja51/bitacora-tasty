@@ -6048,6 +6048,7 @@ app.get('/api/spx/strategy-log', (req, res) => {
 // usar la fuente que el usuario mira a mano en vez de (o además de) la propia.
 const SIGMA_LEVELS_FILE = path.join(DATA_DIR, 'sigma_terminal_levels.json');
 const SIGMA_VELAS_FILE = path.join(DATA_DIR, 'sigma_velas_5m.json');
+const SIGMA_VELAS2M_FILE = path.join(DATA_DIR, 'sigma_velas_2m.json');
 const SIGMA_LEVELS_MAX_AGE_MS = 5 * 60 * 1000; // 5 min — margen sobre el ciclo de 2 min
 // Cap generoso — cada 2 min ⇒ ~720/dia, 10000 cubre ~2 semanas sin crecer sin
 // control (mismo criterio que SPX_STRATEGY_LOG_FILE, ver logStrategyEvent).
@@ -6122,6 +6123,40 @@ function serie5mDesdeSigma({ minVelas = 9, maxEdadSeg = 420 } = {}) {
     edadSeg: Math.round((ahora - ultima.t) / 1000),
     velas: ultimas.length,
     modo: 'spot',
+  };
+}
+
+// Velas de 2m de Sigma para el PIN del Iron Condor (2026-08-09). Era el ultimo
+// dato del IC que venia de Yahoo: el precio, el gamma, los muros y el VIX ya
+// salian de Sigma, pero la condicion "quieto" —el rango de las ultimas 15 velas
+// de 2m— se med:ia con velas de Yahoo. Devuelve barras con high/low/close, que es
+// lo que consume calcPinState.
+//
+// Devuelve null si la serie no sirve y el caller se queda con las de Yahoo.
+function velas2mDeSigma({ minVelas = 15, maxEdadSeg = 300 } = {}) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(SIGMA_VELAS2M_FILE, 'utf8')); }
+  catch { return null; }
+  const velas = doc?.velas;
+  if (!Array.isArray(velas) || velas.length < minVelas) return null;
+
+  const ult = velas.slice(-minVelas);
+  const diaET = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  for (let i = 1; i < ult.length; i++) {
+    const salto = ult[i].t - ult[i - 1].t;
+    if (salto === 2 * 60 * 1000) continue;
+    if (diaET(ult[i].t) !== diaET(ult[i - 1].t)) continue;   // cambio de sesion
+    return null;                                              // hueco dentro de la sesion
+  }
+  // El PIN mide compresion AHORA: una serie vieja diria "quieto" porque no se
+  // actualiza, que es el peor falso positivo posible para este setup.
+  const edadSeg = Math.round((Date.now() - ult[ult.length - 1].t) / 1000);
+  if (edadSeg > maxEdadSeg) return null;
+  if (ult.some(v => v.h == null || v.l == null || v.c == null)) return null;
+
+  return {
+    bars: ult.map(v => ({ high: v.h, low: v.l, close: v.c, open: v.o })),
+    edadSeg,
   };
 }
 
@@ -6203,8 +6238,14 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // el historial guarda 10000 entradas, lo inflaria por tres ordenes de magnitud
   // sin ganar nada (solo importan las ultimas). Se escriben aparte, pisando.
   const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
-          totalGamma, maxPain, putCallOi, ivPromedio, velas5m,
+          totalGamma, maxPain, putCallOi, ivPromedio, velas5m, velas2m,
           vix, vix52High, vix52Low } = req.body || {};
+  if (Array.isArray(velas2m) && velas2m.length) {
+    try {
+      fs.writeFileSync(SIGMA_VELAS2M_FILE,
+        JSON.stringify({ velas: velas2m, updatedAt: new Date().toISOString() }), 'utf8');
+    } catch (e) { console.error('[SIGMA] no se pudieron guardar las velas 2m:', e.message); }
+  }
   if (Array.isArray(velas5m) && velas5m.length) {
     try {
       fs.writeFileSync(SIGMA_VELAS_FILE,
@@ -6515,8 +6556,19 @@ async function checkIronCondor() {
     // mismo criterio que ya se aplico al webhook direccional el 2026-07-21.
     ctx.gex = effectiveGex;
 
+    // Velas de 2m para el PIN: Sigma primero, Yahoo de respaldo (2026-08-09).
+    // Se sustituyen SOLO para esta evaluacion, no se pisa ctx.indicators, para
+    // que el cambio no pueda alterar ninguna otra estrategia que lea las mismas
+    // barras (Reversion usa m2.bars para su patron de entrada).
+    const pin2m = velas2mDeSigma({ minVelas: icCfg.pinVelas ?? 15 });
+    const indicadoresPin = pin2m
+      ? { ...ctx.indicators, m2: { ...(ctx.indicators?.m2 || {}), bars: pin2m.bars } }
+      : ctx.indicators;
+    const fuenteBarsPin = pin2m ? 'sigma' : 'yahoo';
+    if (pin2m) console.log(`[SPX-IC ${dte}] PIN con velas de 2m de Sigma (edad ${pin2m.edadSeg}s).`);
+
     const gate = evaluateIronCondorGate({
-      spxPrice: ctx.spxPrice, vix: ctx.vix, gex: effectiveGex, indicators: ctx.indicators,
+      spxPrice: ctx.spxPrice, vix: ctx.vix, gex: effectiveGex, indicators: indicadoresPin,
       openingRangeRespected: ctx.openingRangeRespected, etHour: et.hour, etMin: et.min,
       highImpactEventsTomorrow,
     }, dte, icCfg);
@@ -6729,6 +6781,7 @@ async function checkIronCondor() {
             // Que decia cada condicion al entrar, aunque no bloqueara (modo
             // captura). Es lo que permite preguntarse despues si el gate servia.
             condiciones:   gate.condiciones ?? null,
+            fuenteBarsPin,
             sombraApertura,
             debitTpPct:    (icCfg.debitCondor||{}).tpPct ?? 50,
             debitSlPct:    (icCfg.debitCondor||{}).slPct ?? 50,

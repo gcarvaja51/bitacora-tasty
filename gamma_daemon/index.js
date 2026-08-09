@@ -177,6 +177,16 @@ async function runCycle() {
       console.error('[sigma] velas 5m no disponibles (%s) -- se sigue sin ellas', e.message);
     }
 
+    // Velas de 2m: las usa el PIN del Iron Condor para medir el rango de 30 min
+    // (15 velas). Era el ultimo dato del IC que venia de Yahoo. Se piden 20 —
+    // las 15 del PIN mas margen para el chequeo de continuidad.
+    try {
+      const velas2 = await sigma.readCandles5m({ velas: 20, diasAtras: 3, minutos: 2 });
+      if (velas2?.length) levels.velas2m = velas2;
+    } catch (e) {
+      console.error('[sigma] velas 2m no disponibles (%s) -- se sigue sin ellas', e.message);
+    }
+
     // VIX y su rango de 52 semanas, mismo criterio best-effort.
     try {
       const v = await sigma.readVix();
