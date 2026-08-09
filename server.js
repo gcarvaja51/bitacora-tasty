@@ -7926,6 +7926,16 @@ async function checkAlejamientoSMA() {
             fuenteSerie,
             edadVela5Seg,
             desfaseVsSigma,
+            // Y con QUE gamma se abrio la puerta (2026-08-09, de la auditoria
+            // previa a la apertura). Mismo motivo que fuenteSerie, pero aca pesa
+            // mas: el respaldo del gamma no es equivalente. Medido sobre 1259
+            // momentos comparables, Sigma y el calculo interno coinciden el 90%
+            // — pero el 2026-08-06 discreparon 120 veces seguidas, un dia
+            // entero: Sigma decia NEGATIVO (puerta cerrada, cero trades) y el
+            // interno POSITIVO (habilitado). Sin este campo, un dia que corrio
+            // con el respaldo se mezcla con los demas y la muestra queda sucia.
+            gammaFuente:     effectiveGex.source,
+            gammaRegimen:    effectiveGex.regime,
             smaTarget:       sma8,
             pattern:         patronReversion.pattern,
             // Checklist completo congelado al momento de entrar (2026-08-02, a
