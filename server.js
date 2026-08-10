@@ -5505,9 +5505,27 @@ async function fetchCaminoBBars() {
   // desde Yahoo. Antes esto leia SOLO de Tradier y por lo tanto decidia la
   // entrada sobre un mercado de ~15 min atras — ver la nota larga en la
   // definicion de esa funcion.
+  // SIGMA PRIMERO (2026-08-09, misma directriz que ya se aplico a Reversion y al
+  // PIN del Iron Condor: "menos fuentes, menos errores").
+  //
+  // Lo que habia antes era lo contrario de una sola linea de tiempo: la serie de
+  // 2m salia de Tradier (historial liquidado) con la cola pegada de Yahoo — una
+  // costura de DOS fuentes dentro de la misma serie — mientras el spot y el gamma
+  // ya venian de Sigma. Tres relojes para una sola decision.
+  //
+  // Se exige que las DOS series esten disponibles a la vez: si solo una viene de
+  // Sigma, se cae entero al respaldo. Mezclar 2m de Sigma con 15m de Yahoo seria
+  // reintroducir el problema en otro lado.
+  const s2  = velas2mDeSigma({ minVelas: 40, maxEdadSeg: 300 });
+  const s15 = velas15mDeSigma({ minVelas: 25, maxEdadSeg: 1200 });
+  if (s2 && s15) {
+    return { bars2m: s2.bars, closes15m: s15.closes, fuenteBarras: 'sigma',
+             edad2mSeg: s2.edadSeg, edad15mSeg: s15.edadSeg };
+  }
+
   const bars2m    = (await fetchBarsSPXFrescas('2min')).map(b => ({ high: b.high, low: b.low, close: b.close }));
   const closes15m = (await fetchBarsSPXFrescas('15min')).map(b => b.close);
-  return { bars2m, closes15m };
+  return { bars2m, closes15m, fuenteBarras: 'tradier+yahoo' };
 }
 
 // Chequeo autonomo de Camino B (2026-07-27) — corre solo, sin depender de que
@@ -5551,7 +5569,7 @@ async function checkDirectionalAutonomous() {
     }
     if (tradierDiceAbierto || localDiceAbierto) return; // ya hay un trade SPXW abierto/en curso — no evaluar
 
-    const { bars2m, closes15m } = await fetchCaminoBBars();
+    const { bars2m, closes15m, fuenteBarras, edad2mSeg, edad15mSeg } = await fetchCaminoBBars();
     const modo = (loadSPXConfig().entryMode) || 'camino_b';
     const r = modo === 'pullback'
       ? calcPullbackEntry(bars2m, closes15m)
@@ -5560,7 +5578,7 @@ async function checkDirectionalAutonomous() {
     if (r.bull || r.bear) {
       const direction = r.bull ? 'BULLISH' : 'BEARISH';
       console.log(`[SPX] ✅ Entrada ${direction} (modo ${modo}) — ${r.reason}`);
-      await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r });
+      await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r, fuenteBarras });
     } else {
       // La etiqueta sigue al MODO (2026-08-09). Antes decia siempre
       // 'NO_CAMINO_B' aunque estuviera corriendo entryMode='pullback', que es lo
@@ -5571,7 +5589,8 @@ async function checkDirectionalAutonomous() {
       logStrategyEvent({ strategyFamily: 'TENDENCIA',
         stage: modo === 'pullback' ? 'NO_PULLBACK_2M' : 'NO_CAMINO_B',
         passed: false, reason: r.reason,
-        snapshot: { entryMode: modo, coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
+        snapshot: { entryMode: modo, fuenteBarras, edad2mSeg, edad15mSeg,
+                    coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
     }
   } catch(e) {
     console.error('[SPX] checkDirectionalAutonomous error:', e.message);
@@ -6058,6 +6077,7 @@ app.get('/api/spx/strategy-log', (req, res) => {
 const SIGMA_LEVELS_FILE = path.join(DATA_DIR, 'sigma_terminal_levels.json');
 const SIGMA_VELAS_FILE = path.join(DATA_DIR, 'sigma_velas_5m.json');
 const SIGMA_VELAS2M_FILE = path.join(DATA_DIR, 'sigma_velas_2m.json');
+const SIGMA_VELAS15M_FILE = path.join(DATA_DIR, 'sigma_velas_15m.json');
 const SIGMA_LEVELS_MAX_AGE_MS = 5 * 60 * 1000; // 5 min — margen sobre el ciclo de 2 min
 // Cap generoso — cada 2 min ⇒ ~720/dia, 10000 cubre ~2 semanas sin crecer sin
 // control (mismo criterio que SPX_STRATEGY_LOG_FILE, ver logStrategyEvent).
@@ -6169,6 +6189,35 @@ function velas2mDeSigma({ minVelas = 15, maxEdadSeg = 300 } = {}) {
   };
 }
 
+// Velas de 15m de Sigma — el marco maestro del direccional (2026-08-09).
+// calcFase15mSimple decide Fase 2 / Fase 4 con estos cierres, y calcPullbackEntry
+// ni siquiera evalua el pullback si el 15m no esta en fase.
+//
+// La tolerancia de frescura es mayor que en 2m/5m por construccion: una vela de
+// 15m recien cerrada tiene hasta 15 min de antiguedad. 1200s = 20 min deja
+// margen sin llegar a aceptar una vela de la sesion anterior.
+function velas15mDeSigma({ minVelas = 25, maxEdadSeg = 1200 } = {}) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(SIGMA_VELAS15M_FILE, 'utf8')); }
+  catch { return null; }
+  const velas = doc?.velas;
+  if (!Array.isArray(velas) || velas.length < minVelas) return null;
+
+  const ult = velas.slice(-minVelas);
+  const diaET = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  for (let i = 1; i < ult.length; i++) {
+    const salto = ult[i].t - ult[i - 1].t;
+    if (salto === 15 * 60 * 1000) continue;
+    if (diaET(ult[i].t) !== diaET(ult[i - 1].t)) continue;
+    return null;
+  }
+  const edadSeg = Math.round((Date.now() - ult[ult.length - 1].t) / 1000);
+  if (edadSeg > maxEdadSeg) return null;
+  if (ult.some(v => v.c == null)) return null;
+
+  return { closes: ult.map(v => v.c), edadSeg, velas: ult.length };
+}
+
 // Velas de 5m del SPX tal como las sirve Sigma (I:SPX via su proxy de Polygon),
 // empujadas por el daemon en cada ciclo. Verificado el 2026-08-09 contra el
 // endpoint real: 159 velas del 6-ago 09:30 al 7-ago 16:00, indice de verdad y
@@ -6247,8 +6296,14 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // el historial guarda 10000 entradas, lo inflaria por tres ordenes de magnitud
   // sin ganar nada (solo importan las ultimas). Se escriben aparte, pisando.
   const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
-          totalGamma, maxPain, putCallOi, ivPromedio, velas5m, velas2m,
+          totalGamma, maxPain, putCallOi, ivPromedio, velas5m, velas2m, velas15m,
           vix, vix52High, vix52Low } = req.body || {};
+  if (Array.isArray(velas15m) && velas15m.length) {
+    try {
+      fs.writeFileSync(SIGMA_VELAS15M_FILE,
+        JSON.stringify({ velas: velas15m, updatedAt: new Date().toISOString() }), 'utf8');
+    } catch (e) { console.error('[SIGMA] no se pudieron guardar las velas 15m:', e.message); }
+  }
   if (Array.isArray(velas2m) && velas2m.length) {
     try {
       fs.writeFileSync(SIGMA_VELAS2M_FILE,
