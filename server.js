@@ -5562,7 +5562,16 @@ async function checkDirectionalAutonomous() {
       console.log(`[SPX] ✅ Entrada ${direction} (modo ${modo}) — ${r.reason}`);
       await processDirectionalEntry(direction, { source: 'CaminoB_autonomo', timeframe: '2m', caminoB: r });
     } else {
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_CAMINO_B', passed: false, reason: r.reason, snapshot: { coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
+      // La etiqueta sigue al MODO (2026-08-09). Antes decia siempre
+      // 'NO_CAMINO_B' aunque estuviera corriendo entryMode='pullback', que es lo
+      // que hay en produccion desde el 2026-08-03: los mensajes venian de
+      // calcPullbackEntry y el log los atribuia a Camino B. Costo una lectura
+      // equivocada al revisar el 4-ago ("distancia a la EMA10" es de 2m, no
+      // de 15m, pero la etiqueta hacia pensar lo contrario).
+      logStrategyEvent({ strategyFamily: 'TENDENCIA',
+        stage: modo === 'pullback' ? 'NO_PULLBACK_2M' : 'NO_CAMINO_B',
+        passed: false, reason: r.reason,
+        snapshot: { entryMode: modo, coreAlignBull: r.coreAlignBull, coreAlignBear: r.coreAlignBear } });
     }
   } catch(e) {
     console.error('[SPX] checkDirectionalAutonomous error:', e.message);
