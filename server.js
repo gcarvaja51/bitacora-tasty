@@ -5517,7 +5517,7 @@ async function fetchCaminoBBars() {
   // Sigma, se cae entero al respaldo. Mezclar 2m de Sigma con 15m de Yahoo seria
   // reintroducir el problema en otro lado.
   const s2  = velas2mDeSigma({ minVelas: 40, maxEdadSeg: 300 });
-  const s15 = velas15mDeSigma({ minVelas: 25, maxEdadSeg: 1200 });
+  const s15 = velas15mDeSigma({ minVelas: 25, maxEdadSeg: 1800 });
   if (s2 && s15) {
     return { bars2m: s2.bars, closes15m: s15.closes, fuenteBarras: 'sigma',
              edad2mSeg: s2.edadSeg, edad15mSeg: s15.edadSeg };
@@ -6179,7 +6179,7 @@ function velas2mDeSigma({ minVelas = 15, maxEdadSeg = 300 } = {}) {
   }
   // El PIN mide compresion AHORA: una serie vieja diria "quieto" porque no se
   // actualiza, que es el peor falso positivo posible para este setup.
-  const edadSeg = Math.round((Date.now() - ult[ult.length - 1].t) / 1000);
+  const edadSeg = edadDesdeCierre(ult[ult.length - 1], 2 * 60 * 1000);
   if (edadSeg > maxEdadSeg) return null;
   if (ult.some(v => v.h == null || v.l == null || v.c == null)) return null;
 
@@ -6189,14 +6189,34 @@ function velas2mDeSigma({ minVelas = 15, maxEdadSeg = 300 } = {}) {
   };
 }
 
+// Antiguedad REAL de una vela: se mide desde su CIERRE, no desde su apertura
+// (2026-08-09). Medir desde la apertura hacia que una vela recien cerrada naciera
+// ya "vieja" —900s en 15m, 300s en 5m— y obligaba a umbrales inflados que
+// confundian "vela normal" con "daemon caido".
+//
+// Una vela EN FORMACION da 0: es el dato mas fresco que existe. Una cerrada
+// envejece desde su cierre, asi que el umbral pasa a significar lo que uno
+// espera: "cuanto hace que este dato quedo firme". Si el daemon muere, la edad
+// crece sin techo igual que antes y el guardia sigue disparando.
+function edadDesdeCierre(vela, pasoMs) {
+  return Math.max(0, Math.round((Date.now() - (vela.t + pasoMs)) / 1000));
+}
+
 // Velas de 15m de Sigma — el marco maestro del direccional (2026-08-09).
 // calcFase15mSimple decide Fase 2 / Fase 4 con estos cierres, y calcPullbackEntry
 // ni siquiera evalua el pullback si el 15m no esta en fase.
 //
-// La tolerancia de frescura es mayor que en 2m/5m por construccion: una vela de
-// 15m recien cerrada tiene hasta 15 min de antiguedad. 1200s = 20 min deja
-// margen sin llegar a aceptar una vela de la sesion anterior.
-function velas15mDeSigma({ minVelas = 25, maxEdadSeg = 1200 } = {}) {
+// La tolerancia de frescura es mayor que en 2m/5m por CONSTRUCCION, y el margen
+// hay que calcularlo, no estimarlo (2026-08-09, corregido tras simular la
+// apertura): la edad se mide desde la APERTURA de la vela, asi que una vela de
+// 15m recien cerrada ya nace con 900s. Si el arreglo trae la vela cerrada y no
+// la que se esta formando, la edad sube hasta 1799s antes de que cierre la
+// siguiente. Con el 1200s que tenia, la serie quedaba rechazada dos tercios del
+// tiempo y caia al respaldo sin que nada lo delatara.
+//
+// 1800s cubre el peor caso legitimo (1799s) y sigue descartando lo que importa:
+// una serie de la sesion anterior da ~63.000s.
+function velas15mDeSigma({ minVelas = 25, maxEdadSeg = 1800 } = {}) {
   let doc;
   try { doc = JSON.parse(fs.readFileSync(SIGMA_VELAS15M_FILE, 'utf8')); }
   catch { return null; }
@@ -6211,7 +6231,7 @@ function velas15mDeSigma({ minVelas = 25, maxEdadSeg = 1200 } = {}) {
     if (diaET(ult[i].t) !== diaET(ult[i - 1].t)) continue;
     return null;
   }
-  const edadSeg = Math.round((Date.now() - ult[ult.length - 1].t) / 1000);
+  const edadSeg = edadDesdeCierre(ult[ult.length - 1], 15 * 60 * 1000);
   if (edadSeg > maxEdadSeg) return null;
   if (ult.some(v => v.c == null)) return null;
 
@@ -6246,7 +6266,7 @@ function velas5mDeSigma({ minVelas = 9, maxEdadSeg = 420 } = {}) {
 
   // `t` es el arranque de la vela; la ultima puede estar formandose. Misma
   // convencion y misma tolerancia que tenia la serie de Yahoo.
-  const edadSeg = Math.round((Date.now() - ult[ult.length - 1].t) / 1000);
+  const edadSeg = edadDesdeCierre(ult[ult.length - 1], 5 * 60 * 1000);
   if (edadSeg > maxEdadSeg) return null;
   if (ult.some(v => v.c == null)) return null;
 
