@@ -151,12 +151,49 @@ def impacto_declarado(cuerpo):
     return m.group(1).upper() if m else None
 
 
+# Alias -> familia canonica. "TENDENCIA" es como se llama la familia en el codigo
+# y en el strategy log; "DIRECCIONAL" es como se llama la carpeta. Los dos son lo
+# mismo y los dos aparecen escritos en los commits.
+_ALIAS_FAMILIA = {
+    "TENDENCIA": "DIRECCIONAL",
+    "DIRECCIONAL": "DIRECCIONAL",
+    "REVERSION": "REVERSION",
+    "NEUTRAL": "NEUTRAL",
+    "RUEDA": "RUEDA",
+    "BITACORA_TASTY": "BITACORA_TASTY",
+    "BITACORA_TRADIER": "BITACORA_TRADIER",
+}
+
+
 def familias_declaradas(cuerpo):
+    """Extrae las familias del trailer  TOLERANDO prosa alrededor.
+
+    Antes se exigia el nombre limpio: se partia por comas y se comparaba entero
+    contra FAMILIAS_VALIDAS. Cualquier explicacion en la misma linea rompia el
+    match y el commit caia en silencio a la heuristica del asunto — con la misma
+    pinta que un commit sin trailer, o sea sin ninguna señal de que algo fallo.
+
+    Detectado el 2026-08-09: los 12 commits de esa sesion declararon la familia
+    y NINGUNO se clasifico. "Estrategia: reversion a la media." daba
+    REVERSION_A_LA_MEDIA. y "Estrategia: NEUTRAL 1DTE. El 0DTE no se toca" daba
+    NEUTRAL_1DTE._EL_0DTE... Es el mismo tipo de falla que el resto de la sesion:
+    una convencion que se cumple pero un parser que no la reconoce.
+
+    Ahora se buscan los nombres conocidos como palabras dentro de la linea, asi
+    que "TENDENCIA y NEUTRAL. REVERSION no se ve afectada" devuelve las tres.
+    Eso ultimo es deliberado y hay que saberlo: si el commit NOMBRA una familia
+    para decir que NO la toca, igual queda registrada. Es preferible un cambio de
+    mas en el libro que uno de menos — el libro existe para no perder nada.
+    """
     m = _TRAILER_FAMILIA.search(cuerpo or "")
     if not m:
         return None
-    fams = {p.strip().upper().replace(" ", "_") for p in m.group(1).split(",")}
-    fams &= FAMILIAS_VALIDAS
+    linea = m.group(1).upper()
+    fams = set()
+    for alias, canonica in _ALIAS_FAMILIA.items():
+        patron = r"\b" + alias.replace("_", r"[_ ]") + r"\b"
+        if re.search(patron, linea):
+            fams.add(canonica)
     return fams or None
 
 
