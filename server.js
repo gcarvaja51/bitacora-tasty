@@ -5065,16 +5065,26 @@ async function buildSPXContext() {
       // de cierres que alimenta calcWeinstein/calcMACD ahora sale de Tradier primero
       // (2026-07-24, ver nota en la sección de spxPrice de arriba), con Yahoo como
       // respaldo si Tradier falla o no trae suficientes barras.
-      const r15 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=15m&range=5d',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const j15 = await r15.json();
+      // SIGMA PRIMERO (2026-08-09) — de aca salen MACD, Weinstein, ATR, fractales
+      // y el rango de apertura del marco de 15m. Yahoo queda de respaldo.
+      let j15 = serieComoYahoo(SIGMA_VELAS15M_FILE, 15 * 60 * 1000, { minVelas: 60, maxEdadSeg: 1800 });
+      let fuente15 = 'sigma';
+      if (!j15) {
+        fuente15 = 'yahoo';
+        const r15 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=15m&range=5d',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        j15 = await r15.json();
+      }
       const q15 = j15.chart?.result?.[0]?.indicators?.quote?.[0] || {};
       let closes15 = (q15.close || []).filter(v => v != null);
       try {
         // Tradier + cola de Yahoo (2026-08-04) — antes era solo Tradier, que en
         // sandbox llega ~15 min atrasado. Ver fetchBarsSPXFrescas.
         const tCloses15 = (await fetchBarsSPXFrescas('15min')).map(b => b.close).filter(v => v != null);
-        if (tCloses15.length >= 30) closes15 = tCloses15;
+        // Solo si la serie NO vino de Sigma: pisarla con la mezcla Tradier+Yahoo
+        // dejaria los cierres de una fuente y los high/low de otra, dentro del
+        // mismo calculo. Es justo el cruce que este cambio viene a eliminar.
+        if (fuente15 !== 'sigma' && tCloses15.length >= 30) closes15 = tCloses15;
       } catch(eT15) { console.error('[SPX] Tradier 15m error, usando Yahoo:', eT15.message); }
       if (closes15.length >= 30) {
         const price15 = closes15[closes15.length - 1];
@@ -5167,9 +5177,15 @@ async function buildSPXContext() {
       // el gate quedaba en null/false las primeras horas de cada sesion sin
       // que hubiera realmente falta de confluencia, solo falta de historia.
       try {
-        const r2 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=2m&range=5d',
-          { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const j2 = await r2.json();
+        // SIGMA PRIMERO (2026-08-09), mismo criterio que el bloque de 15m.
+        let j2 = serieComoYahoo(SIGMA_VELAS2M_FILE, 2 * 60 * 1000, { minVelas: 80, maxEdadSeg: 300 });
+        let fuente2 = 'sigma';
+        if (!j2) {
+          fuente2 = 'yahoo';
+          const r2 = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=2m&range=5d',
+            { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          j2 = await r2.json();
+        }
         const result2 = j2.chart?.result?.[0];
         // Yahoo se mantiene para rango de apertura/fractal2m (necesitan highs2/
         // lows2/opens2 alineados con result2) — pero el array de cierres que
@@ -5200,7 +5216,7 @@ async function buildSPXContext() {
           // fetchBarsSPXFrescas ya la descarta por antigüedad.
           const tBars2 = await fetchBarsSPXFrescas('2min');
           const tCloses2 = tBars2.map(b => b.close).filter(v => v != null);
-          if (tCloses2.length >= 20) closes2 = tCloses2;
+          if (fuente2 !== 'sigma' && tCloses2.length >= 20) closes2 = tCloses2;
           const tBarsOhlc = tBars2.filter(b => b.high != null && b.low != null && b.close != null && b.high !== b.low);
           if (tBarsOhlc.length >= 20) {
             bars2mTradier = tBarsOhlc.map(b => ({ high: b.high, low: b.low, close: b.close, open: b.open ?? null }));
@@ -6186,6 +6202,41 @@ function velas2mDeSigma({ minVelas = 15, maxEdadSeg = 300 } = {}) {
   return {
     bars: ult.map(v => ({ high: v.h, low: v.l, close: v.c, open: v.o })),
     edadSeg,
+  };
+}
+
+// Velas crudas de Sigma con la MISMA FORMA que devuelve Yahoo (2026-08-09).
+// Asi el bloque de indicadores de buildSPXContext no se reescribe: se le cambia
+// la fuente y todo lo que ya consume ts/high/low/close/volume sigue igual.
+// Devuelve null si la serie no sirve y el caller cae a Yahoo.
+function serieComoYahoo(archivo, pasoMs, { minVelas, maxEdadSeg }) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(archivo, 'utf8')); } catch { return null; }
+  const velas = doc?.velas;
+  if (!Array.isArray(velas) || velas.length < minVelas) return null;
+  const diaET = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  for (let i = 1; i < velas.length; i++) {
+    const salto = velas[i].t - velas[i - 1].t;
+    if (salto === pasoMs) continue;
+    if (diaET(velas[i].t) !== diaET(velas[i - 1].t)) continue;
+    return null;
+  }
+  if (edadDesdeCierre(velas[velas.length - 1], pasoMs) > maxEdadSeg) return null;
+  if (velas.some(v => v.o == null || v.h == null || v.l == null || v.c == null)) return null;
+  return {
+    chart: { result: [{
+      timestamp: velas.map(v => Math.round(v.t / 1000)),
+      indicators: { quote: [{
+        open:   velas.map(v => v.o),
+        high:   velas.map(v => v.h),
+        low:    velas.map(v => v.l),
+        close:  velas.map(v => v.c),
+        // I:SPX es un indice: Polygon no reporta volumen. El check
+        // volumen_rompimiento pesa 0 desde hace tiempo, asi que esto no cambia
+        // ningun score — pero queda dicho para que nadie lo lea como un cero real.
+        volume: velas.map(() => null),
+      }] },
+    }] },
   };
 }
 

@@ -177,20 +177,20 @@ async function runCycle() {
       console.error('[sigma] velas 5m no disponibles (%s) -- se sigue sin ellas', e.message);
     }
 
-    // Velas de 2m: las usa el PIN del Iron Condor (15 velas) y el gatillo de
-    // pullback del direccional, que exige 35 barras. Se piden 60 para cubrir a
-    // los dos con margen para el chequeo de continuidad.
+    // Velas de 2m: PIN del Iron Condor (15), gatillo de pullback del
+    // direccional (35) e indicadores del score — MACD de 2m necesita 26+9. Se
+    // piden 120 para cubrirlos a todos con margen de continuidad.
     try {
-      const velas2 = await sigma.readCandles5m({ velas: 60, diasAtras: 3, minutos: 2 });
+      const velas2 = await sigma.readCandles5m({ velas: 120, diasAtras: 4, minutos: 2 });
       if (velas2?.length) levels.velas2m = velas2;
     } catch (e) {
       console.error('[sigma] velas 2m no disponibles (%s) -- se sigue sin ellas', e.message);
     }
 
-    // Velas de 15m: el marco maestro del direccional. calcFase15mSimple exige 21
-    // cierres para decidir Fase 2 / Fase 4; se piden 40 con margen.
+    // Velas de 15m: marco maestro del direccional (21 cierres para Fase 2/4) y
+    // los indicadores del score — MACD, Weinstein, ATR y fractales. Se piden 80.
     try {
-      const velas15 = await sigma.readCandles5m({ velas: 40, diasAtras: 12, minutos: 15 });
+      const velas15 = await sigma.readCandles5m({ velas: 80, diasAtras: 20, minutos: 15 });
       if (velas15?.length) levels.velas15m = velas15;
     } catch (e) {
       console.error('[sigma] velas 15m no disponibles (%s) -- se sigue sin ellas', e.message);
