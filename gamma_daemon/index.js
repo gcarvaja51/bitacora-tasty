@@ -261,7 +261,11 @@ async function runCycle() {
           tvAlerted = false;
         }
         tvFailures = 0;
-        saveStatus({ lastTvPushAt: new Date().toISOString(), tvFailures: 0 });
+        // lastTvError: null al tener exito. Si no se limpia, el status queda
+        // mostrando el ultimo fallo para siempre junto a un contador en 0 —
+        // exactamente el residuo que esta mañana hizo dudar de si el push estaba
+        // roto cuando ya se habia recuperado.
+        saveStatus({ lastTvPushAt: new Date().toISOString(), tvFailures: 0, lastTvError: null });
       } catch (tvErr) {
         tvFailures += 1;
         saveStatus({ tvFailures, lastTvError: tvErr.message });
