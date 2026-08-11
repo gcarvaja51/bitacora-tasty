@@ -412,7 +412,14 @@ function evaluateIronCondorGate(ctx, dte, icConfig = {}) {
   // log: sin eso, dentro de tres semanas no vamos a poder responder "¿con que
   // PIN entro?" sin reconstruirlo a mano, que es exactamente el agujero que nos
   // obligo a inferir el atraso de 16 min cruzando 267 snapshots contra Yahoo.
-  return { valid: true, dte: '0DTE', spreadWidth, pinState, note: pinState.reason };
+  //
+  // `condiciones` va por lo mismo (2026-08-11). Hasta hoy solo lo devolvia la rama
+  // 1DTE en modo captura, asi que el 0DTE — el UNICO al que el buffer del gamma
+  // flip le bloquea algo, porque en 1DTE ya no bloquea — no dejaba registro de a
+  // que distancia del flip se entro. Al bajar el buffer de 20 a 10 hoy, sin esto
+  // no habria forma de responder despues si los perdedores fueron justo los de la
+  // franja nueva (10-20 pts). El dato se calcula igual; solo faltaba guardarlo.
+  return { valid: true, dte: '0DTE', spreadWidth, pinState, condiciones: cond, note: pinState.reason };
 }
 
 // ── Selecciona estrategia según contexto ──────────────────────

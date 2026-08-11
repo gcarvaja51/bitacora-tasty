@@ -4281,7 +4281,25 @@ const SPX_CONFIG_DEFAULTS = {
                                 // eligio el maximo (35): optimizar sobre 3 observaciones es como se
                                 // construye un backtest que despues no funciona.
       slMult:      1.5,         // 1.5x o 2x el credito recibido
-      gammaFlipBufferPts: 20,   // no operar si el precio esta a menos de esto del Gamma Flip
+      gammaFlipBufferPts: 10,   // 20 -> 10 (2026-08-11, decision del usuario). No operar si el
+                                // precio esta a menos de esto del Gamma Flip.
+                                //
+                                // Con 20 el gate rechazo las 5 evaluaciones de la manana del 11-ago
+                                // (distancias 11.3 a 14.5 pts) y no dejo abrir nada en todo el dia.
+                                // El usuario decidio bajarlo tras revisar el contexto: gamma positivo
+                                // +2.74B, VIX 15.4, precio encajonado entre muros.
+                                //
+                                // Lo que se le advirtio y decidio igual: el colchon a la baja pasa a
+                                // ser de 10 puntos: si el SPX cae eso, entra en gamma NEGATIVO, donde
+                                // los dealers dejan de amortiguar y aceleran el movimiento — o sea la
+                                // premisa del Iron Condor se invierte justo del lado que duele. Con 20
+                                // el margen era el doble.
+                                //
+                                // La distancia real al flip ya viaja en cond.distFlipPts de cada señal
+                                // (src/spx.js), asi que en cada trade queda registrado con cuanto
+                                // colchon se entro. Eso es lo que despues permite responder si los
+                                // perdedores fueron los de entre 10 y 20 pts, que es exactamente la
+                                // franja que este cambio abre.
       tradierAutoExecute: true, // kill-switch propio del IC, separado del de las direccionales
       // ── Setup por PIN (2026-08-08) — ver calcPinState en src/spx.js ──
       pinMaxDistPts:      5,    // "pegado al muro": distancia maxima al call/put wall
