@@ -325,4 +325,20 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 console.log('gamma_daemon arrancando...');
+
+// El estado en memoria arranca limpio (consecutiveFailures 0, mode normal), pero
+// status.json conserva lo ultimo que se escribio — y fuera de horario los ciclos
+// solo tocan lastSkipReason, asi que esos campos sobreviven al reinicio.
+//
+// El 2026-08-11 a las 08:26 el archivo seguia diciendo "degraded, 40 fallos" de
+// la sesion anterior, con el proceso recien reiniciado y sano. Eso hace
+// imposible distinguir "sigue roto" de "quedo escrito de ayer" justo cuando hay
+// que decidirlo: en los primeros minutos de la apertura.
+saveStatus({
+  mode: 'normal',
+  consecutiveFailures: 0,
+  lastError: null,
+  arrancadoEl: new Date().toISOString(),
+});
+
 loop();
