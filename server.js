@@ -7534,6 +7534,40 @@ async function checkDirectionalTPSL() {
   if (!isMarketHours()) return;
   return withExecutionsLock(checkDirectionalTPSLImpl);
 }
+// ── Valor del spread segun TASTYTRADE, en vivo (2026-08-11) ──────────────
+//
+// La direccional decide su salida con las cotizaciones que le pide a Tradier, y
+// en el sandbox llegan diferidas. Eso no es un detalle de precision: el 10-ago
+// tres de cuatro trades cerraron por "TP" con el SPX ya movido EN CONTRA — el
+// spread valia lo del TP segun el broker mientras el indice se habia dado vuelta.
+//
+// Esto NO cambia ninguna decision. Registra, en cada ciclo del monitor, cuanto
+// valia el mismo spread segun TastyTrade (en vivo, la cadena con la que se
+// eligieron los strikes). Con eso se puede responder la pregunta que el usuario
+// necesita para decidir si pasa a cuenta real: "¿cuanto habria cerrado si la
+// cadena estuviera on line?".
+//
+// Formato del simbolo: Tradier usa SPXW260810C07755000; TastyTrade usa el OCC
+// con la raiz padeada a 6 — "SPXW  260810C07755000". Verificado contra
+// /option-chains/SPX/nested el 2026-08-11.
+function aSimboloTasty(simTradier) {
+  const m = String(simTradier || '').match(/^([A-Z]+)(\d{6}[CP]\d{8})$/);
+  return m ? m[1].padEnd(6, ' ') + m[2] : null;
+}
+
+async function valorSpreadTasty(shortSym, longSym) {
+  const sT = aSimboloTasty(shortSym), lT = aSimboloTasty(longSym);
+  if (!sT || !lT) return null;
+  const g = await tt.getGreeks([sT, lT]);
+  const ms = g[sT]?.mark, ml = g[lT]?.mark;
+  // getGreeks cae a Black-Scholes si el REST de TastyTrade no responde (fuera de
+  // horario). Ese valor NO sirve para esta comparacion —seria comparar Tradier
+  // contra un modelo, no contra el mercado— asi que solo se acepta src 'tt'.
+  if (ms == null || ml == null) return null;
+  if (g[sT]?.src !== 'tt' || g[lT]?.src !== 'tt') return null;
+  return { corto: +ms.toFixed(2), largo: +ml.toFixed(2), neto: +(ms - ml).toFixed(2) };
+}
+
 async function checkDirectionalTPSLImpl() {
   lastDirectionalTPSLRun = Date.now(); // heartbeat para el watchdog — ver checkDirectionalMonitorHealth
   try {
@@ -7625,6 +7659,25 @@ async function checkDirectionalTPSLImpl() {
         console.warn(`[Tradier-DIR-TPSL] Cotizaciones incompletas para ${ex.orderId}, se salta este ciclo.`);
         continue;
       }
+
+      // Traza Tradier (decide) vs TastyTrade (en vivo). Puramente observacional:
+      // va en su propio try y no participa de ninguna decision de mas abajo.
+      try {
+        const vt = await valorSpreadTasty(shortSym, longSym);
+        if (vt) {
+          const netoTradier = +(q[shortSym] - q[longSym]).toFixed(2);
+          if (!Array.isArray(ex.trazaCadena)) ex.trazaCadena = [];
+          ex.trazaCadena.push({
+            t:  new Date().toISOString(),
+            tr: netoTradier,        // lo que ve el monitor y con lo que decide
+            ty: vt.neto,            // lo mismo, en vivo
+            d:  +(vt.neto - netoTradier).toFixed(2),
+          });
+          // Un trade de sesion completa a 30s son ~700 puntos; con 400 alcanza
+          // para reconstruir la curva sin inflar el archivo de ejecuciones.
+          if (ex.trazaCadena.length > 400) ex.trazaCadena = ex.trazaCadena.slice(-400);
+        }
+      } catch (eTz) { /* medir nunca puede tumbar el monitor */ }
 
       // isCredit indefinido (ejecuciones viejas, previas a este campo) = credito,
       // que es lo unico que existia antes del soporte a debito (2026-07-08).
@@ -7780,6 +7833,36 @@ async function checkDirectionalTPSLImpl() {
         // Guardar el orderId de cierre (2026-07-27, ver resolverPnlDesdeOrdenes) —
         // permite calcular el P&L real desde los fills reales en vez de /gainloss.
         ex.closeOrderId = closeResultDir?.orderId ?? null;
+
+        // VALOR REAL AL CERRAR (2026-08-11, pedido del usuario para decidir si
+        // pasa a cuenta real). Se congela cuanto valia el spread segun
+        // TastyTrade —en vivo— en el mismo instante en que se mando el cierre.
+        //
+        // El P&L que reporta Tradier es real y no se toca: es el que ocurrio en
+        // el sandbox. Este campo responde otra pregunta, la que importa para la
+        // decision: "¿cuanto habria cerrado con la cadena on line?". La
+        // diferencia entre los dos es, en dolares, lo que cuesta el retraso.
+        try {
+          const vtCierre = await valorSpreadTasty(ex.legs?.shortSym, ex.legs?.longSym);
+          if (vtCierre) {
+            const contratos = ex.contracts || 1;
+            const esCredito = ex.isCredit !== false;
+            const prima = Math.abs(ex.creditReceived ?? ex.entryFillPrice ?? 0);
+            // Credito: se gana lo que NO hay que pagar para recomprar.
+            // Debito: se gana lo que vale de mas al vender.
+            const pnlVivo = esCredito
+              ? (prima - vtCierre.neto) * 100 * contratos
+              : (Math.abs(vtCierre.neto) - prima) * 100 * contratos;
+            ex.cierreVivo = {
+              at: new Date().toISOString(),
+              netoTasty: vtCierre.neto,
+              pnlSiFueraEnVivo: +pnlVivo.toFixed(2),
+              fuente: 'tastytrade',
+            };
+            console.log(`[DIR-TPSL] cierre — Tradier decide con ${ex.legs?.shortSym}; ` +
+              `valor en vivo (Tasty) ${vtCierre.neto} -> P&L teorico $${pnlVivo.toFixed(2)}`);
+          }
+        } catch (eCv) { /* observacional: nunca bloquea el cierre */ }
         // Mismo fix que checkIronCondorTPSLImpl (2026-07-10, ver comentario ahí para el
         // caso real que lo motivó): NO marcar status='closed' ni grabar pnl acá — se deja
         // 'filled' a propósito para que checkTradierExecutions (reconciliación pasiva,
