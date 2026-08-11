@@ -78,19 +78,63 @@ export async function connectToSpxWindow() {
   );
 }
 
-// Foco un pane (equivalente a mcp__tradingview__pane_focus) y busca el estudio CIARG_V1
-// en el chart que queda activo. Devuelve el entity_id o null si no aparece en ese pane.
-async function findStudyOnFocusedPane(client, paneIndex) {
+// Activa un pane con la API de TradingView y CONFIRMA donde quedo.
+//
+// El bug que esto arregla (2026-08-11): antes se hacia w._mainDiv.click() sobre el
+// widget del pane, se esperaban 250ms y despues se leia _activeChartWidgetWV.value().
+// Son dos objetos distintos y no intercambiables: _chartWidgetCollection.getAll()
+// devuelve los widgets INTERNOS (los que tienen .model()) y _activeChartWidgetWV
+// devuelve el wrapper PUBLICO, el unico que expone getAllStudies/getStudyById.
+// Ni siquiera coinciden por identidad. Si el clic sintetico no cambiaba el foco,
+// las dos iteraciones escribian sobre el MISMO chart y el otro pane se quedaba
+// congelado con muros viejos.
+//
+// Asi lo detecto el usuario mirando el grafico: el pane de 2m con los muros al dia
+// (7780/7750) y el de 15m en 7750/7700, con GEX y DEX tambien distintos. Nada lo
+// delataba desde el daemon — pushToPane devolvia updated:true igual, porque SI
+// encontraba un estudio CIARG, solo que el del pane equivocado, y tvFailures se
+// quedaba en 0.
+//
+// setActiveChart(i) es el mecanismo propio de TradingView y toma el indice de la
+// coleccion, el mismo con el que se armo `panes`. El chequeo de resolucion es una
+// red de seguridad, no el mecanismo: con los dos panes en el mismo timeframe no
+// distinguiria nada, pero ahi tampoco habria nada que distinguir.
+async function activarPane(client, paneIndex) {
   await evalOn(client, `
     (function() {
-      var all = window.TradingViewApi._chartWidgetCollection.getAll();
-      var w = all[${paneIndex}];
-      if (w && w._mainDiv) w._mainDiv.click();
-      return true;
+      try { window.TradingViewApi.setActiveChart(${paneIndex}); return true; }
+      catch (e) { return false; }
     })()
   `);
-  await new Promise((r) => setTimeout(r, 250));
+  await new Promise((r) => setTimeout(r, 300));
 
+  // La resolucion esperada se relee AHORA de la coleccion, no del snapshot tomado
+  // al conectar: si el usuario cambia el timeframe entremedio no queremos un error
+  // falso que dispare alertas por nada.
+  const chequeo = await evalOn(client, `
+    (function() {
+      try {
+        var api = window.TradingViewApi;
+        var interno = api._chartWidgetCollection.getAll()[${paneIndex}];
+        if (!interno) return { error: 'el pane ${paneIndex} ya no existe' };
+        var activo = api._activeChartWidgetWV.value();
+        if (!activo) return { error: 'no hay chart activo' };
+        var esperada = null, real = null;
+        try { esperada = String(interno.model().mainSeries().interval()); } catch (e) {}
+        try { real = String(activo.resolution()); } catch (e) {}
+        if (esperada && real && esperada !== real) {
+          return { error: 'se pidio el pane ${paneIndex} (' + esperada + ') pero quedo activo el de ' + real };
+        }
+        return { ok: true };
+      } catch (e) { return { error: String(e).slice(0, 80) }; }
+    })()
+  `);
+  if (!chequeo || chequeo.error) throw new Error(chequeo?.error || 'no se pudo activar el pane');
+}
+
+// Busca el estudio CIARG en el pane indicado. Devuelve el entity_id o null.
+async function findStudyOnPane(client, paneIndex) {
+  await activarPane(client, paneIndex);
   return evalOn(client, `
     (function() {
       try {
@@ -106,11 +150,15 @@ async function findStudyOnFocusedPane(client, paneIndex) {
   `);
 }
 
-async function setStudyInputs(client, entityId, inputs) {
+// paneIndex es obligatorio por la misma razon: tocar el chart ACTIVO sin haberlo
+// activado a proposito es exactamente el bug que dejaba un pane congelado.
+async function setStudyInputs(client, entityId, inputs, paneIndex) {
+  await activarPane(client, paneIndex);
   const inputsJson = JSON.stringify(inputs);
   const result = await evalOn(client, `
     (function() {
       var chart = window.TradingViewApi._activeChartWidgetWV.value();
+      if (!chart) return { error: 'no hay chart activo' };
       var study = chart.getStudyById(${JSON.stringify(entityId)});
       if (!study) return { error: 'Study not found: ' + ${JSON.stringify(entityId)} };
       var currentInputs = study.getInputValues();
@@ -134,7 +182,15 @@ async function setStudyInputs(client, entityId, inputs) {
 // resultado de ese pane especifico (nunca lanza por un pane individual fallido).
 async function pushToPane(client, p) {
   if (p.error) return { index: p.index, updated: false, reason: p.error };
-  const entityId = await findStudyOnFocusedPane(client, p.index).catch(() => null);
+  // El fallo al ACTIVAR el pane se reporta tal cual, no como 'study_not_found':
+  // son dos problemas distintos y confundirlos fue parte de por que el pane
+  // congelado paso desapercibido tanto tiempo.
+  let entityId = null;
+  try {
+    entityId = await findStudyOnPane(client, p.index);
+  } catch (e) {
+    return { index: p.index, symbol: p.symbol, updated: false, reason: e.message };
+  }
   if (!entityId) return { index: p.index, symbol: p.symbol, updated: false, reason: 'study_not_found' };
   return { index: p.index, symbol: p.symbol, updated: true, entity_id: entityId };
 }
@@ -151,7 +207,7 @@ export async function pushGammaLevels(inputs) {
     for (const p of panes) {
       const r = await pushToPane(client, p);
       if (r.updated) {
-        const updatedInputs = await setStudyInputs(client, r.entity_id, inputs);
+        const updatedInputs = await setStudyInputs(client, r.entity_id, inputs, p.index);
         r.updated_inputs = updatedInputs;
       }
       results.push(r);
@@ -196,7 +252,7 @@ export async function pushGammaLevelsToAllWindows(inputs) {
       for (const p of panes) {
         const r = await pushToPane(client, p);
         if (r.updated) {
-          const updatedInputs = await setStudyInputs(client, r.entity_id, inputs);
+          const updatedInputs = await setStudyInputs(client, r.entity_id, inputs, p.index);
           r.updated_inputs = updatedInputs;
         }
         results.push(r);
