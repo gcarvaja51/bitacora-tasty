@@ -59,7 +59,10 @@ function limpiarChromiumHuerfano() {
     for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
       try { fs.rmSync(path.join(PROFILE_DIR, f), { force: true }); } catch { /* noop */ }
     }
-    console.log('[sigma] perfil liberado antes de lanzar');
+    // A stderr, no a stdout: hay scripts que consumen la salida de este modulo
+    // como JSON puro (ver velas_trade.mjs del skill informe-trade) y un
+    // diagnostico en stdout les rompe el parseo.
+    console.error('[sigma] perfil liberado antes de lanzar');
   } catch (e) {
     // Que falle la limpieza no puede impedir el intento de lanzar.
     console.warn('[sigma] no se pudo limpiar el perfil (%s) -- se intenta lanzar igual', e.message);

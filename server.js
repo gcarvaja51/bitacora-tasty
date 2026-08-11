@@ -5578,12 +5578,30 @@ async function checkDirectionalAutonomous() {
     // trata 'submitted' como abierto, no solo 'filled'). Si no hay posicion
     // real abierta, se evalua fresco cada 30s, sin ningun timer artificial de
     // por medio.
+    // LA REVERSION NO BLOQUEA A LA DIRECCIONAL (2026-08-11, decision del usuario:
+    // "un direccional y uno de reversion si podrian coexistir").
+    //
+    // hasLocalOpenSPXWPosition() ya excluia REVERSION a proposito, pero el OR con
+    // hasOpenPosition('SPXW') la pisaba: el broker no distingue estrategias y las
+    // dos operan el mismo subyacente. Es el MISMO patron que tenia el Iron Condor
+    // y se corrigio el 2026-08-09; aca quedo pendiente.
+    //
+    // Lo que SI sigue bloqueando: otra direccional abierta, o un IC 0DTE (que
+    // comparte ventana horaria y no debe coexistir con una direccional). Eso lo
+    // resuelve todoLoAbiertoEsReversion(): compara las posiciones reales del
+    // broker contra las patas de las Reversiones registradas, asi que una
+    // posicion que no sea de Reversion —de cualquier origen, incluso abierta a
+    // mano— bloquea igual.
     const tradierDiceAbierto = await tradier.hasOpenPosition('SPXW');
     const localDiceAbierto = hasLocalOpenSPXWPosition();
     if (tradierDiceAbierto !== localDiceAbierto) {
       logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbierto}, registro local dice ${localDiceAbierto} — se usa el mas conservador (bloquear si cualquiera dice true).` });
     }
-    if (tradierDiceAbierto || localDiceAbierto) return; // ya hay un trade SPXW abierto/en curso — no evaluar
+    const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoEsReversion() : true;
+    if (localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta)) return; // hay algo abierto que NO es una Reversion
+    if (tradierDiceAbierto && soloRevAbierta) {
+      console.log('[SPX] Hay una Reversión abierta — no bloquea la direccional: son independientes.');
+    }
 
     const { bars2m, closes15m, fuenteBarras, edad2mSeg, edad15mSeg } = await fetchCaminoBBars();
     const modo = (loadSPXConfig().entryMode) || 'camino_b';
@@ -5963,10 +5981,12 @@ async function processDirectionalEntry(direction, meta = {}) {
         if (tradierDiceAbierto !== localDiceAbierto) {
           logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbierto}, registro local dice ${localDiceAbierto} — se usa el mas conservador (bloquear si cualquiera dice true).` });
         }
-        const yaHayTradeAbierto = tradierDiceAbierto || localDiceAbierto;
+        // Misma regla que el gate de evaluacion: una Reversion abierta no cuenta.
+        const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoEsReversion() : true;
+        const yaHayTradeAbierto = localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta);
         if (yaHayTradeAbierto) {
-          signal.tradierOrder = { skipped: true, reason: 'Ya hay un trade abierto en Tradier — se espera a que cierre.' };
-          console.log('[Tradier] ⏳ Señal omitida — ya hay un trade SPXW abierto/en curso.');
+          signal.tradierOrder = { skipped: true, reason: 'Ya hay un trade abierto en Tradier (no es una Reversión) — se espera a que cierre.' };
+          console.log('[Tradier] ⏳ Señal omitida — hay un trade SPXW abierto que no es una Reversión.');
         } else {
           const order = await tradier.placeSpreadOrder({
             strategy:       signal.strategy,
