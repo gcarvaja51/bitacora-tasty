@@ -7568,22 +7568,61 @@ async function checkDirectionalTPSL() {
 // Formato del simbolo: Tradier usa SPXW260810C07755000; TastyTrade usa el OCC
 // con la raiz padeada a 6 — "SPXW  260810C07755000". Verificado contra
 // /option-chains/SPX/nested el 2026-08-11.
+// Traduce el OCC de Tradier (SPXW260811C07770000) al de TastyTrade, que pad-ea la
+// raiz a 6 (SPXW  260811C07770000). Quedo sin uso al cambiar valorSpreadTasty a la
+// cadena de /api/option-chain/SPX, pero se conserva: es el formato que pide
+// /market-data/by-type, la ruta correcta para cuando se arregle getGreeks.
 function aSimboloTasty(simTradier) {
   const m = String(simTradier || '').match(/^([A-Z]+)(\d{6}[CP]\d{8})$/);
   return m ? m[1].padEnd(6, ' ') + m[2] : null;
 }
 
-async function valorSpreadTasty(shortSym, longSym) {
-  const sT = aSimboloTasty(shortSym), lT = aSimboloTasty(longSym);
-  if (!sT || !lT) return null;
-  const g = await tt.getGreeks([sT, lT]);
-  const ms = g[sT]?.mark, ml = g[lT]?.mark;
-  // getGreeks cae a Black-Scholes si el REST de TastyTrade no responde (fuera de
-  // horario). Ese valor NO sirve para esta comparacion —seria comparar Tradier
-  // contra un modelo, no contra el mercado— asi que solo se acepta src 'tt'.
-  if (ms == null || ml == null) return null;
-  if (g[sT]?.src !== 'tt' || g[lT]?.src !== 'tt') return null;
-  return { corto: +ms.toFixed(2), largo: +ml.toFixed(2), neto: +(ms - ml).toFixed(2) };
+// Devuelve cuanto vale el spread segun la cadena EN VIVO. Es la mitad "verdad"
+// de la comparacion contra Tradier, que en el sandbox cotiza con ~15 min de atraso.
+//
+// 2026-08-11 — POR QUE CAMBIO DE FUENTE:
+//
+// Esto llamaba a tt.getGreeks(), que pega a `/market-data/options`. Esa ruta NO
+// EXISTE en la API de TastyTrade: devuelve 404. Y como getGreeks se traga el
+// error con un catch vacio y cae a Black-Scholes, el 404 nunca se vio. Al caer al
+// modelo, el src dejaba de ser 'tt' y esta funcion devolvia null — correctamente,
+// porque comparar Tradier contra un modelo no responde la pregunta.
+//
+// Resultado: cierreVivo y trazaCadena quedaron vacios en las 158 ejecuciones. La
+// funcion "andaba" (no tiraba error, devolvia null) y por eso nadie lo noto.
+//
+// La fuente buena ya estaba en casa: /api/option-chain/SPX es la misma cadena de
+// TastyTrade que usa capturarSombraCadena, y esa SI viene funcionando — las 30
+// muestras del 11-ago en sombra_cadenas.json salieron de ahi. Se usa esa y punto.
+//
+// A proposito NO se arregla getGreeks en este cambio. Lo usa tambien /api/overview,
+// que es la bitacora de la cuenta REAL (La Rueda): hoy muestra griegas modeladas
+// creyendo que son de mercado, lo cual es un defecto propio y merece su commit y su
+// validacion aparte. Mezclar las dos bitacoras en un mismo cambio es justo lo que
+// el usuario pidio evitar.
+async function valorSpreadTasty(shortSym, longSym, expiry, tipo, shortStrike, longStrike) {
+  // Se aceptan los datos ya desarmados; si no vienen, se sacan del simbolo OCC.
+  if (!expiry || !tipo || shortStrike == null || longStrike == null) {
+    const desarmar = (sim) => {
+      const m = String(sim || '').match(/^[A-Z]+(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+      return m ? { expiry: `20${m[1]}-${m[2]}-${m[3]}`, tipo: m[4], strike: Number(m[5]) / 1000 } : null;
+    };
+    const s = desarmar(shortSym), l = desarmar(longSym);
+    if (!s || !l) return null;
+    expiry = s.expiry; tipo = s.tipo; shortStrike = s.strike; longStrike = l.strike;
+  }
+  try {
+    const r = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX?expiry=${expiry}`);
+    const j = await r.json();
+    const exp = (j.expirations || []).find(e => e.expiry === expiry) || (j.expirations || [])[0];
+    const buscar = (k) => (exp?.strikes || []).find(s => s.strike === k);
+    const rama = (s) => tipo === 'P' ? s?.put : s?.call;
+    const ms = rama(buscar(shortStrike))?.mark, ml = rama(buscar(longStrike))?.mark;
+    if (ms == null || ml == null) return null;
+    return { corto: +ms.toFixed(2), largo: +ml.toFixed(2), neto: +(ms - ml).toFixed(2) };
+  } catch (e) {
+    return null;
+  }
 }
 
 async function checkDirectionalTPSLImpl() {
