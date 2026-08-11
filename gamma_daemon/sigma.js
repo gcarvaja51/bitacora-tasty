@@ -8,6 +8,8 @@
 import puppeteer from 'puppeteer';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
+import { execFileSync } from 'child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROFILE_DIR = path.join(__dirname, 'sigma_profile');
@@ -40,6 +42,29 @@ const LABEL_MAP = {
 
 let browser = null;
 let page = null;
+
+// Mata los Chromium que esten reteniendo el perfil del daemon. Solo esos: el
+// filtro va contra la ruta del userDataDir, que aparece en la linea de comando.
+// Nunca toca el Chrome del usuario ni ninguna otra instancia.
+function limpiarChromiumHuerfano() {
+  try {
+    const ruta = PROFILE_DIR.replace(/\\/g, '\\\\');
+    const ps = `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" `
+      + `| Where-Object { $_.CommandLine -like '*${PROFILE_DIR.split(path.sep).pop()}*' } `
+      + `| ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {} }`;
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps],
+                 { timeout: 20000, stdio: 'ignore' });
+    // SingletonLock/SingletonCookie sobreviven a un kill y bloquean el arranque
+    // siguiente igual que el proceso vivo.
+    for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+      try { fs.rmSync(path.join(PROFILE_DIR, f), { force: true }); } catch { /* noop */ }
+    }
+    console.log('[sigma] perfil liberado antes de lanzar');
+  } catch (e) {
+    // Que falle la limpieza no puede impedir el intento de lanzar.
+    console.warn('[sigma] no se pudo limpiar el perfil (%s) -- se intenta lanzar igual', e.message);
+  }
+}
 
 // Token del proxy de datos de Sigma (ver readCandles5m). No esta en localStorage
 // ni embebido en el bundle: solo viaja en la cabecera `authorization` de las
@@ -97,11 +122,27 @@ export async function ensurePage() {
       }
     }
   }
+  // Antes de lanzar: matar cualquier Chromium que este reteniendo ESTE perfil.
+  //
+  // El 2026-08-10 el daemon perdio el dia entero por esto. A las 09:32
+  // puppeteer.launch() supero los 30s esperando el WS endpoint y se dio por
+  // vencido — pero el navegador SI habia arrancado. Quedo huerfano tomando el
+  // perfil, y los 40 intentos siguientes fallaron todos con el mismo timeout,
+  // porque un userDataDir no admite dos instancias. Resultado: cero lecturas de
+  // Sigma en toda la sesion, con las tres estrategias corriendo en respaldo.
+  //
+  // El filtro es por la RUTA DEL PERFIL, no por nombre de proceso: matar
+  // "chrome.exe" a secas se llevaria por delante el navegador del usuario.
+  limpiarChromiumHuerfano();
+
   browser = await puppeteer.launch({
     headless: false,
     userDataDir: PROFILE_DIR,
     args: ['--start-maximized'],
     defaultViewport: null,
+    // 30s (el default) resulto ser justo cuando el perfil viene de un cierre
+    // sucio y Chromium tiene que recuperarlo al arrancar.
+    timeout: 90000,
   });
   const pages = await browser.pages();
   page = pages[0] || (await browser.newPage());
@@ -178,10 +219,24 @@ export async function readLevels() {
 
   await ensureMvsAbsolute(p);
 
-  const raw = await readRawMetrics(p);
-  const missing = Object.keys(LABEL_MAP).filter((k) => !(k in raw));
+  // Espera ACTIVA a que aparezcan las metricas, en vez de confiar en el timeout
+  // fijo de 6s de ensurePage (2026-08-10). Tras un arranque en frio —Chromium
+  // recien lanzado, SPA cargando, sesion revalidandose— 6s se quedan cortos y la
+  // lectura moria con "faltan metricas esperadas", que es el mismo mensaje que da
+  // una sesion caducada o un cambio de UI. Tres causas distintas bajo un solo
+  // error, y solo una de ellas necesitaba paciencia.
+  //
+  // Reproducido: con el perfil recien liberado, el primer intento llega con el
+  // panel a medio pintar. Al segundo o tercero ya esta.
+  let raw = {}, missing = [];
+  for (let intento = 1; intento <= 6; intento++) {
+    raw = await readRawMetrics(p);
+    missing = Object.keys(LABEL_MAP).filter((k) => !(k in raw));
+    if (!missing.length) break;
+    if (intento < 6) await new Promise((r) => setTimeout(r, 2500));
+  }
   if (missing.length > 0) {
-    throw new Error(`Sigma Terminal: faltan metricas esperadas (${missing.join(', ')}) -- posible sesion expirada o cambio de UI`);
+    throw new Error(`Sigma Terminal: faltan metricas esperadas tras 15s de espera (${missing.join(', ')}) -- posible sesion expirada o cambio de UI`);
   }
 
   const levels = {};

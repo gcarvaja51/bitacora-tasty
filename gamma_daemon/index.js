@@ -286,9 +286,20 @@ async function runCycle() {
     });
     console.error(`[ciclo] fallo #${consecutiveFailures}:`, e.message);
 
-    if (consecutiveFailures >= FAILURE_THRESHOLD && !alerted) {
+    // Aviso al 3er fallo y REPETIDO cada 20 despues (2026-08-10).
+    //
+    // Antes avisaba una sola vez y se callaba para siempre hasta recuperarse. El
+    // 10-ago el daemon acumulo 40 fallos seguidos durante toda la sesion y la
+    // unica señal fue esa notificacion inicial: si se pasa por alto, el sistema
+    // opera el dia entero en respaldo sin que nadie se entere. Un fallo que dura
+    // horas tiene que doler mas que uno que dura un minuto.
+    const toca = consecutiveFailures === FAILURE_THRESHOLD
+              || (consecutiveFailures > FAILURE_THRESHOLD && consecutiveFailures % 20 === 0);
+    if (toca) {
+      const min = Math.round(consecutiveFailures * (mode === 'degraded' ? 2 : 0.5));
       await ntfy(
-        `El daemon de Gamma lleva ${consecutiveFailures} fallos seguidos. Ultimo error: ${e.message}`,
+        `El daemon de Gamma lleva ${consecutiveFailures} fallos seguidos (~${min} min sin leer Sigma). `
+        + `Las estrategias estan decidiendo con el respaldo. Ultimo error: ${e.message}`,
         { title: 'Gamma daemon: fallando', priority: 'high' }
       );
       alerted = true;
