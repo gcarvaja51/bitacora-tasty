@@ -215,9 +215,25 @@ async function readRawMetrics(p) {
 export async function readLevels() {
   const p = await ensurePage();
 
-  const symbol = await readSymbol(p);
+  // El simbolo tambien necesita paciencia en frio (2026-08-11). La espera activa
+  // que se agrego ayer cubria las METRICAS, pero este chequeo va antes y no la
+  // tenia: en el primer ciclo de las 09:00 la pagina recien lanzada devolvio
+  // symbol=null y el ciclo murio con "no esta en SPX", que es el mismo mensaje
+  // que daria un usuario que cambio el activo a mano. Dos causas muy distintas
+  // bajo un solo error — y solo una se arregla esperando.
+  //
+  // No es grave (el ciclo siguiente lo levanta), pero ensucia el diagnostico
+  // justo en el arranque, que es cuando mas se mira.
+  let symbol = null;
+  for (let intento = 1; intento <= 5; intento++) {
+    symbol = await readSymbol(p);
+    if (symbol) break;
+    if (intento < 5) await new Promise((r) => setTimeout(r, 2000));
+  }
   if (!symbol || !/^SPX$/i.test(symbol)) {
-    throw new Error(`Sigma Terminal no esta en SPX (simbolo actual: "${symbol}") -- cambiar a mano y reintentar`);
+    throw new Error(symbol
+      ? `Sigma Terminal no esta en SPX (simbolo actual: "${symbol}") -- cambiar a mano y reintentar`
+      : 'Sigma Terminal no devolvio el simbolo tras 10s -- la pagina no termino de cargar');
   }
 
   await ensureMvsAbsolute(p);
