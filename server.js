@@ -6044,8 +6044,27 @@ async function processDirectionalEntry(direction, meta = {}) {
           });
         }
       } catch(e) {
+        // ORDEN RECHAZADA POR EL BROKER — se registra en el strategy log, no solo
+        // en consola (2026-08-10).
+        //
+        // Antes el error vivia unicamente en signal.tradierOrder.error y en los
+        // logs de Railway. El 10-ago eso escondio la PRIMERA señal de 1DTE que
+        // genero el sistema: gate pasado, strikes elegidos, credito calculado, y
+        // la orden rebotada por un "price must be greater than 0". La señal quedo
+        // PENDING y en el strategy log no habia absolutamente nada — el mismo
+        // sitio donde se mira todo lo demas mostraba un dia sin novedades.
+        //
+        // Una señal que se genera y no se ejecuta es el evento MAS importante de
+        // registrar: significa que la estrategia acerto el setup y perdio el
+        // trade por plomeria.
         signal.tradierOrder = { error: e.message };
         console.error('[Tradier] ❌ Error enviando orden:', e.message);
+        try {
+          logStrategyEvent({ strategyFamily: 'TENDENCIA',
+            etTime: ctx.etTime, stage: 'ORDEN_RECHAZADA', passed: false,
+            reason: `El broker rechazo la orden: ${e.message}`,
+            snapshot: buildStrategySnapshot(ctx, { strikes: signal.strikes, error: e.message }) });
+        } catch { /* registrar el fallo no puede provocar otro */ }
       }
     }
 
@@ -6961,8 +6980,27 @@ async function checkIronCondor() {
           saveTradierExecutions(executions);
         });
       } catch(e) {
+        // ORDEN RECHAZADA POR EL BROKER — se registra en el strategy log, no solo
+        // en consola (2026-08-10).
+        //
+        // Antes el error vivia unicamente en signal.tradierOrder.error y en los
+        // logs de Railway. El 10-ago eso escondio la PRIMERA señal de 1DTE que
+        // genero el sistema: gate pasado, strikes elegidos, credito calculado, y
+        // la orden rebotada por un "price must be greater than 0". La señal quedo
+        // PENDING y en el strategy log no habia absolutamente nada — el mismo
+        // sitio donde se mira todo lo demas mostraba un dia sin novedades.
+        //
+        // Una señal que se genera y no se ejecuta es el evento MAS importante de
+        // registrar: significa que la estrategia acerto el setup y perdio el
+        // trade por plomeria.
         signal.tradierOrder = { error: e.message };
         console.error('[Tradier-IC] ❌ Error enviando orden:', e.message);
+        try {
+          logStrategyEvent({ strategyFamily: 'NEUTRAL',
+            etTime: ctx.etTime, stage: 'ORDEN_RECHAZADA', passed: false,
+            reason: `El broker rechazo la orden: ${e.message}`,
+            snapshot: buildStrategySnapshot(ctx, { strikes: signal.strikes, error: e.message }) });
+        } catch { /* registrar el fallo no puede provocar otro */ }
       }
     }
 
@@ -7779,6 +7817,105 @@ async function checkDirectionalMonitorHealth() {
 }
 setInterval(checkDirectionalMonitorHealth, 60 * 1000);
 
+// ── Vigilante de estrategias inactivas (2026-08-10) ──────────────────────
+//
+// A pedido del usuario: "si una de las estrategias no esta activa necesito que
+// me lo reportes por ntfy".
+//
+// El 10-ago las tres estrategias corrieron el dia entero con el respaldo de
+// Yahoo porque el daemon nunca conecto, y la unica señal fue un campo en un
+// JSON. Y el 1DTE genero su primera señal historica y la orden reboto, sin que
+// nada en el strategy log lo delatara. Los dos casos comparten la forma: el
+// sistema sigue en pie, parece sano, y no esta haciendo lo que uno cree.
+//
+// Se vigilan tres cosas distintas, porque "inactiva" significa tres cosas:
+//   1. APAGADA    — tradierAutoExecute en false: genera señales y no ejecuta
+//   2. MUDA       — dentro de su ventana y sin evaluar hace rato: el timer murio
+//   3. A CIEGAS   — evaluando, pero con Sigma caido: decide con el respaldo
+//
+// Un solo aviso por estrategia y por motivo mientras dure; se rearma al volver
+// a la normalidad. Sin eso, un problema de tres horas manda 180 notificaciones
+// y el usuario las silencia — que es peor que no avisar.
+const _vigAvisado = new Map();
+
+async function vigilarEstrategias() {
+  try {
+    if (!isMarketHours()) { _vigAvisado.clear(); return; }
+    const et = getETHour();
+    const mins = et.hour * 60 + et.min;
+    const cfg = loadSPXConfig();
+    const t = cfg.trading || {};
+
+    // Ventana propia de cada una. El IC 0DTE no tiene ventana horaria (decide el
+    // PIN), asi que se lo vigila durante toda la sesion hasta su tope de apertura.
+    const estrategias = [
+      { nom: 'Reversión',    fam: 'REVERSION',  activa: mins >= 585 && mins < 780,
+        exec: (t.smaReversion || {}).tradierAutoExecute },
+      { nom: 'Direccional',  fam: 'TENDENCIA',  activa: mins >= 585 && mins < 840,
+        exec: t.tradierAutoExecute },
+      { nom: 'Iron Condor',  fam: 'NEUTRAL',    activa: mins >= 570 && mins < 870,
+        exec: (t.ironCondor || {}).tradierAutoExecute },
+    ];
+
+    const log = loadStrategyLog();
+    const ahora = Date.now();
+    const sigma = getFreshSigmaLevels();
+
+    for (const e of estrategias) {
+      if (!e.activa) continue;
+
+      // 1. APAGADA
+      if (e.exec === false) {
+        await avisarVigilante(e.nom, 'apagada',
+          `${e.nom}: la ejecución automática está en OFF. Genera señales pero no manda órdenes.`);
+        continue;
+      }
+
+      // 2. MUDA — la ultima evaluacion de su familia es vieja. 12 min cubre al
+      // mas lento de los tres ciclos (el IC corre cada 5) con margen para un
+      // ciclo perdido.
+      const ultimo = log.find(x => x.strategyFamily === e.fam && x.timestamp);
+      const edadMin = ultimo ? (ahora - new Date(ultimo.timestamp).getTime()) / 60000 : Infinity;
+      if (edadMin > 12) {
+        await avisarVigilante(e.nom, 'muda',
+          `${e.nom}: lleva ${edadMin === Infinity ? 'todo el día' : Math.round(edadMin) + ' min'} `
+          + `sin evaluar dentro de su ventana. El monitor puede estar caído.`);
+        continue;
+      }
+
+      // 3. A CIEGAS — evalua, pero sin datos de Sigma. No es urgente como las
+      // otras dos (el respaldo funciona y da los mismos numeros), pero cambia lo
+      // que se puede concluir del dia, asi que tiene que saberse el mismo dia.
+      if (!sigma) {
+        await avisarVigilante(e.nom, 'sin_sigma',
+          `${e.nom}: está operando SIN datos frescos de Sigma — decide con el respaldo de Yahoo. `
+          + `Revisar el daemon.`);
+        continue;
+      }
+
+      _vigAvisado.delete(e.nom);   // todo en orden: se rearma
+    }
+  } catch (err) {
+    console.error('[VIGILANTE] error:', err.message);
+  }
+}
+
+async function avisarVigilante(nombre, motivo, mensaje) {
+  const clave = nombre + ':' + motivo;
+  if (_vigAvisado.get(nombre) === motivo) return;   // ya avisado y sigue igual
+  _vigAvisado.set(nombre, motivo);
+  console.error(`[VIGILANTE] ${clave} — ${mensaje}`);
+  try {
+    await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+      method: 'POST',
+      headers: { 'Title': `Estrategia inactiva: ${nombre}`, 'Priority': 'high',
+                 'Tags': 'warning', 'Content-Type': 'text/plain' },
+      body: mensaje,
+    });
+  } catch (e) { console.error('[VIGILANTE] no se pudo enviar el ntfy:', e.message); }
+}
+setInterval(vigilarEstrategias, 3 * 60 * 1000);
+
 // ── Chequeo PRE-MERCADO de capacidad de ordenar en Tradier (2026-08-03) ──
 // Nace de un incidente real del mismo dia: el sandbox de Tradier empezo a
 // rechazar TODA orden con "Application key is not defined or does not exist"
@@ -8370,8 +8507,27 @@ async function checkAlejamientoSMA() {
           saveTradierExecutions(execs);
         });
       } catch(e) {
+        // ORDEN RECHAZADA POR EL BROKER — se registra en el strategy log, no solo
+        // en consola (2026-08-10).
+        //
+        // Antes el error vivia unicamente en signal.tradierOrder.error y en los
+        // logs de Railway. El 10-ago eso escondio la PRIMERA señal de 1DTE que
+        // genero el sistema: gate pasado, strikes elegidos, credito calculado, y
+        // la orden rebotada por un "price must be greater than 0". La señal quedo
+        // PENDING y en el strategy log no habia absolutamente nada — el mismo
+        // sitio donde se mira todo lo demas mostraba un dia sin novedades.
+        //
+        // Una señal que se genera y no se ejecuta es el evento MAS importante de
+        // registrar: significa que la estrategia acerto el setup y perdio el
+        // trade por plomeria.
         signal.tradierOrder = { error: e.message };
         console.error('[Tradier-REV] ❌ Error enviando orden:', e.message);
+        try {
+          logStrategyEvent({ strategyFamily: 'REVERSION',
+            etTime: ctx.etTime, stage: 'ORDEN_RECHAZADA', passed: false,
+            reason: `El broker rechazo la orden: ${e.message}`,
+            snapshot: buildStrategySnapshot(ctx, { strikes: signal.strikes, error: e.message }) });
+        } catch { /* registrar el fallo no puede provocar otro */ }
       }
     }
 
