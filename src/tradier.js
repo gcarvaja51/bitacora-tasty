@@ -525,7 +525,17 @@ class TradierClient {
       symbol:   underlyingRoot,
       type:     minCreditPrice != null ? 'credit' : 'market',
       duration: 'day',
-      ...(minCreditPrice != null ? { price: precioArriba(minCreditPrice) } : {}), // apertura: estricto
+      // Piso de 0.01 (2026-08-10). Tradier RECHAZA una orden de credito con
+      // price: 0 — "Invalid parameter, price: must be greater than 0" — y eso es
+      // exactamente lo que se enviaba con minCreditoAnchoPct en 0, que significa
+      // "acepto cualquier credito". El 10-ago mato la PRIMERA señal de 1DTE que
+      // genero el sistema: gate pasado, strikes elegidos, credito 1.12, y la
+      // orden rebotada por el broker.
+      //
+      // Mismo piso que ya usaba el roll de la Rueda por la misma razon
+      // (precioArriba(Math.max(0.01, ...))). Un limite de 1 centavo expresa
+      // "cualquier credito" sin pedirle al broker un precio que no acepta.
+      ...(minCreditPrice != null ? { price: precioArriba(Math.max(0.01, minCreditPrice)) } : {}), // apertura: estricto
       'option_symbol[0]': putShortSym,  'side[0]': 'sell_to_open', 'quantity[0]': String(quantity),
       'option_symbol[1]': putLongSym,   'side[1]': 'buy_to_open',  'quantity[1]': String(quantity),
       'option_symbol[2]': callShortSym, 'side[2]': 'sell_to_open', 'quantity[2]': String(quantity),

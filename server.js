@@ -6626,6 +6626,22 @@ async function checkIronCondor() {
       return;
     }
 
+    // EL 1DTE NO SE CRUZA CON NADIE (2026-08-10, decision del usuario: "nada debe
+    // bloquear el IC 1DTE... es una estrategia que no se debe cruzar con ninguna
+    // otra").
+    //
+    // Opera a las 15:45, cuando ya no hay ventana para las demas: la Reversion
+    // cierra a las 13:00 y la direccional a las 14:00. Y aunque quedara algo
+    // abierto, es un trade de otra naturaleza —neutral, overnight, con su propio
+    // tope de las 10:30— que no compite por el mismo movimiento.
+    //
+    // Medido el 10-ago: el 0DTE se bloqueo 29 veces por posiciones de la
+    // direccional. Para el 1DTE ese bloqueo no tiene sentido y le costaria la
+    // unica entrada del dia.
+    if (dte === '1DTE') {
+      // Sin chequeo de posicion: se sigue derecho a evaluar el gate.
+    } else {
+
     // Doble capa desde el 2026-07-16 (ver hasLocalOpenSPXWPosition) — se registra
     // si las dos fuentes discrepan, para diagnosticar si el problema de Tradier
     // (una posicion genuinamente abierta que hasOpenPosition no detecto) reaparece.
@@ -6658,6 +6674,7 @@ async function checkIronCondor() {
     if (tradierDiceAbiertoIC && soloReversion) {
       console.log(`[SPX-IC ${dte}] Hay una Reversión abierta — no bloquea: el IC es independiente (PIN + gamma positivo).`);
     }
+    }   // fin del bloque de exclusividad, que el 1DTE se saltea entero
 
     ctx = await buildSPXContext();
     const spxConfig = loadSPXConfig();
