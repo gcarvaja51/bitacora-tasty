@@ -690,11 +690,12 @@ CIARG_V1 nunca manda `direction: NEUTRAL`, y el gate obligatorio de confluencia 
    contexto de mercado (`buildSPXContext()`, la misma función que usa
    `GET /api/spx/context`) contra `evaluateIronCondorGate(ctx, dte)` en `src/spx.js` —
    gate propio, playbook profesor Alejandro: GEX positivo + buffer de Gamma Flip
-   (compartido 0DTE/1DTE), más para 0DTE: Fase Weinstein 15m 1 o 3, MACD 15m aplanado,
-   rango de apertura respetado, ventana 10am-1pm ET; para 1DTE: ventana 3:45-3:50pm ET,
-   rechazo total si VIX>24 (el 0DTE solo ajusta el ancho de alas a 10pts si VIX>24, no
-   rechaza). El chequeo de calendario económico del 1DTE (eventos macro del próximo día
-   de mercado) **se automatizó el 2026-07-09** — ver sección dedicada abajo.
+   (compartido 0DTE/1DTE), más para 0DTE: setup por PIN (ver 2026-08-08) y corte de
+   apertura `noAbrirDespuesET`; para 1DTE: ventana **3:45-3:52pm ET**.
+   ⚠️ **Desde el 2026-08-09 el 1DTE corre en MODO CAPTURA y casi nada de esto lo
+   bloquea** — VIX, distancia al Gamma Flip y calendario económico se siguen
+   evaluando pero ya **no** rechazan la entrada. Ver la sección dedicada abajo antes
+   de razonar sobre por qué el 1DTE entró o no entró.
 2. Si pasa, arma la señal (4 patas: put corta/larga + call corta/larga, delta configurable
    vía `spxConfig.trading.ironCondor`) y, si `ironCondor.tradierAutoExecute !== false`
    (kill-switch **propio**, separado del de las direccionales), la ejecuta en Tradier vía
@@ -744,9 +745,17 @@ Antes tenía un bug de offset fijo UTC-5 que atrasaba 1 hora las ventanas en ép
 **Calendario económico automatizado para el 1DTE (2026-07-09):** a pedido del usuario —
 antes esto era una nota manual ("revisar antes de confirmar"), sin chequeo real. Ahora
 `checkHighImpactUSEventsTomorrow()` (server.js) consulta el **próximo día de mercado** (salta
-fin de semana — un IC 1DTE abierto un viernes expira el lunes, no el sábado) y bloquea la
-entrada 1DTE si hay algún evento de **alto impacto en EE.UU.** ("3 estrellas", a pedido
-explícito del usuario — no se filtran otros países ni impacto medio/bajo).
+fin de semana — un IC 1DTE abierto un viernes expira el lunes, no el sábado) y detecta
+eventos de **alto impacto en EE.UU.** ("3 estrellas", a pedido explícito del usuario — no se
+filtran otros países ni impacto medio/bajo).
+
+> ⚠️ **Desde el 2026-08-09 este chequeo YA NO BLOQUEA** — el 1DTE está en modo captura y
+> entra igual. El resultado se sigue calculando y viaja al registro del trade
+> (`condiciones.calendarioVerificado` / `.eventosManana`), pero es informativo. Todo lo que
+> dice esta sección sobre "bloquear" describe el comportamiento **anterior**.
+> Verificado el 2026-08-12: el endpoint de Investing.com hoy devuelve **HTTP 403** (con las
+> cabeceras exactas del server), así que en la práctica `calendarioVerificado` viene en
+> `false` siempre. Bajo el modo captura eso es irrelevante para si el trade sale o no.
 - **Fuente**: no hay API oficial de Investing.com — se encontró inspeccionando las llamadas
   de red de su propio calendario web: `endpoints.investing.com/pd-instruments/v1/calendars/
   economic/events/occurrences?domain_id=1&start_date=...&end_date=...&country_ids=5`. Sin
@@ -756,14 +765,94 @@ explícito del usuario — no se filtran otros países ni impacto medio/bajo).
 - Respuesta trae dos arrays a unir por `event_id`: `events` (metadata: `importance`
   `low`/`medium`/`high`, `event_translated`/`short_name`) y `occurrences` (`occurrence_time`
   en UTC, valores actual/forecast/previous). Se filtra a `importance === 'high'`.
-- **Gate conservador ante fallos**: si la consulta falla (red, endpoint caído/cambiado), el
-  1DTE se **bloquea** (no se asume "sin eventos" solo porque no se pudo verificar) — mismo
-  criterio que el resto del sistema ante datos faltantes.
+- **Gate conservador ante fallos** (comportamiento **hasta el 2026-08-09**, hoy inactivo por
+  el modo captura): si la consulta fallaba, el 1DTE se **bloqueaba** — no se asumía "sin
+  eventos" solo porque no se pudo verificar. `null` = no se pudo verificar, `[]` = verificado
+  y sin eventos; esa distinción sigue viva en el código y en el registro del trade.
 - Solo se consulta cuando `dte === '1DTE'` dentro de `checkIronCondor()` — no en cada
   chequeo de 0DTE, que no lo necesita.
 - **Validado con fechas de prueba reales** (no solo con la lógica): "CB Consumer Confidence"
   salió correctamente marcado `high` para una fecha con evento real conocido, confirmando que
   el filtro de importancia funciona — no solo que la llamada no tira error.
+
+### MODO CAPTURA del 1DTE (2026-08-09) — la única condición que bloquea es el GEX
+
+> **Decisión del usuario:** *"entremos sin condiciones… pongamos solo como restricción de
+> entrada estar en gamma positivo, solo eso"*, y *"nada debe bloquear el IC 1DTE"*
+> (2026-08-10). El 1DTE se genera **sí o sí** cuando hay gamma positivo y estamos en su
+> ventana.
+
+Vive en `spxConfig.trading.ironCondor.soloGammaPositivo1DTE: true`. Lo que **bloquea** y lo
+que **solo se registra**:
+
+| | |
+|---|---|
+| **Bloquea** | GEX POSITIVO, y estar dentro de la ventana **15:45–15:52 ET** |
+| Se evalúa pero **no** bloquea | distancia al Gamma Flip, VIX>24, calendario económico |
+| **No aplica** al 1DTE | el PIN, y el corte `noAbrirDespuesET` (14:30) — los dos son solo del 0DTE, el 1DTE retorna antes de llegar a ellos |
+| **No lo bloquea** | la exclusividad de posición: `checkIronCondor` se saltea ese bloque entero cuando `dte === '1DTE'` |
+
+Lo que sí sigue filtrando, **después** del gate y en `server.js` (ojo, no distingue dte —
+aplica a 0DTE y 1DTE por igual): `minShortDistPts` (25) y `minCreditoAnchoPct` (hoy 0).
+
+La ventana es de **7 minutos** a propósito: `checkIronCondor` corre cada 5 min con fase
+libre, así que 7 garantizan que caiga un tick adentro. ⚠️ **Consecuencia:** hay **1 o 2
+intentos por día, no más**. Si el sandbox de Tradier responde HTTP 500 en ese rato (pasó el
+2026-08-12: 22 órdenes rechazadas seguidas por *"An error occurred while communicating with
+the backend"*), **se pierde la entrada del día** y no hay reintento.
+
+Salida: `sinStop1DTE: true` — **no tiene stop**. Sale por TP 30% o por `cierre1DTE_ET`
+(10:30 ET del día siguiente). El riesgo queda acotado solo por el ancho: 1 contrato × 5 =
+**$500**.
+
+Validado en vivo el 2026-08-12 contra la cadena real: resuelve correctamente el vencimiento
+de **mañana** (el bug de `e.expiry` del 2026-07-08 sigue arreglado), y con delta 0.10 las
+cortas quedan a ~59 pts del spot — muy por encima del piso de 25 que sí mata al 0DTE en días
+comprimidos.
+
+## Config de producción a la deriva — cuatro correcciones en vivo (2026-08-12)
+
+Ninguna es un commit: son cambios sobre el **volumen de Railway**, así que
+`scripts/control_cambios.py` no los registra. Quedan acá.
+
+**1. El daemon de Gamma estaba muerto y nada lo iba a levantar.** Arrancó al login (6:20
+local) y murió a las 7:30:20 con `LastResult 0xC000013A` (STATUS_CONTROL_C_EXIT) — el mismo
+minuto en que arrancaron los procesos de TradingView, o sea que se le cerró la consola
+encima. La Tarea Programada `GammaDaemon` tiene **un solo trigger, `TaskLogonTrigger`**: sin
+repetición ni horario, nadie lo relanza si se cae a mitad del día. Relanzado a mano. **Sigue
+pendiente** agregarle un trigger de repetición, que necesita una terminal como Administrador.
+
+**2. `smaReversion.minScore` estaba en 0** (el default es 75) y `earlyExitPct` en 0.6 (el
+usuario lo había subido a 0.9). Confirmado con el usuario que **no lo cambió él**: config
+corrupta, no decisión. Ningún código escribe un 0 ahí — salió de un `POST /api/spx/config`
+contra el volumen, y la causa raíz no se identificó. Con `minScore: 0` la Reversión ejecuta
+**cualquier** señal: la del 2026-08-12 entró con score 0 y 3 de 6 checks fallando (incluido
+el compás de medias *en contra* de la reversión) y el corto en delta 0.518, casi ATM.
+Restaurado a 75. **`earlyExitPct` sigue en 0.6** — pendiente de decidir.
+
+⚠️ **Al escribir config**: `POST /api/spx/config` hace **merge superficial** sobre `trading`.
+Mandar `{trading:{smaReversion:{minScore:75}}}` **reemplaza el objeto entero** y borra pesos,
+kill-switch y todo lo demás. Hay que leer la config, modificar el campo sobre el objeto
+completo, y mandar ese objeto completo.
+
+**3. `gammaFlipBufferPts` seguía en 20 en producción.** El commit `79c49e4` (2026-08-11) lo
+bajó a 10 en el código, pero es el gotcha de siempre: **un push a git no actualiza el volumen**.
+O sea que el cambio del día anterior nunca existió en producción. Empujado a 10, y el efecto
+se ve en el log del mismo día: el IC pasó de morir en el primer gate (*"a menos de 20pts del
+Gamma Flip"*) a atravesar dos más y llegar a la selección de strikes, quedando a **1.7 pts**
+de disparar su primera señal.
+
+**4. Orden zombi que el sandbox no deja cancelar.** Una orden de Reversión (`36891616`) quedó
+`pending` con `exec_quantity: 0` durante horas. `cleanupStalePendingOrders` **sí la venía
+intentando cada 10 min**, pero Tradier responde `HTTP 400 "order not available to be
+canceled"` — y ese error se pierde en un `console.error` dentro del try/catch, sin ntfy ni
+estado. Mientras tanto `hasLocalOpenSPXWPosition()` cuenta `submitted` como abierta, así que
+la Reversión se auto-bloqueó **54 veces** en una mañana. Se marcó el registro `canceled` con
+`closeReason: 'SANDBOX_ORDEN_NO_CANCELABLE'` y `pnl: 0` (verificado contra las posiciones
+reales del broker: sus patas nunca existieron).
+
+⚠️ **Bug abierto:** que el broker rechace una cancelación debería avisar, no reintentarse en
+silencio para siempre. Es la misma familia que la "orden fantasma" del 2026-07-22.
 
 ## Alejamiento de SMA — reversión a la media (2026-07-08)
 
