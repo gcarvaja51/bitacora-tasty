@@ -138,11 +138,31 @@ export async function ensurePage() {
   // "chrome.exe" a secas se llevaria por delante el navegador del usuario.
   limpiarChromiumHuerfano();
 
+  // HEADLESS (2026-08-11, a pedido del usuario: "hay algo que es un flasheo del
+  // sigma terminal... se abre y molesta cada 2 o 3 minutos").
+  //
+  // Con headless:false + --start-maximized, cada ciclo del daemon abria una
+  // ventana de Chromium a pantalla completa, leia, y la cerraba. Como el ciclo
+  // es de ~2 min, eso es una ventana robando el foco cada 2 min durante toda la
+  // sesion de mercado — encima de la pantalla donde se opera.
+  //
+  // Un intento anterior de headless fallo con "Timed out waiting for the WS
+  // endpoint" y parecio que headless no servia. NO era eso: el perfil estaba
+  // tomado por un Chromium huerfano. Con el perfil libre lanza en ~16s y la
+  // sesion del perfil sigue siendo valida (verificado: web.sigma.trade carga sin
+  // pedir login).
+  //
+  // SIGMA_HEADFUL=1 devuelve la ventana visible, para depurar a ojo cuando haga
+  // falta ver que esta mostrando la pagina.
+  const headful = process.env.SIGMA_HEADFUL === '1';
   browser = await puppeteer.launch({
-    headless: false,
+    headless: headful ? false : 'new',
     userDataDir: PROFILE_DIR,
-    args: ['--start-maximized'],
-    defaultViewport: null,
+    // --start-maximized solo tiene sentido con ventana; headless necesita que el
+    // tamano se declare, o el layout se renderiza angosto y los paneles del
+    // terminal no llegan a montarse.
+    args: headful ? ['--start-maximized'] : ['--window-size=1920,1080', '--no-first-run', '--no-default-browser-check'],
+    defaultViewport: headful ? null : { width: 1920, height: 1080 },
     // 30s (el default) resulto ser justo cuando el perfil viene de un cierre
     // sucio y Chromium tiene que recuperarlo al arrancar.
     timeout: 90000,
