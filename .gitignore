@@ -12,3 +12,7 @@ gamma_daemon/status.json
 gamma_daemon/history.json
 gamma_daemon/sigma_profile/
 gamma_daemon/daemon_crash_log.txt
+
+# Cache de Python (scripts/ y skills/)
+__pycache__/
+*.pyc
