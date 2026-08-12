@@ -151,27 +151,62 @@ class TastytradeClient {
     if (!symbols.length) return {};
 
     // Intento 1: TastyTrade REST (solo mercado abierto)
-    const params = symbols.map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+    //
+    // 2026-08-11 — ESTE INTENTO NUNCA DEVOLVIO UN SOLO DATO.
+    //
+    // Pegaba a `/market-data/options?symbols[]=`, que NO EXISTE en la API de
+    // TastyTrade: responde 404. Y el catch de abajo estaba VACIO, asi que el 404
+    // se tragaba sin dejar rastro y siempre se caia al Black-Scholes de mas
+    // abajo. Resultado: el src 'tt' no se emitio jamas.
+    //
+    // Lo que se veia en la bitacora de la cuenta real (La Rueda, /api/overview):
+    // las 20 posiciones de opciones con greeks.src = 'bs', o sea el Delta de la
+    // cartera calculado por nosotros con precios de Yahoo en vez del que da el
+    // broker. Y peor: las 4 posiciones de SPX quedaban SIN delta —el fallback no
+    // sabe valorar opciones de indice con datos de Yahoo— y se sumaban como cero
+    // al Delta agregado, sin avisar.
+    //
+    // La ruta correcta ya estaba en uso a dos lineas de la llamada rota: el
+    // propio /api/overview pide los mark prices con `/market-data?symbols[]=` en
+    // lotes de 50, y /api/option-chain/:symbol lleva usandola desde siempre. Esa
+    // misma respuesta trae delta/theta/gamma/vega, asi que no hace falta ninguna
+    // ruta nueva: solo pedirla donde corresponde.
+    //
+    // Tercera correccion del mismo mapeo, invisible mientras la ruta daba 404:
+    // la IV viene en `volatility`; se pedia `implied-volatility`, que no existe
+    // en la respuesta, y habria quedado en 0.
+    const BATCH = 50;   // mismo lote que el resto de las llamadas a /market-data
     try {
-      const d     = await this._req(`/market-data/options?${params}`);
-      const items = d.data?.items ?? [];
-      if (items.length > 0) {
-        const map = {};
+      const map = {};
+      let total = 0;
+      for (let i = 0; i < symbols.length; i += BATCH) {
+        const params = symbols.slice(i, i + BATCH)
+          .map(s => `symbols[]=${encodeURIComponent(s)}`).join('&');
+        const d     = await this._req(`/market-data?${params}`);
+        const items = d.data?.items ?? [];
         items.forEach(item => {
           map[item.symbol] = {
             delta: parseFloat(item.delta || 0),
             theta: parseFloat(item.theta || 0),
             gamma: parseFloat(item.gamma || 0),
             vega:  parseFloat(item.vega  || 0),
-            iv:    parseFloat(item['implied-volatility'] || item.iv || 0),
-            mark:  parseFloat(item.mark  || item['mid-price'] || 0),
+            iv:    parseFloat(item.volatility || item['implied-volatility'] || item.iv || 0),
+            mark:  parseFloat(item.mark  || item.mid || 0),
             src:   'tt',
           };
         });
-        console.log(`[Greeks] TastyTrade: ${items.length} opciones`);
+        total += items.length;
+      }
+      if (total > 0) {
+        console.log(`[Greeks] TastyTrade: ${total} opciones`);
         return map;
       }
-    } catch(e) {}
+      console.warn('[Greeks] TastyTrade respondio sin items — se cae a Black-Scholes');
+    } catch (e) {
+      // Ya no se traga. Degradar a un modelo y presentarlo como dato del broker
+      // es exactamente lo que dejo esto escondido durante meses.
+      console.warn(`[Greeks] TastyTrade fallo (${String(e.message).slice(0, 120)}) — se cae a Black-Scholes`);
+    }
 
     // Intento 2: Black-Scholes con Yahoo Finance
     console.log('[Greeks] Usando Black-Scholes + Yahoo Finance...');
