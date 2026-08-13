@@ -57,6 +57,113 @@ ejecutado — con el filtro de dirección todavía retrasado. Ver
 
 ---
 
+### 2. El piso de crédito y el límite de precio de entrada son la MISMA perilla — NEUTRAL, impacto MEDIO
+
+**Anotado:** 2026-08-13 · **Evidencia:** el IC 1DTE `tex-1786564157055` del 2026-08-12
+
+`server.js` deriva el límite de la orden directamente del piso de crédito:
+
+```js
+minCreditPrice: +((icCfg.minCreditoAnchoPct ?? 25) / 100 * gate.spreadWidth).toFixed(2)
+```
+
+Con `minCreditoAnchoPct` en **0** (decisión del 2026-08-08, "no le pongamos límite a la prima
+recibida por ahora"), ese precio da 0, y `placeIronCondorOrder` lo lleva a
+`Math.max(0.01, 0)`. La orden sale como `type: credit` **con límite de un centavo**: acepta
+cualquier fill.
+
+**Medido en el primer IC 1DTE que disparó de verdad:** crédito estimado sobre el mid
+**$125**, crédito real de fill **$65** — casi la mitad. Riesgo neto $435 para un TP de
+$19.50.
+
+Poner el piso en 0 no solo apagó el filtro de *"no entres si pagan poco"* — apagó también el
+*"no me llenes a cualquier precio"*, que es una protección distinta y que nadie quiso quitar.
+Ese acoplamiento no estaba documentado.
+
+**Opción natural:** desacoplar las dos cosas. Mantener `minCreditoAnchoPct` en 0 (para que el
+setup siga disparando y se junte muestra) pero mandar el límite al **mid observado menos un
+colchón**, igual que ya hacen los cierres direccionales con `closeSlippageBufferPts`.
+
+⚠️ Al tocarlo, tener presente el trade-off que ya se aceptó en los cierres: un colchón muy
+angosto puede dejar la orden sin llenar, y la ventana del 1DTE da **1 o 2 intentos, no más**.
+
+---
+
+### 3. La banda de alejamiento deja pasar el setup por centésimas — REVERSION, impacto ALTO
+
+**Anotado:** 2026-08-13 · **Evidencia:** 112 evaluaciones del 2026-08-13
+
+De 112 evaluaciones, **77 murieron en `SIN_ALEJAMIENTO`** con el estiramiento entre
+**−0.09% y −0.12%**, contra una banda que exige **0.13%–0.3%**. Siempre afuera, siempre por
+centésimas.
+
+⚠️ **Ojo, discrepancia sin registrar:** esa banda **no coincide** con lo documentado en
+CLAUDE.md (0.10%–0.35%, con meseta óptima en 0.15%–0.20%). En algún momento se retocó sin
+que quedara anotado — antes de mover nada, confirmar cuál es el valor real en producción y
+por qué cambió.
+
+---
+
+### 4. Los dos checks de 5m son un VETO, no un peso — REVERSION, impacto ALTO
+
+**Anotado:** 2026-08-13 · **Evidencia:** los 34 `SCORE_FAIL` del 2026-08-13
+
+Las 34 veces que sí hubo estiramiento, el score dio **exactamente 44.4% contra un mínimo de
+75%**, siempre por los mismos dos checks:
+
+| check | peso | motivo |
+|---|---|---|
+| `compas_medias_5m` | 15 | compás 5m en contra (SMA8 debajo de SMA20) |
+| `fase_weinstein` | 10 | Fase 5m no favorece la reversión |
+
+⚠️ **El total no es 100, es 45.** Desde el 2026-08-09, con `puertasBinarias`, el alejamiento
+(45) y el GEX (10) se deciden como puertas ANTES del score y su peso **sale del total** — si
+no, se contarían dos veces. El score se calcula solo sobre `patron_confirmacion` (20) +
+`fase_weinstein` (10) + `compas_medias_5m` (15) + `rsi` (0) = **45**.
+
+Con eso, la aritmética es tajante:
+
+| combinación | puntos | % de 45 | ¿pasa 75%? |
+|---|---|---|---|
+| solo patrón (lo de hoy) | 20 | **44.4%** | no |
+| patrón + fase5m | 30 | 66.7% | no |
+| **patrón + compas5m** | 35 | **77.8%** | **sí** |
+
+O sea: **si fallan los dos checks de 5m es imposible llegar a 75, pase lo que pase**. No es
+que "cueste": el máximo alcanzable sin ellos es 44.4%. El 5m no es un factor ponderado —
+es un **veto**. Y `fase_weinstein` por sí sola tampoco alcanza nunca: la única combinación
+que abre la puerta es patrón + compás.
+
+**Esto es el diseño funcionando, no un bug:** es la "regla de oro" de Luis ("5 minutos
+decide") — si el Juez contradice la dirección de la reversión, no hay trade. La pregunta es
+si un veto es lo que se quiso, o si se creía que era un peso más entre otros.
+
+⚠️ **La evidencia del 2026-08-13 juega EN CONTRA de tocar esto.** Ese día el veto evitó 4
+entradas perdedoras seguidas: las señales pedían vender entre 7794 y 7805 y el precio siguió
+hasta 7815 antes de girar. Medido sobre las 35 evaluaciones que pasaron las puertas: **34 en
+contra a los 15 min, 32 a los 30 min**. Un día no prueba nada, pero cambia la pregunta — de
+*"¿el veto es muy estricto?"* a *"¿cuántas veces acertó?"*. Eso lo va a contestar
+`GET /api/spx/reversion-sombra` con semanas de muestra, no con intuición.
+
+⚠️ **No mover 3 y 4 el mismo día.** Son las dos de impacto ALTO sobre la misma estrategia; si
+se aplican juntas no se puede saber cuál funcionó. Además la 3 cambia *cuántas* señales
+llegan a evaluarse y la 4 cambia *cuántas* pasan — mezclarlas hace ilegible la medición.
+
+**Contexto de la muestra:** REVERSION lleva **dos días sin producir nada** (2026-08-12: una
+sola señal, que además murió como orden zombi del sandbox; 2026-08-13: cero en 112
+evaluaciones).
+
+---
+
+## Decisiones pendientes (no son sugerencias, son cosas sin responder)
+
+- **`smaReversion.earlyExitPct` está en 0.6** y el usuario lo había subido explícitamente a
+  **0.9** el 2026-08-02. Apareció en 0.6 el 2026-08-13 junto con el `minScore` en 0, que sí se
+  confirmó como config corrupta y se restauró. Este quedó sin decidir: ¿se devuelve a 0.9 o se
+  deja en 0.6? Ver la sección "Config de producción a la deriva" en CLAUDE.md.
+
+---
+
 ## Aplicadas
 
 ### Reversión — el stop se valida en 5m, no en 2m · **2026-08-05**

@@ -7408,15 +7408,73 @@ async function checkIronCondorTPSLImpl() {
         : [ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym].filter(Boolean);
       if (legSymbols.length < 4) continue;
 
-      const quotes = await tradier.getQuotes(legSymbols);
-      const q = {};
-      quotes.forEach(x => { q[x.symbol] = x.mark; });
-      if (legSymbols.some(s => q[s] == null)) {
-        console.warn(`[Tradier-IC-TPSL] Cotizaciones incompletas para ${ex.orderId}, se salta este ciclo.`);
-        continue;
+      let pnlActual, cerrarPor = null;
+
+      // ── Cierres por TIEMPO primero — NO dependen de cotizaciones ──
+      //
+      // Bug real encontrado el 2026-08-13: el guard de "cotizaciones incompletas"
+      // estaba ARRIBA de estos tres cierres y hacia `continue`, asi que una sola
+      // pata sin quote se llevaba puesto tambien el cierre por hora tope — que por
+      // diseño es incondicional ("si a las 10:30 no lo ha logrado lo cerramos en el
+      // valor que sea", decision del usuario 2026-08-09).
+      //
+      // Es justo el peor caso posible: a la mañana siguiente las alas de un 1DTE
+      // quedan muy OTM (7685/7810 en el caso real) y son las primeras en quedarse
+      // sin cotizacion. El Iron Condor del 2026-08-12 cerro a las 11:34 ET en vez
+      // de las 10:30 — 64 minutos tarde. Y como el 1DTE corre con sinStop1DTE, el
+      // cierre por hora es la UNICA salida ademas del TP: si las cotizaciones no
+      // vuelven, la posicion se queda abierta hasta el vencimiento sin que nadie
+      // la cierre.
+      //
+      // La orden de cierre va por strikes (closeIronCondorOrder/closeDebitCondorOrder),
+      // no usa cotizaciones para nada — no habia ningun motivo para exigirlas aca.
+
+      // Stop de TIEMPO del setup por PIN (2026-08-08). La contencion del precio
+      // con PIN se midio sobre una ventana de 90 min; para un 0DTE sostenido
+      // hasta el cierre NO hay medicion. Se sale dentro de la ventana medida en
+      // vez de extrapolar a un horizonte del que no sabemos nada. Solo aplica a
+      // ejecuciones que traen maxHoldMin (las nuevas): las viejas no lo tienen y
+      // siguen exactamente como antes.
+      if (ex.maxHoldMin && ex.filledAt) {
+        const minutos = (Date.now() - new Date(ex.filledAt).getTime()) / 60000;
+        if (minutos >= ex.maxHoldMin) {
+          cerrarPor = 'TIME_STOP_PIN';
+          console.log(`[Tradier-IC-TPSL] ⏱️ Stop de tiempo: ${Math.round(minutos)} min abiertos (máx ${ex.maxHoldMin}) — orden ${ex.orderId}`);
+        }
       }
 
-      let pnlActual, cerrarPor = null;
+      // ── Tope del 1DTE al dia siguiente (2026-08-09, decision del usuario:
+      // "si a las 10:30 am no lo ha logrado lo cerramos en el valor que sea") ──
+      // Solo dispara en un dia POSTERIOR al de la entrada: un 1DTE abierto a las
+      // 15:45 no puede cerrarse por esta regla el mismo dia, aunque las 10:30 ya
+      // hayan pasado. La hora viaja congelada en el registro, igual que maxHoldMin.
+      if (!cerrarPor && ex.expType === '1DTE' && ex.cierre1DTE_ET && ex.filledAt) {
+        const etTope = getETHour();
+        const diaEntrada = new Date(ex.filledAt).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const hoyET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const [ch, cm] = String(ex.cierre1DTE_ET).split(':').map(Number);
+        if (hoyET > diaEntrada && (etTope.hour * 60 + etTope.min) >= ch * 60 + (cm || 0)) {
+          cerrarPor = 'CIERRE_1DTE_HORA_TOPE';
+          console.log(`[Tradier-IC-TPSL] ⏰ 1DTE: son las ${etTope.time} y no llegó al TP — cierre al precio que haya (orden ${ex.orderId}).`);
+        }
+      }
+
+      if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
+        cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
+        console.log(`[Tradier-IC-TPSL] ⏰ Cierre forzado por horario (30 min antes del cierre) — orden ${ex.orderId}`);
+      }
+
+      // ── TP/SL por precio — esto SI necesita cotizaciones ──
+      // Si faltan, se saltea solo la evaluacion por precio. El cierre por tiempo
+      // ya quedo decidido arriba y no puede ser bloqueado por este guard.
+      const q = {};
+      if (!cerrarPor) {
+        const quotes = await tradier.getQuotes(legSymbols);
+        quotes.forEach(x => { q[x.symbol] = x.mark; });
+        if (legSymbols.some(s => q[s] == null)) {
+          console.warn(`[Tradier-IC-TPSL] Cotizaciones incompletas para ${ex.orderId}, se salta la evaluacion de TP/SL este ciclo.`);
+          continue;
+        }
 
       if (esDebito) {
         // Valor actual = alas compradas (outerHigh+outerLow) - cuerpo vendido (innerHigh+innerLow) —
@@ -7446,41 +7504,8 @@ async function checkIronCondorTPSLImpl() {
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (!sinStop1DTE && costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
       }
+      }   // fin del bloque de TP/SL por precio
 
-      // Stop de TIEMPO del setup por PIN (2026-08-08). La contencion del precio
-      // con PIN se midio sobre una ventana de 90 min; para un 0DTE sostenido
-      // hasta el cierre NO hay medicion. Se sale dentro de la ventana medida en
-      // vez de extrapolar a un horizonte del que no sabemos nada. Solo aplica a
-      // ejecuciones que traen maxHoldMin (las nuevas): las viejas no lo tienen y
-      // siguen exactamente como antes.
-      if (!cerrarPor && ex.maxHoldMin && ex.filledAt) {
-        const minutos = (Date.now() - new Date(ex.filledAt).getTime()) / 60000;
-        if (minutos >= ex.maxHoldMin) {
-          cerrarPor = 'TIME_STOP_PIN';
-          console.log(`[Tradier-IC-TPSL] ⏱️ Stop de tiempo: ${Math.round(minutos)} min abiertos (máx ${ex.maxHoldMin}) — orden ${ex.orderId}`);
-        }
-      }
-
-      // ── Tope del 1DTE al dia siguiente (2026-08-09, decision del usuario:
-      // "si a las 10:30 am no lo ha logrado lo cerramos en el valor que sea") ──
-      // Solo dispara en un dia POSTERIOR al de la entrada: un 1DTE abierto a las
-      // 15:45 no puede cerrarse por esta regla el mismo dia, aunque las 10:30 ya
-      // hayan pasado. La hora viaja congelada en el registro, igual que maxHoldMin.
-      if (!cerrarPor && ex.expType === '1DTE' && ex.cierre1DTE_ET && ex.filledAt) {
-        const etTope = getETHour();
-        const diaEntrada = new Date(ex.filledAt).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-        const hoyET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-        const [ch, cm] = String(ex.cierre1DTE_ET).split(':').map(Number);
-        if (hoyET > diaEntrada && (etTope.hour * 60 + etTope.min) >= ch * 60 + (cm || 0)) {
-          cerrarPor = 'CIERRE_1DTE_HORA_TOPE';
-          console.log(`[Tradier-IC-TPSL] ⏰ 1DTE: son las ${etTope.time} y no llegó al TP — cierre al precio que haya (orden ${ex.orderId}).`);
-        }
-      }
-
-      if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
-        cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
-        console.log(`[Tradier-IC-TPSL] ⏰ Cierre forzado por horario (30 min antes del cierre) — orden ${ex.orderId}`);
-      }
       if (!cerrarPor) continue;
 
       if (!IS_PRODUCTION) {
@@ -7530,7 +7555,13 @@ async function checkIronCondorTPSLImpl() {
         ex.closeReason = cerrarPor; // la reconciliacion pasiva lo respeta (ex.closeReason || 'MANUAL')
         ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
-        console.log(`[Tradier-IC-TPSL] Orden de cierre enviada por ${cerrarPor} — P&L real pendiente (lo completa la reconciliación pasiva en ≤5 min; estimado pre-cierre habia sido $${(pnlActual*100*ex.contracts).toFixed(2)}).`);
+        // pnlActual queda indefinido cuando se cierra por TIEMPO sin cotizaciones
+        // (ver el bug del guard de quotes, 2026-08-13) — ahi no hay estimado que
+        // reportar, y decir "NaN" seria peor que no decir nada.
+        const estimado = typeof pnlActual === 'number'
+          ? `estimado pre-cierre habia sido $${(pnlActual*100*ex.contracts).toFixed(2)}`
+          : 'sin estimado pre-cierre (cierre por tiempo, sin cotizaciones)';
+        console.log(`[Tradier-IC-TPSL] Orden de cierre enviada por ${cerrarPor} — P&L real pendiente (lo completa la reconciliación pasiva en ≤5 min; ${estimado}).`);
       } catch(e) {
         console.error(`[Tradier-IC-TPSL] ❌ Error cerrando ${ex.orderId}:`, e.message);
       }
@@ -9315,7 +9346,10 @@ async function analizarSalidasDelDia(fecha) {
 }
 setInterval(() => {
   const et = getETHour();
-  if (et.hour === 16 && et.min < 5) analizarSalidasDelDia();
+  if (et.hour === 16 && et.min < 5) {
+    analizarSalidasDelDia();
+    analizarReversionSombra();   // contrafactual de Reversion, ver mas abajo
+  }
 }, 4 * 60 * 1000);
 
 // Comparacion agregada de todas las reglas de salida sobre los trades reales.
@@ -9369,6 +9403,196 @@ app.get('/api/spx/salidas-alternativas', (req, res) => {
 
 app.post('/api/spx/analizar-salidas', async (req, res) => {
   const n = await analizarSalidasDelDia(req.body?.fecha);
+  res.json({ ok: true, analizados: n });
+});
+
+// ── Reversion en sombra — el contrafactual de las evaluaciones que NO entraron ──
+//
+// Por que existe (2026-08-13, a pedido del usuario, "necesito que tengamos en la
+// sombra el analisis de ganancia/perdida real"): shadowExits/shadowTrail cuelgan
+// de EJECUCIONES reales, asi que solo miden trades que ocurrieron. La pregunta que
+// hay que responder para afinar Reversion es la contraria — "de las que el gate
+// rechazo, cuantas habrian ganado?" — y hoy no hay dato: el log guarda ext8,
+// direccion, patron y checks, pero no que hizo el precio despues.
+//
+// Caso testigo: el 2026-08-13 hubo 35 evaluaciones que pasaron las puertas y las
+// 35 habrian perdido (34 en contra a los 15 min). Eso se reconstruyo A MANO. Este
+// job lo deja grabado solo, todos los dias, para que la pregunta "cuando falla
+// compas_medias_5m pero el patron esta confirmado, cual es el win rate real?" se
+// conteste con semanas de muestra en vez de con un dia.
+//
+// ⚠️ SOLO LECTURA. No toca checkAlejamientoSMA, ni la config, ni ninguna ruta de
+// ordenes: lee el log, lee velas, y escribe un archivo aparte. No puede alterar
+// ninguna decision de trading.
+const SPX_REVERSION_SOMBRA_FILE = path.join(DATA_DIR, 'spx_reversion_sombra.json');
+function loadReversionSombra() {
+  try { return JSON.parse(fs.readFileSync(SPX_REVERSION_SOMBRA_FILE, 'utf8')); } catch(e) { return []; }
+}
+function saveReversionSombra(rows) {
+  fs.writeFileSync(SPX_REVERSION_SOMBRA_FILE, JSON.stringify(rows, null, 2), 'utf8');
+}
+
+// Simula UNA evaluacion con las reglas de salida reales de la estrategia.
+// - objetivo: earlyExitPct del camino hacia la SMA8 (misma formula que smaTarget)
+// - stop: extremo de la vela de 5m ya CERRADA al momento de evaluar — es lo que el
+//   sistema real congela en entryCandleLow/High desde el fix del 2026-08-05
+// - empate dentro de la misma vela: se resuelve A FAVOR DEL STOP (pesimista), el
+//   mismo criterio con el que se valido el cambio de stop 2m->5m
+function simularEvaluacionSombra(evalMs, dir, entry, sma8, bars, cfg) {
+  const early = cfg.earlyExitPct ?? 0.9;
+  const maxV  = cfg.maxCandlesTimeStop ?? 5;
+  let i = -1;
+  for (let k = 0; k < bars.length; k++) { if (bars[k].t <= evalMs) i = k; else break; }
+  if (i < 0 || i >= bars.length - 1) return null;      // sin vela previa o sin futuro que simular
+  const ent = bars[i];
+  const sl  = dir === 'BULLISH' ? ent.low : ent.high;
+  const tgt = entry + early * (sma8 - entry);
+  let mfe = 0, mae = 0;
+  for (let k = i + 1; k < Math.min(bars.length, i + 1 + maxV); k++) {
+    const b = bars[k];
+    const favor  = dir === 'BULLISH' ? b.high - entry : entry - b.low;
+    const contra = dir === 'BULLISH' ? entry - b.low  : b.high - entry;
+    if (favor  > mfe) mfe = favor;
+    if (contra > mae) mae = contra;
+    const tocaSL = dir === 'BULLISH' ? b.low  <= sl  : b.high >= sl;
+    const tocaTP = dir === 'BULLISH' ? b.high >= tgt : b.low  <= tgt;
+    if (tocaSL) return { resultado: 'STOP',   velas: k - i, mfePts: +mfe.toFixed(2), maePts: +mae.toFixed(2) };
+    if (tocaTP) return { resultado: 'OBJETIVO', velas: k - i, mfePts: +mfe.toFixed(2), maePts: +mae.toFixed(2) };
+  }
+  return { resultado: 'TIEMPO', velas: maxV, mfePts: +mfe.toFixed(2), maePts: +mae.toFixed(2) };
+}
+
+async function analizarReversionSombra(fecha) {
+  const dia = fecha || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  try {
+    const ya = loadReversionSombra();
+    if (ya.some(r => r.fecha === dia)) { console.log(`[REV-SOMBRA] ${dia}: ya analizado`); return 0; }
+
+    const raw = await tradier.getTimesales('SPX', '5min', `${dia} 09:30`, `${dia} 16:15`);
+    const bars = (raw || []).filter(b => b.high != null && b.low != null)
+      .map(b => ({ t: b.timestamp * 1000, high: b.high, low: b.low, close: b.close }));
+    if (bars.length < 10) { console.log(`[REV-SOMBRA] ${dia}: sin velas de 5m suficientes (${bars.length})`); return 0; }
+
+    const cfg = (loadSPXConfig().trading || {}).smaReversion || {};
+    const evals = loadStrategyLog()
+      .filter(e => e.strategyFamily === 'REVERSION' && (e.timestamp || '').slice(0, 10) === dia)
+      .filter(e => e.snapshot && e.snapshot.ext8 != null && e.snapshot.spxPrice && e.snapshot.direction)
+      .sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
+    if (!evals.length) { console.log(`[REV-SOMBRA] ${dia}: sin evaluaciones con snapshot usable`); return 0; }
+
+    // Agrupacion en "rachas" por OCUPACION, no por un hueco de tiempo arbitrario.
+    //
+    // El monitor evalua cada 60s, asi que un mismo setup aparece decenas de veces
+    // seguidas. Contarlas como trades independientes inflaria la muestra: el
+    // 2026-08-13 dieron 194 evaluaciones que en realidad son un punado de setups.
+    //
+    // Un primer intento agrupo por "misma direccion y menos de 10 min de hueco",
+    // pero con evaluaciones cada 60s eso encadena la mañana entera en una sola
+    // racha (194 -> 7, con los cortes por check en n=1, inservible).
+    //
+    // El modelo correcto es el del sistema real: toma UNA posicion y queda
+    // bloqueado hasta que cierra. Entonces la racha dura lo que dura el trade
+    // simulado — desde la evaluacion que lo abre hasta que toca objetivo, stop o
+    // el tope de velas. La siguiente evaluacion despues de esa ventana abre racha
+    // nueva. Asi "por racha" cuenta exactamente los trades que se habrian podido
+    // tomar, ni mas ni menos.
+    const MS_VELA = 5 * 60 * 1000;
+    const rows = [];
+    let rachaId = 0, ocupadoHasta = 0;
+    for (const e of evals) {
+      const s = e.snapshot;
+      const ms = new Date(e.timestamp).getTime();
+      const sma8 = s.spxPrice / (1 + s.ext8 / 100);
+      const sim = simularEvaluacionSombra(ms, s.direction, s.spxPrice, sma8, bars, cfg);
+      const nuevaRacha = ms >= ocupadoHasta;
+      if (nuevaRacha) {
+        rachaId++;
+        // La racha ocupa hasta que el trade simulado se resuelve. Sin simulacion
+        // resuelta (evaluacion al final del dia, sin futuro) se ocupa una vela,
+        // para no encadenar el resto del dia a una racha que no se puede medir.
+        ocupadoHasta = ms + ((sim && sim.velas) ? sim.velas : 1) * MS_VELA;
+      }
+      const ok = (id) => { const c = (s.checks || []).find(x => x.id === id); return c ? !!c.ok : null; };
+      rows.push({
+        fecha: dia, timestamp: e.timestamp, etapa: e.stage,
+        rachaId, primeraDeRacha: nuevaRacha,
+        direction: s.direction, ext8: s.ext8, spxPrice: s.spxPrice,
+        score: s.score ?? null, minScore: s.minScore ?? null, pattern: s.pattern || null,
+        gexRegimen: (s.gex && s.gex.regime) || null,
+        checks: {
+          patron_confirmacion: ok('patron_confirmacion'),
+          fase_weinstein:      ok('fase_weinstein'),
+          compas_medias_5m:    ok('compas_medias_5m'),
+          rsi:                 ok('rsi'),
+        },
+        // entro de verdad? SIGNAL_BUILT es la unica etapa que llega a orden.
+        entroDeVerdad: e.stage === 'SIGNAL_BUILT',
+        sombra: sim,
+      });
+    }
+    const out = ya.concat(rows);
+    // Cap por dias, no por filas: ~240 evaluaciones/dia, 60 dias de historia.
+    const dias = [...new Set(out.map(r => r.fecha))].sort();
+    const conservar = new Set(dias.slice(-60));
+    saveReversionSombra(out.filter(r => conservar.has(r.fecha)));
+    console.log(`[REV-SOMBRA] ${dia}: ${rows.length} evaluaciones analizadas (${rachaId} rachas)`);
+    return rows.length;
+  } catch(e) { console.error('[REV-SOMBRA] error:', e.message); return 0; }
+}
+
+// Agregado: win rate por combinacion de checks, contando POR RACHA (no por
+// evaluacion) salvo que se pida ?porEvaluacion=true. Responde la pregunta que
+// motivo todo esto: cuando un check falla, que habria pasado igual.
+app.get('/api/spx/reversion-sombra', (req, res) => {
+  let rows = loadReversionSombra().filter(r => r.sombra);
+  if (req.query.fecha)  rows = rows.filter(r => r.fecha === req.query.fecha);
+  if (req.query.desde)  rows = rows.filter(r => r.fecha >= req.query.desde);
+  if (req.query.porEvaluacion !== 'true') rows = rows.filter(r => r.primeraDeRacha);
+  if (!rows.length) return res.json({ ok: true, evaluaciones: 0, nota: 'sin datos todavia — corre a las 16:00 ET o via POST /api/spx/analizar-reversion-sombra' });
+
+  const stats = (list) => {
+    if (!list.length) return null;
+    const g = list.filter(r => r.sombra.resultado === 'OBJETIVO').length;
+    const s = list.filter(r => r.sombra.resultado === 'STOP').length;
+    const t = list.filter(r => r.sombra.resultado === 'TIEMPO').length;
+    const med = (arr) => { if (!arr.length) return null; const a = [...arr].sort((x,y)=>x-y); return +a[Math.floor(a.length/2)].toFixed(2); };
+    return {
+      n: list.length, objetivo: g, stop: s, tiempo: t,
+      winRate: +(g / list.length * 100).toFixed(1),
+      mfeMediano: med(list.map(r => r.sombra.mfePts)),
+      maeMediano: med(list.map(r => r.sombra.maePts)),
+    };
+  };
+
+  // Corte por cada check: que pasa cuando pasa vs cuando falla. Es la comparacion
+  // que decide si un check discrimina de verdad o solo bloquea.
+  const porCheck = {};
+  for (const id of ['patron_confirmacion', 'fase_weinstein', 'compas_medias_5m', 'rsi']) {
+    porCheck[id] = {
+      cumple: stats(rows.filter(r => r.checks[id] === true)),
+      falla:  stats(rows.filter(r => r.checks[id] === false)),
+    };
+  }
+  const porEtapa = {};
+  for (const et of [...new Set(rows.map(r => r.etapa))]) porEtapa[et] = stats(rows.filter(r => r.etapa === et));
+
+  res.json({
+    ok: true,
+    evaluaciones: rows.length,
+    unidad: req.query.porEvaluacion === 'true' ? 'evaluacion' : 'racha (evaluaciones consecutivas del mismo setup cuentan 1)',
+    dias: [...new Set(rows.map(r => r.fecha))].sort(),
+    global: stats(rows),
+    entraronDeVerdad: stats(rows.filter(r => r.entroDeVerdad)),
+    noEntraron: stats(rows.filter(r => !r.entroDeVerdad)),
+    porCheck,
+    porEtapa,
+    muestraSuficiente: rows.length >= 30,
+    nota: 'Resultado simulado con las reglas reales (objetivo al earlyExitPct de la SMA8, stop en el extremo de la vela de 5m previa, empate a favor del stop). Mide DIRECCION y timing, no P&L en dolares: el credito del spread depende de la cadena de opciones de ese momento, que no se puede reconstruir hacia atras.',
+  });
+});
+
+app.post('/api/spx/analizar-reversion-sombra', async (req, res) => {
+  const n = await analizarReversionSombra(req.body?.fecha);
   res.json({ ok: true, analizados: n });
 });
 
