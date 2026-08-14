@@ -740,6 +740,26 @@ async function getTrmMap(year, { force = false } = {}) {
   }
 }
 
+// ── SOLO LOCAL (2026-08-14) ────────────────────────────────────────────────
+// Los 10 endpoints de impuestos NO se registran en Railway. La app no tiene
+// ninguna autenticacion (0 coincidencias de auth en todo server.js) y la URL
+// de produccion es publica, asi que exponerlos ahi significa dejar abiertos
+// 3 POST y 3 DELETE sobre gastos deducibles, otros ingresos, dependientes y
+// perdidas compensables — datos fiscales personales.
+//
+// Los archivos de datos ya estaban protegidos por .gitignore y el volumen de
+// produccion se verifico vacio ({"gastos":[]}) el 2026-08-14, asi que no hubo
+// filtracion. Esto evita que la haya el dia que alguien use el dashboard
+// desplegado en vez del local.
+//
+// El guard va sobre el registro de rutas, no sobre el require ni los helpers:
+// asi el modulo sigue cargando igual y no cambia nada mas. Se deja el bloque
+// sin re-indentar a proposito, para que el diff sean dos lineas y no 150.
+//
+// Si algun dia hace falta en produccion, lo que falta es autenticacion, no
+// quitar este guard.
+if (!process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+
 // Hoja fiscal de un año gravable
 app.get('/api/impuestos', async (req, res) => {
   try {
@@ -892,6 +912,8 @@ app.post('/api/impuestos/config', (req, res) => {
     res.json(cfg);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+} // ── fin del bloque SOLO LOCAL de impuestos ────────────────────────────────
 
 app.get('/api/debug-today-strategies', async (req, res) => {
   try {
