@@ -102,12 +102,21 @@ def main():
     ax.axhline(spot, color=INK, linewidth=2.0, linestyle="-", zorder=4, xmax=0.86)
     ax.plot([0.3], [spot], marker="o", markersize=7, color=INK, zorder=5)
     # Si el spot de referencia abre pegado a un nivel ya rotulado (caso tipico: gap que
-    # deja el precio a pocos puntos del Call Wall), su etiqueta se desplaza hacia abajo
-    # para no quedar tachada por la del nivel -- la linea sigue en el precio real
+    # deja el precio a pocos puntos del Call Wall), su etiqueta se desplaza para no
+    # quedar tachada por la del nivel -- la linea sigue en el precio real
     # (bug real, 2026-08-04: spot 7627.47 vs Call Wall 7630, textos superpuestos).
+    # El desplazamiento va SIEMPRE en direccion contraria al nivel que estorba: antes
+    # era un "- _sep" fijo, que con el spot POR ENCIMA del nivel lo empujaba justo
+    # encima de la etiqueta que trataba de esquivar (bug real, 2026-08-14: spot
+    # 7804.00 vs Call Wall 7800 -- la etiqueta aterrizaba en 7799.93, ilegible).
     _rotulados = (put_wall, call_wall, niveles["gamma_flip"], niveles["mvs"])
     _sep = (y_max - y_min) * 0.022
-    spot_label_y = spot - _sep if any(abs(spot - lvl) < _sep for lvl in _rotulados) else spot
+    _choca = [lvl for lvl in _rotulados if abs(spot - lvl) < _sep]
+    if _choca:
+        _cerca = min(_choca, key=lambda lvl: abs(spot - lvl))
+        spot_label_y = spot + _sep if spot >= _cerca else spot - _sep
+    else:
+        spot_label_y = spot
     ax.text(8.9, spot_label_y, f"Spot ref.  {spot:,.2f}".replace(",", "."), va="center",
              fontsize=9.5, color=INK, fontweight="bold", fontfamily="sans-serif")
 

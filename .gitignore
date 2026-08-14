@@ -16,3 +16,13 @@ gamma_daemon/daemon_crash_log.txt
 # Cache de Python (scripts/ y skills/)
 __pycache__/
 *.pyc
+
+# Impuestos — datos fiscales personales. NO deben salir del equipo:
+# gastos deducibles, otros ingresos, dependientes y pérdidas compensables.
+impuestos_gastos.json
+impuestos_config.json
+impuestos_perdidas.json
+trm_cache.json
+
+# Volcados de depuracion de sesiones de analisis (89MB, no son fuente)
+.scratch_*

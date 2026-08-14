@@ -1,12 +1,12 @@
 {
   "minScore": 80,
   "weights": {
-    "fase_weinstein": 40,
+    "fase_weinstein": 45,
     "regimen_institucional": 10,
     "patrones_estructurales": 20,
     "ema_10_20_alineadas": 10,
-    "volumen_rompimiento": 10,
-    "macd_cruce_pendiente": 10,
+    "volumen_rompimiento": 0,
+    "macd_cruce_pendiente": 15,
     "confirmacion_algoritmica": 0
   }
 }

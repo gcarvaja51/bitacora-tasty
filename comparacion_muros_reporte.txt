@@ -1,0 +1,56 @@
+======================================================================
+REPORTE — Comparacion muros: calculo interno vs Sigma Terminal
+======================================================================
+Lecturas validas: 105
+Saltos (dato viejo/faltante): {'sigma_stale': 109}
+Errores de red: {'fetch_context_failed': 2}
+Fechas cubiertas: ['2026-07-29', '2026-07-30', '2026-07-31']
+
+CALL WALL (interno - sigma):
+  n=105  media_abs=26.9pts  mediana_abs=25.0pts  max_abs=100.0pts  min_abs=0.0pts
+  coinciden exacto: 49/105 (47%)
+  dentro de 10pts: 50/105 (48%)
+  dentro de 25pts: 54/105 (51%)
+
+PUT WALL (interno - sigma):
+  n=105  media_abs=31.7pts  mediana_abs=40.0pts  max_abs=100.0pts  min_abs=0.0pts
+  coinciden exacto: 48/105 (46%)
+  dentro de 10pts: 49/105 (47%)
+  dentro de 25pts: 51/105 (49%)
+
+GAMMA FLIP (interno - sigma):
+  n=105  media_abs=19.5pts  mediana_abs=17.0pts  max_abs=99.0pts  min_abs=0.0pts
+  coinciden exacto: 2/105 (2%)
+  dentro de 10pts: 41/105 (39%)
+  dentro de 25pts: 66/105 (63%)
+
+MVS (interno_aprox - sigma):
+  n=105  media_abs=15.2pts  mediana_abs=0.0pts  max_abs=100.0pts  min_abs=0.0pts
+  coinciden exacto: 69/105 (66%)
+  dentro de 10pts: 75/105 (71%)
+  dentro de 25pts: 76/105 (72%)
+
+REGIMEN (signo de GEX): coincide en 96/105 (91%)
+  Momentos con regimen DISTINTO: 9
+    2026-07-29 14:47:57: interno=NEGATIVO sigma=POSITIVO (netGex interno=-7.05e+09 sigma=4.49e+08)
+    2026-07-29 14:52:58: interno=NEGATIVO sigma=POSITIVO (netGex interno=-4.08e+09 sigma=3.24e+09)
+    2026-07-29 15:02:58: interno=NEGATIVO sigma=POSITIVO (netGex interno=-5.51e+09 sigma=3.56e+09)
+    2026-07-29 15:07:57: interno=NEGATIVO sigma=POSITIVO (netGex interno=-1.38e+10 sigma=8.03e+07)
+    2026-07-31 10:32:56: interno=NEGATIVO sigma=POSITIVO (netGex interno=-3.64e+09 sigma=4.48e+08)
+    2026-07-31 10:37:57: interno=NEGATIVO sigma=POSITIVO (netGex interno=-1.69e+09 sigma=3.32e+09)
+    2026-07-31 11:22:57: interno=NEGATIVO sigma=POSITIVO (netGex interno=-7.15e+06 sigma=3.76e+09)
+    2026-07-31 11:32:56: interno=NEGATIVO sigma=POSITIVO (netGex interno=-7.35e+09 sigma=1.04e+09)
+    2026-07-31 11:37:56: interno=NEGATIVO sigma=POSITIVO (netGex interno=-6.52e+08 sigma=1.80e+09)
+
+REGIMEN DEX (signo del Net DEX): coincide en 101/104 (97%)
+  Momentos con regimen DEX DISTINTO: 3
+    2026-07-31 09:57:58: interno=NEGATIVO sigma=POSITIVO
+    2026-07-31 11:02:56: interno=NEGATIVO sigma=POSITIVO
+    2026-07-31 11:52:56: interno=POSITIVO sigma=NEGATIVO
+  Magnitud |DEX interno| / |DEX sigma|: media=2.43x  mediana=1.83x  min=0.16x  max=16.58x
+
+----------------------------------------------------------------------
+NOTA: mvs_interno es una aproximacion (strike de mayor |gex| dentro de
+ctx.gex.levels), no un campo que calcGEX() devuelva nativamente -- ver
+SKILL.md de comparacion-muros para el detalle.
+----------------------------------------------------------------------

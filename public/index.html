@@ -81,6 +81,10 @@
     <div class="nav-item" onclick="nav('today',this)">
       <span class="icon">◎</span> Hoy
     </div>
+    <div class="nav-section-label">Legal</div>
+    <div class="nav-item" onclick="nav('impuestos',this)">
+      <span class="icon">🧾</span> Impuestos
+    </div>
   </nav>
   <div class="sidebar-footer">
     <div class="status-row">
@@ -573,6 +577,174 @@
       </div>
     </div>
 
+    <!-- ══════════════════════════════════════════════════════════
+         IMPUESTOS — hoja de trabajo fiscal (Colombia)
+         Documentación de respaldo:
+         "01_Sigma/reporte impuestos financiero legal/"
+         ══════════════════════════════════════════════════════════ -->
+    <div id="panel-impuestos" class="panel">
+
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:18px">🧾</span>
+        <span style="font-size:16px;font-weight:600;">Impuestos — Hoja de trabajo</span>
+        <span style="background:#2a1f0a;color:var(--gold);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Colombia · DIAN</span>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+          <span class="filter-label">Año gravable:</span>
+          <select id="imp-year" onchange="loadImpuestos()"
+                  style="background:var(--card2);border:1px solid var(--border2);color:var(--text);border-radius:6px;padding:5px 10px;font-size:12px;"></select>
+          <button class="btn" onclick="loadImpuestos(true)" style="padding:5px 12px;font-size:11px;">↺ TRM</button>
+        </span>
+      </div>
+
+      <!-- Aviso de alcance. No es decorativo: la hoja produce cifras que
+           parecen una declaración y no lo son. -->
+      <div style="margin:14px 0;padding:10px 14px;border:1px solid rgba(255,200,0,.25);background:rgba(255,200,0,.06);border-radius:8px;font-size:11.5px;line-height:1.6;color:var(--muted);">
+        <strong style="color:var(--gold);">Hoja de trabajo, no declaración.</strong>
+        Los números salen del feed de Tastytrade y de supuestos configurables.
+        Validar con contador público antes de declarar. Ver las advertencias al pie.
+      </div>
+
+      <div class="kpi-row cols-4" id="imp-kpis" style="margin-bottom:16px;"></div>
+
+      <!-- Semáforo de obligaciones formales -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Obligaciones formales — semáforo</div>
+        <div class="card-body" id="imp-obligaciones"></div>
+      </div>
+
+      <div class="grid-2b" style="margin-bottom:16px;">
+        <!-- Liquidación -->
+        <div class="card">
+          <div class="card-header">Liquidación estimada</div>
+          <div class="card-body" id="imp-liquidacion"></div>
+        </div>
+        <!-- Supuestos -->
+        <div class="card">
+          <div class="card-header">Supuestos del contribuyente</div>
+          <div class="card-body" id="imp-config"></div>
+        </div>
+      </div>
+
+      <div class="grid-2b" style="margin-bottom:16px;">
+        <!-- Clasificación fiscal -->
+        <div class="card">
+          <div class="card-header">Clasificación fiscal (art. 300 ET)</div>
+          <div class="card-body" id="imp-clasificacion"></div>
+        </div>
+        <!-- Patrimonio y dividendos -->
+        <div class="card">
+          <div class="card-header">Patrimonio y rentas pasivas</div>
+          <div class="card-body" id="imp-patrimonio"></div>
+        </div>
+      </div>
+
+      <!-- Gastos deducibles -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="display:flex;align-items:center;gap:10px;">
+          <span>Gastos deducibles (art. 107 ET)</span>
+          <span style="font-size:10.5px;color:var(--muted);font-weight:400;">Sin límite del 40% — es la palanca grande</span>
+          <button class="btn btn-primary" onclick="impToggleGastoForm()" style="margin-left:auto;padding:4px 12px;font-size:11px;">+ Agregar</button>
+        </div>
+        <div id="imp-gasto-form" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--card2);">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end;">
+            <label style="font-size:10.5px;color:var(--muted);">Fecha<input type="date" id="ig-fecha" style="width:100%;margin-top:3px;"></label>
+            <label style="font-size:10.5px;color:var(--muted);">Proveedor<input type="text" id="ig-proveedor" placeholder="TradingView Inc." style="width:100%;margin-top:3px;"></label>
+            <label style="font-size:10.5px;color:var(--muted);">Concepto<input type="text" id="ig-concepto" placeholder="Suscripción anual" style="width:100%;margin-top:3px;"></label>
+            <label style="font-size:10.5px;color:var(--muted);">Categoría
+              <select id="ig-categoria" style="width:100%;margin-top:3px;">
+                <option>Comisiones broker</option>
+                <option>Datos de mercado</option>
+                <option>Plataforma / software</option>
+                <option>Infraestructura / nube</option>
+                <option>Honorarios contables</option>
+                <option>Equipos (depreciación)</option>
+                <option>Internet / servicios</option>
+                <option>Formación</option>
+                <option>GMF (50%)</option>
+                <option>Otros</option>
+              </select>
+            </label>
+            <label style="font-size:10.5px;color:var(--muted);">Valor USD<input type="number" step="0.01" id="ig-usd" placeholder="599.00" style="width:100%;margin-top:3px;"></label>
+            <label style="font-size:10.5px;color:var(--muted);">TRM<input type="number" step="0.01" id="ig-trm" placeholder="auto" style="width:100%;margin-top:3px;"></label>
+            <label style="font-size:10.5px;color:var(--muted);">N° soporte<input type="text" id="ig-soporte" placeholder="DS-0001" style="width:100%;margin-top:3px;"></label>
+            <button class="btn btn-primary" onclick="impAddGasto()" style="padding:6px 14px;font-size:11px;">Guardar</button>
+          </div>
+          <div style="margin-top:8px;font-size:10.5px;color:var(--muted);line-height:1.5;">
+            Un gasto a proveedor del exterior necesita <strong>documento soporte</strong> (Resolución 000167 de 2021) —
+            lo generas tú, y el NIT se suple con la identificación del país de origen. Sin número de soporte queda marcado en rojo.
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Fecha</th><th>Proveedor</th><th>Concepto</th><th>Categoría</th>
+              <th>USD</th><th>TRM</th><th>COP</th><th>Soporte</th><th></th>
+            </tr></thead>
+            <tbody id="imp-gastos-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Operaciones del año -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="display:flex;align-items:center;gap:10px;">
+          <span>Operaciones cerradas del año gravable</span>
+          <span id="imp-ops-count" style="font-size:10.5px;color:var(--muted);font-weight:400;"></span>
+          <button class="btn" onclick="impExportCSV()" style="margin-left:auto;padding:4px 12px;font-size:11px;">⬇ Exportar CSV</button>
+        </div>
+        <div class="table-wrap" style="max-height:520px;overflow-y:auto;">
+          <table>
+            <thead><tr>
+              <th>Apertura</th><th>Cierre</th><th>Subyacente</th><th>Estrategia</th>
+              <th>Días</th><th>P&amp;L USD</th><th>TRM</th><th>P&amp;L COP</th><th>Clasificación</th>
+            </tr></thead>
+            <tbody id="imp-ops-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Pérdidas compensables -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="display:flex;align-items:center;gap:10px;">
+          <span>Pérdidas fiscales compensables (arts. 147 y 330 ET)</span>
+          <span style="font-size:10.5px;color:var(--muted);font-weight:400;">12 años · solo contra la misma cédula</span>
+          <button class="btn btn-primary" onclick="impTogglePerdidaForm()" style="margin-left:auto;padding:4px 12px;font-size:11px;">+ Agregar</button>
+        </div>
+        <div id="imp-perdida-form" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--card2);">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-items:end;">
+            <label style="font-size:10.5px;color:var(--muted);">Año de origen<input type="number" id="ip-ano" placeholder="2025" style="width:100%;margin-top:3px;"></label>
+            <label style="font-size:10.5px;color:var(--muted);">Cédula
+              <select id="ip-cedula" style="width:100%;margin-top:3px;">
+                <option>Rentas no laborales</option>
+                <option>Rentas de capital</option>
+              </select>
+            </label>
+            <label style="font-size:10.5px;color:var(--muted);">Saldo pendiente COP<input type="number" id="ip-saldo" placeholder="45000000" style="width:100%;margin-top:3px;"></label>
+            <button class="btn btn-primary" onclick="impAddPerdida()" style="padding:6px 14px;font-size:11px;">Guardar</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Año origen</th><th>Cédula</th><th>Saldo pendiente COP</th><th>Vence</th><th></th>
+            </tr></thead>
+            <tbody id="imp-perdidas-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Advertencias -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Advertencias y puntos a validar</div>
+        <div class="card-body" id="imp-advertencias"></div>
+      </div>
+
+      <div style="font-size:10.5px;color:var(--muted);line-height:1.6;padding:0 4px 20px;">
+        TRM: <span id="imp-trm-info">—</span> ·
+        Marco normativo completo en <code>01_Sigma/reporte impuestos financiero legal/</code>
+      </div>
+    </div>
+
 
 <div id="panel-backtester" class="panel">
   <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
@@ -809,6 +981,7 @@ function nav(tab, el) {
   else if (tab==='alejandro') loadAlejandro();
   else if (tab==='today') loadToday();
   else if (tab==='backtester') loadBacktester();
+  else if (tab==='impuestos') initImpuestos();
 }
 
 // ══════════════════════════════════════════
@@ -7993,6 +8166,397 @@ function resizeBTCanvas() {
     height: container.clientHeight,
   });
   drawBTChart(null);
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  IMPUESTOS — hoja de trabajo fiscal (Colombia)
+// ══════════════════════════════════════════════════════════════════
+// Consume /api/impuestos, que hace todo el cálculo en src/impuestos.js.
+// Acá solo se pinta: ninguna regla fiscal vive en el frontend, para que
+// no puedan divergir dos versiones de la misma norma.
+
+let _impData = null;
+let _impYearsLoaded = false;
+
+// Pesos colombianos: sin decimales. A la escala de una declaración los
+// centavos son ruido y estorban la lectura.
+const fCOP = n => '$' + Math.round(Math.abs(Number(n) || 0)).toLocaleString('es-CO');
+const fCOPs = n => {
+  const v = Math.round(Number(n) || 0);
+  return (v >= 0 ? '' : '−') + '$' + Math.abs(v).toLocaleString('es-CO');
+};
+
+async function initImpuestos() {
+  if (!_impYearsLoaded) {
+    try {
+      const { years } = await api('/api/impuestos/years');
+      const sel = $('imp-year');
+      sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+      _impYearsLoaded = true;
+    } catch (e) { /* si falla, el selector queda vacío y loadImpuestos usa el año actual */ }
+  }
+  loadImpuestos();
+}
+
+async function loadImpuestos(refreshTrm = false) {
+  const year = $('imp-year').value || new Date().getFullYear();
+  $('imp-kpis').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  try {
+    _impData = await api(`/api/impuestos?year=${year}${refreshTrm ? '&refreshTrm=1' : ''}`);
+    renderImpuestos(_impData);
+  } catch (e) {
+    $('imp-kpis').innerHTML = `<div style="padding:14px;color:var(--red);font-size:12px;">Error: ${e.message}</div>`;
+  }
+}
+
+function renderImpuestos(d) {
+  const r = d.resumen, l = d.liquidacion;
+
+  // ── KPIs ─────────────────────────────────────────────────────────
+  $('imp-kpis').innerHTML = [
+    kpiCard('P&L Neto del Año', f$(r.pnlNetoUSD), `${fCOPs(r.pnlNetoCOP)} · ${r.operaciones} ops`, cc(r.pnlNetoUSD)),
+    kpiCard('Renta Líquida Gravable', fCOP(l.rentaLiquidaGravableCOP), `${l.baseUVT} UVT · marginal ${(l.tarifaMarginal*100).toFixed(0)}%`, 'dim'),
+    kpiCard('Impuesto Estimado', fCOP(l.impuestoTotalCOP), `tasa efectiva ${l.tasaEfectiva}%`, l.impuestoTotalCOP > 0 ? 'neg' : 'dim'),
+    kpiCard('A Pagar con Anticipo', fCOP(d.provision.totalAPagarCOP), `incluye anticipo ${d.provision.anticipoPct}% (art. 807)`, 'neg'),
+  ].join('');
+
+  // ── Semáforo de obligaciones ─────────────────────────────────────
+  const chipUmbral = (nombre, c, norma) => {
+    const color = c.supera ? 'var(--red)' : c.pct > 80 ? 'var(--gold)' : 'var(--muted)';
+    const estado = c.supera ? 'OBLIGADO' : c.pct > 80 ? 'CERCA' : 'bajo el tope';
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);">
+        <span style="width:9px;height:9px;border-radius:50%;background:${color};flex:none;"></span>
+        <span style="flex:1;font-size:12px;">${nombre}
+          <span style="color:var(--muted);font-size:10px;margin-left:5px;">${norma}</span>
+        </span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted);">
+          ${fCOP(c.valorCOP)} / ${fCOP(c.topeCOP)}
+        </span>
+        <span style="font-family:var(--mono);font-size:11px;color:${color};width:96px;text-align:right;font-weight:600;">
+          ${estado}
+        </span>
+      </div>`;
+  };
+
+  const ob = d.obligaciones;
+  $('imp-obligaciones').innerHTML =
+    chipUmbral('Patrimonio bruto', ob.declararRenta.patrimonioBruto, '4.500 UVT · art. 592') +
+    chipUmbral('Ingresos brutos', ob.declararRenta.ingresosBrutos, '1.400 UVT · art. 592') +
+    chipUmbral('Presentar Formulario 160', ob.activosExterior.presentarF160, '2.000 UVT · art. 607') +
+    chipUmbral('Discriminar activo por activo', ob.activosExterior.discriminar, '3.580 UVT') +
+    `<div style="margin-top:10px;padding:8px 10px;background:var(--card2);border-radius:6px;font-size:10.5px;color:var(--muted);line-height:1.55;">
+       <strong>No evaluables acá:</strong> consumos con tarjeta, compras totales y consignaciones
+       (1.400 UVT cada uno). Son datos bancarios que la bitácora no ve — y el de consignaciones
+       es el que más atrapa a traders: <em>cada envío al broker y cada retiro suma</em>. No hace
+       falta ganar $73M, basta con mover $73M. Verificar contra extractos.
+     </div>`;
+
+  // ── Liquidación ──────────────────────────────────────────────────
+  const fila = (lbl, val, opts = {}) => `
+    <div class="stat-row" style="${opts.total ? 'border-top:1px solid var(--border2);margin-top:6px;padding-top:8px;font-weight:600;' : ''}">
+      <span class="stat-lbl" style="${opts.sub ? 'padding-left:12px;color:var(--muted);' : ''}">${lbl}</span>
+      <span class="stat-val ${opts.cls || ''}" style="font-family:var(--mono);">${val}</span>
+    </div>`;
+
+  $('imp-liquidacion').innerHTML =
+    fila('Utilidad del trading (renta ordinaria)', fCOPs(l.rentaOrdinariaCOP), { cls: cc(l.rentaOrdinariaCOP) }) +
+    fila('− Costos y gastos (art. 107)', fCOP(l.gastosDeduciblesCOP), { sub: true }) +
+    fila('= Renta líquida de la cédula', fCOPs(l.rentaLiquidaTradingCOP)) +
+    (l.compensacionAplicadaCOP > 0 ? fila('− Compensación de pérdidas', fCOP(l.compensacionAplicadaCOP), { sub: true }) : '') +
+    (l.otrosIngresosCOP > 0 ? fila('+ Otros ingresos', fCOP(l.otrosIngresosCOP), { sub: true }) : '') +
+    fila('= Renta depurada', fCOPs(l.rentaDepuradaCOP)) +
+    fila(`− Deducciones especiales <span style="font-size:9.5px;color:var(--muted);">(tope ${fCOP(l.topeRentasExentasCOP)})</span>`,
+         fCOP(l.deduccionesEspecialesAplicadasCOP), { sub: true }) +
+    (l.dependientes > 0 ? fila(`− Dependientes (${l.dependientes} × 72 UVT)`, fCOP(l.deduccionDependientesCOP), { sub: true }) : '') +
+    fila('= Renta líquida gravable', fCOPs(l.rentaLiquidaGravableCOP), { total: true }) +
+    fila(`Impuesto art. 241 <span style="font-size:9.5px;color:var(--muted);">(${l.baseUVT} UVT, marginal ${(l.tarifaMarginal*100).toFixed(0)}%)</span>`, fCOP(l.impuestoRentaCOP)) +
+    (l.descuentoExteriorCOP > 0 ? fila('− Descuento impuestos exterior (art. 254)', fCOP(l.descuentoExteriorCOP), { sub: true, cls: 'pos' }) : '') +
+    (l.impuestoGananciaOcasionalCOP > 0 ? fila('+ Ganancia ocasional (15%)', fCOP(l.impuestoGananciaOcasionalCOP), { sub: true }) : '') +
+    fila('IMPUESTO TOTAL', fCOP(l.impuestoTotalCOP), { total: true, cls: 'neg' }) +
+    fila(`+ Anticipo año siguiente (${d.provision.anticipoPct}%)`, fCOP(d.provision.anticipoCOP), { sub: true }) +
+    fila('DESEMBOLSO PROYECTADO', fCOP(d.provision.totalAPagarCOP), { total: true, cls: 'neg' }) +
+    `<div style="margin-top:10px;padding:8px 10px;background:rgba(255,60,60,.07);border:1px solid rgba(255,60,60,.2);border-radius:6px;font-size:10.5px;color:var(--muted);line-height:1.55;">
+       Tastytrade <strong>no retiene nada</strong> durante el año: todo vence junto entre agosto y octubre.
+       Provisión sugerida: <strong style="color:var(--text);">${fCOP(d.provision.mensualSugeridoCOP)}/mes</strong>.
+     </div>`;
+
+  // ── Supuestos editables ──────────────────────────────────────────
+  $('imp-config').innerHTML = `
+    <div style="display:grid;gap:9px;">
+      <label style="font-size:11px;color:var(--muted);">
+        Otros ingresos del año (salario, honorarios, arriendos) COP
+        <input type="number" id="ic-otros" value="${l.otrosIngresosCOP}" style="width:100%;margin-top:3px;">
+      </label>
+      <label style="font-size:11px;color:var(--muted);">
+        Deducciones especiales COP <span style="font-size:9.5px;">(AFC, pensión voluntaria, medicina prepagada, intereses vivienda)</span>
+        <input type="number" id="ic-deducciones" value="${l.deduccionesEspecialesCOP}" style="width:100%;margin-top:3px;">
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;">
+        <label style="font-size:11px;color:var(--muted);">
+          Dependientes (máx. 4)
+          <input type="number" min="0" max="4" id="ic-dependientes" value="${l.dependientes}" style="width:100%;margin-top:3px;">
+        </label>
+        <label style="font-size:11px;color:var(--muted);">
+          Anticipo % (art. 807)
+          <select id="ic-anticipo" style="width:100%;margin-top:3px;">
+            ${[25, 50, 75].map(p => `<option value="${p}" ${p === d.provision.anticipoPct ? 'selected' : ''}>${p}% ${p===25?'(1er año)':p===50?'(2º año)':'(3º+)'}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <button class="btn btn-primary" onclick="impSaveConfig()" style="padding:6px 14px;font-size:11px;">Guardar y recalcular</button>
+      <div style="font-size:10px;color:var(--muted);line-height:1.5;">
+        Las deducciones especiales están topadas al 40% de la renta depurada, máx. 1.340 UVT
+        (${fCOP(1340 * d.uvt)} este año). Los dependientes quedan <strong>fuera</strong> de ese tope.
+      </div>
+    </div>`;
+
+  // ── Clasificación fiscal ─────────────────────────────────────────
+  const ro = d.rentaOrdinaria, go = d.gananciaOcasional;
+  $('imp-clasificacion').innerHTML = `
+    <div style="display:grid;gap:12px;">
+      <div style="padding:10px;background:var(--card2);border-radius:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <strong style="font-size:12px;">Renta ordinaria</strong>
+          <span style="font-family:var(--mono);font-size:13px;" class="${cc(ro.usd)}">${f$(ro.usd)}</span>
+        </div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.5;">
+          Tenencia &lt; 2 años · tabla art. 241 progresiva 0%–39%<br>
+          ${ro.n} ops · ${ro.ganadoras} ganadoras / ${ro.perdedoras} perdedoras · ${fCOPs(ro.cop)}
+        </div>
+      </div>
+      <div style="padding:10px;background:var(--card2);border-radius:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <strong style="font-size:12px;">Ganancia ocasional</strong>
+          <span style="font-family:var(--mono);font-size:13px;" class="${cc(go.usd)}">${f$(go.usd)}</span>
+        </div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.5;">
+          Tenencia ≥ 2 años · tarifa plana 15% (art. 314)<br>
+          ${go.n} ops · ${fCOPs(go.cop)}
+        </div>
+      </div>
+      ${go.n === 0 ? `
+      <div style="font-size:10.5px;color:var(--muted);line-height:1.55;padding:8px 10px;border-left:2px solid var(--border2);">
+        Ninguna operación califica como ganancia ocasional, que es lo esperado:
+        el trading de opciones sobre índices nunca alcanza los 2 años de tenencia.
+        <strong>No existe forma de acceder al 15% haciendo trading activo.</strong>
+      </div>` : ''}
+      <div style="display:flex;justify-content:space-between;font-size:11px;padding-top:8px;border-top:1px solid var(--border);">
+        <span style="color:var(--muted);">Comisiones y fees pagados al broker</span>
+        <span style="font-family:var(--mono);">${fa$(d.comisiones.total)}</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);line-height:1.5;">
+        Informativo: el <code>net-value</code> de Tastytrade <strong>ya viene neto</strong> de comisiones
+        y fees, así que el P&amp;L de arriba los tiene descontados. No volver a restarlos —
+        sería deducir dos veces el mismo costo.
+      </div>
+    </div>`;
+
+  // ── Patrimonio y dividendos ──────────────────────────────────────
+  const p = d.patrimonio, dv = d.dividendosTotales;
+  $('imp-patrimonio').innerHTML = `
+    <div style="display:grid;gap:12px;">
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <strong style="font-size:12px;">Saldo de la cuenta ${p.esProyeccion ? '(último snapshot)' : 'al 31-dic'}</strong>
+          <span style="font-family:var(--mono);font-size:13px;">${fa$(p.nlvUSD)}</span>
+        </div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.5;">
+          ${p.fecha ? fDate(p.fecha) : 'sin snapshot'} · TRM ${p.trm ? p.trm.toLocaleString('es-CO') : '—'} ·
+          <strong style="color:var(--text);">${p.nlvCOP != null ? fCOP(p.nlvCOP) : '—'}</strong><br>
+          Es el activo en el exterior que va al patrimonio bruto y al Formulario 160.
+        </div>
+      </div>
+      <div style="padding-top:10px;border-top:1px solid var(--border);">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <strong style="font-size:12px;">Dividendos</strong>
+          <span style="font-family:var(--mono);font-size:13px;">${fa$(dv.brutoUSD)}</span>
+        </div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.5;">
+          Retención EEUU: <strong style="color:var(--text);">${fa$(dv.retencionUSD)}</strong>
+          ${dv.brutoUSD > 0 ? `(${dv.tarifaEfectiva}%)` : ''} · ${d.dividendos.length} pago(s)<br>
+          ${dv.retencionUSD > 0
+            ? `Descontable del impuesto colombiano (art. 254), <strong>pero exige el Formulario 1042-S</strong> del broker.`
+            : `Sin dividendos: no hay impuesto pagado en EEUU que descontar. Las ganancias de capital de un no residente no tributan allá — el 100% de la carga es colombiana.`}
+        </div>
+      </div>
+    </div>`;
+
+  // ── Operaciones ──────────────────────────────────────────────────
+  $('imp-ops-count').textContent = `${d.operaciones.length} cerradas en ${d.year}`;
+  $('imp-ops-tbody').innerHTML = d.operaciones.length
+    ? d.operaciones.map(o => `
+      <tr>
+        <td style="font-size:11px;">${fDateShort(o.openDate)}</td>
+        <td style="font-size:11px;">${fDateShort(o.closeDate)}</td>
+        <td><strong>${o.underlying}</strong></td>
+        <td style="font-size:11px;color:var(--muted);">${o.stratType}${o.partialClose ? ' <span style="color:var(--gold);font-size:9px;">PARCIAL</span>' : ''}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${o.durationDays}</td>
+        <td style="font-family:var(--mono);" class="${cc(o.pnlUSD)}">${f$(o.pnlUSD)}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${o.trm ? o.trm.toLocaleString('es-CO') : '<span style="color:var(--red)">sin TRM</span>'}</td>
+        <td style="font-family:var(--mono);font-size:11px;" class="${cc(o.pnlCOP)}">${o.pnlCOP != null ? fCOPs(o.pnlCOP) : '—'}</td>
+        <td style="font-size:10px;">
+          <span style="padding:2px 7px;border-radius:10px;background:${o.clasificacion === 'ganancia_ocasional' ? 'rgba(255,200,0,.12);color:var(--gold)' : 'rgba(255,255,255,.06);color:var(--muted)'};">
+            ${o.clasificacion === 'ganancia_ocasional' ? 'Gan. ocasional 15%' : 'Renta ordinaria'}
+          </span>
+        </td>
+      </tr>`).join('')
+    : `<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px;font-size:12px;">Sin operaciones cerradas en ${d.year}</td></tr>`;
+
+  // ── Gastos ───────────────────────────────────────────────────────
+  const g = d.gastos;
+  $('imp-gastos-tbody').innerHTML = g.detalle.length
+    ? g.detalle.map(x => `
+      <tr>
+        <td style="font-size:11px;">${fDateShort(x.fecha)}</td>
+        <td>${x.proveedor || '—'}</td>
+        <td style="font-size:11px;color:var(--muted);">${x.concepto || '—'}</td>
+        <td style="font-size:11px;">${x.categoria}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${x.valorOriginal ? fa$(x.valorOriginal) : '—'}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${x.trm ? x.trm.toLocaleString('es-CO') : '—'}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${fCOP(x.valorCOP)}</td>
+        <td style="font-size:10px;">${x.numeroSoporte
+          ? `<span style="color:var(--muted);">${x.numeroSoporte}</span>`
+          : `<span style="color:var(--red);">sin soporte</span>`}</td>
+        <td><button class="btn" onclick="impDelGasto('${x.id}')" style="padding:2px 8px;font-size:10px;">✕</button></td>
+      </tr>`).join('')
+      + `<tr style="border-top:1px solid var(--border2);font-weight:600;">
+           <td colspan="6" style="text-align:right;">Total deducible</td>
+           <td style="font-family:var(--mono);">${fCOP(g.totales.cop)}</td>
+           <td colspan="2"></td>
+         </tr>`
+    : `<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:18px;font-size:12px;">
+         Sin gastos registrados en ${d.year}. Es la palanca de optimización más grande y la más desaprovechada.
+       </td></tr>`;
+
+  // ── Pérdidas ─────────────────────────────────────────────────────
+  $('imp-perdidas-tbody').innerHTML = (d.perdidas || []).length
+    ? d.perdidas.map(x => `
+      <tr>
+        <td>${x.anoOrigen}</td>
+        <td style="font-size:11px;color:var(--muted);">${x.cedula}</td>
+        <td style="font-family:var(--mono);">${fCOP(x.saldoPendienteCOP)}</td>
+        <td style="font-size:11px;color:${x.anoVencimiento <= d.year + 2 ? 'var(--gold)' : 'var(--muted)'};">${x.anoVencimiento}</td>
+        <td><button class="btn" onclick="impDelPerdida('${x.id}')" style="padding:2px 8px;font-size:10px;">✕</button></td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px;font-size:12px;">
+         Sin pérdidas registradas. Este beneficio se pierde por falta de trazabilidad, no por norma.
+       </td></tr>`;
+
+  // ── Advertencias ─────────────────────────────────────────────────
+  const colorNivel = { alta: 'var(--red)', media: 'var(--gold)', info: 'var(--muted)' };
+  $('imp-advertencias').innerHTML = d.advertencias.map(a => `
+    <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);">
+      <span style="width:7px;height:7px;border-radius:50%;background:${colorNivel[a.nivel]};flex:none;margin-top:5px;"></span>
+      <div style="flex:1;">
+        <div style="font-size:12px;font-weight:600;">${a.titulo}</div>
+        <div style="font-size:10.5px;color:var(--muted);line-height:1.55;margin-top:2px;">${a.detalle}</div>
+      </div>
+    </div>`).join('');
+
+  $('imp-trm-info').textContent =
+    `${d.trmInfo?.dias || 0} días cargados · última ${d.trmInfo?.ultima || '—'} = ${d.trmInfo?.valor ? d.trmInfo.valor.toLocaleString('es-CO') : '—'} · ${d.trmInfo?.fuente || ''}`;
+}
+
+// ── Acciones ───────────────────────────────────────────────────────
+
+function impToggleGastoForm() {
+  const f = $('imp-gasto-form');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if (f.style.display === 'block' && !$('ig-fecha').value) {
+    $('ig-fecha').value = new Date().toISOString().slice(0, 10);
+    // TRM sugerida: la última de la serie ya cargada, para no obligar a
+    // buscarla a mano. El usuario la puede pisar.
+    if (_impData?.trmInfo?.valor) $('ig-trm').value = _impData.trmInfo.valor;
+  }
+}
+
+async function impAddGasto() {
+  const usd = parseFloat($('ig-usd').value) || 0;
+  const trm = parseFloat($('ig-trm').value) || 0;
+  if (!usd || !trm) { alert('Falta el valor en USD o la TRM.'); return; }
+  try {
+    await api('/api/impuestos/gastos', 'POST', {
+      fecha:         $('ig-fecha').value,
+      proveedor:     $('ig-proveedor').value,
+      concepto:      $('ig-concepto').value,
+      categoria:     $('ig-categoria').value,
+      valorOriginal: usd,
+      trm,
+      valorCOP:      Math.round(usd * trm),
+      numeroSoporte: $('ig-soporte').value,
+    });
+    ['ig-proveedor','ig-concepto','ig-usd','ig-soporte'].forEach(id => $(id).value = '');
+    loadImpuestos();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function impDelGasto(id) {
+  try { await api(`/api/impuestos/gastos/${id}`, 'DELETE'); loadImpuestos(); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+
+function impTogglePerdidaForm() {
+  const f = $('imp-perdida-form');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+async function impAddPerdida() {
+  const ano   = parseInt($('ip-ano').value) || 0;
+  const saldo = parseFloat($('ip-saldo').value) || 0;
+  if (!ano || !saldo) { alert('Falta el año de origen o el saldo.'); return; }
+  try {
+    await api('/api/impuestos/perdidas', 'POST', {
+      anoOrigen:          ano,
+      cedula:             $('ip-cedula').value,
+      perdidaOriginalCOP: saldo,
+      saldoPendienteCOP:  saldo,
+    });
+    $('ip-ano').value = ''; $('ip-saldo').value = '';
+    loadImpuestos();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function impDelPerdida(id) {
+  try { await api(`/api/impuestos/perdidas/${id}`, 'DELETE'); loadImpuestos(); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+
+async function impSaveConfig() {
+  try {
+    await api('/api/impuestos/config', 'POST', {
+      otrosIngresosCOP:         parseFloat($('ic-otros').value) || 0,
+      deduccionesEspecialesCOP: parseFloat($('ic-deducciones').value) || 0,
+      dependientes:             parseInt($('ic-dependientes').value) || 0,
+      anticipoPct:              parseInt($('ic-anticipo').value) || 75,
+    });
+    loadImpuestos();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+// Export del libro fiscal. Mismas columnas que la plantilla
+// "plantillas/libro_fiscal_trading.csv" de la carpeta de documentación,
+// para que lo que se le entrega al contador tenga siempre la misma forma.
+function impExportCSV() {
+  if (!_impData) return;
+  const cols = ['fecha_apertura','fecha_cierre','subyacente','estrategia','dias_tenencia',
+                'cantidad','apertura_usd','cierre_usd','pl_usd','trm','pl_cop','clasificacion_fiscal'];
+  const rows = _impData.operaciones.map(o => [
+    o.openDate, o.closeDate, o.underlying, o.stratType, o.durationDays,
+    o.qty, o.openValue, o.closeValue, o.pnlUSD, o.trm ?? '', o.pnlCOP ?? '',
+    o.clasificacion === 'ganancia_ocasional' ? 'Ganancia ocasional' : 'Renta ordinaria',
+  ]);
+  const esc = v => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [cols.join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `libro_fiscal_${_impData.year}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 </script>

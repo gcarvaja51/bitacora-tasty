@@ -236,17 +236,44 @@ class TradierClient {
   // cambia es el tipo de opcion. Bug corregido 2026-07-08: el ternario viejo
   // solo distinguia BULL_PUT_SPREAD, así que BEAR_PUT_SPREAD (que necesita
   // puts) caia al default 'C' e intentaba operar calls por error.
-  async placeSpreadOrder({ strategy, underlyingRoot, expiry, shortStrike, longStrike, quantity }) {
+  // netLimitPrice (2026-08-13, mismo criterio que minCreditPrice en
+  // placeIronCondorOrder): si se pasa, la orden va como limit de credito o
+  // debito neto en vez de 'market'. Sin el parametro se comporta igual que
+  // antes — no rompe nada existente.
+  //
+  // Por que se agrego: esta funcion abre las 4 verticales y hasta ahora iba
+  // SIEMPRE a mercado, sin forma de pasar un piso. Medido sobre 167 ejecuciones
+  // (jul-ago 2026), el lado de credito recibia en promedio un 34% MENOS de
+  // prima que la que habia calculado la señal — BULL_PUT_SPREAD 47.8% y
+  // BEAR_CALL_SPREAD 24.5%, con casos de esperar 1.95 y cobrar 0.50. Cruzar el
+  // spread en cada entrada se comia un tercio del edge antes de que el mercado
+  // hiciera nada.
+  //
+  // OJO: esto es solo para APERTURAS. En los cierres el default a mercado se
+  // deja a proposito — un limit sin llenar en una salida deja la posicion
+  // atrapada, que es peor que el deslizamiento.
+  async placeSpreadOrder({ strategy, underlyingRoot, expiry, shortStrike, longStrike, quantity, netLimitPrice }) {
     if (!this.accountNumber) throw new Error('Falta TRADIER_ACCOUNT_NUMBER en .env');
     const optType  = (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_PUT_SPREAD') ? 'P' : 'C';
     const shortSym = this.buildOccSymbol(underlyingRoot, expiry, optType, shortStrike);
     const longSym  = this.buildOccSymbol(underlyingRoot, expiry, optType, longStrike);
 
+    // Las dos verticales que se abren COBRANDO prima; las otras dos pagan debito.
+    const esCredito = (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_CALL_SPREAD');
+
     const body = new URLSearchParams({
       class:    'multileg',
       symbol:   underlyingRoot,
-      type:     'market',
+      type:     netLimitPrice == null ? 'market' : (esCredito ? 'credit' : 'debit'),
       duration: 'day',
+      // Mismo redondeo estricto que placeIronCondorOrder: en credito se pide
+      // hacia arriba (nunca cobrar menos del piso) y en debito hacia abajo
+      // (nunca pagar mas del techo). El Math.max(0.01) es por el rechazo de
+      // Tradier ante price: 0 ("must be greater than 0").
+      ...(netLimitPrice == null ? {} : {
+        price: esCredito ? precioArriba(Math.max(0.01, netLimitPrice))
+                         : precioAbajo(Math.max(0.01, netLimitPrice)),
+      }),
       'option_symbol[0]': shortSym,
       'side[0]':          'sell_to_open',
       'quantity[0]':      String(quantity),

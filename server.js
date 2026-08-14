@@ -661,6 +661,238 @@ app.get('/api/nlv-history', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ══════════════════════════════════════════════════════════════════
+//  IMPUESTOS — hoja de trabajo fiscal (Colombia)
+// ══════════════════════════════════════════════════════════════════
+// Ver src/impuestos.js para el marco normativo y la lógica de cálculo.
+// La documentación de respaldo vive fuera del repo, en
+// "01_Sigma/reporte impuestos financiero legal/".
+
+const { buildImpuestos } = require('./src/impuestos');
+
+const IMP_GASTOS_FILE   = path.join(DATA_DIR, 'impuestos_gastos.json');
+const IMP_CONFIG_FILE   = path.join(DATA_DIR, 'impuestos_config.json');
+const IMP_PERDIDAS_FILE = path.join(DATA_DIR, 'impuestos_perdidas.json');
+const TRM_CACHE_FILE    = path.join(DATA_DIR, 'trm_cache.json');
+
+function loadJsonSafe(file, fallback) {
+  try { if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8')); } catch(e) {}
+  return fallback;
+}
+function saveJsonSafe(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+}
+
+const loadImpGastos   = () => loadJsonSafe(IMP_GASTOS_FILE, []);
+const loadImpPerdidas = () => loadJsonSafe(IMP_PERDIDAS_FILE, []);
+const loadImpConfig   = () => ({
+  otrosIngresosCOP: 0,          // salario, honorarios, arriendos — fuera de la bitácora
+  deduccionesEspecialesCOP: 0,  // AFC, pensión voluntaria, medicina prepagada, vivienda
+  dependientes: 0,              // 72 UVT c/u, máx 4 — fuera del límite del 40%
+  anticipoPct: 75,              // art. 807 ET: 25% 1er año, 50% 2do, 75% 3ro+
+  ...loadJsonSafe(IMP_CONFIG_FILE, {}),
+});
+
+/**
+ * Serie de TRM desde datos.gov.co (Superfinanciera).
+ *
+ * Se cachea en disco por año: la TRM de un año cerrado no cambia nunca, y
+ * la del año en curso se refresca si el cache quedó viejo. Sin esto habría
+ * que pegarle al portal en cada carga de la pestaña.
+ */
+async function getTrmMap(year, { force = false } = {}) {
+  const cache = loadJsonSafe(TRM_CACHE_FILE, {});
+  const entry = cache[year];
+  const hoy   = todayStr();
+  const anioEnCurso = Number(hoy.slice(0, 4)) === Number(year);
+
+  // Un año cerrado con datos ya no se vuelve a pedir. El año en curso se
+  // refresca si el cache no se actualizó hoy.
+  if (!force && entry?.map && Object.keys(entry.map).length) {
+    if (!anioEnCurso || entry.updatedAt?.slice(0, 10) === hoy) return entry.map;
+  }
+
+  try {
+    const url = `https://www.datos.gov.co/resource/32sa-8pi3.json`
+              + `?$limit=1000&$where=vigenciadesde>='${year}-01-01T00:00:00.000'`
+              + ` and vigenciadesde<='${year}-12-31T23:59:59.000'`;
+    const r = await fetch(encodeURI(url), { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error(`datos.gov.co HTTP ${r.status}`);
+    const rows = await r.json();
+
+    const map = {};
+    for (const row of rows) {
+      const d = (row.vigenciadesde || '').slice(0, 10);
+      const v = parseFloat(row.valor);
+      if (d && Number.isFinite(v)) map[d] = v;
+    }
+    if (!Object.keys(map).length) throw new Error('serie de TRM vacía');
+
+    cache[year] = { map, updatedAt: new Date().toISOString(), fuente: 'datos.gov.co/32sa-8pi3' };
+    saveJsonSafe(TRM_CACHE_FILE, cache);
+    return map;
+  } catch (e) {
+    // Degradar al cache viejo antes que romper la pestaña: una TRM
+    // desactualizada por unos días es mucho menos malo que no mostrar nada.
+    console.error('[impuestos] TRM:', e.message);
+    if (entry?.map) return entry.map;
+    return {};
+  }
+}
+
+// Hoja fiscal de un año gravable
+app.get('/api/impuestos', async (req, res) => {
+  try {
+    const year = Number(req.query.year) || Number(todayStr().slice(0, 4));
+
+    const [trmMap, txData] = await Promise.all([
+      getTrmMap(year, { force: req.query.refreshTrm === '1' }),
+      (async () => {
+        // El rango cubre el año completo. Se acota al inicio real de la
+        // cuenta para no pedirle a Tastytrade meses que no existen.
+        const sd = `${year}-01-01`;
+        const ed = Number(todayStr().slice(0, 4)) === year ? todayStr() : `${year}-12-31`;
+        return cached(`imp_txns_${year}`, 300, async () => {
+          const allItems = await tt.getAllTransactions(sd, ed);
+          const tradeItems = allItems.filter(tx =>
+            tx['transaction-type'] === 'Trade' ||
+            tx['transaction-type'] === 'Receive Deliver'
+          );
+          // limit:0 — sin recorte. El default de 200 sirve para las pestañas
+          // de análisis, pero un año gravable tiene que entrar completo o el
+          // total declarado queda por debajo del real.
+          return { items: allItems, metrics: buildMetrics(tradeItems, { limit: 0 }) };
+        });
+      })(),
+    ]);
+
+    const strategies = txData.metrics.strategies || [];
+
+    const nlvObj = loadNlvHistory();
+    const nlvHistory = Object.entries(nlvObj)
+      .map(([date, nlv]) => ({ date, nlv: Number(nlv) || 0 }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const hoja = buildImpuestos({
+      strategies,
+      items:    txData.items,
+      nlvHistory,
+      trmMap,
+      year,
+      config:   loadImpConfig(),
+      gastos:   loadImpGastos(),
+      perdidas: loadImpPerdidas(),
+    });
+
+    hoja.trmInfo = {
+      dias:    Object.keys(trmMap).length,
+      ultima:  Object.keys(trmMap).sort().pop() || null,
+      valor:   trmMap[Object.keys(trmMap).sort().pop()] || null,
+      fuente:  'datos.gov.co · Superfinanciera (32sa-8pi3)',
+    };
+
+    res.json(hoja);
+  } catch (e) {
+    console.error('[impuestos]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Años con movimiento, para el selector de la pestaña
+app.get('/api/impuestos/years', (req, res) => {
+  try {
+    const nlv   = Object.keys(loadNlvHistory()).map(d => Number(d.slice(0, 4)));
+    const gast  = loadImpGastos().map(g => Number((g.fecha || '').slice(0, 4)));
+    const anios = [...new Set([...nlv, ...gast, Number(todayStr().slice(0, 4))])]
+      .filter(y => Number.isFinite(y) && y > 2000)
+      .sort((a, b) => b - a);
+    res.json({ years: anios });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Gastos deducibles (art. 107 ET) ────────────────────────────────
+app.get('/api/impuestos/gastos', (req, res) => res.json({ gastos: loadImpGastos() }));
+
+app.post('/api/impuestos/gastos', (req, res) => {
+  try {
+    const gastos = loadImpGastos();
+    const g = {
+      id:            `g_${Date.now()}`,
+      fecha:         req.body.fecha || todayStr(),
+      proveedor:     req.body.proveedor || '',
+      paisProveedor: req.body.paisProveedor || 'USA',
+      concepto:      req.body.concepto || '',
+      categoria:     req.body.categoria || 'Otros',
+      moneda:        req.body.moneda || 'USD',
+      valorOriginal: Number(req.body.valorOriginal) || 0,
+      trm:           Number(req.body.trm) || 0,
+      valorCOP:      Number(req.body.valorCOP) || 0,
+      medioPago:     req.body.medioPago || '',
+      tipoSoporte:   req.body.tipoSoporte || '',
+      numeroSoporte: req.body.numeroSoporte || '',
+      deducible:     req.body.deducible !== false,
+      notas:         req.body.notas || '',
+      createdAt:     new Date().toISOString(),
+    };
+    // Si vino en USD con TRM pero sin COP, se calcula acá y no en el front:
+    // así el valor guardado siempre es coherente con su propia TRM.
+    if (!g.valorCOP && g.valorOriginal && g.trm) g.valorCOP = Math.round(g.valorOriginal * g.trm);
+    gastos.push(g);
+    saveJsonSafe(IMP_GASTOS_FILE, gastos);
+    res.json(g);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/impuestos/gastos/:id', (req, res) => {
+  try {
+    const gastos = loadImpGastos().filter(g => g.id !== req.params.id);
+    saveJsonSafe(IMP_GASTOS_FILE, gastos);
+    res.json({ ok: true, restantes: gastos.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Pérdidas fiscales compensables (arts. 147, 330 ET) ─────────────
+app.get('/api/impuestos/perdidas', (req, res) => res.json({ perdidas: loadImpPerdidas() }));
+
+app.post('/api/impuestos/perdidas', (req, res) => {
+  try {
+    const perdidas = loadImpPerdidas();
+    const p = {
+      id:                `p_${Date.now()}`,
+      anoOrigen:         Number(req.body.anoOrigen) || 0,
+      cedula:            req.body.cedula || 'Rentas no laborales',
+      perdidaOriginalCOP: Number(req.body.perdidaOriginalCOP) || 0,
+      saldoPendienteCOP: Number(req.body.saldoPendienteCOP ?? req.body.perdidaOriginalCOP) || 0,
+      // Art. 147 ET: 12 años contados desde el año siguiente al de origen
+      anoVencimiento:    (Number(req.body.anoOrigen) || 0) + 12,
+      notas:             req.body.notas || '',
+      createdAt:         new Date().toISOString(),
+    };
+    perdidas.push(p);
+    saveJsonSafe(IMP_PERDIDAS_FILE, perdidas);
+    res.json(p);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/impuestos/perdidas/:id', (req, res) => {
+  try {
+    const perdidas = loadImpPerdidas().filter(p => p.id !== req.params.id);
+    saveJsonSafe(IMP_PERDIDAS_FILE, perdidas);
+    res.json({ ok: true, restantes: perdidas.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Supuestos del contribuyente ────────────────────────────────────
+app.get('/api/impuestos/config', (req, res) => res.json(loadImpConfig()));
+
+app.post('/api/impuestos/config', (req, res) => {
+  try {
+    const cfg = { ...loadImpConfig(), ...req.body, updatedAt: new Date().toISOString() };
+    saveJsonSafe(IMP_CONFIG_FILE, cfg);
+    res.json(cfg);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug-today-strategies', async (req, res) => {
   try {
     const today = todayStr();
@@ -4247,6 +4479,19 @@ const SPX_CONFIG_DEFAULTS = {
     tpPct:       25,      // Take Profit % del crédito (25% → 94% prob. éxito, playbook Alejandro)
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
+    // Tolerancia de deslizamiento al ABRIR (2026-08-13). Cuanto se acepta
+    // perder contra el premium que estimo la señal: en credito el piso es
+    // premium*(1-tol), en debito el techo es premium*(1+tol). Ver
+    // limiteDeAperturaVertical. Poner 0 exige el premium exacto (casi nunca
+    // llena); poner 100 o mas desactiva el limite y vuelve al 'market' de antes.
+    //
+    // El 25 sale de lo medido sobre 167 ejecuciones (jul-ago 2026): el lado de
+    // credito cobraba 34% menos de lo estimado —BULL_PUT 47.8%, BEAR_CALL
+    // 24.5%— porque todas las verticales salian a mercado y cruzaban el spread.
+    // Con 25% aquella entrada que esperaba 1.95 y cobro 0.50 se habria
+    // rechazado. OJO: un piso mas exigente = menos operaciones. Si el volumen
+    // cae mucho, subir este numero antes que volver a market.
+    toleranciaDeslizamientoPct: 25,
     tradierAutoExecute: true, // kill-switch: false pausa la ejecucion automatica en Tradier
     // Proteccion de precio al CERRAR un spread direccional (2026-07-20, ver caso real
     // documentado junto a closeSpreadOrder en src/tradier.js) — antes el cierre iba
@@ -6013,6 +6258,9 @@ async function processDirectionalEntry(direction, meta = {}) {
             shortStrike:    signal.strikes.shortStrike,
             longStrike:     signal.strikes.longStrike,
             quantity:       signal.contracts,
+            // Piso de precio en la entrada — ver limiteDeAperturaVertical.
+            // Si devuelve null la orden va a mercado, como iba antes.
+            netLimitPrice:  limiteDeAperturaVertical(signal.strategy, signal.strikes.premium, spxConfig?.trading),
           });
           signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
           signal.status    = 'EXECUTED';
@@ -6925,7 +7173,20 @@ async function checkIronCondor() {
               callShortStrike:  strikes.callShortStrike,
               callLongStrike:   strikes.callLongStrike,
               quantity:         contracts,
-              minCreditPrice:   +((icCfg.minCreditoAnchoPct ?? 25) / 100 * gate.spreadWidth).toFixed(2),
+              // Piso de precio RELATIVO AL CREDITO ESTIMADO, no a
+              // minCreditoAnchoPct (2026-08-13). Antes se reusaba ese gate como
+              // piso, y con el valor de produccion en 0 el limite terminaba en
+              // $0.01 tras el Math.max de placeIronCondorOrder: un limit que
+              // acepta cualquier cosa, o sea un market disfrazado. Los dos
+              // condores medidos lo confirman — el del 12-ago estimaba 0.80 y
+              // se lleno en 0.65, el del 13-ago estimaba 0.67 y se lleno en
+              // 0.50: ambos EXACTAMENTE en el precio de cruzar el spread.
+              //
+              // minCreditoAnchoPct se deja como lo que es, el gate de ENTRADA
+              // (linea ~6873), y sigue en 0 a proposito por el modo captura.
+              // Son dos decisiones distintas y mezclarlas ataba el precio de
+              // ejecucion a un parametro de estrategia.
+              minCreditPrice:   limiteDeAperturaVertical('IRON_CONDOR', strikes.premium, null, true),
             });
         signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
         signal.status   = 'EXECUTED';
@@ -7148,6 +7409,114 @@ async function cancelarOrdenesVivasDeLasPatas(ex) {
     }
   } catch (e) { console.error('[CIERRE] Error listando órdenes:', e.message); }
   return canceladas;
+}
+
+// ── Piso/techo de precio para ABRIR verticales (2026-08-13) ────────────────
+//
+// Devuelve el precio neto limite que se le pasa a placeSpreadOrder, calculado
+// como un % de tolerancia sobre el premium que estimo la señal:
+//   credito -> minimo aceptable = premium * (1 - tol)
+//   debito  -> maximo aceptable = premium * (1 + tol)
+//
+// Motivo (medido sobre 167 ejecuciones de jul-ago 2026): las verticales iban
+// SIEMPRE a mercado y el lado de credito cobraba en promedio un 34% menos que
+// lo estimado — BULL_PUT_SPREAD 47.8%, BEAR_CALL_SPREAD 24.5%, con casos de
+// esperar 1.95 y cobrar 0.50. Con la tolerancia por defecto (25%) esa entrada
+// habria rechazado todo por debajo de 1.46.
+//
+// Devuelve null si no hay premium utilizable o la tolerancia esta fuera de
+// rango: ahi placeSpreadOrder cae a 'market' igual que siempre, que es el
+// comportamiento viejo. Preferir no poner limite antes que poner uno absurdo.
+// esCreditoForzado: para estructuras que no son una de las 4 verticales (el
+// Iron Condor siempre cobra credito), donde el nombre no alcanza para decidir
+// el sentido del limite.
+function limiteDeAperturaVertical(strategy, premium, tradingCfg, esCreditoForzado) {
+  const prem = Math.abs(Number(premium));
+  if (!Number.isFinite(prem) || prem <= 0) return null;
+  let cfgT = tradingCfg;
+  if (!cfgT) { try { cfgT = loadSPXConfig()?.trading; } catch (e) { cfgT = null; } }
+  const tol = Number(cfgT?.toleranciaDeslizamientoPct ?? 25);
+  if (!Number.isFinite(tol) || tol < 0 || tol >= 100) return null;
+  const esCredito = esCreditoForzado != null
+    ? !!esCreditoForzado
+    : (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_CALL_SPREAD');
+  const limite = esCredito ? prem * (1 - tol / 100) : prem * (1 + tol / 100);
+  return +limite.toFixed(2);
+}
+
+// ── Verificar el cierre anterior (2026-08-13, bug real) ─────────────────────
+//
+// Tradier NO rechaza la orden de cierre al enviarla: acepta el POST, devuelve
+// un id, y recien 1-2 minutos despues la marca 'rejected'. Los monitores
+// mandaban y se olvidaban, asi que el rechazo era invisible — el registro
+// guardaba closeOrderId + closeOrderSentAt y se quedaba esperando una
+// reconciliacion pasiva que nunca iba a llegar, porque la posicion seguia
+// abierta. El cooldown tampoco ayudaba: frena para no pisar una orden VIVA,
+// pero reintentaba igual cada 2-3 min sin contar los fallos ni avisar.
+//
+// Caso real del 2026-08-13: el iron condor 1DTE tex-1786564157055 (7690/7685 -
+// 7805/7810, credito 0.65) acumulo SEIS cierres fallidos — 36946515 y 36946923
+// 'canceled', y 36947874, 36952103, 36952621 y 36953136 'rejected' con "Buy
+// order is for more shares than your current short position" — y quedo abierto
+// hasta expirar sin que nadie se enterara. Ese dia SPX toco 7816.70, por encima
+// de las DOS patas de call (perdida maxima), y cerro en 7798.99: 6 puntos por
+// debajo de la corta. Termino ganando los $65 por casualidad, no por diseño.
+//
+// Devuelve true si detecto que el cierre anterior fallo (y lo libero para
+// reintentar). Ante un error consultando al broker NO concluye nada: deja el
+// registro como estaba, porque marcar un fallo inexistente seria peor.
+async function verificarCierreAnterior(ex, etiqueta) {
+  if (!ex.closeOrderId || ex.closedAt) return false;
+  let orden;
+  try {
+    orden = await tradier.getOrder(ex.closeOrderId);
+  } catch (e) {
+    console.error(`[${etiqueta}] No se pudo consultar el cierre ${ex.closeOrderId}:`, e.message);
+    return false;
+  }
+  const estado = String(orden?.status || '').toLowerCase();
+  if (!['rejected', 'error', 'expired', 'canceled'].includes(estado)) return false;
+
+  ex.closeFailCount  = (ex.closeFailCount || 0) + 1;
+  ex.closeFailedAt   = new Date().toISOString();
+  ex.closeFailReason = String(orden?.reason_description || estado).trim();
+  // Se liberan las dos marcas para que el proximo ciclo pueda reintentar de
+  // inmediato: el cooldown existe para no pisar una orden viva, y esta ya no
+  // lo esta.
+  ex.closeOrderId     = null;
+  ex.closeOrderSentAt = null;
+  console.error(`[${etiqueta}] ❌ El cierre de ${ex.id} quedó '${estado}' (intento ${ex.closeFailCount}): ${ex.closeFailReason}`);
+  return true;
+}
+
+// Freno de reintentos, mismo criterio que la gestion de La Rueda: tres rechazos
+// seguidos no se arreglan reintentando, necesitan que alguien mire. A diferencia
+// del roll de La Rueda —donde abandonar es seguro porque la posicion vieja queda
+// intacta y cubierta— aca abandonar deja una posicion ABIERTA sin salida, asi
+// que el aviso va con prioridad urgente y dice explicitamente que hay que cerrar
+// a mano.
+const MAX_CLOSE_FAILS = 3;
+async function frenoDeCierre(ex, etiqueta) {
+  if ((ex.closeFailCount || 0) < MAX_CLOSE_FAILS) return false;
+  if (!ex.closeFailNotified) {
+    ex.closeFailNotified = true;
+    console.error(`[${etiqueta}] 🚨 ${ex.id}: ${ex.closeFailCount} cierres rechazados seguidos — se deja de reintentar.`);
+    try {
+      await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+        method: 'POST',
+        headers: {
+          'Title':        `🚨 ${ex.strategy || 'Trade'}: cierre rechazado ${ex.closeFailCount} veces`,
+          'Priority':     'urgent',
+          'Tags':         'rotating_light',
+          'Content-Type': 'text/plain',
+        },
+        body: `${ex.id} (${ex.strategy || '?'} ${ex.expiry || ''}): la orden de cierre se rechazó ${ex.closeFailCount} veces seguidas. Último motivo: ${ex.closeFailReason || 'sin detalle'}. LA POSICIÓN SIGUE ABIERTA — requiere cierre manual.`,
+      });
+    } catch (e) {
+      console.error(`[${etiqueta}] No se pudo enviar el aviso de cierre fallido:`, e.message);
+    }
+  }
+  return true;
 }
 
 // Coloca la orden de cierre que corresponda segun la estrategia. Compartido por
@@ -7393,6 +7762,13 @@ async function checkIronCondorTPSLImpl() {
       }
 
       if (ex.creditReceived == null) continue;
+
+      // Un cierre rechazado tiene que detectarse y contarse, no quedar esperando
+      // una reconciliación que no va a llegar — ver verificarCierreAnterior para
+      // el caso real que motivó esto. Va ANTES del cooldown a propósito: si el
+      // rechazo ya está confirmado, no hay orden viva que respetar.
+      if (await verificarCierreAnterior(ex, 'Tradier-IC-TPSL')) cambios = true;
+      if (await frenoDeCierre(ex, 'Tradier-IC-TPSL')) { cambios = true; continue; }
 
       // Mismo fix que checkDirectionalTPSLImpl (2026-07-15) — sin este freno, si
       // la orden de cierre no se llena al instante, el siguiente ciclo (90s
@@ -7732,6 +8108,14 @@ async function checkDirectionalTPSLImpl() {
       // reenviar nada — le da tiempo a esa orden de llenarse (o a la
       // reconciliación pasiva de detectar que la posición ya no existe) antes
       // de intentar de nuevo.
+      //
+      // El cooldown solo espacia los reintentos: no detecta que el cierre haya
+      // sido RECHAZADO, y ahi esperar no arregla nada. Eso lo cubre
+      // verificarCierreAnterior (2026-08-13) — va antes del cooldown porque un
+      // rechazo confirmado ya no es una orden viva que haya que respetar.
+      if (await verificarCierreAnterior(ex, 'Tradier-DIR-TPSL')) cambios = true;
+      if (await frenoDeCierre(ex, 'Tradier-DIR-TPSL')) { cambios = true; continue; }
+
       const CLOSE_ORDER_COOLDOWN_MS = 2 * 60 * 1000;
       if (ex.closeOrderSentAt && (Date.now() - new Date(ex.closeOrderSentAt).getTime()) < CLOSE_ORDER_COOLDOWN_MS) {
         continue;
@@ -8570,6 +8954,8 @@ async function checkAlejamientoSMA() {
         const order = await tradier.placeSpreadOrder({
           strategy, underlyingRoot: 'SPXW', expiry: strikes.expiry,
           shortStrike: strikes.shortStrike, longStrike: strikes.longStrike, quantity: contracts,
+          // Piso de precio en la entrada — ver limiteDeAperturaVertical.
+          netLimitPrice: limiteDeAperturaVertical(strategy, strikes.premium, cfg),
         });
         signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
         signal.status   = 'EXECUTED';
@@ -8784,6 +9170,13 @@ async function checkAlejamientoSMATPSLImpl() {
       // cada 15s, el más agresivo de los tres, así que sin este freno era el más
       // expuesto a apilar órdenes de cierre repetidas si la primera no se llenaba
       // al instante.
+      //
+      // Y por lo mismo es el mas expuesto a un cierre RECHAZADO que pase
+      // inadvertido: corriendo cada 15s acumula intentos mucho mas rapido que
+      // los otros dos. Ver verificarCierreAnterior (2026-08-13).
+      if (await verificarCierreAnterior(ex, 'Tradier-REV-TPSL')) cambios = true;
+      if (await frenoDeCierre(ex, 'Tradier-REV-TPSL')) { cambios = true; continue; }
+
       const CLOSE_ORDER_COOLDOWN_MS = 2 * 60 * 1000;
       if (ex.closeOrderSentAt && (Date.now() - new Date(ex.closeOrderSentAt).getTime()) < CLOSE_ORDER_COOLDOWN_MS) {
         continue;

@@ -1,0 +1,216 @@
+{
+  "id": "spx-1785508926324",
+  "timestamp": "2026-07-31T14:42:06.324Z",
+  "symbol": "SPX",
+  "strategy": "BEAR_CALL_SPREAD",
+  "strategyName": "Bear Call Spread (BCS)",
+  "direction": "BEARISH",
+  "expType": "0DTE",
+  "expiry": "2026-07-31",
+  "contracts": 1,
+  "spreadWidth": 5,
+  "strikes": {
+    "expiry": "2026-07-31",
+    "shortStrike": 7460,
+    "longStrike": 7465,
+    "shortDelta": 0.305,
+    "premium": 1.3
+  },
+  "isCredit": true,
+  "credit": 130,
+  "debit": null,
+  "maxRisk": 370,
+  "maxProfit": 130,
+  "probSuccess": 69.5,
+  "riskReward": 0.35,
+  "rrNote": "R:R 0.35 — dentro del rango OTM esperado (1:3-1:4)",
+  "context": {
+    "spxPrice": 7420.07,
+    "vix": 17.99,
+    "ivRank": 30,
+    "gammaRegime": "NEGATIVO",
+    "callWall": 7505,
+    "putWall": 7400,
+    "gammaFlip": 7435,
+    "technicalStop": null,
+    "technicalStopSource": null,
+    "maxPain": 7430,
+    "etTime": "10:41"
+  },
+  "status": "EXECUTED",
+  "strategyFamily": "REVERSION",
+  "playbook": {
+    "score": 79,
+    "passed": true,
+    "minScore": 75,
+    "checks": [
+      {
+        "id": "alejamiento_sma8",
+        "label": "Alejamiento de SMA8",
+        "weight": 45,
+        "ok": true,
+        "value": "+0.04% (tensión)",
+        "reason": "Precio estirado 0.04% de la SMA8 — tensión (80% del peso) ✅"
+      },
+      {
+        "id": "patron_confirmacion",
+        "label": "Patrón de Confirmación (García/Tiburón/9)",
+        "weight": 20,
+        "ok": true,
+        "value": "VELA_9 (100%)",
+        "reason": "Vela 9 Secuencial — agotamiento confirmado (9 cierres) ✅"
+      },
+      {
+        "id": "rsi",
+        "label": "RSI sobrecompra/sobreventa",
+        "weight": 0,
+        "ok": false,
+        "value": "55.7",
+        "reason": "RSI sin agotamiento (55.7) ❌"
+      },
+      {
+        "id": "fase_weinstein",
+        "label": "Fase Weinstein 15m a favor",
+        "weight": 10,
+        "ok": false,
+        "value": "Fase1",
+        "reason": "Fase 15m (1) no favorece esta reversión ❌"
+      },
+      {
+        "id": "regimen_gex",
+        "label": "Régimen GEX + Confluencia con Muro de Gamma",
+        "weight": 10,
+        "ok": true,
+        "value": "POSITIVO",
+        "reason": "Sin muro de gamma cerca (29.9pts) — confluencia parcial ⚠️"
+      },
+      {
+        "id": "compas_medias_5m",
+        "label": "Compás de Medias 8/20 (5m)",
+        "weight": 15,
+        "ok": true,
+        "value": "SMA8<SMA20 (5m), 1 cruces/75min",
+        "reason": "Compás 5m limpio y a favor de la reversión ✅"
+      }
+    ]
+  },
+  "notes": "Alejamiento de SMA — patrón VELA_9, SMA8 7433.4225",
+  "tradierOrder": {
+    "orderId": 36350688,
+    "status": "ok",
+    "legs": {
+      "shortSym": "SPXW260731C07460000",
+      "longSym": "SPXW260731C07465000"
+    }
+  },
+  "actionAt": "2026-07-31T14:42:07.336Z"
+}
+=====
+{
+  "id": "spx-1785509162524",
+  "timestamp": "2026-07-31T14:46:02.524Z",
+  "symbol": "SPX",
+  "strategy": "BEAR_CALL_SPREAD",
+  "strategyName": "Bear Call Spread (BCS)",
+  "direction": "BEARISH",
+  "expType": "0DTE",
+  "expiry": "2026-07-31",
+  "contracts": 1,
+  "spreadWidth": 5,
+  "strikes": {
+    "expiry": "2026-07-31",
+    "shortStrike": 7460,
+    "longStrike": 7465,
+    "shortDelta": 0.305,
+    "premium": 1.65
+  },
+  "isCredit": true,
+  "credit": 165,
+  "debit": null,
+  "maxRisk": 335,
+  "maxProfit": 165,
+  "probSuccess": 69.5,
+  "riskReward": 0.49,
+  "rrNote": "R:R 0.49 — fuera del rango OTM esperado (1:3-1:4), revisar antes de ejecutar",
+  "context": {
+    "spxPrice": 7426.7,
+    "vix": 17.8,
+    "ivRank": 30,
+    "gammaRegime": "POSITIVO",
+    "callWall": 7500,
+    "putWall": 7400,
+    "gammaFlip": 7435,
+    "technicalStop": null,
+    "technicalStopSource": null,
+    "maxPain": 7430,
+    "etTime": "10:45"
+  },
+  "status": "EXECUTED",
+  "strategyFamily": "REVERSION",
+  "playbook": {
+    "score": 88,
+    "passed": true,
+    "minScore": 75,
+    "checks": [
+      {
+        "id": "alejamiento_sma8",
+        "label": "Alejamiento de SMA8",
+        "weight": 45,
+        "ok": true,
+        "value": "+0.09% (óptimo)",
+        "reason": "Precio estirado 0.09% de la SMA8 — óptimo (100% del peso) ✅"
+      },
+      {
+        "id": "patron_confirmacion",
+        "label": "Patrón de Confirmación (García/Tiburón/9)",
+        "weight": 20,
+        "ok": true,
+        "value": "VELA_9 (100%)",
+        "reason": "Vela 9 Secuencial — agotamiento confirmado (9 cierres) ✅"
+      },
+      {
+        "id": "rsi",
+        "label": "RSI sobrecompra/sobreventa",
+        "weight": 0,
+        "ok": false,
+        "value": "62.1",
+        "reason": "RSI sin agotamiento (62.1) ❌"
+      },
+      {
+        "id": "fase_weinstein",
+        "label": "Fase Weinstein 15m a favor",
+        "weight": 10,
+        "ok": false,
+        "value": "Fase1",
+        "reason": "Fase 15m (1) no favorece esta reversión ❌"
+      },
+      {
+        "id": "regimen_gex",
+        "label": "Régimen GEX + Confluencia con Muro de Gamma",
+        "weight": 10,
+        "ok": true,
+        "value": "POSITIVO",
+        "reason": "Sin muro de gamma cerca (23.3pts) — confluencia parcial ⚠️"
+      },
+      {
+        "id": "compas_medias_5m",
+        "label": "Compás de Medias 8/20 (5m)",
+        "weight": 15,
+        "ok": true,
+        "value": "SMA8<SMA20 (5m), 1 cruces/75min",
+        "reason": "Compás 5m limpio y a favor de la reversión ✅"
+      }
+    ]
+  },
+  "notes": "Alejamiento de SMA — patrón VELA_9, SMA8 7436.1",
+  "tradierOrder": {
+    "orderId": 36351386,
+    "status": "ok",
+    "legs": {
+      "shortSym": "SPXW260731C07460000",
+      "longSym": "SPXW260731C07465000"
+    }
+  },
+  "actionAt": "2026-07-31T14:46:03.474Z"
+}
+=====

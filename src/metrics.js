@@ -190,7 +190,12 @@ function weekKey(dateStr) {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-function buildMetrics(items) {
+// opts.limit — cuántos round-trips devolver en `strategies` (los más recientes).
+// Default 200, que es lo que necesitan las pestañas de análisis. La hoja de
+// Impuestos pasa `limit: 0` (sin recorte): un año gravable tiene que entrar
+// completo o el total declarado queda por debajo del real.
+function buildMetrics(items, opts = {}) {
+  const stratLimit = opts.limit === undefined ? 200 : Number(opts.limit) || 0;
   const trades = items.filter(t => {
     if (t['transaction-type'] === 'Trade') return true;
     if (t['transaction-type'] === 'Receive Deliver') {
@@ -577,7 +582,7 @@ function buildMetrics(items) {
     avgLossDay:      negD.length ? +(negD.reduce((a,b)=>a+b,0)/negD.length).toFixed(2) : 0,
     bestDay:         sDayVals.length ? Math.max(...sDayVals) : 0,
     worstDay:        sDayVals.length ? Math.min(...sDayVals) : 0,
-    strategies:      consolidatedStrategies.slice(-200),
+    strategies:      stratLimit > 0 ? consolidatedStrategies.slice(-stratLimit) : consolidatedStrategies,
     stratByDay,
     openByDay,
     strategyByMonth,
