@@ -7314,6 +7314,17 @@ async function checkIronCondor() {
             snapshot: buildStrategySnapshot(ctx, { strikes: signal.strikes, error: e.message }) });
         } catch { /* registrar el fallo no puede provocar otro */ }
       }
+    } else if (IS_PRODUCTION && !useDebit) {
+      // Ejecución pausada: se mide en la sombra qué habría pasado con el piso
+      // de precio. Solo para el condor de CREDITO — el de débito compra las
+      // alas y el veredicto usa la convención de crédito.
+      signal.sombraLimite = await sombraDeLimiteCondorSinEjecutar({
+        strikes:    strikes,
+        premium:    strikes.premium,
+        tradingCfg: spxConfig?.trading,
+        dte,
+        etTime:     ctx.etTime,
+      });
     }
 
     signals.unshift(signal);
@@ -7686,6 +7697,57 @@ async function sombraDeLimiteSinEjecutar({ familia, strategy, expiry, shortStrik
     return out;
   } catch (e) {
     console.error('[SOMBRA-LIMITE] falló:', e.message);
+    return null;
+  }
+}
+
+// Variante de 4 patas para el Iron Condor. Mismo proposito y mismo veredicto
+// que sombraDeLimiteSinEjecutar, pero el condor cobra por DOS spreads y
+// capturarSombraCadena solo sabe de dos patas, asi que se la llama una vez por
+// lado y se suman los netos — igual que hace la captura de apertura real
+// (ver esCondor4 mas arriba). strikes.premium ya es el credito TOTAL esperado
+// del condor, que es lo mismo que compara el gate credito/ancho.
+//
+// Si falta el neto de cualquiera de los dos lados no se inventa el total: se
+// devuelve SIN_DATO. Medio condor no es una medicion.
+async function sombraDeLimiteCondorSinEjecutar({ strikes, premium, tradingCfg, dte, etTime }) {
+  try {
+    const k = strikes || {};
+    if ([k.shortStrike, k.longStrike, k.callShortStrike, k.callLongStrike, k.expiry].some(v => v == null)) return null;
+    const limite = limiteDeAperturaVertical('IRON_CONDOR', premium, tradingCfg, true);
+    if (limite == null) return null;
+
+    const occ = (tipo, strike) => tradier.buildOccSymbol('SPXW', k.expiry, tipo, strike);
+    const put = await capturarSombraCadena({
+      expiry: k.expiry, shortStrike: k.shortStrike, longStrike: k.longStrike, tipo: 'P',
+      legs: { shortSym: occ('P', k.shortStrike), longSym: occ('P', k.longStrike) } });
+    const call = await capturarSombraCadena({
+      expiry: k.expiry, shortStrike: k.callShortStrike, longStrike: k.callLongStrike, tipo: 'C',
+      legs: { shortSym: occ('C', k.callShortStrike), longSym: occ('C', k.callLongStrike) } });
+
+    const sumar = (a, b) => (a != null && b != null) ? +(a + b).toFixed(2) : null;
+    const mid  = sumar(put?.tradier?.net,         call?.tradier?.net);
+    const cruz = sumar(put?.tradier?.netCruzando, call?.tradier?.netCruzando);
+
+    let veredicto;
+    if (mid == null)                          veredicto = 'SIN_DATO';
+    else if (limite > mid)                    veredicto = 'DEMASIADO_ESTRICTO';
+    else if (cruz != null && limite <= cruz)  veredicto = 'INUTIL';
+    else                                      veredicto = 'OK';
+
+    const out = { at: put?.at || new Date().toISOString(), strategy: 'IRON_CONDOR', dte, esCredito: true,
+                  premiumEstimado: premium, limite, mid, cruzando: cruz, veredicto,
+                  sombra: { put, call } };
+    console.log(`[SOMBRA-LIMITE] IRON_CONDOR ${dte} est=${premium} límite=${limite} ` +
+                `mid=${mid ?? '—'} cruzando=${cruz ?? '—'} → ${veredicto}`);
+    try {
+      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime, stage: 'SOMBRA_LIMITE', passed: null,
+        reason: `IRON_CONDOR ${dte}: límite ${limite} vs mid ${mid ?? '—'} vs cruzando ${cruz ?? '—'} → ${veredicto}`,
+        snapshot: out });
+    } catch { /* registrar la sombra no puede romper nada */ }
+    return out;
+  } catch (e) {
+    console.error('[SOMBRA-LIMITE] condor falló:', e.message);
     return null;
   }
 }
