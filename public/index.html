@@ -2108,10 +2108,27 @@ async function loadReports(forceRefresh) {
       const wkKey = `${d.getUTCFullYear()}-W${String(wk).padStart(2,'0')}`;
       strategyByWeek[wkKey] = (strategyByWeek[wkKey]||0) + s.pnl;
     });
-    // Comisiones solo del rango filtrado (por mes de closeDate de estrategias)
-    const activeMos = new Set(filteredStrats.map(s => s.closeDate?.slice(0,7)).filter(Boolean));
-    for (const [mo, comm] of Object.entries(data.metrics?.brokerByMonth||{})) {
-      if (activeMos.has(mo)) brokerByMonthFiltered[mo] = comm;
+    // Comisiones del RANGO EXACTO (fix 2026-08-14). Antes se incluia el mes
+    // COMPLETO en cuanto hubiera una sola estrategia cerrada en el, asi que un
+    // rango de 5 dias reportaba las comisiones de los 31: el rango 10-ago a 14-ago
+    // mostraba $144.51 (todo agosto), y 15-jul a 14-ago sumaba julio entero
+    // ($136.26) incluyendo del 1 al 14 de julio. Ademas de la cifra en si,
+    // descuadraba el "P&L Bruto" y el ratio comisiones/bruto, que se derivan de
+    // este total. src/metrics.js ahora expone brokerByDay para poder recortar por
+    // dia; si no viene (servidor viejo), se cae al comportamiento anterior en vez
+    // de mostrar cero.
+    const brokerByDay = data.metrics?.brokerByDay;
+    if (brokerByDay && Object.keys(brokerByDay).length) {
+      for (const [dia, comm] of Object.entries(brokerByDay)) {
+        if (!dia || dia < sd || dia > ed) continue;
+        const mo = dia.slice(0,7);
+        brokerByMonthFiltered[mo] = (brokerByMonthFiltered[mo] || 0) + comm;
+      }
+    } else {
+      const activeMos = new Set(filteredStrats.map(s => s.closeDate?.slice(0,7)).filter(Boolean));
+      for (const [mo, comm] of Object.entries(data.metrics?.brokerByMonth||{})) {
+        if (activeMos.has(mo)) brokerByMonthFiltered[mo] = comm;
+      }
     }
     const totalCommFiltered = Object.values(brokerByMonthFiltered).reduce((a,b)=>a+b, 0);
     const m = {
@@ -2294,7 +2311,20 @@ async function loadReports(forceRefresh) {
     // El delta de NLV no se pierde -- va en su propia columna, con su nombre. Es
     // dato de cuenta, no de estrategias, asi que no se puede recortar por rango:
     // con un filtro activo se muestra vacio en vez de mentir.
-    const isFiltered = sd !== '2026-02-01' || ed !== todayStr();
+    // Bug real 2026-08-14: aca se llamaba todayStr(), que NO existe en este scope
+    // -- la unica todayStr del archivo es una const LOCAL de otra funcion (el
+    // calendario, linea ~1413) y ademas es un string, no una funcion. El fallo se
+    // escondia detras del cortocircuito del ||: con un rango filtrado sd !==
+    // '2026-02-01' da true y todayStr() nunca se evalua, asi que la pestaña
+    // parecia sana; con el rango por defecto (o al pulsar "Todo el periodo") si se
+    // evaluaba y lanzaba ReferenceError. El catch del final de loadReports se lo
+    // tragaba en silencio, dejando renderizado todo lo de ARRIBA de esta linea con
+    // el periodo nuevo y el "Desglose Mensual" -- lo unico que va debajo -- con las
+    // filas del filtro ANTERIOR. De ahi el sintoma reportado: parte de la pantalla
+    // del periodo pedido y parte de otro.
+    // Se compara contra la misma expresion con la que se calcula `ed` arriba, para
+    // que ambos hablen del mismo "hoy" y no se descuadren por zona horaria.
+    const isFiltered = sd !== '2026-02-01' || ed !== new Date().toISOString().slice(0,10);
     const realizedByMonth = m.strategyByMonth || {};
     const nlvByMonth      = S.curve?.nlvByMonth || {};
     const months = [...new Set([...Object.keys(realizedByMonth), ...(isFiltered ? [] : Object.keys(nlvByMonth))])]

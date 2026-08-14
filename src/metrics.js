@@ -535,12 +535,24 @@ function buildMetrics(items, opts = {}) {
     if (s.pnl > 0) byDuration[dc].wins += 1;
   }
 
-  /* ── 8. Comisiones por mes ── */
-  const brokerByMonth = {};
+  /* ── 8. Comisiones por mes y por DIA ──
+   * brokerByDay se agrego el 2026-08-14: la pestaña Reportes filtra por rango de
+   * fechas, pero con solo el agregado mensual lo unico que podia hacer era incluir
+   * o excluir el mes ENTERO. Con un rango que no cubre meses completos eso mete
+   * comisiones de dias que quedan fuera del filtro -- medido ese dia: el rango
+   * 10-ago a 14-ago mostraba $144.51 (todo agosto) contra $271.53 de P&L realizado
+   * del rango, y el rango 15-jul a 14-ago sumaba julio completo ($136.26) incluyendo
+   * del 1 al 14 de julio. Eso descuadra tambien el "P&L Bruto" y el ratio
+   * comisiones/bruto, que se derivan de este total.
+   * El agregado mensual se mantiene: lo consume la tabla "Comisiones por Mes". */
+  const brokerByMonth = {}, brokerByDay = {};
   for (const o of orders) {
-    const mo = (o.date||'').slice(0,7);
+    const dia = o.date || '';
+    const mo  = dia.slice(0,7);
     if (!brokerByMonth[mo]) brokerByMonth[mo] = 0;
     brokerByMonth[mo] += o.commission + o.fees;
+    if (!brokerByDay[dia]) brokerByDay[dia] = 0;
+    brokerByDay[dia] += o.commission + o.fees;
   }
 
   /* ── 9. P&L mensual/semanal desde estrategias ── */
@@ -595,6 +607,7 @@ function buildMetrics(items, opts = {}) {
     byTimeSlot,
     byDuration,
     brokerByMonth,
+    brokerByDay,
   };
 }
 
