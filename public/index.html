@@ -134,6 +134,22 @@
 
     <!-- ══ DASHBOARD ══════════════════════ -->
     <div id="panel-dashboard" class="panel active">
+      <div class="filters" style="margin-bottom:14px;">
+        <span class="filter-label">Estrategia:</span>
+        <select id="dash-familia" onchange="loadDashboard()">
+          <option value="">Todas</option>
+          <option value="DIRECCIONAL">Direccional</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="INTRADIA">Intradía</option>
+          <option value="RUEDA">La Rueda</option>
+          <option value="OTRO">Sin clasificar</option>
+        </select>
+        <span style="font-size:10px;color:var(--muted);margin-left:8px;">
+          Filtra P&amp;L Realizado, Win Rate, Profit Factor y Últimas Operaciones. Net Liquidating Value,
+          Curva de Capital y Posiciones Abiertas siguen mostrando la cuenta completa — una familia
+          sola no es "el capital", y una posición abierta no se puede clasificar con certeza.
+        </span>
+      </div>
       <!-- KPI row -->
       <div class="kpi-row cols-6" id="dash-kpis">
         <div class="loader"><div class="spinner"></div> Cargando...</div>
@@ -198,6 +214,14 @@
             <div class="cal-month-label" id="cal-label">—</div>
             <button onclick="calNext()">›</button>
           </div>
+          <select id="cal-familia" onchange="renderCalendar()" style="margin-left:12px;">
+            <option value="">Todas las estrategias</option>
+            <option value="DIRECCIONAL">Direccional</option>
+            <option value="NEUTRAL">Neutral</option>
+            <option value="INTRADIA">Intradía</option>
+            <option value="RUEDA">La Rueda</option>
+            <option value="OTRO">Sin clasificar</option>
+          </select>
           <div style="display:flex;gap:16px;font-family:var(--mono);font-size:11px;">
             <span>Mes: <strong class="pos" id="cal-month-pnl">—</strong></span>
             <span class="dim">|</span>
@@ -277,6 +301,15 @@
         <input type="date" id="hist-from">
         <span class="filter-label">Hasta</span>
         <input type="date" id="hist-to">
+        <span class="filter-label">Estrategia:</span>
+        <select id="hist-familia" onchange="loadHistory()">
+          <option value="">Todas</option>
+          <option value="DIRECCIONAL">Direccional</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="INTRADIA">Intradía</option>
+          <option value="RUEDA">La Rueda</option>
+          <option value="OTRO">Sin clasificar</option>
+        </select>
         <button class="btn btn-primary" onclick="loadHistory()">Filtrar</button>
         <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);" id="hist-summary">—</span>
       </div>
@@ -311,9 +344,23 @@
         <input type="date" id="rep-from" value="2026-02-01">
         <span class="filter-label">al</span>
         <input type="date" id="rep-to">
+        <span class="filter-label">Estrategia:</span>
+        <select id="rep-familia" onchange="loadReports(true)">
+          <option value="">Todas</option>
+          <option value="DIRECCIONAL">Direccional</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="INTRADIA">Intradía</option>
+          <option value="RUEDA">La Rueda</option>
+          <option value="OTRO">Sin clasificar</option>
+        </select>
         <button class="btn btn-primary" onclick="loadReports(true)">Aplicar</button>
         <button class="btn" onclick="resetRepFilter()">Todo el período</button>
         <span id="rep-period-label" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);"></span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin:-10px 0 14px;">
+        La familia es <strong>estimada</strong> a partir de la forma del trade — en esta cuenta no hay
+        un campo de procedencia como en Tradier. Precedencia: Rueda (tickers de la hoja Rueda) →
+        Intradía (SPX/SPY cerrados el mismo día) → Neutral → Direccional.
       </div>
       <!-- Métricas principales -->
       <div class="kpi-row cols-4" id="rep-kpis" style="margin-bottom:16px;"></div>
@@ -364,6 +411,24 @@
         <div class="card">
           <div class="card-header">Análisis Broker vs Tu P&amp;L</div>
           <div class="card-body" id="broker-analysis"></div>
+        </div>
+      </div>
+
+      <!-- Por familia de estrategia -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Por Familia de Estrategia (Rueda / Intradía / Neutral / Direccional)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Familia</th><th>Trades</th><th>Win %</th>
+              <th>P&amp;L Total</th><th>Prom Gan.</th><th>Prom Per.</th>
+            </tr></thead>
+            <tbody id="strategy-family-tbody"></tbody>
+          </table>
+        </div>
+        <div style="padding:8px 14px;font-size:10px;color:var(--muted);">
+          Siempre muestra el desglose completo del período, aunque tengas una familia
+          seleccionada arriba — es la foto de cómo se reparte tu operativa.
         </div>
       </div>
 
@@ -881,6 +946,7 @@ const S = {
   calYear: new Date().getFullYear(),
   calMonth: new Date().getMonth(),
   charts: {},
+  wheelSyms: null,   // Set de subyacentes de la hoja Rueda — ver cargarWheelSyms()
   initialCapital: parseFloat(localStorage.getItem('tt_initial') || '10644'),
 };
 
@@ -1029,12 +1095,20 @@ async function loadDashboard() {
     ]);
     guardarCache('overview', ov); guardarCache('curve', curveData); guardarCache('txns', txData);
 
+    await cargarWheelSyms();
+    // Filtro por familia (2026-08-14). Solo afecta a lo REALIZADO: KPIs de P&L
+    // realizado / win rate / profit factor y las ultimas operaciones. La curva de
+    // capital, el NLV y las posiciones abiertas se quedan con la cuenta completa
+    // -- una familia sola no es "el capital", y una posicion todavia abierta no se
+    // puede clasificar con certeza (mismo criterio que ya usa tradier.html).
+    const metricsDash = metricsPorFamilia(txData.metrics, 'dash-familia');
+
     renderTopBar(ov.balances, ov.positions);
-    renderDashKPIs(ov.balances, curveData.curve, txData.metrics);
+    renderDashKPIs(ov.balances, curveData.curve, metricsDash);
     _cData = curveData; _cMetric = txData.metrics; _chRedraw();
     renderMonthlyChart(curveData.nlvByMonth || txData.metrics.strategyByMonth || curveData.byMonth || calendarToMonthly(curveData.calendar));
     renderDashPositions(ov.positions);
-    renderDashRecent(txData.items, txData.metrics?.strategies || []);
+    renderDashRecent(txData.items, metricsDash?.strategies || []);
   } catch(e) { console.error(e); showError('dash-kpis', e.message); }
 }
 
@@ -1145,6 +1219,112 @@ function renderDashPositions(positions=[]) {
 }
 
 // ── Consolidación global: una fila por spread ─────────────────
+// ══════════════════════════════════════════
+//  FAMILIAS DE ESTRATEGIA (2026-08-14)
+// ══════════════════════════════════════════
+// OJO — no es lo mismo que en tradier.html. Alli strategyFamily la GRABA el bot
+// que genero la señal (TENDENCIA/REVERSION/NEUTRAL/RUEDA), o sea que es
+// procedencia real y no admite discusion. Aca los trades son manuales, ese campo
+// no existe en ningun lado, y la familia se DEDUCE de la forma del trade: es una
+// heuristica. Por eso la UI la rotula como "estimada".
+//
+// El orden de evaluacion lo definio el usuario y NO es arbitrario:
+//   1. RUEDA       subyacentes marcados en la hoja Rueda (wheel_config.json)
+//   2. INTRADIA    SPX o SPY cerrados el MISMO dia. Gana sobre Neutral: un Iron
+//                  Condor 0DTE de SPX cuenta como Intradia, no como Neutral
+//                  ("si un trade de SPX o SPY se cerro intradia queda como
+//                  intradia", 2026-08-14). Son 87 de los 120 trades de indices,
+//                  asi que esta regla mueve mucho: es el libro de indices, no un
+//                  rincon para casos sueltos.
+//   3. NEUTRAL     estructuras de rango de mas de un dia
+//   4. DIRECCIONAL spreads con sesgo
+//   5. OTRO        lo que no encaja queda VISIBLE en vez de inventarle familia
+//                  (hoy: 6 rolls en BE, HOOD, COIN y NFLX)
+//
+// No hay REVERSION a proposito: en Tradier es una estrategia del bot
+// (cfg.trading.smaReversion) y en la cuenta real no existe nada equivalente, asi
+// que el filtro devolveria siempre cero.
+const FAMILIAS = [
+  ['RUEDA',       'La Rueda'],
+  ['INTRADIA',    'Intradía'],
+  ['NEUTRAL',     'Neutral'],
+  ['DIRECCIONAL', 'Direccional'],
+  ['OTRO',        'Sin clasificar'],
+];
+const FAM_LABEL  = Object.fromEntries(FAMILIAS);
+const ST_NEUTRAL = new Set(['Iron Condor','Iron Butterfly','Broken Wing Butterfly','Butterfly','Straddle','Strangle','Calendar']);
+const ST_DIRECC  = new Set(['Bull Put Spread','Bear Call Spread','Bull Call Spread','Bear Put Spread','Long Put','Long Call','Short Put','Short Call','Covered Call','Cash Secured Put']);
+
+function familiaDe(s) {
+  if (!s) return 'OTRO';
+  const und = s.underlying || '';
+  if (S.wheelSyms && S.wheelSyms.has(und)) return 'RUEDA';
+  if ((und === 'SPX' || und === 'SPY') && s.durationDays === 0) return 'INTRADIA';
+  const st = s.stratType || '';
+  if (ST_NEUTRAL.has(st)) return 'NEUTRAL';
+  if (ST_DIRECC.has(st))  return 'DIRECCIONAL';
+  return 'OTRO';
+}
+
+// Los simbolos de la Rueda salen de wheel_config.json, no de una lista fija:
+// el usuario pidio "los activos que estan o estuvieron marcados en la hoja
+// Rueda". Limitacion conocida: ese archivo guarda solo los ACTUALES, asi que si
+// alguna vez se quita un ticker de la hoja, sus trades historicos dejan de
+// contar como Rueda de forma retroactiva.
+async function cargarWheelSyms() {
+  if (S.wheelSyms) return S.wheelSyms;
+  try {
+    const cfg = await api('/api/wheel-config');
+    S.wheelSyms = new Set((cfg?.underlyings || [])
+      .map(u => (typeof u === 'string' ? u : u?.symbol))
+      .filter(Boolean));
+  } catch (e) {
+    console.warn('No se pudo leer wheel-config; la familia Rueda quedara vacia:', e.message);
+    S.wheelSyms = new Set();
+  }
+  return S.wheelSyms;
+}
+
+// Filtra una lista de estrategias por la familia elegida en un <select>.
+// Sin valor (opcion "Todas") devuelve la lista intacta.
+function filtrarPorFamilia(lista, selectId) {
+  const fam = document.getElementById(selectId)?.value || '';
+  if (!fam) return lista;
+  return lista.filter(s => familiaDe(s) === fam);
+}
+
+// Recalcula las metricas REALIZADAS sobre una sola familia. Devuelve el objeto
+// original tal cual si no hay familia elegida, para no alterar en nada el camino
+// sin filtro (y no arriesgar los numeros que el usuario ya conoce).
+function metricsPorFamilia(metrics, selectId) {
+  const fam = document.getElementById(selectId)?.value || '';
+  if (!fam || !metrics) return metrics;
+  const st     = (metrics.strategies || []).filter(s => familiaDe(s) === fam);
+  const wins   = st.filter(s => s.pnl > 0);
+  const losers = st.filter(s => s.pnl <= 0);
+  const gan    = wins.reduce((a,b)=>a+b.pnl, 0);
+  const per    = Math.abs(losers.reduce((a,b)=>a+b.pnl, 0));
+  const stratByDay = {}, strategyByMonth = {};
+  for (const s of st) {
+    if (!s.closeDate) continue;
+    stratByDay[s.closeDate] = (stratByDay[s.closeDate] || 0) + s.pnl;
+    const mo = s.closeDate.slice(0,7);
+    strategyByMonth[mo] = (strategyByMonth[mo] || 0) + s.pnl;
+  }
+  return {
+    ...metrics,
+    strategies:      st,
+    totalStrategies: st.length,
+    totalPnL:        +st.reduce((a,b)=>a+b.pnl, 0).toFixed(2),
+    winRate:         st.length ? +((wins.length/st.length)*100).toFixed(2) : 0,
+    profitFactor:    per > 0 ? +(gan/per).toFixed(2) : (gan > 0 ? 999 : 0),
+    avgWinner:       wins.length   ? +(gan/wins.length).toFixed(2)   : 0,
+    avgLoser:        losers.length ? +(per/losers.length).toFixed(2) : 0,
+    stratByDay,
+    strategyByMonth,
+  };
+}
+
 function consolidateStrategies(legs) {
   const map = new Map();
   for (const leg of legs) {
@@ -1379,6 +1559,7 @@ async function loadCalendar() {
   try {
     if (!S.curve || cacheVencida('curve')) guardarCache('curve', await api('/api/curve'));
     if (!S.txns  || cacheVencida('txns'))  guardarCache('txns',  await api('/api/transactions'));
+    await cargarWheelSyms();   // hace falta para clasificar la familia Rueda
     renderCalendar();
   } catch(e) { console.error(e); }
 }
@@ -1386,7 +1567,16 @@ async function loadCalendar() {
 function renderCalendar() {
   // Fuente única: estrategias emparejadas por fecha de cierre
   const m      = S.txns?.metrics;
-  const cal    = m?.stratByDay || {};
+  // Con familia elegida se reconstruye el mapa dia->P&L desde las estrategias de
+  // esa familia. Sin filtro se usa el stratByDay que ya calculo el servidor, para
+  // que el camino por defecto quede byte a byte como estaba.
+  const _famCal = $('cal-familia')?.value || '';
+  const cal    = _famCal
+    ? (m?.strategies || []).reduce((o, s) => {
+        if (s.closeDate && familiaDe(s) === _famCal) o[s.closeDate] = (o[s.closeDate] || 0) + s.pnl;
+        return o;
+      }, {})
+    : (m?.stratByDay || {});
   const opens  = m?.openByDay  || {};   // primas cobradas en aperturas (informativo)
 
   const y=S.calYear, mo=S.calMonth;
@@ -1979,10 +2169,12 @@ async function loadHistory() {
     // pueda emparejar aperturas antiguas con cierres recientes.
     // El filtro visual se aplica por closeDate abajo.
     const data = await api(`/api/transactions?startDate=2026-02-01&endDate=${ed}`);
+    await cargarWheelSyms();   // hace falta para clasificar la familia Rueda
     const legs       = data.metrics?.strategies || [];
-    const strategies = consolidateStrategies(legs)
-      .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed)
-      .filter(() => true); // sort aplicado en renderHistRows
+    const strategies = filtrarPorFamilia(
+      consolidateStrategies(legs)
+        .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed),
+      'hist-familia'); // sort aplicado en renderHistRows
 
     strategies.forEach(s => { s.capPct = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null; });
     const wins     = strategies.filter(s => s.pnl > 0).length;
@@ -2064,9 +2256,13 @@ async function loadReports(forceRefresh) {
       guardarCache('txns', await api(`/api/transactions?startDate=2026-02-01&endDate=${ed}`));
     }
     let data = S.txns;
-    // Filtrar estrategias al rango seleccionado por closeDate
+    // Los simbolos de la Rueda hacen falta para clasificar por familia — se piden
+    // una sola vez y quedan cacheados en S.wheelSyms.
+    await cargarWheelSyms();
+    // Filtrar estrategias al rango seleccionado por closeDate + familia elegida
     const allStrats = data.metrics?.strategies || [];
-    const filteredStrats = allStrats.filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+    const enRango = allStrats.filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed);
+    const filteredStrats = filtrarPorFamilia(enRango, 'rep-familia');
     // Recalcular métricas sobre el rango filtrado
     const wins = filteredStrats.filter(s => s.pnl > 0);
     const losers = filteredStrats.filter(s => s.pnl <= 0);
@@ -2117,8 +2313,16 @@ async function loadReports(forceRefresh) {
     // este total. src/metrics.js ahora expone brokerByDay para poder recortar por
     // dia; si no viene (servidor viejo), se cae al comportamiento anterior en vez
     // de mostrar cero.
+    // Con un filtro de FAMILIA activo las comisiones no se pueden repartir: el
+    // servidor las agrega por dia (brokerByDay), sin dimension de estrategia, y
+    // una orden puede pertenecer a cualquier familia. Antes que atribuirle a
+    // "Neutral" las comisiones de todo el rango, se muestran vacias — mismo
+    // criterio que ya usa la columna Delta NLV cuando hay filtro de fechas.
+    const famActiva = !!($('rep-familia')?.value);
     const brokerByDay = data.metrics?.brokerByDay;
-    if (brokerByDay && Object.keys(brokerByDay).length) {
+    if (famActiva) {
+      // brokerByMonthFiltered queda vacio a proposito: ver la nota de arriba.
+    } else if (brokerByDay && Object.keys(brokerByDay).length) {
       for (const [dia, comm] of Object.entries(brokerByDay)) {
         if (!dia || dia < sd || dia > ed) continue;
         const mo = dia.slice(0,7);
@@ -2157,7 +2361,9 @@ async function loadReports(forceRefresh) {
       kpiCard('Total Estrategias', m.totalStrategies, 'round-trips analizados','dim'),
       kpiCard('Ganancia Prom.', fa$(m.avgWinner), 'por estrategia ganadora','pos'),
       kpiCard('Pérdida Prom.', '-'+fa$(m.avgLoser), 'por estrategia perdedora','neg'),
-      kpiCard('Comisiones Pagadas', '-'+fa$(m.totalComm), 'costo total al broker','neg'),
+      famActiva
+        ? kpiCard('Comisiones Pagadas', '—', 'no se reparten por familia','dim')
+        : kpiCard('Comisiones Pagadas', '-'+fa$(m.totalComm), 'costo total al broker','neg'),
     ].join('');
 
     // Win Rate gauge
@@ -2224,6 +2430,35 @@ async function loadReports(forceRefresh) {
           <span class="td-mono ${cc(moPnL)}" style="font-size:11px;">${f$(moPnL)}</span></div>`;
       }).join('')}
     `;
+
+    // ── Por familia de estrategia ──
+    // Se calcula sobre `enRango` (filtrado por FECHA, no por familia) a proposito:
+    // si se calculara sobre filteredStrats, al elegir una familia la tabla se
+    // quedaria con una sola fila y perderia justo lo que la hace util, que es ver
+    // como se reparte la operativa del periodo.
+    const byFam = {};
+    for (const s of enRango) {
+      const fam = familiaDe(s);
+      if (!byFam[fam]) byFam[fam] = { pnl:0, trades:0, wins:0, gan:[], per:[] };
+      const f = byFam[fam];
+      f.pnl += s.pnl; f.trades++;
+      if (s.pnl > 0) { f.wins++; f.gan.push(s.pnl); } else { f.per.push(s.pnl); }
+    }
+    const famRows = FAMILIAS.filter(([k]) => byFam[k]);
+    $('strategy-family-tbody').innerHTML = famRows.length ? famRows.map(([k,label])=>{
+      const d  = byFam[k];
+      const wr3 = d.trades ? +((d.wins/d.trades)*100).toFixed(1) : 0;
+      const ag = d.gan.length ? d.gan.reduce((a,b)=>a+b,0)/d.gan.length : 0;
+      const ap = d.per.length ? d.per.reduce((a,b)=>a+b,0)/d.per.length : 0;
+      return `<tr>
+        <td class="td-bright">${label}</td>
+        <td class="td-mono">${d.trades}</td>
+        <td class="td-mono ${wr3>=50?'pos':'neg'}">${wr3}%</td>
+        <td class="td-mono ${cc(d.pnl)}" style="font-weight:700">${f$(d.pnl)}</td>
+        <td class="td-mono pos">${fa$(ag)}</td>
+        <td class="td-mono neg">-${fa$(Math.abs(ap))}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--muted);">Sin datos</td></tr>';
 
     // ── Horario AM/PM ──
     const timeOrder = ['AM (9-12h)','PM (12-16h)','Pre-market','After-hours'];
