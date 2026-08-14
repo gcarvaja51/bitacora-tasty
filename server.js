@@ -9608,6 +9608,38 @@ app.post('/api/tradier/executions/:id/patch', async (req, res) => {
   res.json(result);
 });
 
+// DELETE /api/tradier/executions/:id — borrado puntual de UN registro (2026-08-14)
+//
+// Hasta ahora la unica forma de sacar un registro del historial era
+// POST /executions/clear, que vacia los 170 de golpe. Para el caso que motivo
+// esto —un huerfano que jamas se va a poder reconciliar— eso es una motosierra.
+//
+// Caso real que lo origino: el Iron Condor 1DTE del 12-ago (orden 36940101,
+// put 7690/7685 + call 7805/7810). Cerro por CIERRE_1DTE_HORA_TOPE el 13-ago a
+// las 11:31 ET, pero el pnl quedo en null: intentarResolverPnl exige los fills
+// reales de las dos ordenes y se niega a caer al /gainloss ambiguo, y el
+// sandbox de Tradier despues purgo TODO el historial del 13-ago (getOrders no
+// devuelve ni una orden de ese dia, /gainloss devuelve vacio). O sea que el
+// "proximo reintento" que espera la reconciliacion pasiva no puede tener exito
+// nunca: el dato no existe en ninguna fuente. El registro se quedaba en
+// "⏳ Pendiente" para siempre, aparentando ser transitorio.
+//
+// Devuelve el registro borrado en la respuesta a proposito: es la unica traza
+// que queda de lo que se saco, y sin ella un borrado por error seria mudo.
+app.delete('/api/tradier/executions/:id', async (req, res) => {
+  const result = await withExecutionsLock(() => {
+    const executions = loadTradierExecutions();
+    const idx = executions.findIndex(e => e.id === req.params.id);
+    if (idx === -1) return { ok: false, error: 'not_found' };
+    const [borrado] = executions.splice(idx, 1);
+    saveTradierExecutions(executions);
+    return { ok: true, borrado, total: executions.length };
+  });
+  if (!result.ok) return res.status(404).json(result);
+  console.log(`[TRADIER-TRACK] 🗑️ Registro ${req.params.id} borrado a mano (orden ${result.borrado?.orderId}); quedan ${result.total}.`);
+  res.json(result);
+});
+
 // POST /api/tradier/executions/:id/close-now — cierre manual forzado (2026-08-04)
 //
 // A pedido del usuario, despues del caso de la orden fantasma del 04-ago: cuando

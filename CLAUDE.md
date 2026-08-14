@@ -2366,6 +2366,52 @@ TRADIER_BASE_URL=https://sandbox.tradier.com/v1
 - **P&L neto vs bruto**: usa `net-value` de la API de TastyTrade que ya incluye fees regulatorios. TastyTrade muestra P&L bruto (sin fees), la bitácora muestra neto real. Diferencia típica: $1-2.50 por leg.
 - **FIFO**: empareja cierres con la apertura más cercana en fecha. Multi-leg se consolida por `closeOrderId + underlying + closeDate`.
 
+## Impuestos — hoja de trabajo fiscal (`src/impuestos.js`, 2026-08-14)
+
+Pestaña **LEGAL → Impuestos**. Convierte el P&L realizado en la información que
+exige la DIAN para renta de persona natural residente. El marco normativo completo
+(8 documentos + plantillas) vive **fuera del repo**, en
+`01_Sigma/reporte impuestos financiero legal/`.
+
+> ### ⚠️ Decisión del usuario (2026-08-14): **NO desplegar a Railway**
+>
+> La hoja se queda en **local**. Los datos que guarda —otros ingresos, dependientes,
+> deducciones, gastos, pérdidas compensables— son personales y la URL de producción
+> es pública. No pushear esta funcionalidad sin volver a preguntar.
+
+**Endpoints** (`server.js`): `/api/impuestos?year=`, `/api/impuestos/years`,
+y CRUD de `/gastos`, `/perdidas`, `/config`.
+
+**Archivos en `DATA_DIR`, todos en `.gitignore`**: `impuestos_gastos.json`,
+`impuestos_config.json`, `impuestos_perdidas.json`, `trm_cache.json`.
+
+**Reglas fiscales implementadas** (todas en `src/impuestos.js`, ninguna en el frontend
+— si viven en dos lados terminan divergiendo):
+- Art. 300 ET: tenencia ≥ 730 días → ganancia ocasional 15%; menos → renta ordinaria.
+  Para opciones sobre índices esto **nunca** se cumple, así que todo va a la tabla del 241.
+- Art. 241 ET: tabla marginal 0%–39%. Ojo — la norma trae los acumulados redondeados a
+  UVT enteras, así que hay una discontinuidad real de 0,1 UVT en los quiebres. El código
+  replica el texto legal, no la fórmula "limpia".
+- Art. 336 ET: el límite 40% / 1.340 UVT aplica solo a rentas exentas y deducciones
+  especiales. Los **costos y gastos del art. 107 no tienen tope** — es la distinción que
+  más plata mueve y la que más se confunde.
+- Arts. 147 y 330: pérdidas compensables 12 años, solo contra la misma cédula.
+- Art. 254: descuento por retención en el exterior, topado al impuesto colombiano.
+
+**TRM**: serie diaria de `datos.gov.co/resource/32sa-8pi3` (Superfinanciera), cacheada
+por año en disco. Cada operación se convierte con la TRM de **su propia fecha de cierre**,
+no con un promedio: la TRM se movió de ~3.650 a ~3.130 entre febrero y agosto de 2026, así
+que una sola tasa para todo el año deforma el total de forma notoria.
+
+**Gotcha — no restar comisiones dos veces.** El `net-value` de Tastytrade ya viene neto de
+comisiones y fees (ver sección `buildMetrics`), así que el `pnl` de cada estrategia los
+tiene descontados. `sumarComisiones()` existe solo para mostrar el dato y soportarlo ante
+la DIAN. Restarlo otra vez del P&L sería deducir el mismo costo dos veces.
+
+**Gotcha — `buildMetrics` recorta a 200.** La hoja llama `buildMetrics(items, { limit: 0 })`.
+Con el default, un año gravable con más de 200 round-trips declara de menos y el error es
+silencioso. El año 2026 ya va en 224.
+
 ## BP Dashboard (`/api/bp-dashboard`)
 
 Panel dedicado al seguimiento de Buying Power con metas 50/25/25 (Rueda/Especulación/Libre).

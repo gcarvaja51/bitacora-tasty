@@ -1185,6 +1185,11 @@ Justo debajo del título, una línea nueva: **"Hora de ejecución informe: [hora
 real de cuando se genera el documento]"** — llenar con la hora real (ET), no
 dejar el placeholder.
 
+⚠️ Este título ya NO es la primera página del documento: desde el 2026-08-14
+delante va la hoja del **Informe Gerencial**, que se agrega al final del proceso
+con `scripts/gen_informe_gerencial.py` (ver sección propia más abajo). El orden
+de secciones de acá sigue siendo el del cuerpo, que arranca en la hoja 2.
+
 Secciones en este orden exacto:
 1. **Feedback Premercado [día de la semana + fecha del día anterior]** (ej.
    "Feedback Premercado Lunes 20 de julio") — antes se llamaba "Aprendizaje del
@@ -1399,6 +1404,71 @@ generación): antes de volver a tocar ese archivo:
    `encoding='utf-8'` en vez de `print()` si hay que inspeccionar contenido con
    caracteres especiales.
 
+### Portada — "Informe Gerencial" (obligatoria desde 2026-08-14)
+
+A pedido explícito del usuario: el documento **abre siempre con un resumen
+ejecutivo de UNA sola hoja**, y el análisis completo empieza en la hoja 2. La
+idea es poder decidir el día leyendo una página; el cuerpo queda como respaldo,
+no como lectura obligatoria antes de operar.
+
+**Script**: `scripts/gen_informe_gerencial.py` (dentro de este skill).
+
+```
+python gen_informe_gerencial.py <docx> <spec.json> <chart_escenarios.png> [--force]
+```
+
+Corre **DESPUÉS** de que el `.docx` ya está escrito y **DESPUÉS** de
+`gen_escenarios_chart.py`. Reusa **el mismo PNG** que se incrustó en la sección
+"Los 3 Escenarios" — no genera un gráfico nuevo, justamente para que la portada
+y el cuerpo no puedan contradecirse. Inserta el bloque antes del `Heading 1`
+original y le pone "salto de página antes" a ese título; **no toca ni un párrafo
+del cuerpo**.
+
+Si el documento ya tiene portada, aborta con exit 3; con `--force` la borra y la
+reescribe (es el camino para corregir un dato después de haber generado).
+
+**Layout de la hoja** (fijado tras medirlo exportando a PDF — ver gotchas):
+
+| Bloque | Contenido |
+|---|---|
+| Título + línea de contexto | Fecha, hora de ejecución, cierre previo, apertura implícita y gap, pivote del día |
+| Columna izquierda | El diagrama de los 3 escenarios a 3,05" de ancho |
+| Columna derecha | **Tesis del día** (4-6 líneas), **Termómetro del día** (9 filas), **Lo que cambió vs. ayer** (3 bullets) |
+| Ancho completo | Tabla **Los 3 escenarios**: Escenario · Prob. · Se activa si · Se invalida si · Target |
+| Dos columnas | **Primera hora — qué mirar** (4 bullets) \| **Riesgo principal** |
+
+**La tesis es una conclusión, no un resumen.** Debe responder qué hace el
+mercado hoy y cuál es la pregunta que define la sesión, no repetir en orden lo
+que dicen las secciones de abajo. Los números que aparezcan en la portada tienen
+que estar tomados del cuerpo ya escrito — nunca recalculados aparte, o se abre la
+puerta a que la hoja 1 y la hoja 5 digan cosas distintas.
+
+**El `spec.json`** va como `.scratch_gerencial_<MMDD>.json` en `bitacora-tasty`
+(misma convención que los specs del chart). Ver el docstring del script para el
+contrato completo de campos.
+
+⚠️ **Gotchas ya pagados (2026-08-14, día en que se creó la portada)**:
+
+1. **Verificar SIEMPRE que quepa en una hoja exportando a PDF**, no a ojo. Con
+   Word COM:
+   `$d.ExportAsFixedFormat($pdf, 17)` y `$d.ComputeStatistics(2)` para el conteo
+   de páginas. La primera versión se pasaba 2 pulgadas a la hoja 2 y no había
+   forma de saberlo sin renderizar.
+2. **"Primera hora" y "Riesgo" van lado a lado, no apilados.** Apilados a lo
+   ancho de la hoja se comían 2,5 pulgadas; en dos columnas ocupan 1,4.
+3. **El corte de hoja va como `page_break_before` del `Heading 1` del cuerpo**,
+   NO como un párrafo con salto al final de la portada. Ese párrafo extra no
+   cabía en la hoja 1 ya llena, se iba solo a la hoja 2 y empujaba el cuerpo a la
+   3 — quedaba una **página en blanco** en medio del documento.
+4. **Alineación `LEFT` explícita en las celdas de tabla.** El estilo `Normal` del
+   documento está en `JUSTIFY`, y en una celda angosta eso abre huecos enormes
+   entre palabras cuando la etiqueta se parte en dos líneas.
+5. **Tahoma explícito en cada run**, incluso dentro de celdas: el estilo base no
+   siempre gana ahí (mismo gotcha que ya estaba documentado para el cuerpo).
+6. Si una etiqueta del termómetro se parte fea en dos líneas, **acortar la
+   etiqueta y mover el detalle al valor** (`"Pivote del día"` →
+   `"7.800 = Call Wall + MVS + POC"`), en vez de pelear con el ancho de columna.
+
 ## Paso final — Actualizar Excel de control
 
 Después de generar el análisis del día, actualizar el archivo de control en:
@@ -1443,6 +1513,11 @@ el mercado", "revisa si acertamos el premercado", o equivalente.
    — de ahí se leen las condiciones de activación, invalidación y targets
    exactos que se plantearon esa mañana (no inventar ni re-derivar, usar el texto
    tal cual quedó escrito ese día).
+   ⚠️ Desde el 2026-08-14 hay **dos** tablas de escenarios en el documento: la de
+   la portada (hoja 1, "LOS 3 ESCENARIOS", texto abreviado para que quepa) y la
+   del cuerpo (heading `Conclusiones Los 3 Escenarios`). La que vale para el
+   postmercado es **la del cuerpo** — la de la portada es un resumen recortado y
+   citarla como si fuera el compromiso original subestima lo que decía el informe.
 3. **Comparar el camino real contra los 3 escenarios**, prestando atención
    especial a:
    - **Fakeouts / spikes que no se sostienen**: un movimiento que toca un target
