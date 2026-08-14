@@ -6352,6 +6352,19 @@ async function processDirectionalEntry(direction, meta = {}) {
             snapshot: buildStrategySnapshot(ctx, { strikes: signal.strikes, error: e.message }) });
         } catch { /* registrar el fallo no puede provocar otro */ }
       }
+    } else if (tradierEligible && !tradierEnabled) {
+      // Ejecución pausada: se mide en la sombra qué habría pasado con el piso
+      // de precio, para poder juzgarlo antes de volver a operar con dinero.
+      signal.sombraLimite = await sombraDeLimiteSinEjecutar({
+        familia:     'TENDENCIA',
+        strategy:    signal.strategy,
+        expiry:      signal.strikes?.expiry,
+        shortStrike: signal.strikes?.shortStrike,
+        longStrike:  signal.strikes?.longStrike,
+        premium:     signal.strikes?.premium,
+        tradingCfg:  spxConfig?.trading,
+        etTime:      ctx.etTime,
+      });
     }
 
     // Guardar
@@ -7610,6 +7623,71 @@ async function capturarSombraCadena({ expiry, shortStrike, longStrike, tipo, leg
     }
   }
   return out;
+}
+
+// ── Sombra del precio limite, SIN ejecutar (2026-08-14) ────────────────────
+//
+// Con tradierAutoExecute en false el sistema sigue generando señales pero no
+// manda ordenes, asi que el piso de precio nuevo (limiteDeAperturaVertical)
+// nunca se ejercita: no habria forma de saber si es razonable antes de volver
+// a operar con dinero real. Esto lo mide sin arriesgar nada.
+//
+// Captura las tres cifras que hacen falta para juzgarlo:
+//   limite      -> lo que mandariamos
+//   net (mid)   -> el mejor llenado realista
+//   netCruzando -> el peor llenado realista (cruzar el bid/ask)
+//
+// Y emite un veredicto para el lado de CREDITO, que es donde se midio el
+// problema (BULL_PUT 47.8%, BEAR_CALL 24.5% de la prima perdida):
+//   limite > mid        -> DEMASIADO_ESTRICTO, no habria llenado nunca
+//   limite <= cruzando  -> INUTIL, acepta cualquier cosa como el market viejo
+//   entre medio         -> OK, protege sin bloquear
+//
+// El debito queda en NO_EVALUADO a proposito: netCruzando esta expresado en la
+// convencion de credito (bid corta - ask larga) y darle vuelta al signo "a ojo"
+// es justo como se construye una metrica que miente. Se guardan igual los
+// numeros crudos por si despues se quiere analizar a mano.
+//
+// Puramente observacional: solo corre cuando la ejecucion esta APAGADA, va en
+// su propio try y nunca lanza.
+async function sombraDeLimiteSinEjecutar({ familia, strategy, expiry, shortStrike, longStrike, premium, tradingCfg, etTime }) {
+  try {
+    if (shortStrike == null || longStrike == null || !expiry) return null;
+    const limite = limiteDeAperturaVertical(strategy, premium, tradingCfg);
+    if (limite == null) return null;
+
+    const esCredito = (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_CALL_SPREAD');
+    const tipo      = (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_PUT_SPREAD') ? 'P' : 'C';
+    const legs = {
+      shortSym: tradier.buildOccSymbol('SPXW', expiry, tipo, shortStrike),
+      longSym:  tradier.buildOccSymbol('SPXW', expiry, tipo, longStrike),
+    };
+    const s    = await capturarSombraCadena({ expiry, shortStrike, longStrike, tipo, legs });
+    const mid  = s?.tradier?.net ?? null;
+    const cruz = s?.tradier?.netCruzando ?? null;
+
+    let veredicto = 'NO_EVALUADO';
+    if (esCredito) {
+      if (mid == null)              veredicto = 'SIN_DATO';
+      else if (limite > mid)        veredicto = 'DEMASIADO_ESTRICTO';
+      else if (cruz != null && limite <= cruz) veredicto = 'INUTIL';
+      else                          veredicto = 'OK';
+    }
+
+    const out = { at: s?.at || new Date().toISOString(), strategy, esCredito,
+                  premiumEstimado: premium, limite, mid, cruzando: cruz, veredicto, sombra: s };
+    console.log(`[SOMBRA-LIMITE] ${strategy} est=${premium} límite=${limite} ` +
+                `mid=${mid ?? '—'} cruzando=${cruz ?? '—'} → ${veredicto}`);
+    try {
+      logStrategyEvent({ strategyFamily: familia, etTime, stage: 'SOMBRA_LIMITE', passed: null,
+        reason: `${strategy}: límite ${limite} vs mid ${mid ?? '—'} vs cruzando ${cruz ?? '—'} → ${veredicto}`,
+        snapshot: out });
+    } catch { /* registrar la sombra no puede romper nada */ }
+    return out;
+  } catch (e) {
+    console.error('[SOMBRA-LIMITE] falló:', e.message);
+    return null;
+  }
 }
 
 function calcLivePnl(ex, q) {

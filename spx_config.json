@@ -8,5 +8,15 @@
     "volumen_rompimiento": 0,
     "macd_cruce_pendiente": 15,
     "confirmacion_algoritmica": 0
+  },
+  "trading": {
+    "tradierAutoExecute": false,
+    "ironCondor": {
+      "tradierAutoExecute": false
+    },
+    "smaReversion": {
+      "tradierAutoExecute": false
+    },
+    "toleranciaDeslizamientoPct": 25
   }
 }
