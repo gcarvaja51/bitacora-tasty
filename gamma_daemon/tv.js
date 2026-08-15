@@ -22,8 +22,12 @@ const SYMBOL_MATCH = /^SPCFD:SPX$/i;
 // silenciosamente en las ventanas que todavia no se habian actualizado.
 const STUDY_NAME_MATCH = /CIARG_V\d/i;
 
-async function evalOn(client, expression) {
-  const result = await client.Runtime.evaluate({ expression, returnByValue: true, awaitPromise: false });
+// awaitPromise sigue en false por defecto para no cambiar el comportamiento de
+// las llamadas existentes; saveLayout() lo activa porque saveChartSilently()
+// devuelve una promesa y sin esto se leeria "[object Promise]" como resultado
+// y se daria por bueno un guardado que todavia no ocurrio.
+async function evalOn(client, expression, awaitPromise = false) {
+  const result = await client.Runtime.evaluate({ expression, returnByValue: true, awaitPromise });
   if (result.exceptionDetails) {
     throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text || 'CDP eval error');
   }
@@ -269,6 +273,56 @@ export async function pushGammaLevelsToAllWindows(inputs) {
     throw new Error('Ninguna ventana de TradingView tiene SPX cargado.');
   }
   return windows;
+}
+
+// ── Guardar el layout en la nube de TradingView (2026-08-15) ───────────────
+//
+// POR QUE HACE FALTA. setStudyInputs() escribe los muros en la MEMORIA de la
+// ventana del escritorio y nada mas. La app del celular (y cualquier otro
+// dispositivo) lee el layout desde la nube, asi que hasta que alguien no guarde,
+// alli siguen los valores del ultimo guardado.
+//
+// Hasta el 2026-08-05 esto funcionaba por efecto colateral: el usuario tocaba el
+// chart a mano (mover algo, cambiar temporalidad, dibujar), eso ensuciaba el
+// layout, el autoguardado de TradingView --que esta activo-- disparaba, y de paso
+// subia los inputs que el daemon habia escrito. Desde el incidente del 2026-08-06
+// (el daemon empezo a matar y relanzar TradingView) la ventana se relanza sola,
+// el usuario dejo de tocarla, y con eso desaparecio lo unico que guardaba. El
+// celular quedo congelado en los muros del 5-ago: Call Wall 7740, Gamma Flip
+// 7735, MVS 7730 -- exactamente la tabla del premercado de ese dia.
+//
+// markContentAsChanged() es imprescindible: sin el, hasChanges() sigue en false y
+// saveChartSilently() no tiene nada que subir. Verificado el 2026-08-14 mirando
+// el ciclo del flag (false -> true -> false) y confirmando despues, desde otro
+// navegador, que la copia en la nube traia ya los valores nuevos.
+export async function saveLayout() {
+  const { client } = await connectToSpxWindow();
+  try {
+    const r = await evalOn(client, `
+      (async function() {
+        try {
+          var svc = window.TradingViewApi._saveChartService;
+          if (!svc) return { ok: false, error: 'sin _saveChartService' };
+          svc.markContentAsChanged();
+          await svc.saveChartSilently();
+          // quedaSucio es solo informativo y NO indica fallo: hasChanges() se
+          // limpia un instante DESPUES de que saveChartSilently() resuelve, asi
+          // que leido aca mismo suele salir true aunque el guardado haya ido bien
+          // (comprobado el 2026-08-15: true al volver, false dos segundos mas
+          // tarde). Lo que decide el exito es que no haya excepcion.
+          return {
+            ok: true,
+            layoutId: (typeof svc.layoutId === 'function') ? svc.layoutId() : null,
+            quedaSucio: (typeof svc.hasChanges === 'function') ? svc.hasChanges() : null
+          };
+        } catch (e) { return { ok: false, error: e.message }; }
+      })()
+    `, true);
+    if (!r || !r.ok) throw new Error(r?.error || 'saveChartSilently no devolvio ok');
+    return r;
+  } finally {
+    await client.close();
+  }
 }
 
 export async function healthCheck() {

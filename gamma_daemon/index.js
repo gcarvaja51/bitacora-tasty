@@ -37,12 +37,22 @@ const CYCLE_MS_DEGRADED = 2 * 60 * 1000;   // al degradarse vuelve a la cadencia
 // justo el incidente que este daemon ya provoco el 2026-08-06. El grafico es
 // una ayuda visual; el que decide es el servidor.
 const TV_PUSH_EVERY_MS = 2 * 60 * 1000;
+
+// El GUARDADO del layout a la nube va en su propia cadencia, mas lenta que el
+// push (pedido del usuario, 2026-08-15: "hagamos el cambio en el celular cada 5
+// minutos"). Es lo unico que hace que los muros lleguen al telefono: el push solo
+// los escribe en la memoria de la ventana del escritorio. Cada guardado es una
+// escritura real contra los servidores de TradingView, asi que no tiene sentido
+// hacerlo cada 2 min -- los muros no se mueven a esa velocidad.
+const TV_SAVE_EVERY_MS = 5 * 60 * 1000;
 const FAILURE_THRESHOLD = 3;
 
 let consecutiveFailures = 0;   // fallos que dejan al SERVIDOR sin precio (Sigma o POST)
 let tvFailures = 0;            // fallos del push a TradingView — solo afectan al grafico
 let tvAlerted = false;
 let lastTvPushAt = 0;
+let lastTvSaveAt = 0;          // ultimo guardado del layout a la nube (ver TV_SAVE_EVERY_MS)
+let tvSaveFailures = 0;        // fallos del guardado — solo afectan a lo que ve el celular
 let alerted = false;
 let mode = 'normal';
 let stopped = false;
@@ -266,6 +276,26 @@ async function runCycle() {
         // exactamente el residuo que esta mañana hizo dudar de si el push estaba
         // roto cuando ya se habia recuperado.
         saveStatus({ lastTvPushAt: new Date().toISOString(), tvFailures: 0, lastTvError: null });
+
+        // ── Guardado del layout a la nube ──
+        // Va DESPUES del push (para que suba los valores recien escritos) y en su
+        // propio try: es best-effort puro. Si falla, el grafico del escritorio ya
+        // quedo actualizado y el servidor ya tiene el precio — lo unico que se
+        // pierde es la propagacion al celular hasta el proximo intento, dentro de
+        // 5 minutos. No toca tvFailures ni puede disparar el modo degradado.
+        if (Date.now() - lastTvSaveAt >= TV_SAVE_EVERY_MS) {
+          lastTvSaveAt = Date.now();
+          try {
+            const res = await tv.saveLayout();
+            tvSaveFailures = 0;
+            saveStatus({ lastTvSaveAt: new Date().toISOString(), tvSaveFailures: 0, lastTvSaveError: null });
+            console.log(`[tv] layout ${res.layoutId || '(sin id)'} guardado en la nube — los muros ya viajan al celular.`);
+          } catch (saveErr) {
+            tvSaveFailures += 1;
+            saveStatus({ tvSaveFailures, lastTvSaveError: saveErr.message });
+            console.error(`[tv] guardado del layout fallo #${tvSaveFailures}:`, saveErr.message);
+          }
+        }
       } catch (tvErr) {
         tvFailures += 1;
         saveStatus({ tvFailures, lastTvError: tvErr.message });
