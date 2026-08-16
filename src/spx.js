@@ -673,13 +673,22 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelt
 
     const longStrike  = longCall.strike;
     const shortStrike = longStrike + spreadWidth;
-    const debit       = (longCall.call?.mark || 0) - ((strikes.find(s => s.strike === shortStrike)?.call?.mark) || 0);
+    const shortCallLeg = strikes.find(s => s.strike === shortStrike)?.call;
+    const debit       = (longCall.call?.mark || 0) - (shortCallLeg?.mark || 0);
 
     return {
       expiry: exp.expiry || targetDate,
       longStrike,
       shortStrike,
       longDelta: +(Math.abs(longCall.call?.delta || 0)).toFixed(3),
+      // shortDelta en DEBITO (2026-08-16): las dos ramas de credito ya lo
+      // devolvian y las de debito no, aunque la pata corta se busca igual dos
+      // lineas mas arriba para el mark. Sin el no se puede calcular el delta
+      // NETO del spread (long - short), y sin delta neto no hay forma de saber
+      // cuantos puntos de SPX hacen falta para el TP — que es lo que compara
+      // evaluarVetoMuroSombra() contra el aire al muro. Campo aditivo: ningun
+      // consumidor previo lo lee.
+      shortDelta: +(Math.abs(shortCallLeg?.delta || 0)).toFixed(3),
       premium:   +(-debit).toFixed(2), // negativo = pago
     };
   }
@@ -696,13 +705,15 @@ function findStrikesByDelta(expirations, strategy, spxPrice, expType, targetDelt
 
     const longStrike  = longPut.strike;
     const shortStrike = longStrike - spreadWidth;
-    const debit       = (longPut.put?.mark || 0) - ((strikes.find(s => s.strike === shortStrike)?.put?.mark) || 0);
+    const shortPutLeg = strikes.find(s => s.strike === shortStrike)?.put;
+    const debit       = (longPut.put?.mark || 0) - (shortPutLeg?.mark || 0);
 
     return {
       expiry: exp.expiry || targetDate,
       longStrike,
       shortStrike,
       longDelta: +(Math.abs(longPut.put?.delta || 0)).toFixed(3),
+      shortDelta: +(Math.abs(shortPutLeg?.delta || 0)).toFixed(3), // ver nota en BULL_CALL_SPREAD
       premium:   +(-debit).toFixed(2),
     };
   }
@@ -726,7 +737,13 @@ function buildSignalSummary(strategy, strikes, sel, context) {
     ? (sel.spreadWidth * 100 * sel.contracts) - (credit || 0)
     : debit;
   const maxProfit = sel.isCredit ? credit : (sel.spreadWidth * 100 * sel.contracts) - (debit || 0);
-  const probSuccess = strikes.shortDelta ? +((1 - strikes.shortDelta) * 100).toFixed(1) : null;
+  // Solo para CREDITO (2026-08-16). La formula es "probabilidad de que el short
+  // expire OTM", que es exactamente el exito de un credito — pero en un DEBITO el
+  // maximo se cobra cuando el precio SUPERA el short, asi que 1-shortDelta seria
+  // casi el complemento de lo que dice la etiqueta. Hasta hoy los debitos no
+  // devolvian shortDelta y esto caia en null solo; al agregarlo para el veto de
+  // muro habrian empezado a mostrar un numero al reves. Se deja explicito.
+  const probSuccess = (sel.isCredit && strikes.shortDelta) ? +((1 - strikes.shortDelta) * 100).toFixed(1) : null;
   const riskReward  = maxProfit && maxRisk ? +(maxProfit / maxRisk).toFixed(2) : null;
 
   // Nota de R:R — el playbook espera ~1:3-1:4 (reward/risk 0.20-0.35) en las

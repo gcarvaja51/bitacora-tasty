@@ -5956,6 +5956,113 @@ function minScoreEfectivoDireccional(cfg) {
   }
 }
 
+// ── Veto de muro, EN SOMBRA (2026-08-16) ──────────────────────────────────
+// Registra —sin bloquear NADA— si la entrada le esta pidiendo al precio que
+// ATRAVIESE el muro de Gamma para llegar al TP.
+//
+// Formulacion mecanica, no un umbral de puntos inventado: el TP de un vertical
+// de debito es un % de la prima pagada, asi que los puntos de SPX que hacen
+// falta salen de la propia prima y del delta NETO del spread, y se comparan
+// contra el aire que hay hasta el muro VIGENTE en ese instante. Los muros se
+// mueven ~18 pts (Call) y ~32 pts (Put) DENTRO del mismo dia entre una entrada
+// y la siguiente (medido sobre 15 sesiones) — un muro del premercado, o el de
+// hace media hora, no sirve para esta cuenta.
+//
+// Backtest que lo motiva (2026-08-16; 91 trades cerrados, 55 pareados con la
+// foto del muro a 10s de desfase mediano, 15 sesiones del 21-jul al 13-ago):
+//   - Corte global "el TP cabe antes del muro": 69.2% de acierto y +$2,000
+//     contra 51.7% y +$230 del resto. Estable ante el supuesto de delta neto
+//     (0.08/0.10/0.12) y ante quitar cualquier dia (brecha +11.5 a +25.2 pp).
+//   - Pero es ASIMETRICO: en BEARISH la brecha es de 40 pp (73.3% / +$1,160 con
+//     aire, contra 33.3% / -$1,790 sin aire). En BULLISH es de 3.6 pp y ademas
+//     el bucket que la regla mataria fue el que MAS gano (+$2,020 vs +$840):
+//     los 4 trades abiertos con el precio ya pasado el Call Wall ganaron los 4.
+//     Por eso `vetaria` solo se marca en BEARISH — "no vender contra el piso",
+//     no "no comprar contra el techo", que era la hipotesis original y no paso.
+//
+// POR QUE EN SOMBRA y no como gate: la celda que decide son 9 trades y 6 son
+// del MISMO dia (23-jul, seis entradas bajistas re-pisandose, tres a -$640).
+// Sacando ese dia la brecha de winrate aguanta (+38 pp) pero sobre 3 trades.
+// Ademas los 10 bajistas pegados al piso son exactamente los 10 trades de gamma
+// NEGATIVO con poco aire: con esta muestra "vender contra el piso" y "gamma
+// negativo" son indistinguibles. No se le da poder de veto sobre dinero hasta
+// juntar ~25-30 casos limpios. Mismo criterio que shadowTrail en
+// checkDirectionalTPSL: medir primero, decidir despues.
+function evaluarVetoMuroSombra(datos) {
+  try {
+    const { direction, spxPrice, callWall, putWall, strikes, primaPts, tpPctDebito,
+            isCredit, muroFuente, muroEdadSeg, spotFuente, spotEdadSeg } = datos;
+
+    // El TP de un credito no depende de recorrer puntos de SPX (se cobra por
+    // decaimiento), asi que la cuenta de "puntos hasta el TP" no aplica.
+    if (isCredit) return { aplica: false, motivo: 'vertical de credito — el TP no exige recorrer puntos' };
+
+    const muro = direction === 'BULLISH' ? callWall : putWall;
+    if (muro == null || !(spxPrice > 0)) {
+      return { aplica: false, motivo: 'sin muro vigente o sin spot usable' };
+    }
+    if (!(primaPts > 0)) return { aplica: false, motivo: 'sin prima para estimar los puntos al TP' };
+
+    const aire = +((direction === 'BULLISH' ? muro - spxPrice : spxPrice - muro)).toFixed(2);
+
+    // Delta NETO del spread (long - short). Es el divisor de toda la cuenta, asi
+    // que se valida en serio antes de usarlo.
+    //
+    // Bug real encontrado al probar esta funcion contra los 55 trades historicos
+    // ANTES de darla por buena (2026-08-16): con `?? 0`, una pata corta ausente
+    // —que es lo que pasa si la cadena no trae ese strike, y lo que pasa en TODAS
+    // las ejecuciones anteriores a hoy— dejaba deltaNeto = longDelta (~0.48), o
+    // sea trataba el vertical como si fuera una call/put pelada. Con eso el TP
+    // "necesitaba" 3.6 pts en vez de 17.4 y la regla no vetaba casi nada: fallaba
+    // ABIERTA y en silencio, que es el peor modo de falla para un gate. De 9
+    // vetos esperados salia 1.
+    //
+    // Ahora: la pata corta tiene que venir con delta propio Y el neto tiene que
+    // caer en la banda plausible de un vertical de 10 pts cerca del dinero
+    // (0.03-0.30). Si no, se usa 0.10 —el valor medido para estos spreads, y el
+    // mismo con el que se corrio el backtest— y queda marcado como 'supuesto'
+    // para poder separarlos al revisar la sombra.
+    const dl = Number(strikes?.longDelta);
+    const ds = Number(strikes?.shortDelta);
+    let deltaNeto = null, deltaNetoFuente = 'supuesto';
+    if (Number.isFinite(dl) && Number.isFinite(ds) && dl > 0 && ds > 0) {
+      const bruto = +(Math.abs(dl) - Math.abs(ds)).toFixed(3);
+      if (bruto >= 0.03 && bruto <= 0.30) { deltaNeto = bruto; deltaNetoFuente = 'cadena'; }
+      else deltaNetoFuente = `supuesto (neto ${bruto} fuera de banda 0.03-0.30)`;
+    }
+    if (deltaNeto == null) deltaNeto = 0.10;
+
+    const puntosParaTP = +(((tpPctDebito || 30) / 100) * primaPts / deltaNeto).toFixed(2);
+    const margen = +(aire - puntosParaTP).toFixed(2);
+    const vetaria = direction === 'BEARISH' && margen < 0;
+
+    return {
+      aplica: true,
+      vetaria,
+      direction,
+      muro, muroLado: direction === 'BULLISH' ? 'call_wall' : 'put_wall',
+      spxPrice, aire, puntosParaTP, margen,
+      deltaNeto, deltaNetoFuente, primaPts: +primaPts.toFixed(2), tpPctDebito,
+      // Frescura de cada insumo. Va guardado a proposito: el sandbox de Tradier
+      // entrega la cadena con ~15-16 min de atraso (ver src/tradier.js), asi que
+      // al revisar estos registros hay que poder separar un veto calculado sobre
+      // datos frescos de uno calculado sobre datos viejos — si no, la sombra
+      // mide el atraso y no la regla.
+      frescura: {
+        muroFuente: muroFuente ?? null, muroEdadSeg: muroEdadSeg ?? null,
+        spotFuente: spotFuente ?? null, spotEdadSeg: spotEdadSeg ?? null,
+        cadenaFuente: 'tastytrade', // /api/option-chain/SPX pide precios/greeks a TastyTrade
+      },
+      nota: vetaria
+        ? `El TP (+${tpPctDebito}% de la prima) exige ${puntosParaTP} pts y solo hay ${aire} pts hasta el ${direction === 'BULLISH' ? 'Call' : 'Put'} Wall (${muro}) — el precio tendria que atravesarlo.`
+        : `El TP exige ${puntosParaTP} pts y hay ${aire} pts hasta el muro (${muro}) — margen ${margen} pts.`,
+    };
+  } catch (e) {
+    // La sombra jamas puede tumbar una entrada real.
+    return { aplica: false, motivo: `error: ${e.message}` };
+  }
+}
+
 async function processDirectionalEntry(direction, meta = {}) {
   const tStart = Date.now();
   const source = meta.source || 'CaminoB_autonomo';
@@ -6238,6 +6345,38 @@ async function processDirectionalEntry(direction, meta = {}) {
       minCreditoRiesgoPct: MIN_CREDITO_RIESGO_PCT,
     };
 
+    // Veto de muro EN SOMBRA — ver evaluarVetoMuroSombra() arriba. Solo observa:
+    // se cuelga de la señal, se loguea y se congela en el registro de ejecucion,
+    // pero NO participa de ninguna decision de abajo.
+    signal.vetoMuroSombra = evaluarVetoMuroSombra({
+      direction,
+      spxPrice:    ctx.spxPrice,
+      callWall:    effectiveGex.callWall,
+      putWall:     effectiveGex.putWall,
+      strikes,
+      primaPts,
+      tpPctDebito: (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct,
+      isCredit:    !!signal.isCredit,
+      muroFuente:  effectiveGex.source,
+      muroEdadSeg: sigmaLevelsWebhook?.updatedAt
+        ? Math.round((Date.now() - new Date(sigmaLevelsWebhook.updatedAt).getTime()) / 1000)
+        : null,
+      spotFuente:  ctx.spotFuente,
+      spotEdadSeg: ctx.spotEdadSeg,
+    });
+    if (signal.vetoMuroSombra?.vetaria) {
+      console.log(`[SOMBRA-MURO] ${signal.strategy}: habría vetado — ${signal.vetoMuroSombra.nota}`);
+    }
+    logStrategyEvent({
+      strategyFamily: 'TENDENCIA', stage: 'VETO_MURO_SOMBRA',
+      passed: !signal.vetoMuroSombra?.vetaria,
+      reason: signal.vetoMuroSombra?.nota || signal.vetoMuroSombra?.motivo || 'sin evaluar',
+      snapshot: buildStrategySnapshot(ctx, {
+        direction, gex: effectiveGex, strategy: signal.strategy,
+        score: playbookResult.score, vetoMuroSombra: signal.vetoMuroSombra,
+      }),
+    });
+
     // ── Ejecución automática en Tradier (sandbox) — las 4 verticales direccionales ──
     // Ampliado 2026-07-08: antes solo credito (Bull Put/Bear Call). Los debitos
     // (Bull Call/Bear Put) — que el sistema empieza a elegir con gamma negativo,
@@ -6342,6 +6481,13 @@ async function processDirectionalEntry(direction, meta = {}) {
               // no sobre el de ahora.
               entryCallWall: effectiveGex?.callWall ?? null,
               entryPutWall:  effectiveGex?.putWall  ?? null,
+              // Veredicto del veto de muro EN SOMBRA, congelado con el trade
+              // (2026-08-16). Va aca ademas de en la señal y en el strategy-log
+              // porque este es el unico de los tres registros que NO rota: las
+              // señales estan topadas en 50 y el strategy-log en 5.000 (~8
+              // sesiones). Es el que permite cruzar el veredicto contra el pnl
+              // real dentro de unas semanas, que es el punto del ejercicio.
+              vetoMuroSombra: signal.vetoMuroSombra ?? null,
               filledAt:      null,
               closedAt:      null,
               closeReason:   null,
