@@ -4978,6 +4978,51 @@ app.get('/api/spx/panic', (req, res) => {
   res.json({ enabled: allOn, mixed: !allOn && !allOff, flags });
 });
 
+// GET /api/spx/cotizacion-viva — diagnostico de la fuente de precio (2026-08-16).
+//
+// Responde, para las patas que se le pidan (o las de las posiciones abiertas si
+// no se pide nada), que dice TastyTrade EN VIVO y que dice el sandbox de Tradier,
+// con la edad de cada cotizacion. Es la forma de comprobar en mercado abierto que
+// los monitores de salida estan decidiendo con datos de ahora y no de hace 15 min.
+//
+//   /api/spx/cotizacion-viva
+//   /api/spx/cotizacion-viva?legs=SPXW260817P07690000,SPXW260817P07685000
+//
+// Solo lee. No toca ninguna posicion ni manda ninguna orden.
+app.get('/api/spx/cotizacion-viva', async (req, res) => {
+  try {
+    let legs = String(req.query.legs || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!legs.length) {
+      const abiertas = loadTradierExecutions().filter(e => e.status === 'filled' || e.status === 'submitted');
+      legs = [...new Set(abiertas.flatMap(e => Object.values(e.legs || {}).filter(Boolean)))];
+    }
+    if (!legs.length) return res.json({ legs: [], nota: 'No hay posiciones abiertas ni ?legs= en la consulta.' });
+
+    let vivo = null, errVivo = null;
+    try { vivo = await cotizarPatasTasty(legs, { permitirParcial: true }); }
+    catch (e) { errVivo = e.message.slice(0, 120); }
+
+    let dif = {}, tr = {};
+    try {
+      (await tradier.getQuotes(legs)).forEach(x => {
+        tr[x.symbol] = { bid: x.bid, ask: x.ask, mark: x.mark,
+          edadSeg: x.tradeDate ? Math.round((Date.now() - Number(x.tradeDate)) / 1000) : null };
+      });
+    } catch (e) { dif.error = e.message.slice(0, 120); }
+
+    res.json({
+      at: new Date().toISOString(),
+      mercadoAbierto: isMarketHours(),
+      umbralEdadSeg: MAX_EDAD_COTIZACION_SEG,
+      // Cual ganaria si un monitor decidiera ahora mismo.
+      fuenteQueDecidiria: (vivo && vivo.edadSeg <= MAX_EDAD_COTIZACION_SEG) ? 'tasty' : 'la mas fresca de las dos',
+      tasty:   vivo ? { edadSeg: vivo.edadSeg, q: vivo.q } : { error: errVivo || 'sin dato' },
+      tradier: Object.keys(tr).length ? tr : dif,
+      legs,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 const SPX_SIGNALS_FILE = path.join(DATA_DIR, 'spx_signals.json');
 
 function loadSPXSignals() {
@@ -8163,12 +8208,15 @@ async function checkIronCondorTPSLImpl() {
       // ya quedo decidido arriba y no puede ser bloqueado por este guard.
       const q = {};
       if (!cerrarPor) {
-        const quotes = await tradier.getQuotes(legSymbols);
-        quotes.forEach(x => { q[x.symbol] = x.mark; });
-        if (legSymbols.some(s => q[s] == null)) {
+        // EN VIVO (TastyTrade), no el sandbox diferido — ver cotizarPatasFresco.
+        const cot = await cotizarPatasFresco(legSymbols, 'Tradier-IC-TPSL');
+        if (!cot) {
           console.warn(`[Tradier-IC-TPSL] Cotizaciones incompletas para ${ex.orderId}, se salta la evaluacion de TP/SL este ciclo.`);
           continue;
         }
+        legSymbols.forEach(s => { q[s] = cot.q[s].mark; });
+        ex.fuenteCotizacionTPSL = cot.fuente;
+        ex.edadCotizacionTPSLSeg = cot.edadSeg;
 
       if (esDebito) {
         // Valor actual = alas compradas (outerHigh+outerLow) - cuerpo vendido (innerHigh+innerLow) —
@@ -8302,6 +8350,113 @@ function aSimboloTasty(simTradier) {
   return m ? m[1].padEnd(6, ' ') + m[2] : null;
 }
 
+// Edad maxima de una cotizacion de opcion para considerarla "de ahora". Mas
+// holgado que MAX_EDAD_SPOT_SEG (180s) porque un strike muy OTM —justo la zona
+// donde se venden los creditos— puede pasar un rato sin que se mueva su quote
+// sin que eso signifique que el feed esta caido.
+const MAX_EDAD_COTIZACION_SEG = 300;
+
+// ── Cotizaciones de las patas EN VIVO (2026-08-16) ──────────────────────────
+//
+// El sandbox de Tradier cotiza con ~15 min de atraso (medido: edadCotizacionSeg
+// 901-947s en las 5 capturas de sombraApertura). Los monitores de salida decidian
+// TP/SL con ESE dato, asi que el robot veia el mercado de hace un cuarto de hora
+// tanto al entrar como al salir — imposible saber si sus decisiones son buenas.
+//
+// TastyTrade es la cuenta real y su /market-data cotiza en vivo. Es la misma
+// fuente con la que ya se ELIGEN los strikes, asi que esto no mete una fuente
+// nueva: alinea la decision de salida con la de entrada.
+//
+// Pide solo los simbolos que hacen falta (2 patas, o 4 en el condor) en UNA
+// llamada, en vez de bajar la cadena entera del vencimiento como hacia
+// valorSpreadTasty (271 strikes = 11 lotes de /market-data por ciclo de monitor).
+//
+// Devuelve null si falta cualquiera de los simbolos pedidos: medio spread no es
+// una cotizacion, y decidir un TP/SL con una pata a mercado y otra estimada es
+// peor que no decidir.
+// `permitirParcial`: solo para vistas de lectura (el P&L en vivo del historial),
+// donde cotizar 9 de 10 patas sigue sirviendo. Para decidir un TP/SL va en false.
+async function cotizarPatasTasty(simbolosTradier, { permitirParcial = false } = {}) {
+  const pares = simbolosTradier.map(s => [s, aSimboloTasty(s)]).filter(([, t]) => t);
+  if (!pares.length) return null;
+  if (!permitirParcial && pares.length !== simbolosTradier.length) return null;
+
+  // /market-data acepta lotes; el resto de la cadena usa 50 y no da problemas.
+  const LOTE = 50;
+  const porTasty = {};
+  for (let i = 0; i < pares.length; i += LOTE) {
+    const params = pares.slice(i, i + LOTE)
+      .map(([, t]) => `symbols[]=${encodeURIComponent(t)}`).join('&');
+    const d = await tt._req(`/market-data?${params}`);
+    for (const it of (d.data?.items || [])) porTasty[it.symbol] = it;
+  }
+
+  const out = {};
+  let edadMax = 0;
+  for (const [simTradier, simTasty] of pares) {
+    const it = porTasty[simTasty];
+    // /market-data devuelve los precios como STRING ("5.8"), no como numero.
+    const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+    const bid = num(it?.bid), ask = num(it?.ask);
+    const mark = num(it?.mark) ?? num(it?.mid) ?? (bid != null && ask != null ? (bid + ask) / 2 : null);
+    if (mark == null) {
+      if (permitirParcial) continue;
+      return null;
+    }
+    const ts = it['updated-at'] ? Date.parse(it['updated-at']) : NaN;
+    if (Number.isFinite(ts)) edadMax = Math.max(edadMax, Math.round((Date.now() - ts) / 1000));
+    out[simTradier] = { bid, ask, mark };
+  }
+  if (!Object.keys(out).length) return null;
+  return { q: out, fuente: 'tasty', edadSeg: edadMax };
+}
+
+// Elige la cotizacion mas fresca entre TastyTrade (en vivo) y Tradier (sandbox,
+// diferido), con la misma logica que precioSPXFresco usa para el spot: se
+// prefiere Tasty, pero si esta frizado se compara contra Tradier y gana el mas
+// nuevo. Un feed congelado es exactamente el modo de falla que se quiere evitar
+// —Yahoo se quedo quieto 2h44min el 2026-07-24— y no se detecta sin mirar la edad.
+//
+// Nunca devuelve menos de lo que habia antes: si Tasty falla, cae a Tradier, que
+// es lo unico que se usaba hasta hoy. El campo `fuente` deja la decision auditable.
+async function cotizarPatasFresco(simbolosTradier, tag) {
+  let vivo = null;
+  try {
+    vivo = await cotizarPatasTasty(simbolosTradier);
+  } catch (e) {
+    console.warn(`[${tag}] TastyTrade no cotizo las patas (${e.message.slice(0, 60)}), se intenta Tradier.`);
+  }
+  if (vivo && vivo.edadSeg <= MAX_EDAD_COTIZACION_SEG) return vivo;
+
+  let diferido = null;
+  try {
+    const quotes = await tradier.getQuotes(simbolosTradier);
+    const m = {};
+    quotes.forEach(x => { m[x.symbol] = x; });
+    if (simbolosTradier.every(s => m[s]?.mark != null)) {
+      const q = {};
+      let edadMax = 0;
+      for (const s of simbolosTradier) {
+        q[s] = { bid: m[s].bid ?? null, ask: m[s].ask ?? null, mark: m[s].mark };
+        if (m[s].tradeDate) edadMax = Math.max(edadMax, Math.round((Date.now() - Number(m[s].tradeDate)) / 1000));
+      }
+      diferido = { q, fuente: 'tradier', edadSeg: edadMax };
+    }
+  } catch (e) {
+    console.warn(`[${tag}] Tradier tampoco cotizo las patas: ${e.message.slice(0, 60)}`);
+  }
+
+  const candidatos = [vivo, diferido].filter(Boolean);
+  if (!candidatos.length) return null;
+  candidatos.sort((a, b) => a.edadSeg - b.edadSeg);
+  const elegido = candidatos[0];
+  if (elegido.fuente !== 'tasty') {
+    console.warn(`[${tag}] ⚠️ Decidiendo con cotizacion ${elegido.fuente} de ${elegido.edadSeg}s ` +
+      `(Tasty ${vivo ? vivo.edadSeg + 's' : 'sin dato'}). El TP/SL de este ciclo NO es en vivo.`);
+  }
+  return elegido;
+}
+
 // Devuelve cuanto vale el spread segun la cadena EN VIVO. Es la mitad "verdad"
 // de la comparacion contra Tradier, que en el sandbox cotiza con ~15 min de atraso.
 //
@@ -8336,14 +8491,15 @@ async function valorSpreadTasty(shortSym, longSym, expiry, tipo, shortStrike, lo
     if (!s || !l) return null;
     expiry = s.expiry; tipo = s.tipo; shortStrike = s.strike; longStrike = l.strike;
   }
+  // 2026-08-16 — se pedia la cadena ENTERA del vencimiento (271 strikes = 11 lotes
+  // de /market-data) para leer dos marks. Corriendo dentro de un monitor cada 15-30s
+  // eso es carisimo y sin motivo: cotizarPatasTasty pide los dos simbolos y ya.
   try {
-    const r = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX?expiry=${expiry}`);
-    const j = await r.json();
-    const exp = (j.expirations || []).find(e => e.expiry === expiry) || (j.expirations || [])[0];
-    const buscar = (k) => (exp?.strikes || []).find(s => s.strike === k);
-    const rama = (s) => tipo === 'P' ? s?.put : s?.call;
-    const ms = rama(buscar(shortStrike))?.mark, ml = rama(buscar(longStrike))?.mark;
-    if (ms == null || ml == null) return null;
+    const sT = tradier.buildOccSymbol('SPXW', expiry, tipo, shortStrike);
+    const lT = tradier.buildOccSymbol('SPXW', expiry, tipo, longStrike);
+    const r = await cotizarPatasTasty([sT, lT]);
+    if (!r) return null;
+    const ms = r.q[sT].mark, ml = r.q[lT].mark;
     return { corto: +ms.toFixed(2), largo: +ml.toFixed(2), neto: +(ms - ml).toFixed(2) };
   } catch (e) {
     return null;
@@ -8442,26 +8598,35 @@ async function checkDirectionalTPSLImpl() {
       const shortSym = ex.legs?.shortSym, longSym = ex.legs?.longSym;
       if (!shortSym || !longSym) continue;
 
-      const quotes = await tradier.getQuotes([shortSym, longSym]);
-      const q = {};
-      quotes.forEach(x => { q[x.symbol] = x.mark; });
-      if (q[shortSym] == null || q[longSym] == null) {
+      // EN VIVO (TastyTrade), no el sandbox diferido — ver cotizarPatasFresco.
+      const cot = await cotizarPatasFresco([shortSym, longSym], 'Tradier-DIR-TPSL');
+      if (!cot) {
         console.warn(`[Tradier-DIR-TPSL] Cotizaciones incompletas para ${ex.orderId}, se salta este ciclo.`);
         continue;
       }
+      const q = { [shortSym]: cot.q[shortSym].mark, [longSym]: cot.q[longSym].mark };
+      ex.fuenteCotizacionTPSL   = cot.fuente;
+      ex.edadCotizacionTPSLSeg  = cot.edadSeg;
 
-      // Traza Tradier (decide) vs TastyTrade (en vivo). Puramente observacional:
-      // va en su propio try y no participa de ninguna decision de mas abajo.
+      // Traza: lo que decide (arriba) contra lo que ve el sandbox. Se invirtio el
+      // sentido el 2026-08-16 — antes decidia Tradier y Tasty era la observacion;
+      // ahora decide Tasty y Tradier es la observacion. `d` sigue significando lo
+      // mismo (vivo - diferido), asi que las trazas viejas y nuevas son comparables.
+      // Puramente observacional: va en su propio try y no decide nada.
       try {
-        const vt = await valorSpreadTasty(shortSym, longSym);
-        if (vt) {
-          const netoTradier = +(q[shortSym] - q[longSym]).toFixed(2);
+        const qt = await tradier.getQuotes([shortSym, longSym]);
+        const m = {};
+        qt.forEach(x => { m[x.symbol] = x.mark; });
+        if (m[shortSym] != null && m[longSym] != null) {
+          const netoTradier = +(m[shortSym] - m[longSym]).toFixed(2);
+          const netoVivo    = +(q[shortSym] - q[longSym]).toFixed(2);
           if (!Array.isArray(ex.trazaCadena)) ex.trazaCadena = [];
           ex.trazaCadena.push({
             t:  new Date().toISOString(),
-            tr: netoTradier,        // lo que ve el monitor y con lo que decide
-            ty: vt.neto,            // lo mismo, en vivo
-            d:  +(vt.neto - netoTradier).toFixed(2),
+            tr: netoTradier,        // el sandbox, diferido
+            ty: netoVivo,           // lo mismo, en vivo — y con esto se decide
+            d:  +(netoVivo - netoTradier).toFixed(2),
+            f:  cot.fuente,
           });
           // Un trade de sesion completa a 30s son ~700 puntos; con 400 alcanza
           // para reconstruir la curva sin inflar el archivo de ejecuciones.
@@ -9567,9 +9732,16 @@ async function checkAlejamientoSMATPSLImpl() {
         // no conviene demorar el cierre esperando una cotizacion que no llega).
         let worstNetPrice;
         try {
-          const quotesCierre = await tradier.getQuotes([ex.legs.shortSym, ex.legs.longSym]);
+          // EN VIVO (2026-08-16): el colchon de precio se calculaba sobre el mark del
+          // sandbox, diferido ~15 min. Un colchon construido sobre un precio viejo
+          // protege de un mercado que ya no existe.
+          const cotCierre = await cotizarPatasFresco([ex.legs.shortSym, ex.legs.longSym], 'Tradier-REV-TPSL');
           const qc = {};
-          quotesCierre.forEach(x => { qc[x.symbol] = x.mark; });
+          if (cotCierre) {
+            qc[ex.legs.shortSym] = cotCierre.q[ex.legs.shortSym].mark;
+            qc[ex.legs.longSym]  = cotCierre.q[ex.legs.longSym].mark;
+            ex.fuenteCotizacionCierre = cotCierre.fuente;
+          }
           if (qc[ex.legs.shortSym] != null && qc[ex.legs.longSym] != null) {
             // Mismo piso que checkDirectionalTPSLImpl (fix 2026-07-28) — Reversion
             // solo abre credito hoy asi que este caso no se ha visto en la practica,
@@ -11430,10 +11602,26 @@ async function attachLivePnl(executions) {
     const abiertas = executions.filter(e => e.status === 'filled' && e.creditReceived != null);
     if (!abiertas.length) return;
     const simbolos = [...new Set(abiertas.flatMap(e => Object.values(e.legs || {}).filter(Boolean)))];
-    const quotes = await tradier.getQuotes(simbolos);
+    // EN VIVO (2026-08-16): este es el P&L que el usuario mira en la bitacora para
+    // saber como va el trade. Salia del sandbox, con ~15 min de atraso — o sea que
+    // el numero de la pantalla era el de hace un cuarto de hora. Se prefiere Tasty
+    // y se completa con Tradier lo que falte, para no perder ninguna fila por una
+    // pata que Tasty no devuelva.
     const q = {};
-    quotes.forEach(x => { q[x.symbol] = x.mark; });
-    for (const ex of abiertas) ex.livePnl = calcLivePnl(ex, q);
+    let fuente = 'tradier';
+    try {
+      const vivo = await cotizarPatasTasty(simbolos, { permitirParcial: true });
+      if (vivo) {
+        for (const s of Object.keys(vivo.q)) q[s] = vivo.q[s].mark;
+        fuente = 'tasty';
+      }
+    } catch (e) { /* se cae a Tradier abajo */ }
+    if (simbolos.some(s => q[s] == null)) {
+      const quotes = await tradier.getQuotes(simbolos);
+      quotes.forEach(x => { if (q[x.symbol] == null) q[x.symbol] = x.mark; });
+      if (fuente === 'tasty') fuente = 'mixta';
+    }
+    for (const ex of abiertas) { ex.livePnl = calcLivePnl(ex, q); ex.livePnlFuente = fuente; }
   } catch(e) {
     console.error('[TRADIER] Error calculando P&L en vivo:', e.message);
   }
