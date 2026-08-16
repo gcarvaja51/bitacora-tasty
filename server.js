@@ -7943,15 +7943,36 @@ async function capturarSombraCadena({ expiry, shortStrike, longStrike, tipo, leg
 
   // Lado TASTY — la misma cadena con la que se decide.
   try {
-    const r = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX?expiry=${expiry}`);
-    const j = await r.json();
-    const exp = (j.expirations || []).find(e => e.expiry === expiry) || (j.expirations || [])[0];
-    const buscar = (k) => (exp?.strikes || []).find(s => s.strike === k);
-    const sC = buscar(shortStrike), lC = buscar(longStrike);
-    const rama = (s) => tipo === 'P' ? s?.put : s?.call;
-    const sMark = rama(sC)?.mark, lMark = rama(lC)?.mark;
-    if (sMark != null && lMark != null) {
-      out.tasty = { short: +sMark.toFixed(2), long: +lMark.toFixed(2), net: +(sMark - lMark).toFixed(2) };
+    // 2026-08-16 — dos arreglos en el mismo lugar:
+    //
+    // a) Antes bajaba la cadena ENTERA del vencimiento (271 strikes = 11 lotes
+    //    de /market-data) para leer dos precios, y esta funcion corre cada 5 min
+    //    por muestreo mas una vez por apertura y otra por cierre de cada trade.
+    //    cotizarPatasTasty pide exactamente las dos patas en UNA llamada.
+    //
+    // b) Solo se quedaba con el MID. Sin bid/ask de este lado no se podia
+    //    calcular el precio CRUZANDO en la cadena en vivo, y por eso
+    //    sombraDeLimiteSinEjecutar tenia que juzgar el limite contra el libro
+    //    DIFERIDO de Tradier — o sea, contra el mercado equivocado. Un veredicto
+    //    de "DEMASIADO_ESTRICTO" contra un libro de hace 15 min no dice nada
+    //    sobre si el limite habria llenado en el mercado real.
+    //
+    // expiry/shortStrike/longStrike/tipo quedan sin uso aca (los simbolos ya
+    // vienen resueltos en `legs`); se conservan en la firma porque los seis
+    // llamadores los pasan y el lado Tradier los necesitaba historicamente.
+    const c = await cotizarPatasTasty([legs.shortSym, legs.longSym]);
+    const sT = c?.q?.[legs.shortSym], lT = c?.q?.[legs.longSym];
+    if (sT?.mark != null && lT?.mark != null) {
+      out.tasty = {
+        short: +sT.mark.toFixed(2), long: +lT.mark.toFixed(2),
+        net: +(sT.mark - lT.mark).toFixed(2),
+        // Credito que daria cruzar EN VIVO: vender la corta al bid, comprar la
+        // larga al ask. Es el mismo numero que marca el libro paper.
+        netCruzando: (sT.bid != null && lT.ask != null) ? +(sT.bid - lT.ask).toFixed(2) : null,
+        anchoCorta: (sT.ask != null && sT.bid != null) ? +(sT.ask - sT.bid).toFixed(2) : null,
+        anchoLarga: (lT.ask != null && lT.bid != null) ? +(lT.ask - lT.bid).toFixed(2) : null,
+        edadSeg: c.edadSeg,
+      };
     }
   } catch (e) { out.tastyError = e.message.slice(0, 80); }
 
@@ -7977,11 +7998,21 @@ async function capturarSombraCadena({ expiry, shortStrike, longStrike, tipo, leg
     }
   } catch (e) { out.tradierError = e.message.slice(0, 80); }
 
+  // difRetraso sigue siendo tasty contra tradier: esa comparacion ES la medida
+  // del atraso, y necesita los dos lados.
   if (out.tasty && out.tradier) {
     out.difRetraso = +(out.tasty.net - out.tradier.net).toFixed(2);
-    if (out.tradier.netCruzando != null) {
-      out.difCruce = +(out.tradier.net - out.tradier.netCruzando).toFixed(2);
-    }
+  }
+  // difCruce pasa al lado EN VIVO (2026-08-16). El costo de cruzar el spread es
+  // una propiedad del mercado real, no del libro del sandbox: medido sobre
+  // Tradier mezclaba el ancho del bid/ask con el desfase de sus cotizaciones.
+  // Es el mismo numero que el libro paper guarda como costoCruce, y el insumo
+  // para recalibrar toleranciaDeslizamientoPct.
+  if (out.tasty?.netCruzando != null) {
+    out.difCruce = +(out.tasty.net - out.tasty.netCruzando).toFixed(2);
+  }
+  if (out.tradier?.netCruzando != null) {
+    out.difCruceTradier = +(out.tradier.net - out.tradier.netCruzando).toFixed(2);
   }
   return out;
 }
@@ -8024,8 +8055,14 @@ async function sombraDeLimiteSinEjecutar({ familia, strategy, expiry, shortStrik
       longSym:  tradier.buildOccSymbol('SPXW', expiry, tipo, longStrike),
     };
     const s    = await capturarSombraCadena({ expiry, shortStrike, longStrike, tipo, legs });
-    const mid  = s?.tradier?.net ?? null;
-    const cruz = s?.tradier?.netCruzando ?? null;
+    // EN VIVO, no el sandbox (2026-08-16). El veredicto compara el limite contra
+    // el mid y contra el precio cruzando: si esos dos salen del libro diferido de
+    // Tradier, "DEMASIADO_ESTRICTO" o "INUTIL" son afirmaciones sobre un mercado
+    // de hace 15 minutos. Este analisis existe para calibrar
+    // toleranciaDeslizamientoPct, asi que medirlo contra la cadena equivocada
+    // calibraba sobre ruido.
+    const mid  = s?.tasty?.net ?? null;
+    const cruz = s?.tasty?.netCruzando ?? null;
 
     let veredicto = 'NO_EVALUADO';
     if (esCredito) {
@@ -8076,8 +8113,9 @@ async function sombraDeLimiteCondorSinEjecutar({ strikes, premium, tradingCfg, d
       legs: { shortSym: occ('C', k.callShortStrike), longSym: occ('C', k.callLongStrike) } });
 
     const sumar = (a, b) => (a != null && b != null) ? +(a + b).toFixed(2) : null;
-    const mid  = sumar(put?.tradier?.net,         call?.tradier?.net);
-    const cruz = sumar(put?.tradier?.netCruzando, call?.tradier?.netCruzando);
+    // EN VIVO, no el sandbox — misma razon que en sombraDeLimiteSinEjecutar.
+    const mid  = sumar(put?.tasty?.net,         call?.tasty?.net);
+    const cruz = sumar(put?.tasty?.netCruzando, call?.tasty?.netCruzando);
 
     let veredicto;
     if (mid == null)                          veredicto = 'SIN_DATO';
@@ -9799,7 +9837,7 @@ async function checkAlejamientoSMA() {
           if (sombraApertura?.difRetraso != null) {
             console.log(`[SOMBRA-REV] apertura — tasty ${sombraApertura.tasty.net} vs tradier ` +
               `${sombraApertura.tradier.net} (retraso ${sombraApertura.difRetraso}) · ` +
-              `cruzando ${sombraApertura.tradier.netCruzando ?? '—'} (cruce ${sombraApertura.difCruce ?? '—'})`);
+              `cruzando en vivo ${sombraApertura.tasty.netCruzando ?? '—'} (cruce ${sombraApertura.difCruce ?? '—'})`);
           }
         } catch (e) { console.warn('[SOMBRA-REV] no se pudo capturar la apertura:', e.message); }
 
