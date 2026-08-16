@@ -7862,6 +7862,9 @@ async function aplanarPatasParciales(detalle, underlyingRoot) {
 // noche). No hace falta límite superior de horario porque los tres monitores ya
 // dejan de correr a las 4pm ET vía isMarketHours() — con chequeos cada 15-90s
 // entre 3:30 y 4:00pm sobra margen para lograr el cierre antes de esa parada.
+// En un medio día de la NYSE ese tope baja a la 1:00pm y el corte se adelanta
+// en la misma proporción (ver esMedioDiaNYSE más abajo), así que la ventana
+// entre el corte y la parada del monitor se mantiene igual de holgada.
 function debeForzarCierrePorHorario(ex) {
   if (ex.expType === '1DTE') return false;
   const et = getETHour();
@@ -7873,7 +7876,14 @@ function debeForzarCierrePorHorario(ex) {
   // Se lee del registro y no de la config para que un cambio de parametro no
   // altere la regla de una posicion ya abierta (mismo criterio que maxHoldMin).
   const [hh, mm] = String(ex.cierreForzadoET || '15:30').split(':').map(Number);
-  return mins >= hh * 60 + (mm || 0);
+  let corte = hh * 60 + (mm || 0);
+  // Medio dia (cierre 1:00pm ET): el corte fijo de las 15:30 cae DESPUES de la
+  // campana, asi que no se dispararia nunca y la 0DTE se iria a expiracion —
+  // justo lo que este cierre forzado existe para evitar. Se adelanta
+  // conservando el mismo colchon que el usuario eligio para un dia normal
+  // (15:30 = 30 min antes de las 16:00 -> 12:30; el IC, 15:00 = 60 min -> 12:00).
+  if (esMedioDiaNYSE()) corte = 13 * 60 - (16 * 60 - corte);
+  return mins >= corte;
 }
 
 // ── Monitor activo de TP/SL para Iron Condor (primer cierre activo del sistema —
@@ -10379,7 +10389,49 @@ const NYSE_HOLIDAYS = new Set([
   '2027-01-01','2027-01-18','2027-02-15','2027-03-26',
   '2027-05-31','2027-06-18','2027-07-05','2027-09-06',
   '2027-11-25','2027-12-24',
+  // 2028 — OJO: el Año Nuevo de 2028 cae sábado, así que la NYSE cierra el
+  // viernes 2027-12-31. Faltaba pese a estar dentro del tramo de 2027.
+  '2027-12-31','2028-01-17','2028-02-21','2028-04-14',
+  '2028-05-29','2028-06-19','2028-07-04','2028-09-04',
+  '2028-11-23','2028-12-25',
+  // 2029
+  '2029-01-01','2029-01-15','2029-02-19','2029-03-30',
+  '2029-05-28','2029-06-19','2029-07-04','2029-09-03',
+  '2029-11-22','2029-12-25',
+  // 2030
+  '2030-01-01','2030-01-21','2030-02-18','2030-04-19',
+  '2030-05-27','2030-06-19','2030-07-04','2030-09-02',
+  '2030-11-28','2030-12-25',
 ]);
+
+// Hasta donde llega la tabla de arriba. Pasada esa fecha, NYSE_HOLIDAYS deja de
+// reconocer feriados y el sistema volveria a operar un 1 de enero sin avisar —
+// que es exactamente el modo de falla silencioso que se quiso eliminar. El
+// aviso de isMarketHours() lo hace ruidoso en vez de invisible.
+const NYSE_CALENDAR_HASTA = '2030-12-31';
+let _avisoCalendario = false;
+
+// Medios dias de la NYSE: cierre a la 1:00pm ET, no a las 4:00pm (vispera de
+// Independencia cuando el 4 cae entre martes y viernes, viernes despues de
+// Accion de Gracias, y Nochebuena cuando es dia habil y no es el feriado
+// observado). No son dias cerrados, asi que no van en NYSE_HOLIDAYS: lo que
+// cambia es la hora de corte.
+const NYSE_HALF_DAYS = new Set([
+  '2026-11-27','2026-12-24',
+  '2027-11-26',
+  '2028-07-03','2028-11-24',
+  '2029-07-03','2029-11-23','2029-12-24',
+  '2030-07-03','2030-11-29','2030-12-24',
+]);
+
+function fechaET() {
+  return new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+}
+
+// ¿Hoy la NYSE cierra a la 1:00pm ET en vez de a las 4:00pm?
+function esMedioDiaNYSE() {
+  return NYSE_HALF_DAYS.has(fechaET());
+}
 
 function isMarketHours() {
   // OJO: antes hacia new Date(now.toLocaleString(...)) y leia .getDay()/.getHours()
@@ -10393,11 +10445,18 @@ function isMarketHours() {
   const dayName = now.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
   if (dayName === 'Sat' || dayName === 'Sun') return false;
   if (NYSE_HOLIDAYS.has(dateStr)) return false;
+  if (dateStr > NYSE_CALENDAR_HASTA && !_avisoCalendario) {
+    _avisoCalendario = true;
+    console.warn(`[MERCADO] La tabla de feriados NYSE llega hasta ${NYSE_CALENDAR_HASTA} y hoy es ${dateStr}: de aqui en adelante NO se detectan feriados. Hay que extender NYSE_HOLIDAYS y NYSE_HALF_DAYS.`);
+  }
   const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
   let [hour, min] = etStr.split(':').map(Number);
   if (hour === 24) hour = 0;
   const mins = hour * 60 + min;
-  return mins >= 9 * 60 + 30 && mins < 16 * 60;
+  // Medio dia: la campana suena a la 1:00pm ET. Seguir evaluando hasta las 4
+  // seria el mismo error que correr el fin de semana, solo que tres horas.
+  const cierre = NYSE_HALF_DAYS.has(dateStr) ? 13 * 60 : 16 * 60;
+  return mins >= 9 * 60 + 30 && mins < cierre;
 }
 
 async function checkExtrinsicAndNotify() {
