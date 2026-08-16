@@ -5185,6 +5185,18 @@ async function buildSPXContext() {
     let spxPrice = spot?.price ?? 0;
     const spotFuente = spot?.fuente ?? null;
     const spotEdadSeg = spot?.edadSeg ?? null;
+    // ¿El precio sirve para ABRIR? (2026-08-16). precioSPXFresco devuelve la
+    // fuente mas fresca AUNQUE todas esten viejas ("se usa igual, marcada") —
+    // pensado para no quedarse sin dato. Los monitores de SALIDA ya lo filtran
+    // por su cuenta (spot.edadSeg <= MAX_EDAD_SPOT_SEG ? price : null) y saltean
+    // el gatillo por nivel; el camino de ENTRADA no filtraba nada, asi que en el
+    // escenario degradado (Sigma caida Y Yahoo caido a la vez) un precio de
+    // Tradier de ~16 min podia llegar a la seleccion de strikes, a entrySpx y al
+    // "aire al muro" del veto. Raro, pero es la misma clase de degradacion
+    // silenciosa que ya pasó tres veces acá. Ahora viaja un flag explicito y
+    // cada familia decide; no se toca spxPrice para no romper el dashboard ni
+    // los calculos informativos.
+    const spotFiable = spotEdadSeg != null && spotEdadSeg <= MAX_EDAD_SPOT_SEG;
 
     // 3. VIX — Sigma primero (2026-08-09, directriz del usuario: "creamosle a
     // sigma terminal y tomemos ese dato como opcion 1").
@@ -5539,6 +5551,13 @@ async function buildSPXContext() {
         // respaldo si Tradier no responde), y son velas ya liquidadas por el
         // propio bróker, no un placeholder de la vela en curso.
         let bars2mTradier = null;
+        // Velas 2m OHLC de Sigma — se resuelven UNA sola vez por ciclo y las
+        // consumen los dos bloques de abajo (el ATR de 2m y bars2m). Pedirlas
+        // dos veces podria devolver series distintas si el daemon escribe el
+        // archivo en el medio, y dejaria el ATR y el patron de entrada de la
+        // Reversion mirando velas diferentes. 50 velas: Camino A exige 35 y la
+        // Reversion 25, asi que deja margen real sobre el mas exigente.
+        const s2ohlc = velas2mDeSigma({ minVelas: 50 });
         try {
           // Tradier + cola de Yahoo (2026-08-04) — antes era solo Tradier, que en
           // sandbox llega ~15 min atrasado. El filtro `high !== low` de abajo
@@ -5564,11 +5583,15 @@ async function buildSPXContext() {
             weinstein: calcWeinstein(closes2),
           };
           // ATR de 2m (2026-08-04) — lo necesita el trailing por puntos de SPX,
-          // que congela este valor al entrar (ver entryAtr2m). Solo se calcula
-          // si hay velas OHLC reales de Tradier: el ATR necesita high/low, y el
-          // camino de respaldo de Yahoo solo trae cierres.
-          if (bars2mTradier && bars2mTradier.length >= 20) {
-            const atr2arr = calcATR(bars2mTradier, 14);
+          // que congela este valor al entrar (ver entryAtr2m). Necesita velas
+          // OHLC reales: el camino de respaldo de Yahoo solo trae cierres.
+          //
+          // Sigma primero (2026-08-16), igual que bars2m mas abajo — si no,
+          // quedaba el unico indicador de 2m calculado sobre otra fuente que el
+          // resto de la serie (ver s2ohlc, resuelto una sola vez arriba).
+          const barsOhlc2m = s2ohlc?.bars || bars2mTradier;
+          if (barsOhlc2m && barsOhlc2m.length >= 20) {
+            const atr2arr = calcATR(barsOhlc2m, 14);
             indicators.atr2m = atr2arr.length ? atr2arr[atr2arr.length - 1] : null;
           }
         }
@@ -5618,15 +5641,41 @@ async function buildSPXContext() {
         };
 
         // Confirmación Algorítmica (Camino A) + bars2m para Alejamiento de SMA.
-        // Preferir Tradier (bars2mTradier, ver arriba) cuando hay suficiente
-        // historia -- son velas reales del bróker, no el placeholder degenerado
-        // de Yahoo. Fallback a Yahoo solo si Tradier no respondio o vino corto,
-        // igual que ya hacia closes2 (mismo criterio, sin romper nada si
-        // Tradier tiene un mal dia).
-        let bars2m;
-        if (bars2mTradier) {
+        //
+        // SIGMA PRIMERO (2026-08-16). Esta era la ULTIMA serie del sistema que
+        // no miraba a Sigma, y no por decision sino por cronologia: el fix del
+        // 2026-08-02 que puso a Tradier por delante de Yahoo se hizo cuando la
+        // eleccion era entre el placeholder degenerado de Yahoo (ultima vela con
+        // Open=High=Low=Close identicos, que clavaba el stop de la Reversion en
+        // un solo precio -- confirmado en 63 de 63 ejecuciones) y las velas
+        // reales del broker. Tradier era el mal menor. Las velas 2m de Sigma
+        // llegaron el 2026-08-09 y nadie volvio a mirar esta linea.
+        //
+        // El sintoma era una inconsistencia dentro de la MISMA serie: closes2 ya
+        // respetaba Sigma (`fuente2 !== 'sigma'` mas arriba) pero el OHLC no, asi
+        // que los cierres podian venir de un reloj y los high/low de otro dentro
+        // del mismo calculo -- justo el cruce que el resto del codigo dice
+        // explicitamente que quiere evitar.
+        //
+        // A que afecta: patron de entrada y ancla del stop de la Reversion
+        // (entryCandleLow/High, via indicators.m2.bars), Camino A y el ATR de 2m
+        // del trailing. Se piden 40 velas, el mismo numero que ya usa
+        // fetchCaminoBBars -- alcanza para el minimo de 25 de la Reversion y para
+        // el ATR(14), y esta probado en produccion.
+        //
+        // velas2mDeSigma ya valida por su cuenta huecos dentro de la sesion y
+        // frescura, y devuelve null si algo no cierra -- asi que la cascada de
+        // abajo (Tradier, despues Yahoo) sigue intacta como respaldo. Si devuelve
+        // null no hay regresion: se cae exactamente al comportamiento de antes.
+        let bars2m, fuenteBars2m;
+        if (s2ohlc) {
+          bars2m = s2ohlc.bars;
+          fuenteBars2m = 'sigma';
+        } else if (bars2mTradier) {
           bars2m = bars2mTradier;
+          fuenteBars2m = 'tradier+yahoo';
         } else {
+          fuenteBars2m = 'yahoo';
           // necesita high/low/close alineados por indice (closes2 de arriba
           // viene filtrado de nulls, highs2/lows2 no, asi que se arma un array
           // propio filtrando las 3 series juntas para no desalinear las barras).
@@ -5648,6 +5697,14 @@ async function buildSPXContext() {
           // Velas 2m crudas {high,low,close} — reusadas por Alejamiento de SMA
           // (SMA8/20, RSI, patrones García/Tiburón/9, entryCandleLow/High).
           indicators.m2.bars = bars2m;
+          // De donde salieron. Va al contexto y al snapshot del strategy log por
+          // la misma razon que spotFuente/spotEdadSeg: si un dia la Reversion
+          // decide raro, el registro tiene que decir con que velas lo hizo.
+          indicators.m2.barsFuente = fuenteBars2m;
+          indicators.m2.barsEdadSeg = s2ohlc ? s2ohlc.edadSeg : null;
+          if (fuenteBars2m !== 'sigma') {
+            console.warn(`[SPX] Velas 2m OHLC desde ${fuenteBars2m} — Sigma no las tenia usables este ciclo.`);
+          }
         }
       } catch(e2) { console.error('[SPX] 2m error:', e2.message); }
 
@@ -5722,7 +5779,7 @@ async function buildSPXContext() {
       // snapshot del strategy log a proposito: cuando un analisis posterior
       // pregunte "¿con que precio decidio?", la respuesta tiene que estar en el
       // registro, no reconstruida a mano. Mismo criterio que effectiveGex.
-      spotFuente, spotEdadSeg,
+      spotFuente, spotEdadSeg, spotFiable,
       vix:      +vix.toFixed(2),
       vixFuente,
       // ivRank es nullable desde el fix del 2026-08-04, pero esta linea seguia
@@ -5869,9 +5926,25 @@ async function fetchCaminoBBars() {
              edad2mSeg: s2.edadSeg, edad15mSeg: s15.edadSeg };
   }
 
-  const bars2m    = (await fetchBarsSPXFrescas('2min')).map(b => ({ high: b.high, low: b.low, close: b.close }));
-  const closes15m = (await fetchBarsSPXFrescas('15min')).map(b => b.close);
-  return { bars2m, closes15m, fuenteBarras: 'tradier+yahoo' };
+  // El respaldo tambien reporta la edad de cada serie (2026-08-16). Antes
+  // devolvia edad2mSeg/edad15mSeg en undefined, asi que cuando este camino se
+  // activaba —justo cuando algo anda mal— el log de la decision no decia que tan
+  // viejas eran las velas con las que se decidio. Mismo criterio que
+  // spotFuente/spotEdadSeg: si no se registra la frescura, el analisis posterior
+  // no puede separar una mala decision de un mal dato.
+  const raw2m  = await fetchBarsSPXFrescas('2min');
+  const raw15m = await fetchBarsSPXFrescas('15min');
+  const edadDe = (bars, pasoSeg) => {
+    const ult = bars[bars.length - 1];
+    return ult?.timestamp ? Math.max(0, Math.round(Date.now() / 1000 - (ult.timestamp + pasoSeg))) : null;
+  };
+  return {
+    bars2m:    raw2m.map(b => ({ high: b.high, low: b.low, close: b.close })),
+    closes15m: raw15m.map(b => b.close),
+    fuenteBarras: 'tradier+yahoo',
+    edad2mSeg:  edadDe(raw2m, 120),
+    edad15mSeg: edadDe(raw15m, 900),
+  };
 }
 
 // Chequeo autonomo de Camino B (2026-07-27) — corre solo, sin depender de que
@@ -6116,6 +6189,19 @@ async function processDirectionalEntry(direction, meta = {}) {
     // Obtener contexto de mercado
     const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
     const ctx    = await ctxRes.json();
+
+    // No abrir con un precio viejo (2026-08-16, ver spotFiable en
+    // buildSPXContext). Con el spot degradado, la seleccion de strikes, entrySpx
+    // y el "aire al muro" del veto se calcularian sobre un precio que el mercado
+    // ya no tiene. No operar no cuesta nada; operar a ciegas si.
+    if (ctx.spotFiable === false) {
+      const reason = `Spot no fiable: ${ctx.spotFuente || 'sin fuente'} con ${ctx.spotEdadSeg ?? '?'}s ` +
+        `(maximo ${MAX_EDAD_SPOT_SEG}s). No se abre con un precio viejo.`;
+      console.error(`[SPX] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SPOT_NO_FIABLE', passed: false, reason,
+                         snapshot: buildStrategySnapshot(ctx, { direction }) });
+      return false;
+    }
 
     // Preferir Sigma Terminal (fresco, <5 min) sobre nuestro calculo interno de GEX
     // (2026-07-21, mismo fix que ya se aplico a Alejamiento de SMA) -- un caso real
@@ -6475,6 +6561,19 @@ async function processDirectionalEntry(direction, meta = {}) {
           signal.timingMs  = Date.now() - tStart; // desde que Camino B decidio hasta que se envio la orden
           console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym} (+${signal.timingMs}ms desde que llegó la alerta — analisis + envio de orden)`);
 
+          // Marca del libro propio, en el instante en que sale la orden — NO
+          // cuando Tradier confirma el fill. Es cuando una orden marketable de
+          // verdad se habria ejecutado; el fill del sandbox puede tardar y
+          // ademas viene de un libro viejo. Ver marcarPaper().
+          const paperEntry = await marcarPaper(order.legs, 'apertura');
+          if (paperEntry.confiable) {
+            console.log(`[PAPER] Apertura marcada en ${paperEntry.neto} (cruzando; al medio habria sido ` +
+              `${paperEntry.netoAlMedio}, cruce ${paperEntry.costoCruce}) — cotizacion de ${paperEntry.edadSeg}s.`);
+          } else {
+            console.warn(`[PAPER] ⚠️ Apertura SIN marca confiable — ${paperEntry.motivo}. ` +
+              `Este trade queda fuera del analisis de resultados.`);
+          }
+
           // Registro dedicado para el dashboard de seguimiento (no comparte
           // el cap de 50 de spx_signals.json). Sin await entre load/save aqui, pero
           // igual pasa por el mutex — si no, un monitor de TP/SL a mitad de su propio
@@ -6533,6 +6632,13 @@ async function processDirectionalEntry(direction, meta = {}) {
               // sesiones). Es el que permite cruzar el veredicto contra el pnl
               // real dentro de unas semanas, que es el punto del ejercicio.
               vetoMuroSombra: signal.vetoMuroSombra ?? null,
+              // Libro paper propio (2026-08-16). `paperEntry.neto` es el precio
+              // cruzando el spread segun la cadena EN VIVO de TastyTrade en el
+              // instante del envio. Es la base contra la que se miden TP/SL
+              // (ver baseDePrecio) y la mitad de entrada del P&L real.
+              paperEntry:    paperEntry,
+              paperExit:     null,
+              paperPnl:      null,
               filledAt:      null,
               closedAt:      null,
               closeReason:   null,
@@ -7208,6 +7314,19 @@ async function checkIronCondor() {
     }   // fin del bloque de exclusividad, que el 1DTE se saltea entero
 
     ctx = await buildSPXContext();
+
+    // No abrir con un precio viejo — ver spotFiable en buildSPXContext. Para el
+    // Condor pesa doble: los strikes se eligen por distancia al spot y el PIN
+    // mide compresion alrededor de ese mismo precio.
+    if (ctx.spotFiable === false) {
+      const reason = `Spot no fiable: ${ctx.spotFuente || 'sin fuente'} con ${ctx.spotEdadSeg ?? '?'}s ` +
+        `(maximo ${MAX_EDAD_SPOT_SEG}s). No se abre con un precio viejo.`;
+      console.error(`[SPX-IC] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: ctx.etTime,
+                         stage: 'SPOT_NO_FIABLE', passed: false, reason });
+      return;
+    }
+
     const spxConfig = loadSPXConfig();
     const tradingCfg = spxConfig.trading || SPX_CONFIG_DEFAULTS.trading;
     const icCfg = tradingCfg.ironCondor || SPX_CONFIG_DEFAULTS.trading.ironCondor;
@@ -8411,6 +8530,103 @@ async function cotizarPatasTasty(simbolosTradier, { permitirParcial = false } = 
   return { q: out, fuente: 'tasty', edadSeg: edadMax };
 }
 
+// ── LIBRO PAPER PROPIO (2026-08-16) ──────────────────────────────────────────
+//
+// Por que existe: el sandbox de Tradier no solo cotiza con ~15 min de atraso,
+// LLENA las ordenes contra ese libro viejo. Ninguna fuente de datos que le
+// enchufemos por fuera cambia eso — es como esta construido el entorno. Se
+// evaluaron las alternativas (cadena de Sigma: solo expone 12 metricas
+// agregadas, ni un bid/ask por strike; cuenta real de Tradier: las opciones si
+// serian en vivo pero el INDICE sigue diferido 15 min en produccion y los fills
+// del sandbox no cambian; Alpaca: OPRA real cuesta USD 99/mes y todavia no
+// sirve data de indices; IBKR paper: si da tiempo real pero exige un gateway
+// local que debe sostener la sesion en rueda, y esto corre 24/7 en Railway).
+//
+// Conclusion: el bróker demo que hace falta no existe. La cuenta demo la
+// llevamos nosotros. Ya tenemos la pieza cara —cotizaciones SPXW en vivo de la
+// cuenta real de TastyTrade— asi que lo unico que faltaba era anotar el precio.
+//
+// COMO SE MARCA: cruzando el spread. Comprar paga el ask, vender cobra el bid.
+// Eso NO es una estimacion de un valor teorico: es el precio al que una orden
+// marketable se ejecuta. Y es mas exigente que el paper de IBKR, que llena
+// siempre al precio mostrado sin cruzar nada. Marcar al medio seria mentirse.
+//
+// Convencion de signo (la misma que usa el resto del monitor): positivo = plata
+// que entra.
+//   apertura -> shortBid - longAsk   (credito: cobra; debito: da negativo, paga)
+//   cierre   -> longBid  - shortAsk  (se vende la larga y se recompra la corta)
+//   P&L por accion = apertura.neto + cierre.neto
+//
+// QUE CAPTURA Y QUE NO: captura el costo del spread, que en 1 lote es el grueso
+// del deslizamiento. NO captura la latencia entre decidir y que la orden llegue,
+// ni el mercado veloz donde la cotizacion que viste ya no esta. Sobre un hold
+// mediano de 29 min son categorias chicas — pero no son cero, y por eso esto
+// responde "¿el algoritmo funciona?" y no "¿cuanto deslizamiento real voy a
+// tener?", que solo lo contesta la plata real.
+//
+// UMBRAL PROPIO DE FRESCURA: 15s, no los 300s de MAX_EDAD_COTIZACION_SEG. Ese
+// umbral es para decidir SI salgo —y 5 min es infinitamente mejor que 15— pero
+// para registrar A QUE PRECIO sali, 5 minutos de SPX son puntos. Si no hay
+// cotizacion fresca de verdad, la marca sale `confiable: false` y ese trade se
+// descarta del analisis. Un trade menos no cuesta nada; un precio falso anotado
+// como bueno contamina justo la conclusion que estamos tratando de sacar.
+const MAX_EDAD_MARCA_SEG = 15;
+
+async function marcarPaper(legs, lado) {
+  const base = { at: new Date().toISOString(), lado, fuente: null, confiable: false };
+  try {
+    const shortSym = legs?.shortSym, longSym = legs?.longSym;
+    if (!shortSym || !longSym) return { ...base, motivo: 'faltan las patas' };
+
+    const c = await cotizarPatasTasty([shortSym, longSym]);
+    if (!c) return { ...base, motivo: 'TastyTrade no cotizo las dos patas' };
+
+    const s = c.q[shortSym], l = c.q[longSym];
+    if (s?.bid == null || s?.ask == null || l?.bid == null || l?.ask == null) {
+      return { ...base, fuente: 'tasty', edadSeg: c.edadSeg, motivo: 'cotizacion sin bid/ask completo' };
+    }
+
+    const neto = lado === 'apertura'
+      ? +(s.bid - l.ask).toFixed(2)   // vendo la corta al bid, compro la larga al ask
+      : +(l.bid - s.ask).toFixed(2);  // vendo la larga al bid, recompro la corta al ask
+
+    const marca = {
+      ...base, fuente: 'tasty', edadSeg: c.edadSeg,
+      shortBid: s.bid, shortAsk: s.ask, longBid: l.bid, longAsk: l.ask,
+      shortMid: s.mark, longMid: l.mark,
+      neto,
+      // Cuanto costo cruzar contra marcar al medio. Es el numero que dice si
+      // marcar al mid habria inflado el resultado, y cuanto.
+      netoAlMedio: +(lado === 'apertura' ? (s.mark - l.mark) : (l.mark - s.mark)).toFixed(2),
+    };
+    marca.costoCruce = +(Math.abs(marca.netoAlMedio - marca.neto)).toFixed(2);
+
+    if (c.edadSeg > MAX_EDAD_MARCA_SEG) {
+      return { ...marca, confiable: false,
+               motivo: `cotizacion de ${c.edadSeg}s, por encima del maximo de ${MAX_EDAD_MARCA_SEG}s para marcar` };
+    }
+    return { ...marca, confiable: true };
+  } catch (e) {
+    // El libro nunca puede tumbar una orden real.
+    return { ...base, motivo: `error: ${e.message.slice(0, 80)}` };
+  }
+}
+
+// Base de precio contra la que se miden TP y SL. El fill de Tradier viene de un
+// libro de hace 15 min, asi que usarlo como base hace que los umbrales
+// disparen sobre un numero equivocado aunque el precio del momento se mida
+// bien — el arreglo quedaria a medias. Si hay marca propia confiable, manda esa.
+function baseDePrecio(ex) {
+  const p = ex?.paperEntry;
+  if (p?.confiable && Number.isFinite(p.neto) && Math.abs(p.neto) > 0) {
+    return { valor: Math.abs(p.neto), fuente: 'paper_tasty' };
+  }
+  if (Number.isFinite(ex?.creditReceived) && Math.abs(ex.creditReceived) > 0) {
+    return { valor: Math.abs(ex.creditReceived), fuente: 'tradier_fill' };
+  }
+  return { valor: null, fuente: null };
+}
+
 // Elige la cotizacion mas fresca entre TastyTrade (en vivo) y Tradier (sandbox,
 // diferido), con la misma logica que precioSPXFresco usa para el spot: se
 // prefiere Tasty, pero si esta frizado se compara contra Tradier y gana el mas
@@ -8657,17 +8873,30 @@ async function checkDirectionalTPSLImpl() {
         }
       }
 
+      // Base de precio para TP/SL y P&L (2026-08-16). Antes era siempre
+      // ex.creditReceived — el fill de Tradier, que sale de un libro de hace 15
+      // min. Medir el valor de AHORA bien (que es lo que ya hace cotizarPatasFresco)
+      // contra una base equivocada deja el arreglo a medias: los umbrales siguen
+      // disparando sobre un numero que nunca existio. Si hay marca propia
+      // confiable, esa manda; si no, se cae al fill de Tradier como antes.
+      const base = baseDePrecio(ex);
+      const precioBase = base.valor;
+      if (base.fuente === 'tradier_fill' && ex.paperEntry && !ex.paperEntry.confiable) {
+        console.warn(`[PAPER] ${ex.orderId}: TP/SL sobre el fill de Tradier (sin marca confiable al abrir) — ` +
+          `el resultado de este trade no es comparable.`);
+      }
+
       if (cerrarPor) {
         // Ya hay motivo de cierre (tecnico) — igual se necesita pnlActual para el
         // registro, calculado con la misma formula de siempre segun credito/debito.
         const costoDeCerrar = q[shortSym] - q[longSym];
-        pnlActual = esCredito ? (ex.creditReceived - costoDeCerrar) : ((q[longSym] - q[shortSym]) - ex.creditReceived);
+        pnlActual = esCredito ? (precioBase - costoDeCerrar) : ((q[longSym] - q[shortSym]) - precioBase);
       } else if (esCredito) {
         // Costo de cerrar ahora = recomprar la corta - vender la larga
         const costoDeCerrar = q[shortSym] - q[longSym];
-        pnlActual = ex.creditReceived - costoDeCerrar;
-        const tpUmbral      = ex.creditReceived * ((ex.tpPct || 30) / 100);
-        const slCostoUmbral = ex.creditReceived * (ex.slMult || 1.5);
+        pnlActual = precioBase - costoDeCerrar;
+        const tpUmbral      = precioBase * ((ex.tpPct || 30) / 100);
+        const slCostoUmbral = precioBase * (ex.slMult || 1.5);
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
       } else {
@@ -8677,9 +8906,9 @@ async function checkDirectionalTPSLImpl() {
         // actual menos lo pagado. El riesgo maximo ya es 100% de lo pagado, por eso
         // el SL se expresa como % perdido, no como un multiplicador.
         const valorActual = q[longSym] - q[shortSym];
-        pnlActual = valorActual - ex.creditReceived; // ex.creditReceived duplica aca como "debito pagado" (ambos son Math.abs(fill))
-        const tpUmbral = ex.creditReceived * ((ex.debitTpPct ?? 50) / 100);
-        const slUmbral = ex.creditReceived * ((ex.debitSlPct ?? 50) / 100);
+        pnlActual = valorActual - precioBase; // precioBase duplica aca como "debito pagado"
+        const tpUmbral = precioBase * ((ex.debitTpPct ?? 50) / 100);
+        const slUmbral = precioBase * ((ex.debitSlPct ?? 50) / 100);
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
       }
@@ -8818,6 +9047,46 @@ async function checkDirectionalTPSLImpl() {
               `valor en vivo (Tasty) ${vtCierre.neto} -> P&L teorico $${pnlVivo.toFixed(2)}`);
           }
         } catch (eCv) { /* observacional: nunca bloquea el cierre */ }
+
+        // ── Marca de cierre del libro paper (2026-08-16) ────────────────────
+        // Se toma en el instante en que sale la orden de cierre, cruzando el
+        // spread igual que la de apertura. Con las dos puntas queda el unico
+        // P&L de esta operacion que no depende del libro diferido de Tradier.
+        //
+        // Ojo con la diferencia contra `cierreVivo` de arriba: aquel usa MIDs y
+        // la prima del fill de Tradier. Sirve como referencia optimista; el
+        // numero para evaluar el algoritmo es este.
+        try {
+          const paperExit = await marcarPaper(ex.legs, 'cierre');
+          ex.paperExit = paperExit;
+          const entrada = ex.paperEntry;
+          if (paperExit.confiable && entrada?.confiable) {
+            const contratos = ex.contracts || 1;
+            // Ambas puntas ya vienen con signo "positivo = entra plata".
+            const brutoUsd = +((entrada.neto + paperExit.neto) * 100 * contratos).toFixed(2);
+            // Comision de ida y vuelta. Se guarda el supuesto usado junto al
+            // numero: si mañana se opera en otro broker, el P&L se puede
+            // recalcular sin volver a mirar las cotizaciones.
+            const comisionRT = +((ex.commissionEstimate ?? 2.1) * 2).toFixed(2);
+            ex.paperPnl = {
+              bruto: brutoUsd,
+              neto: +(brutoUsd - comisionRT).toFixed(2),
+              comisionAsumida: comisionRT,
+              contratos,
+              entrada: entrada.neto, salida: paperExit.neto,
+              costoCruceTotal: +((entrada.costoCruce ?? 0) + (paperExit.costoCruce ?? 0)).toFixed(2),
+              confiable: true,
+            };
+            console.log(`[PAPER] ${ex.orderId} cerrado — entrada ${entrada.neto} / salida ${paperExit.neto} ` +
+              `-> bruto $${brutoUsd}, neto $${ex.paperPnl.neto} (comision asumida $${comisionRT}).`);
+          } else {
+            ex.paperPnl = { confiable: false,
+              motivo: !entrada?.confiable ? `apertura sin marca: ${entrada?.motivo || 'sin dato'}`
+                                          : `cierre sin marca: ${paperExit.motivo}` };
+            console.warn(`[PAPER] ⚠️ ${ex.orderId} sin P&L propio — ${ex.paperPnl.motivo}`);
+          }
+        } catch (ePp) { /* el libro nunca bloquea el cierre */ }
+
         // Mismo fix que checkIronCondorTPSLImpl (2026-07-10, ver comentario ahí para el
         // caso real que lo motivó): NO marcar status='closed' ni grabar pnl acá — se deja
         // 'filled' a propósito para que checkTradierExecutions (reconciliación pasiva,
@@ -9106,6 +9375,18 @@ async function checkAlejamientoSMA() {
     }
 
     const ctx = await buildSPXContext();
+
+    // No abrir con un precio viejo — ver spotFiable en buildSPXContext. La
+    // Reversion mide alejamiento de la SMA8 en PORCENTAJE del precio: con un
+    // spot viejo el estiramiento sale mal calculado en las dos direcciones.
+    if (ctx.spotFiable === false) {
+      const reason = `Spot no fiable: ${ctx.spotFuente || 'sin fuente'} con ${ctx.spotEdadSeg ?? '?'}s ` +
+        `(maximo ${MAX_EDAD_SPOT_SEG}s). No se abre con un precio viejo.`;
+      console.error(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime,
+                         stage: 'SPOT_NO_FIABLE', passed: false, reason });
+      return;
+    }
 
     // Ex-gate duro, suavizado a factor de score (2026-07-21, a pedido del usuario):
     // el bloqueo binario ("fuera de GEX positivo, ni se calcula el score") costó
