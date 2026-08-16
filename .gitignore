@@ -17,6 +17,11 @@ gamma_daemon/daemon_crash_log.txt
 __pycache__/
 *.pyc
 
+# Salida generada por scripts/analisis_spx.py — se regenera corriendo el script
+# y cambia en cada corrida, asi que versionarla solo ensucia los diffs. El .py
+# si va versionado: es la fuente.
+scripts/informe_analisis_spx.md
+
 # Impuestos — datos fiscales personales. NO deben salir del equipo:
 # gastos deducibles, otros ingresos, dependientes y pérdidas compensables.
 impuestos_gastos.json
