@@ -7563,6 +7563,20 @@ async function checkIronCondor() {
           }
         } catch (e) { console.warn('[SOMBRA-IC] no se pudo capturar la apertura:', e.message); }
 
+        // Libro paper (2026-08-16) — ver marcarPaper. En el condor son las 4
+        // patas en una sola llamada: el credito es la suma de los dos verticales
+        // y cada uno se marca cruzando su propio spread. Si es un condor de 2
+        // patas (variante de debito), paresDePatas devuelve un solo par y la
+        // cuenta es la misma.
+        const paperEntry = await marcarPaper(order.legs, 'apertura');
+        if (paperEntry.confiable) {
+          console.log(`[PAPER-IC ${dte}] Apertura marcada en ${paperEntry.neto} (cruzando; al medio ` +
+            `${paperEntry.netoAlMedio}, cruce ${paperEntry.costoCruce}) — cotizacion de ${paperEntry.edadSeg}s.`);
+        } else {
+          console.warn(`[PAPER-IC ${dte}] ⚠️ Apertura SIN marca confiable — ${paperEntry.motivo}. ` +
+            `Este trade queda fuera del analisis de resultados.`);
+        }
+
         await withExecutionsLock(() => {
           const executions = loadTradierExecutions();
           executions.unshift({
@@ -7588,6 +7602,10 @@ async function checkIronCondor() {
             status:        'submitted',
             entryFillPrice: null,
             creditReceived: null,
+            // Libro paper (2026-08-16) — ver marcarPaper/cerrarLibroPaper.
+            paperEntry,
+            paperExit:     null,
+            paperPnl:      null,
             tpPct:         icCfg.tpPct,
             // slMult null = SIN STOP. El 1DTE sale por TP o por hora tope
             // (decision del usuario 2026-08-09). Se congela en el registro para
@@ -8401,6 +8419,12 @@ async function checkIronCondorTPSLImpl() {
         // cuando una misma pata se reutiliza en combinaciones distintas el mismo dia
         // (ver resolverPnlDesdeOrdenes).
         ex.closeOrderId = closeResult?.orderId ?? null;
+
+        // Cierre del libro paper — ver cerrarLibroPaper. En el condor marca las
+        // 4 patas y suma los dos verticales, con la misma convencion de signos
+        // que las otras dos familias.
+        await cerrarLibroPaper(ex, 'PAPER-IC');
+
         // Bug real encontrado 2026-07-10: acá se grababa pnlActual (calculado con la
         // cotizacion de ANTES de cerrar, solo para decidir si disparar el TP/SL) como si
         // fuera el P&L final — si esa cotizacion venia distorsionada (mercado recien
@@ -8572,34 +8596,61 @@ async function cotizarPatasTasty(simbolosTradier, { permitirParcial = false } = 
 // como bueno contamina justo la conclusion que estamos tratando de sacar.
 const MAX_EDAD_MARCA_SEG = 15;
 
+// Descompone las patas en verticales {corta, larga}. Una direccional/reversion
+// es un solo par; un Iron Condor son dos (el spread de puts y el de calls), y su
+// credito es la suma de los dos. Se resuelve aca para que las tres familias
+// compartan exactamente la misma convencion de signos.
+function paresDePatas(legs) {
+  if (legs?.shortSym && legs?.longSym) return [[legs.shortSym, legs.longSym]];
+  if (legs?.putShortSym && legs?.putLongSym && legs?.callShortSym && legs?.callLongSym) {
+    return [[legs.putShortSym, legs.putLongSym], [legs.callShortSym, legs.callLongSym]];
+  }
+  return null;
+}
+
 async function marcarPaper(legs, lado) {
   const base = { at: new Date().toISOString(), lado, fuente: null, confiable: false };
   try {
-    const shortSym = legs?.shortSym, longSym = legs?.longSym;
-    if (!shortSym || !longSym) return { ...base, motivo: 'faltan las patas' };
+    const pares = paresDePatas(legs);
+    if (!pares) return { ...base, motivo: 'faltan las patas' };
 
-    const c = await cotizarPatasTasty([shortSym, longSym]);
-    if (!c) return { ...base, motivo: 'TastyTrade no cotizo las dos patas' };
+    // Todas las patas en UNA sola llamada (2 en un vertical, 4 en el condor).
+    const simbolos = pares.flat();
+    const c = await cotizarPatasTasty(simbolos);
+    if (!c) return { ...base, motivo: `TastyTrade no cotizo las ${simbolos.length} patas` };
 
-    const s = c.q[shortSym], l = c.q[longSym];
-    if (s?.bid == null || s?.ask == null || l?.bid == null || l?.ask == null) {
-      return { ...base, fuente: 'tasty', edadSeg: c.edadSeg, motivo: 'cotizacion sin bid/ask completo' };
+    let neto = 0, netoAlMedio = 0;
+    const patas = [];
+    for (const [shortSym, longSym] of pares) {
+      const s = c.q[shortSym], l = c.q[longSym];
+      if (s?.bid == null || s?.ask == null || l?.bid == null || l?.ask == null) {
+        return { ...base, fuente: 'tasty', edadSeg: c.edadSeg, motivo: 'cotizacion sin bid/ask completo' };
+      }
+      // apertura: vendo la corta al bid, compro la larga al ask
+      // cierre:   vendo la larga al bid, recompro la corta al ask
+      const n   = lado === 'apertura' ? (s.bid - l.ask)   : (l.bid - s.ask);
+      const nm  = lado === 'apertura' ? (s.mark - l.mark) : (l.mark - s.mark);
+      neto += n; netoAlMedio += nm;
+      patas.push({ shortSym, longSym, shortBid: s.bid, shortAsk: s.ask,
+                   longBid: l.bid, longAsk: l.ask, neto: +n.toFixed(2) });
     }
-
-    const neto = lado === 'apertura'
-      ? +(s.bid - l.ask).toFixed(2)   // vendo la corta al bid, compro la larga al ask
-      : +(l.bid - s.ask).toFixed(2);  // vendo la larga al bid, recompro la corta al ask
 
     const marca = {
       ...base, fuente: 'tasty', edadSeg: c.edadSeg,
-      shortBid: s.bid, shortAsk: s.ask, longBid: l.bid, longAsk: l.ask,
-      shortMid: s.mark, longMid: l.mark,
-      neto,
+      neto: +neto.toFixed(2),
       // Cuanto costo cruzar contra marcar al medio. Es el numero que dice si
-      // marcar al mid habria inflado el resultado, y cuanto.
-      netoAlMedio: +(lado === 'apertura' ? (s.mark - l.mark) : (l.mark - s.mark)).toFixed(2),
+      // marcar al mid habria inflado el resultado, y cuanto — y el insumo para
+      // recalibrar toleranciaDeslizamientoPct con el cruce ya aislado del atraso.
+      netoAlMedio: +netoAlMedio.toFixed(2),
+      patas,
     };
     marca.costoCruce = +(Math.abs(marca.netoAlMedio - marca.neto)).toFixed(2);
+    // Detalle plano para el caso de un solo vertical — lo que ya leian el log y
+    // los analisis previos, se conserva para no romperlos.
+    if (patas.length === 1) Object.assign(marca, {
+      shortBid: patas[0].shortBid, shortAsk: patas[0].shortAsk,
+      longBid: patas[0].longBid, longAsk: patas[0].longAsk,
+    });
 
     if (c.edadSeg > MAX_EDAD_MARCA_SEG) {
       return { ...marca, confiable: false,
@@ -8609,6 +8660,50 @@ async function marcarPaper(legs, lado) {
   } catch (e) {
     // El libro nunca puede tumbar una orden real.
     return { ...base, motivo: `error: ${e.message.slice(0, 80)}` };
+  }
+}
+
+// Cierra el libro paper de una ejecucion: marca la salida cruzando el spread y
+// calcula el P&L propio contra la marca de apertura. Se extrajo a funcion
+// (2026-08-16) porque la usan las tres familias y la logica de signos no puede
+// divergir entre ellas — un signo al reves en una sola daria un P&L invertido
+// que nadie notaria hasta cruzar los numeros semanas despues.
+//
+// Nunca lanza: el libro es medicion, no puede bloquear un cierre real.
+async function cerrarLibroPaper(ex, tag) {
+  try {
+    const paperExit = await marcarPaper(ex.legs, 'cierre');
+    ex.paperExit = paperExit;
+    const entrada = ex.paperEntry;
+
+    if (!paperExit.confiable || !entrada?.confiable) {
+      ex.paperPnl = { confiable: false,
+        motivo: !entrada?.confiable ? `apertura sin marca: ${entrada?.motivo || 'sin dato'}`
+                                    : `cierre sin marca: ${paperExit.motivo}` };
+      console.warn(`[${tag}] ⚠️ ${ex.orderId} sin P&L propio — ${ex.paperPnl.motivo}`);
+      return;
+    }
+
+    const contratos = ex.contracts || 1;
+    // Las dos puntas vienen con la convencion "positivo = entra plata", asi que
+    // el P&L es la suma, no la resta.
+    const brutoUsd = +((entrada.neto + paperExit.neto) * 100 * contratos).toFixed(2);
+    // Comision de ida y vuelta, guardada junto al numero: si mañana se opera en
+    // otro broker, el P&L se recalcula sin volver a mirar cotizaciones.
+    const comisionRT = +((ex.commissionEstimate ?? 2.1) * 2).toFixed(2);
+    ex.paperPnl = {
+      bruto: brutoUsd,
+      neto: +(brutoUsd - comisionRT).toFixed(2),
+      comisionAsumida: comisionRT,
+      contratos,
+      entrada: entrada.neto, salida: paperExit.neto,
+      costoCruceTotal: +((entrada.costoCruce ?? 0) + (paperExit.costoCruce ?? 0)).toFixed(2),
+      confiable: true,
+    };
+    console.log(`[${tag}] ${ex.orderId} cerrado — entrada ${entrada.neto} / salida ${paperExit.neto} ` +
+      `-> bruto $${brutoUsd}, neto $${ex.paperPnl.neto} (comision asumida $${comisionRT}).`);
+  } catch (e) {
+    console.warn(`[${tag}] libro paper no pudo cerrar ${ex?.orderId}: ${e.message.slice(0, 80)}`);
   }
 }
 
@@ -9048,44 +9143,11 @@ async function checkDirectionalTPSLImpl() {
           }
         } catch (eCv) { /* observacional: nunca bloquea el cierre */ }
 
-        // ── Marca de cierre del libro paper (2026-08-16) ────────────────────
-        // Se toma en el instante en que sale la orden de cierre, cruzando el
-        // spread igual que la de apertura. Con las dos puntas queda el unico
-        // P&L de esta operacion que no depende del libro diferido de Tradier.
-        //
-        // Ojo con la diferencia contra `cierreVivo` de arriba: aquel usa MIDs y
-        // la prima del fill de Tradier. Sirve como referencia optimista; el
-        // numero para evaluar el algoritmo es este.
-        try {
-          const paperExit = await marcarPaper(ex.legs, 'cierre');
-          ex.paperExit = paperExit;
-          const entrada = ex.paperEntry;
-          if (paperExit.confiable && entrada?.confiable) {
-            const contratos = ex.contracts || 1;
-            // Ambas puntas ya vienen con signo "positivo = entra plata".
-            const brutoUsd = +((entrada.neto + paperExit.neto) * 100 * contratos).toFixed(2);
-            // Comision de ida y vuelta. Se guarda el supuesto usado junto al
-            // numero: si mañana se opera en otro broker, el P&L se puede
-            // recalcular sin volver a mirar las cotizaciones.
-            const comisionRT = +((ex.commissionEstimate ?? 2.1) * 2).toFixed(2);
-            ex.paperPnl = {
-              bruto: brutoUsd,
-              neto: +(brutoUsd - comisionRT).toFixed(2),
-              comisionAsumida: comisionRT,
-              contratos,
-              entrada: entrada.neto, salida: paperExit.neto,
-              costoCruceTotal: +((entrada.costoCruce ?? 0) + (paperExit.costoCruce ?? 0)).toFixed(2),
-              confiable: true,
-            };
-            console.log(`[PAPER] ${ex.orderId} cerrado — entrada ${entrada.neto} / salida ${paperExit.neto} ` +
-              `-> bruto $${brutoUsd}, neto $${ex.paperPnl.neto} (comision asumida $${comisionRT}).`);
-          } else {
-            ex.paperPnl = { confiable: false,
-              motivo: !entrada?.confiable ? `apertura sin marca: ${entrada?.motivo || 'sin dato'}`
-                                          : `cierre sin marca: ${paperExit.motivo}` };
-            console.warn(`[PAPER] ⚠️ ${ex.orderId} sin P&L propio — ${ex.paperPnl.motivo}`);
-          }
-        } catch (ePp) { /* el libro nunca bloquea el cierre */ }
+        // Cierre del libro paper — ver cerrarLibroPaper. Ojo con la diferencia
+        // contra `cierreVivo` de arriba: aquel usa MIDs y la prima del fill de
+        // Tradier, sirve como referencia optimista. El numero para evaluar el
+        // algoritmo es el del libro.
+        await cerrarLibroPaper(ex, 'PAPER-DIR');
 
         // Mismo fix que checkIronCondorTPSLImpl (2026-07-10, ver comentario ahí para el
         // caso real que lo motivó): NO marcar status='closed' ni grabar pnl acá — se deja
@@ -9741,6 +9803,20 @@ async function checkAlejamientoSMA() {
           }
         } catch (e) { console.warn('[SOMBRA-REV] no se pudo capturar la apertura:', e.message); }
 
+        // Libro paper (2026-08-16) — ver marcarPaper. Mismo criterio que la
+        // Direccional: se marca cruzando el spread contra la cadena en vivo, en
+        // el instante del envio. La Reversion NO cierra por precio del spread
+        // (sale por objetivo de SMA8, invalidacion o time stop), asi que aca no
+        // hay TP/SL que rebasar — solo la medicion honesta del resultado.
+        const paperEntry = await marcarPaper(order.legs, 'apertura');
+        if (paperEntry.confiable) {
+          console.log(`[PAPER-REV] Apertura marcada en ${paperEntry.neto} (cruzando; al medio ` +
+            `${paperEntry.netoAlMedio}, cruce ${paperEntry.costoCruce}) — cotizacion de ${paperEntry.edadSeg}s.`);
+        } else {
+          console.warn(`[PAPER-REV] ⚠️ Apertura SIN marca confiable — ${paperEntry.motivo}. ` +
+            `Este trade queda fuera del analisis de resultados.`);
+        }
+
         await withExecutionsLock(() => {
           const execs = loadTradierExecutions();
           execs.unshift({
@@ -9765,6 +9841,12 @@ async function checkAlejamientoSMA() {
             status:         'submitted',
             entryFillPrice: null,
             creditReceived: null,
+            // Libro paper (2026-08-16) — ver marcarPaper/paperEntry en la
+            // Direccional. Se congela con el trade porque es el unico de los
+            // registros que no rota.
+            paperEntry,
+            paperExit:      null,
+            paperPnl:       null,
             // Ancla del SL (ruptura de la vela de entrada) y objetivo de TP
             // (SMA8 al momento de entrar — se congela por simplicidad, no se
             // recalcula en vivo cada 15-20s; con un hold de minutos la SMA8
@@ -10064,6 +10146,9 @@ async function checkAlejamientoSMATPSLImpl() {
               `${ex.sombraCierre.tradier.net} (retraso ${ex.sombraCierre.difRetraso})`);
           }
         } catch (e) { console.warn('[SOMBRA-REV] no se pudo capturar el cierre:', e.message); }
+
+        // Cierre del libro paper — ver cerrarLibroPaper.
+        await cerrarLibroPaper(ex, 'PAPER-REV');
         // Bug real encontrado 2026-07-10 (misma familia que el fix de IC/direccional,
         // ver comentario en checkIronCondorTPSLImpl): acá se marcaba status='closed' de
         // inmediato con pnlSource='precio_spx_auto', pero NINGÚN código calculaba el pnl
