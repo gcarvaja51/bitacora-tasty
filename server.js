@@ -1733,11 +1733,16 @@ function avisarSigmaSpotAusente(s) {
 function leerSpotSigma() {
   try {
     const d = loadSigmaLevelsHistory()[0];
-    if (!d?.spxPrice || !d.updatedAt) return null;
+    // Se mide contra el momento de CAPTURA, no contra el de recepcion — ver la
+    // nota larga en selloDeLectura. Con el sello viejo, un spot de horas atras
+    // se reportaba con 0 segundos y pasaba el filtro de MAX_EDAD_SPOT_SEG.
+    const sello = selloDeLectura(d);
+    if (!d?.spxPrice || !sello) return null;
     return {
       price: d.spxPrice,
       fuente: 'sigma',
-      edadSeg: Math.round((Date.now() - new Date(d.updatedAt).getTime()) / 1000),
+      edadSeg: Math.round((Date.now() - new Date(sello).getTime()) / 1000),
+      selloFuente: d.capturadoEn ? 'captura' : 'recepcion',
     };
   } catch (e) { console.error('[SPX-SPOT] Sigma falló:', e.message); return null; }
 }
@@ -7003,9 +7008,13 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // velas5m agregado 2026-08-09. NO entra al historial: son 30 velas por lectura y
   // el historial guarda 10000 entradas, lo inflaria por tres ordenes de magnitud
   // sin ganar nada (solo importan las ultimas). Se escriben aparte, pisando.
+  // capturadoEn agregado 2026-08-17: el instante en que el daemon LEYO Sigma
+  // Terminal, no el instante en que llego el POST. Opcional, mismo criterio que
+  // el resto — un caller viejo que no lo mande queda con capturadoEn = null y
+  // los consumidores caen al comportamiento anterior (medir contra updatedAt).
   const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
           totalGamma, maxPain, putCallOi, ivPromedio, velas5m, velas2m, velas15m,
-          vix, vix52High, vix52Low } = req.body || {};
+          vix, vix52High, vix52Low, capturadoEn } = req.body || {};
   if (Array.isArray(velas15m) && velas15m.length) {
     try {
       fs.writeFileSync(SIGMA_VELAS15M_FILE,
@@ -7027,9 +7036,24 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   if (regime !== 'POSITIVO' && regime !== 'NEGATIVO') {
     return res.status(400).json({ ok: false, error: 'regime debe ser POSITIVO o NEGATIVO' });
   }
+  // updatedAt = cuando lo RECIBIMOS.  capturadoEn = cuando el daemon lo LEYO.
+  // Guardar los dos permite ademas medir el retraso del propio daemon, que
+  // hasta hoy era invisible.
+  const recibidoEn = new Date().toISOString();
   const entry = { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
                   totalGamma, maxPain, putCallOi, ivPromedio,
-                  vix, vix52High, vix52Low, updatedAt: new Date().toISOString() };
+                  vix, vix52High, vix52Low,
+                  updatedAt: recibidoEn,
+                  capturadoEn: capturadoEn || null };
+  if (capturadoEn) {
+    const retrasoSeg = Math.round((Date.parse(recibidoEn) - Date.parse(capturadoEn)) / 1000);
+    if (Number.isFinite(retrasoSeg)) {
+      entry.retrasoDaemonSeg = retrasoSeg;
+      // Un push que tarda mas de un ciclo del daemon (2 min) significa que algo
+      // se colgo entre la lectura y el envio. No bloquea nada, pero deja rastro.
+      if (retrasoSeg > 120) console.warn(`[SIGMA] ⚠️ El daemon tardo ${retrasoSeg}s entre capturar y publicar.`);
+    }
+  }
   const history = loadSigmaLevelsHistory();
 
   // Filtro de cordura (2026-08-03, a pedido del usuario tras verlo en el
@@ -7186,10 +7210,30 @@ app.get('/api/spx/sigma-levels', (req, res) => {
 // Devuelve los niveles de Sigma Terminal solo si están frescos (<5 min) —
 // si no hay dato o está stale, null, para que el caller caiga a su propio
 // cálculo sin romper nada.
+// Instante contra el que se mide la frescura de una lectura de Sigma.
+//
+// 2026-08-17: hasta hoy se medía contra `updatedAt`, que es cuando el SERVIDOR
+// recibió el POST — no cuando el daemon leyó la pantalla. Como el daemon
+// republica cada ~2 min, un nivel viejo entraba con sello nuevo y pasaba por
+// fresco: el 17-ago el spot reportaba 0 segundos de antigüedad cuando el dato
+// tenía 65 horas (el cierre del viernes). Fuera de horario era inofensivo
+// porque los monitores no corren, pero en sesión la Reversión —cuyo setup
+// entero es medir el % de distancia a la SMA8— habría decidido sobre un precio
+// viejo creyéndolo actual, que es justo lo que MAX_EDAD_SPOT_SEG existe para
+// impedir.
+//
+// Se prefiere `capturadoEn` y se cae a `updatedAt` para las entradas viejas del
+// historial, que no lo tienen. La ruta de VELAS nunca tuvo este problema: cada
+// vela trae su propio timestamp y por eso sí detectaba el dato viejo.
+function selloDeLectura(data) {
+  return data?.capturadoEn || data?.updatedAt || null;
+}
+
 function getFreshSigmaLevels() {
   const data = loadSigmaLevelsHistory()[0];
-  if (!data || !data.updatedAt) return null;
-  const ageMs = Date.now() - new Date(data.updatedAt).getTime();
+  const sello = selloDeLectura(data);
+  if (!sello) return null;
+  const ageMs = Date.now() - new Date(sello).getTime();
   if (ageMs > SIGMA_LEVELS_MAX_AGE_MS) return null;
   return data;
 }

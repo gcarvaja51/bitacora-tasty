@@ -172,6 +172,14 @@ async function runCycle() {
 
   try {
     const levels = await sigma.readLevels();
+    // Momento de CAPTURA (2026-08-17). El servidor sellaba `updatedAt` al
+    // RECIBIR, asi que un nivel leido hace rato entraba marcado como recien
+    // nacido y leerSpotSigma lo daba por fresco. Entre esta linea y el push
+    // pasan las tres lecturas de velas mas el VIX —varios segundos en un dia
+    // bueno, minutos si alguna cuelga— y encima el push puede reintentarse.
+    // Sin este sello no hay forma de distinguir "el dato es de ahora" de "el
+    // daemon tardo en mandarlo", y esa diferencia decide si la Reversion abre.
+    levels.capturadoEn = new Date().toISOString();
     const prev = recordAndGetPrevious(levels);
 
     // Velas de 5m del SPX, de la misma fuente que el gamma (2026-08-09). Van
