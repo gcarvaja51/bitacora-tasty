@@ -294,6 +294,14 @@ async function runCycle() {
         if (Date.now() - lastTvSaveAt >= TV_SAVE_EVERY_MS) {
           lastTvSaveAt = Date.now();
           try {
+            // Antes de guardar: apagar el autosave de las OTRAS ventanas, que
+            // comparten el mismo layout y pueden pisar la copia en la nube. Se
+            // reaplica en cada ciclo porque el flag se resetea al relanzar
+            // TradingView. Va dentro del mismo try best-effort: si falla, el
+            // guardado sigue adelante igual.
+            const apagadas = await tv.disableAutoSaveOnOtherWindows();
+            if (apagadas.length) console.log(`[tv] autosave apagado en ${apagadas.length} ventana(s): ${apagadas.join(' | ')}`);
+
             const res = await tv.saveLayout();
             tvSaveFailures = 0;
             saveStatus({ lastTvSaveAt: new Date().toISOString(), tvSaveFailures: 0, lastTvSaveError: null });

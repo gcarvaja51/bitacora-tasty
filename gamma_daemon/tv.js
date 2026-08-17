@@ -22,6 +22,21 @@ const SYMBOL_MATCH = /^SPCFD:SPX$/i;
 // silenciosamente en las ventanas que todavia no se habian actualizado.
 const STUDY_NAME_MATCH = /CIARG_V\d/i;
 
+// El layout donde viven los muros que LEE EL CELULAR (2026-08-17). Verificado de
+// punta a punta: la app del iPhone abre "layaout M2K" (Wk609vJL) y ahi aparecen
+// los valores. Ojo -- el layout "muros" NO existe en la cuenta; se intento crear
+// varias veces y el dialogo "Guardar como" nunca abre, asi que fallaba en silencio.
+//
+// POR QUE HACE FALTA VERIFICARLO. connectToSpxWindow() elegia la ventana SOLO por
+// simbolo y nunca miraba en que layout estaba -- el mismo punto ciego que ya se
+// arreglo un nivel mas abajo (antes ni el simbolo se miraba, ver el comentario de
+// cabecera de este archivo). Si TradingView se relanza sobre otro layout, el daemon
+// escribia los muros ahi, saveLayout() guardaba ESE layout, y status.json quedaba
+// en verde con tvSaveFailures: 0 mientras el celular no veia nada nuevo.
+//
+// Vacio ('') desactiva el chequeo.
+const LAYOUT_NAME = process.env.TV_LAYOUT_NAME ?? 'layaout M2K';
+
 // awaitPromise sigue en false por defecto para no cambiar el comportamiento de
 // las llamadas existentes; saveLayout() lo activa porque saveChartSilently()
 // devuelve una promesa y sin esto se leeria "[object Promise]" como resultado
@@ -51,6 +66,7 @@ export async function connectToSpxWindow() {
   }
 
   let lastError;
+  const layoutsDescartados = [];   // ventanas CON SPX pero en el layout equivocado
   for (const t of targets) {
     let client;
     try {
@@ -68,7 +84,15 @@ export async function connectToSpxWindow() {
         })()
       `);
       if (Array.isArray(panes) && panes.some((p) => p.symbol && SYMBOL_MATCH.test(p.symbol))) {
-        return { client, targetId: t.id, panes };
+        // Tener SPX no alcanza: hay que estar ADEMAS en el layout que lee el
+        // celular. Ver LAYOUT_NAME.
+        const layout = await evalOn(client, `
+          (function() { try { return window.TradingViewApi.layoutName(); } catch (e) { return null; } })()
+        `);
+        if (!LAYOUT_NAME || layout === LAYOUT_NAME) {
+          return { client, targetId: t.id, panes, layout };
+        }
+        layoutsDescartados.push(layout ?? '(sin nombre)');
       }
       await client.close();
     } catch (e) {
@@ -76,10 +100,83 @@ export async function connectToSpxWindow() {
       if (client) { try { await client.close(); } catch { /* noop */ } }
     }
   }
+  if (layoutsDescartados.length > 0) {
+    // Fallar en vez de escribir a ciegas: decision explicita del usuario
+    // (2026-08-17). Escribir sobre el layout equivocado es peor que no escribir,
+    // porque no deja rastro y el status queda en verde.
+    throw new Error(
+      `Hay ${layoutsDescartados.length} ventana(s) con SPX pero ninguna esta en el layout ` +
+      `"${LAYOUT_NAME}" (estan en: ${layoutsDescartados.join(', ')}). No se escribe nada: ` +
+      `hacerlo ensuciaria un layout que el celular no lee. Poner la ventana del SPX en ` +
+      `"${LAYOUT_NAME}", o ajustar TV_LAYOUT_NAME.`
+    );
+  }
   throw new Error(
     `Ninguna de las ${targets.length} ventana(s) de TradingView tiene SPX cargado.` +
     (lastError ? ` Ultimo error: ${lastError.message}` : '')
   );
+}
+
+// Apaga el autoguardado en las ventanas que NO son la del SPX (2026-08-17).
+//
+// Las 5 ventanas del usuario comparten el MISMO layout (Wk609vJL) y todas traen
+// autosave ON. En la nube hay una sola ranura: gana el ultimo que escriba. El
+// daemon fuerza un guardado cada 5 min y por eso normalmente gana, pero si el
+// usuario toca la ventana del SPY o del VIX, el autosave de esa ventana sube SU
+// estado y el celular se queda con esa foto hasta el siguiente ciclo.
+//
+// Best-effort y idempotente: hay que reaplicarlo en cada ciclo porque el flag se
+// resetea cuando TradingView se relanza (cosa que este mismo daemon hace).
+//
+// ⚠️ OJO, medido en vivo el 2026-08-17: setAutoSaveEnabled() NO es por ventana,
+// es un ajuste GLOBAL de la cuenta. Aunque esta funcion salta la ventana del SPX,
+// al apagarlo en cualquier otra queda apagado en TODAS (verificado: las 5 en
+// autoSave=false tras una sola pasada). Consecuencias:
+//   - Bien: el saveLayout() explicito del daemon pasa a ser el UNICO que escribe
+//     el layout. Se acabo la carrera de sobrescritura.
+//   - Mal: se pierde el autosave como respaldo. Si el daemon se cae, nadie guarda
+//     y el celular se queda congelado en silencio — el mismo modo de fallo del
+//     5 al 15 de agosto. Vigilar lastTvSaveAt en status.json.
+//   - Y afecta al uso manual: reacomodar un chart ya no se guarda solo, hay que
+//     darle Guardar a mano.
+// El salteo de la ventana del SPX se deja porque no hace daño y documenta la
+// intencion original, pero hoy no cambia nada.
+export async function disableAutoSaveOnOtherWindows() {
+  const targets = await listChartTargets();
+  const apagadas = [];
+  for (const t of targets) {
+    let client;
+    try {
+      client = await CDP({ port: CDP_PORT, target: t.id });
+      await client.Runtime.enable();
+      const r = await evalOn(client, `
+        (function() {
+          var api = window.TradingViewApi;
+          var syms = [];
+          try {
+            syms = api._chartWidgetCollection.getAll().map(function(c) {
+              try { return c.model().mainSeries().symbol(); } catch (e) { return ''; }
+            });
+          } catch (e) { return { error: e.message }; }
+          if (syms.some(function(s) { return /^SPCFD:SPX$/i.test(s); })) return { skip: 'es la del SPX' };
+          try {
+            var svc = api._saveChartService;
+            if (!svc || typeof svc.setAutoSaveEnabled !== 'function') return { error: 'sin setAutoSaveEnabled' };
+            var a = svc.autoSaveEnabled();
+            var antes = (a && a.value) ? a.value() : a;
+            if (antes === false) return { yaEstaba: true, symbols: syms.join(',') };
+            svc.setAutoSaveEnabled(false);
+            return { apagado: true, symbols: syms.join(',') };
+          } catch (e) { return { error: e.message }; }
+        })()
+      `);
+      if (r?.apagado) apagadas.push(r.symbols);
+      await client.close();
+    } catch {
+      if (client) { try { await client.close(); } catch { /* noop */ } }
+    }
+  }
+  return apagadas;
 }
 
 // Activa un pane con la API de TradingView y CONFIRMA donde quedo.
