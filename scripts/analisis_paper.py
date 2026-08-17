@@ -81,9 +81,39 @@ def main():
         for m, n in sorted(d["motivos"].items(), key=lambda kv: -kv[1]):
             print(f"       {n}x  {m}")
 
+    # ── 1b. DISTRIBUCION DE EDADES: con que umbral se habria salvado cada marca ──
+    # El umbral es 15s y se eligio por razonamiento, no medido. Esto lo pone a
+    # prueba: si el grueso de las marcas cae en 20-40s, el umbral es muy duro y
+    # esta tirando datos buenos; si cae en cientos de segundos, el problema no es
+    # el umbral sino que ese strike no tiene actividad.
+    edades = []
+    for e in conLibro:
+        for lado in ("paperEntry", "paperExit"):
+            m = e.get(lado) or {}
+            pv = m.get("pataMasVieja") or {}
+            if pv.get("edadSeg") is not None:
+                edades.append((pv["edadSeg"], e.get("strategyFamily"), lado, pv.get("sym")))
+    if edades:
+        print("\n  Edad de la pata mas vieja, por marca:")
+        for fam in sorted({x[1] for x in edades}):
+            xs = sorted(x[0] for x in edades if x[1] == fam)
+            dentro = sum(1 for v in xs if v <= 15)
+            print(f"    {fam:<12} n={len(xs):>3}  mediana {med(xs):>6}s  p90 {xs[int(.9*len(xs))-1] if xs else '—':>6}s"
+                  f"  max {max(xs):>6}s   |  <=15s: {dentro}/{len(xs)}")
+        for umbral in (15, 30, 60, 120):
+            ok = sum(1 for v, *_ in edades if v <= umbral)
+            print(f"    con umbral {umbral:>3}s se salvarian {ok}/{len(edades)} marcas ({100*ok/len(edades):.0f}%)")
+        viejas = sorted(edades, reverse=True)[:5]
+        if viejas and viejas[0][0] > 15:
+            print("\n  Las 5 patas mas dormidas (para ver si es un strike puntual o un patron):")
+            for v, fam, lado, sym in viejas:
+                print(f"    {v:>6}s  {fam:<11} {lado:<11} {sym}")
+
     utiles = [e for e in conLibro if (e.get("paperPnl") or {}).get("confiable")]
     if not utiles:
         print("\nNingun trade con P&L propio todavia — el resto del analisis necesita eso.")
+        print("Si arriba se ve que casi todo cae por frescura, el umbral de 15s es el sospechoso,")
+        print("no el algoritmo. Mirar la tabla de umbrales antes de tocar nada mas.")
         return
 
     # ── 2. PAPER CONTRA TRADIER ────────────────────────────────────────────

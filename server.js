@@ -8573,7 +8573,7 @@ async function cotizarPatasTasty(simbolosTradier, { permitirParcial = false } = 
   }
 
   const out = {};
-  let edadMax = 0;
+  let edadMax = 0, sinSello = false;
   for (const [simTradier, simTasty] of pares) {
     const it = porTasty[simTasty];
     // /market-data devuelve los precios como STRING ("5.8"), no como numero.
@@ -8584,12 +8584,28 @@ async function cotizarPatasTasty(simbolosTradier, { permitirParcial = false } = 
       if (permitirParcial) continue;
       return null;
     }
+    // Edad POR PATA (2026-08-16). El agregado `edadSeg` es el maximo, y con eso
+    // solo se sabe que "algo" esta viejo, no QUE. Importa porque una cotizacion
+    // envejece sin que el feed este roto: un strike muy OTM —justo los que vende
+    // el Iron Condor, y son 4— puede pasar un rato sin que nadie mueva su
+    // bid/ask. Sin el detalle por pata, un condor rechazado por frescura no se
+    // puede distinguir entre "una pata dormida" (esperable, se arregla con un
+    // criterio por pata) y "el feed entero atrasado" (otro problema).
     const ts = it['updated-at'] ? Date.parse(it['updated-at']) : NaN;
-    if (Number.isFinite(ts)) edadMax = Math.max(edadMax, Math.round((Date.now() - ts) / 1000));
-    out[simTradier] = { bid, ask, mark };
+    const edadPata = Number.isFinite(ts) ? Math.round((Date.now() - ts) / 1000) : null;
+    if (edadPata != null) edadMax = Math.max(edadMax, edadPata);
+    else sinSello = true;
+    out[simTradier] = { bid, ask, mark, edadSeg: edadPata };
   }
   if (!Object.keys(out).length) return null;
-  return { q: out, fuente: 'tasty', edadSeg: edadMax };
+  // `sinSello`: alguna pata vino sin `updated-at`, asi que su edad no se pudo
+  // verificar. Antes eso sumaba CERO al maximo — o sea, una cotizacion sin sello
+  // pasaba por fresca. Se expone aparte y NO se toca `edadSeg`: los monitores de
+  // salida siguen comportandose igual (para decidir un TP/SL conviene usar el
+  // dato aunque no se pueda fechar; no salir es peor). El unico que lo mira es
+  // marcarPaper, donde registrar un precio que no se puede fechar si es un
+  // problema.
+  return { q: out, fuente: 'tasty', edadSeg: edadMax, sinSello };
 }
 
 // ── LIBRO PAPER PROPIO (2026-08-16) ──────────────────────────────────────────
@@ -8670,7 +8686,11 @@ async function marcarPaper(legs, lado) {
       const nm  = lado === 'apertura' ? (s.mark - l.mark) : (l.mark - s.mark);
       neto += n; netoAlMedio += nm;
       patas.push({ shortSym, longSym, shortBid: s.bid, shortAsk: s.ask,
-                   longBid: l.bid, longAsk: l.ask, neto: +n.toFixed(2) });
+                   longBid: l.bid, longAsk: l.ask, neto: +n.toFixed(2),
+                   // Edad de cada pata por separado — ver cotizarPatasTasty. Es
+                   // lo que permite distinguir "una pata OTM dormida" de "el feed
+                   // atrasado" cuando una marca sale rechazada.
+                   shortEdadSeg: s.edadSeg ?? null, longEdadSeg: l.edadSeg ?? null });
     }
 
     const marca = {
@@ -8690,9 +8710,24 @@ async function marcarPaper(legs, lado) {
       longBid: patas[0].longBid, longAsk: patas[0].longAsk,
     });
 
+    // Nombre de la pata mas vieja — para que el motivo del rechazo diga CUAL fue,
+    // no solo que "algo" estaba viejo.
+    const todas = patas.flatMap(p => [
+      { sym: p.shortSym, edad: p.shortEdadSeg }, { sym: p.longSym, edad: p.longEdadSeg }]);
+    const vieja = todas.filter(x => x.edad != null).sort((a, b) => b.edad - a.edad)[0];
+    marca.pataMasVieja = vieja ? { sym: vieja.sym, edadSeg: vieja.edad } : null;
+
+    // Una cotizacion que no se puede fechar no sirve para registrar un precio,
+    // aunque si sirva para decidir una salida (ver la nota en cotizarPatasTasty).
+    const sinFecha = todas.filter(x => x.edad == null);
+    if (c.sinSello || sinFecha.length) {
+      return { ...marca, confiable: false,
+               motivo: `${sinFecha.length || 'alguna'} pata(s) sin sello de tiempo — no se puede verificar la frescura` };
+    }
     if (c.edadSeg > MAX_EDAD_MARCA_SEG) {
       return { ...marca, confiable: false,
-               motivo: `cotizacion de ${c.edadSeg}s, por encima del maximo de ${MAX_EDAD_MARCA_SEG}s para marcar` };
+               motivo: `pata mas vieja ${vieja?.sym || '?'} con ${c.edadSeg}s, por encima del maximo ` +
+                       `de ${MAX_EDAD_MARCA_SEG}s para marcar` };
     }
     return { ...marca, confiable: true };
   } catch (e) {
