@@ -1359,6 +1359,9 @@ function nav(tab, el) {
   el.classList.add('active');
   $(`panel-${tab}`).classList.add('active');
   currentTab = tab;
+  // nav() ya carga la pestaña; se marca el instante para que el auto-refresco
+  // no dispare una segunda carga encima (ver autoRefrescoTick).
+  _autoUltimo = Date.now();
   if (TABS[tab]) TABS[tab]();
 }
 
@@ -1392,6 +1395,48 @@ async function refreshCurrentTab() {
     }
   }
 }
+
+// ── Refresco automático de las pestañas con datos vivos (2026-08-17) ────────
+//
+// Hasta hoy NINGUNA pestaña se refrescaba sola. fetchTxnsTradier tiene un TTL
+// de 60s, pero un TTL no dispara nada: solo permite que la PRÓXIMA llamada
+// traiga datos frescos. Si nadie llama, no pasa nada — y sentado en Historial
+// mirando la tabla, nadie llama. El arreglo anterior (motivado por "no veo el
+// reporte del trade de hoy") hizo que CAMBIAR de pestaña trajera datos nuevos,
+// pero dejó fuera el caso de quedarse mirando.
+//
+// Caso real de hoy: una posición ya cerrada seguía figurando como abierta y su
+// P&L no se movía, con los datos correctos en el backend todo el tiempo.
+//
+// Mismo patrón que monTick para el Monitor: solo corre con la pestaña visible,
+// porque refrescar en segundo plano gasta llamadas para pintar algo que nadie
+// mira. Los intervalos coinciden con el TTL del servidor de cada endpoint, así
+// que esto NO agrega llamadas reales de más.
+const TABS_VIVAS = { history: 60000, positions: 30000, today: 60000 };
+let _autoUltimo = 0, _autoCargando = false;
+
+async function autoRefrescoTick() {
+  const cada = TABS_VIVAS[currentTab];
+  if (!cada || document.hidden || _autoCargando) return;
+  if (Date.now() - _autoUltimo < cada) return;
+  const loader = TABS[currentTab];
+  if (!loader) return;
+  _autoCargando = true;
+  try {
+    await loader();
+  } catch (e) {
+    // Un fallo de red no debe romper el ciclo: se reintenta al próximo turno.
+    console.warn('[auto-refresco] falló, se reintenta:', e.message);
+  } finally {
+    _autoUltimo = Date.now();
+    _autoCargando = false;
+  }
+}
+setInterval(autoRefrescoTick, 5000);
+
+// Al volver a la pestaña del navegador, refrescar ya: es justo cuando el
+// usuario mira, y cuando más probable es que el dato esté viejo.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) _autoUltimo = 0; });
 
 function toggleSidebar() {
   const sb = document.querySelector('.sidebar');
@@ -3651,11 +3696,24 @@ async function loadPositionsTradier() {
     const groups = (data.groups||[]).map(annotatePosGroupTradier);
     let totalPremium = 0, totalUnreal = 0;
     groups.forEach(g => { totalPremium += Math.max(0, g.premiumNet); totalUnreal += g.unrealizedPnL; });
+    // De DÓNDE sale el precio y de CUÁNDO (2026-08-17). Hasta hoy esta tabla
+    // cotizaba solo contra Tradier —sandbox, ~15 min de atraso— y nada en la
+    // pantalla lo decía, así que un P&L raro no se podía interpretar: no había
+    // forma de saber si estabas viendo el mercado de ahora o el de hace un rato.
+    const FUENTES = {
+      tasty:   ['EN VIVO (Tasty)',            'pos'],
+      mixta:   ['MIXTA (Tasty + Tradier)',    'dim'],
+      tradier: ['DIFERIDA ~15 min (Tradier)', 'neg'],
+    };
+    const [etiqueta, tono] = FUENTES[data.fuentePrecio] || ['fuente desconocida', 'dim'];
+    const edad = data.edadTastySeg != null ? `cotización de hace ${data.edadTastySeg}s` : 'sin sello de tiempo';
+
     $('pos-count').textContent = `${groups.length} posiciones (${data.totalContracts||0} contratos)`;
     $('pos-kpis').innerHTML = [
       kpiCard('Posiciones', groups.length, `${data.totalContracts||0} contratos`, 'dim'),
       kpiCard('Premium Neto Rec.', fa$(totalPremium), 'en posiciones SHORT', 'pos'),
       kpiCard('P&L No Realizado', f$(totalUnreal), 'mark-to-market actual', cc(totalUnreal)),
+      kpiCard('Fuente del precio', etiqueta, edad, tono),
     ].join('');
     renderPosRowsTradier(groups);
   } catch(e) {

@@ -7839,27 +7839,75 @@ function limiteDeAperturaVertical(strategy, premium, tradingCfg, esCreditoForzad
 // Devuelve true si detecto que el cierre anterior fallo (y lo libero para
 // reintentar). Ante un error consultando al broker NO concluye nada: deja el
 // registro como estaba, porque marcar un fallo inexistente seria peor.
+// Margen antes de dar por atascada una orden de cierre A MERCADO que no ejecuto
+// ni una unidad (2026-08-17). Generoso a proposito: un market que no llena en dos
+// minutos esta roto, pero no queremos declarar fallo por una demora normal.
+const CIERRE_ATASCADO_MS = 120 * 1000;
+// La deteccion de atasco se limita por ahora a los condors: son los unicos donde
+// se observo (0 de 4 cerrados solos). Los cierres de 2 patas llevan 164 de 164 y
+// no se tocan hasta tener con que justificarlo. Extenderlo es un cambio aparte.
+const FAMILIAS_CON_DETECCION_DE_ATASCO = ['IRON_CONDOR', 'DEBIT_PUT_CONDOR'];
+
 async function verificarCierreAnterior(ex, etiqueta) {
-  if (!ex.closeOrderId || ex.closedAt) return false;
-  let orden;
-  try {
-    orden = await tradier.getOrder(ex.closeOrderId);
-  } catch (e) {
-    console.error(`[${etiqueta}] No se pudo consultar el cierre ${ex.closeOrderId}:`, e.message);
-    return false;
+  // El condor manda DOS ordenes (una por vertical) desde el 2026-08-17: hay que
+  // vigilar las dos, no solo la primera.
+  const ids = (Array.isArray(ex.closeOrderIds) && ex.closeOrderIds.length)
+    ? ex.closeOrderIds
+    : (ex.closeOrderId ? [ex.closeOrderId] : []);
+  if (!ids.length || ex.closedAt) return false;
+
+  const vigilarAtasco = FAMILIAS_CON_DETECCION_DE_ATASCO.includes(ex.strategy);
+  const enviadoHaceMs = ex.closeOrderSentAt
+    ? Date.now() - new Date(ex.closeOrderSentAt).getTime()
+    : 0;
+
+  let consultadas = 0, fallo = false, motivo = null;
+  for (const id of ids) {
+    let o;
+    try {
+      o = await tradier.getOrder(id);
+    } catch (e) {
+      // Sin respuesta del broker NO se concluye nada: marcar un fallo inexistente
+      // seria peor que no mirar.
+      console.error(`[${etiqueta}] No se pudo consultar el cierre ${id}:`, e.message);
+      continue;
+    }
+    consultadas++;
+    const estado    = String(o?.status || '').toLowerCase();
+    const ejecutado = Number(o?.exec_quantity || 0);
+
+    if (['rejected', 'error', 'expired', 'canceled'].includes(estado)) {
+      fallo  = true;
+      motivo = String(o?.reason_description || estado).trim();
+      continue;
+    }
+    // ── Orden ATASCADA (2026-08-17) ──────────────────────────────────────────
+    // Tradier acepta el multileg, devuelve un id y lo deja en 'pending' con
+    // exec_quantity 0 indefinidamente: ni se llena ni se deja cancelar. Como
+    // 'pending' no estaba en la lista de estados de fallo, el sistema la daba por
+    // viva y volvia a mandar otra pasado el cooldown. El 2026-08-14 se apilaron
+    // OCHO asi, sin un solo aviso, y la posicion la termino cerrando el usuario.
+    if (vigilarAtasco && ['pending', 'open'].includes(estado)
+        && ejecutado === 0 && enviadoHaceMs > CIERRE_ATASCADO_MS) {
+      fallo  = true;
+      motivo = `la orden ${id} sigue '${estado}' sin ejecutar tras ${Math.round(enviadoHaceMs / 1000)}s`;
+    }
   }
-  const estado = String(orden?.status || '').toLowerCase();
-  if (!['rejected', 'error', 'expired', 'canceled'].includes(estado)) return false;
+
+  // Si no se pudo consultar ninguna, o ninguna dio senal de fallo, no se toca nada.
+  if (!consultadas || !fallo) return false;
 
   ex.closeFailCount  = (ex.closeFailCount || 0) + 1;
   ex.closeFailedAt   = new Date().toISOString();
-  ex.closeFailReason = String(orden?.reason_description || estado).trim();
-  // Se liberan las dos marcas para que el proximo ciclo pueda reintentar de
+  ex.closeFailReason = motivo || 'cierre fallido';
+  // Se liberan las marcas para que el proximo ciclo pueda reintentar de
   // inmediato: el cooldown existe para no pisar una orden viva, y esta ya no
-  // lo esta.
+  // lo esta. closeOrderIds tambien, o el ciclo siguiente seguiria vigilando
+  // ordenes que ya se dieron por perdidas.
   ex.closeOrderId     = null;
+  ex.closeOrderIds    = null;
   ex.closeOrderSentAt = null;
-  console.error(`[${etiqueta}] ❌ El cierre de ${ex.id} quedó '${estado}' (intento ${ex.closeFailCount}): ${ex.closeFailReason}`);
+  console.error(`[${etiqueta}] ❌ El cierre de ${ex.id} falló (intento ${ex.closeFailCount}): ${ex.closeFailReason}`);
   return true;
 }
 
@@ -7902,12 +7950,10 @@ async function frenoDeCierre(ex, etiqueta) {
 async function colocarOrdenDeCierre(ex, { worstNetPrice } = {}) {
   const q = ex.contracts;
   if (ex.strategy === 'IRON_CONDOR') {
-    return tradier.closeIronCondorOrder({
-      underlyingRoot: 'SPXW', expiry: ex.expiry,
-      putShortStrike:  ex.strikes.shortStrike,     putLongStrike:  ex.strikes.longStrike,
-      callShortStrike: ex.strikes.callShortStrike, callLongStrike: ex.strikes.callLongStrike,
-      quantity: q,
-    });
+    // 2026-08-17: NO usar closeIronCondorOrder (4 patas) — nunca se llenó.
+    // Esta función hoy no tiene llamadores, pero si alguien la vuelve a cablear
+    // tiene que salir por el camino que funciona, no reintroducir el problema.
+    return cerrarCondorComoDosVerticales(ex);
   }
   if (ex.strategy === 'DEBIT_PUT_CONDOR') {
     return tradier.closeDebitCondorOrder({
@@ -7922,6 +7968,109 @@ async function colocarOrdenDeCierre(ex, { worstNetPrice } = {}) {
     shortStrike: ex.strikes.shortStrike, longStrike: ex.strikes.longStrike,
     quantity: q, worstNetPrice,
   });
+}
+
+// ── Cerrar el Iron Condor como DOS verticales (2026-08-17) ──────────────────
+//
+// Por que: el cierre multileg de 4 patas NUNCA se lleno. Medido sobre las 169
+// ejecuciones del sistema, partidas por numero de patas del cierre:
+//
+//   REVERSION (2 patas)  73 de 74 cerradas, CERO intervenciones manuales
+//   TENDENCIA (2 patas)  91 de 91 cerradas, 81 de ellas limpias
+//   NEUTRAL   (4 patas)   3 de  4 cerradas, al menos 2 de las 3 a mano
+//
+// O sea 164 cierres de 2 patas que funcionan contra 0 de 4 condors que se hayan
+// cerrado solos. No es el sandbox en general —llena multileg de 2 patas sin
+// fallar—, es la orden de 4 patas: Tradier la acepta, devuelve un id, y la deja
+// en 'pending' con exec_quantity 0 para siempre. Ni se llena ni se deja cancelar
+// (DELETE devuelve 400 "order not available to be canceled"), que es por lo que
+// cleanupStalePendingOrders lleva dias sin poder barrerlas.
+//
+// Caso testigo, 2026-08-14: el sistema disparo el TP a las 09:46 ET y mando OCHO
+// ordenes de cierre entre las 09:46 y las 10:05, todas 'pending', ninguna llena.
+// La posicion se cerro recien cuando el usuario apreto el boton de la bitacora.
+//
+// Que se cambia: en vez de una orden de 4 patas se mandan las dos verticales por
+// separado, con la MISMA llamada (closeSpreadOrder) que usan Reversion y
+// Direccional. Se cambia una operacion que fallo el 100% de las veces por otra
+// con 164 de 164.
+//
+// Contrapartida asumida: entre la primera y la segunda orden hay una ventana de
+// milisegundos con medio condor cerrado. Es un riesgo real pero acotado, y a
+// cambio de que el cierre efectivamente ocurra. Si la primera llena y la segunda
+// falla, queda registrado en `partes` y el ciclo siguiente reintenta solo lo que
+// falta (cerrarPosicionPorSimbolos arma desde las posiciones REALES, asi que no
+// vuelve a pedir el cierre de la pata que ya no esta).
+async function cerrarCondorComoDosVerticales(ex) {
+  const q = ex.contracts;
+  const partes = [];
+
+  // Antes de pedir nada: que patas siguen ABIERTAS de verdad en Tradier. En un
+  // reintento puede pasar que un lado ya se haya cerrado y el otro no; volver a
+  // pedir el cierre del que ya no esta produce el rechazo "Buy order is for more
+  // shares than your current short position" (caso real del 2026-08-13, que dejo
+  // un condor abierto hasta el vencimiento). Si no se pueden leer las posiciones
+  // se intentan los dos lados, que es el comportamiento sin esta comprobacion.
+  let abiertas = null;
+  try {
+    abiertas = new Set((await tradier.getPositions())
+      .filter(p => Number(p.quantity) !== 0)
+      .map(p => p.symbol));
+  } catch (e) {
+    console.warn(`[IC-CIERRE-2V] No se pudieron leer las posiciones (${e.message}) — se intentan los dos lados.`);
+  }
+  const sigueAbierta = sym => abiertas == null || abiertas.has(sym);
+
+  // Lado PUT: corta 7720 / larga 7715 -> 'BULL_PUT_SPREAD' hace que
+  // closeSpreadOrder use tipo 'P'. La corta va buy_to_close y la larga
+  // sell_to_close, que es exactamente lo que pide cerrar un credit spread.
+  if (sigueAbierta(ex.legs?.putShortSym)) {
+    partes.push(await tradier.closeSpreadOrder({
+      strategy: 'BULL_PUT_SPREAD', underlyingRoot: 'SPXW', expiry: ex.expiry,
+      shortStrike: ex.strikes.shortStrike, longStrike: ex.strikes.longStrike,
+      quantity: q,
+    }).then(r => ({ lado: 'PUT', ok: true, ...r }))
+      .catch(e => ({ lado: 'PUT', ok: false, error: e.message })));
+  } else {
+    console.log('[IC-CIERRE-2V] El lado PUT ya no figura abierto — no se reenvia.');
+    partes.push({ lado: 'PUT', ok: true, yaCerrado: true, orderId: null });
+  }
+
+  // Lado CALL: corta 7835 / larga 7840 -> 'BEAR_CALL_SPREAD' usa tipo 'C'.
+  if (sigueAbierta(ex.legs?.callShortSym)) {
+    partes.push(await tradier.closeSpreadOrder({
+      strategy: 'BEAR_CALL_SPREAD', underlyingRoot: 'SPXW', expiry: ex.expiry,
+      shortStrike: ex.strikes.callShortStrike, longStrike: ex.strikes.callLongStrike,
+      quantity: q,
+    }).then(r => ({ lado: 'CALL', ok: true, ...r }))
+      .catch(e => ({ lado: 'CALL', ok: false, error: e.message })));
+  } else {
+    console.log('[IC-CIERRE-2V] El lado CALL ya no figura abierto — no se reenvia.');
+    partes.push({ lado: 'CALL', ok: true, yaCerrado: true, orderId: null });
+  }
+
+  // Los dos lados ya estaban cerrados: no hay nada que mandar y tampoco es un
+  // error — la reconciliacion pasiva completara el P&L en su proximo ciclo.
+  if (partes.every(p => p.yaCerrado)) {
+    console.log('[IC-CIERRE-2V] Las 4 patas ya estan cerradas — no se envia nada.');
+    return { orderId: null, orderIds: [], status: 'ya_cerrado', partes };
+  }
+
+  const enviadas = partes.filter(p => p.ok && p.orderId);
+  partes.filter(p => !p.ok).forEach(p =>
+    console.error(`[IC-CIERRE-2V] ❌ El lado ${p.lado} no se pudo enviar: ${p.error}`));
+
+  if (!enviadas.length) {
+    throw new Error(`Ningun lado del condor se pudo enviar: ${partes.map(p => `${p.lado}=${p.error || 'sin id'}`).join(', ')}`);
+  }
+  console.log(`[IC-CIERRE-2V] Enviadas ${enviadas.length}/2 verticales — ${enviadas.map(p => `${p.lado}#${p.orderId}`).join(' ')}`);
+
+  return {
+    orderId:  enviadas[0].orderId,            // compatibilidad con lo que ya lee el registro
+    orderIds: enviadas.map(p => p.orderId),   // las dos, para verificar el fill de ambas
+    status:   enviadas.length === 2 ? 'ok' : 'parcial',
+    partes,
+  };
 }
 
 // ── Sombra de la cadena: Tasty (en vivo) contra Tradier (sandbox, diferido) ──
@@ -8444,12 +8593,10 @@ async function checkIronCondorTPSLImpl() {
             quantity: ex.contracts,
           });
         } else {
-          closeResult = await tradier.closeIronCondorOrder({
-            underlyingRoot:  'SPXW', expiry: ex.expiry,
-            putShortStrike:  ex.strikes.shortStrike,     putLongStrike:  ex.strikes.longStrike,
-            callShortStrike: ex.strikes.callShortStrike, callLongStrike: ex.strikes.callLongStrike,
-            quantity:        ex.contracts,
-          });
+          // 2026-08-17: se deja de mandar la orden de 4 patas — nunca se lleno
+          // (0 de 4 condors) — y se cierra como dos verticales de 2 patas, que
+          // llevan 164 de 164. Ver la nota larga en cerrarCondorComoDosVerticales.
+          closeResult = await cerrarCondorComoDosVerticales(ex);
         }
         // Guardar el orderId de la orden de CIERRE (2026-07-27) -- permite calcular el
         // P&L real desde los fills reales de las 2 ordenes (entrada+cierre) en vez de
@@ -8457,6 +8604,9 @@ async function checkIronCondorTPSLImpl() {
         // cuando una misma pata se reutiliza en combinaciones distintas el mismo dia
         // (ver resolverPnlDesdeOrdenes).
         ex.closeOrderId = closeResult?.orderId ?? null;
+        // El condor ahora se cierra con DOS ordenes: se guardan las dos para que
+        // verificarCierreAnterior pueda comprobar el fill de ambas (2026-08-17).
+        ex.closeOrderIds = closeResult?.orderIds ?? (closeResult?.orderId ? [closeResult.orderId] : null);
 
         // Cierre del libro paper — ver cerrarLibroPaper. En el condor marca las
         // 4 patas y suma los dos verticales, con la misma convencion de signos
@@ -12104,6 +12254,43 @@ app.get('/api/positions-tradier', async (req, res) => {
       const quotes = symbols.length ? await tradier.getQuotes(symbols) : [];
       const quotesMap = {};
       quotes.forEach(q => { quotesMap[q.symbol] = q; });
+
+      // ── EN VIVO (2026-08-17) ────────────────────────────────────────────
+      // Esta pantalla cotizaba SOLO contra Tradier, o sea el sandbox diferido
+      // ~15 min: el P&L que el usuario leia para decidir era el mercado de hace
+      // un cuarto de hora. El mismo arreglo se le hizo a attachLivePnl el
+      // 2026-08-16 ("el numero de la pantalla era el de hace un cuarto de
+      // hora") pero este endpoint quedo afuera — misma falla, dos endpoints,
+      // solo se corrigio uno. Caso real que lo destapo: el usuario vio una
+      // posicion "al 40%" que el motor nunca vio, porque el motor decide con
+      // Tasty y la pantalla mostraba Tradier.
+      //
+      // Se PISA solo el `mark` con el de Tasty y se conservan las griegas de
+      // Tradier (delta/theta), que Tasty no devuelve por esta via. Si Tasty no
+      // trae una pata, esa queda con el mark de Tradier — mejor una fila mixta
+      // que una fila vacia. `fuentePrecio` viaja hasta la UI para que la
+      // pantalla pueda decir de donde salio cada numero.
+      let fuentePrecio = 'tradier', edadTastySeg = null;
+      if (symbols.length) {
+        try {
+          const vivo = await cotizarPatasTasty(symbols, { permitirParcial: true });
+          if (vivo && vivo.q) {
+            let pisadas = 0;
+            for (const [sym, v] of Object.entries(vivo.q)) {
+              if (v?.mark == null) continue;
+              quotesMap[sym] = { ...(quotesMap[sym] || {}), mark: v.mark, bid: v.bid, ask: v.ask };
+              pisadas++;
+            }
+            if (pisadas) {
+              fuentePrecio = pisadas === symbols.length ? 'tasty' : 'mixta';
+              edadTastySeg = vivo.edadSeg ?? null;
+            }
+          }
+        } catch (e) {
+          console.warn('[POSICIONES] Tasty no cotizo, se queda el libro de Tradier:', e.message);
+        }
+      }
+
       const groups = groupPositionsTradier(positions, quotesMap);
 
       // Precio del subyacente por grupo — mismo endpoint generico (Yahoo,
@@ -12119,7 +12306,10 @@ app.get('/api/positions-tradier', async (req, res) => {
       }));
       groups.forEach(g => { g.underlyingPrice = underlyingPriceMap[g.underlying] || 0; });
 
-      return { groups, totalContracts: positions.length, ts: new Date().toISOString() };
+      // fuentePrecio/edadTastySeg: para que la tabla pueda decir de cuando es el
+      // numero. Hasta hoy ninguna pantalla lo decia, y esa era justamente la
+      // razon por la que un P&L raro no se podia interpretar.
+      return { groups, totalContracts: positions.length, fuentePrecio, edadTastySeg, ts: new Date().toISOString() };
     });
     res.json(data);
   } catch(e) { res.status(500).json({ error: e.message }); }

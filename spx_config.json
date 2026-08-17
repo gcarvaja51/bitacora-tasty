@@ -10,13 +10,79 @@
     "confirmacion_algoritmica": 0
   },
   "trading": {
-    "tradierAutoExecute": false,
+    "targetDelta": 0.3,
+    "tpPct": 30,
+    "slMult": 1.5,
     "ironCondor": {
-      "tradierAutoExecute": false
+      "targetDelta": 0.1,
+      "spreadWidth": 5,
+      "tpPct": 30,
+      "slMult": 1.5,
+      "gammaFlipBufferPts": 10,
+      "tradierAutoExecute": true,
+      "ivRankThreshold": 5,
+      "minCreditoAnchoPct": 0,
+      "debitCondor": {
+        "targetDelta": 0.12,
+        "spreadWidth": 10,
+        "bodyWidth": 10,
+        "tpPct": 50,
+        "slPct": 50
+      },
+      "pinMaxDistPts": 5,
+      "pinMaxRange30mPts": 10,
+      "pinVelas": 15,
+      "pinWindowStartET": 10,
+      "pinWindowEndET": 14,
+      "minShortDistPts": 25,
+      "maxHoldMin": 90,
+      "minVidaMin": 20,
+      "noAbrirDespuesET": "14:30",
+      "cierreForzadoET": "15:30",
+      "ivRankThresholdTasty": 25,
+      "cierre1DTE_ET": "10:30",
+      "soloGammaPositivo1DTE": true,
+      "sinStop1DTE": true
     },
     "smaReversion": {
-      "tradierAutoExecute": false
+      "weights": {
+        "alejamiento_sma8": 45,
+        "patron_confirmacion": 20,
+        "rsi": 0,
+        "fase_weinstein": 10,
+        "regimen_gex": 10,
+        "compas_medias_5m": 15
+      },
+      "minScore": 75,
+      "targetDelta": 0.5,
+      "spreadWidth": 10,
+      "maxCandlesTimeStop": 5,
+      "maxStopsPerDay": 2,
+      "tradierAutoExecute": true,
+      "maxDailyDrawdownPct": 3.5,
+      "wallProximityPts": 15,
+      "riskPctPerTrade": 1,
+      "earlyExitPct": 0.6,
+      "requiereGammaPositivo": true,
+      "stopMinPts": 20,
+      "alejamientoEsPuerta": true,
+      "extBandMinPct": 0.13,
+      "extBandMaxPct": 0.3,
+      "puertasBinarias": true,
+      "maxEdadVela5Seg": 420,
+      "maxDesfaseVsSigmaPts": 8
     },
-    "toleranciaDeslizamientoPct": 25
-  }
+    "debit": {
+      "tpPct": 30,
+      "slPct": 50
+    },
+    "closeSlippageBufferPts": 1,
+    "tradierAutoExecute": true,
+    "ivRankFuente": "sigma",
+    "ivRankCredito": 10,
+    "ivRankCreditoTasty": 30,
+    "toleranciaDeslizamientoPct": 100
+  },
+  "entryMode": "pullback",
+  "minScoreTrasPerdida": 90
 }
