@@ -7962,6 +7962,37 @@ async function verificarCierreAnterior(ex, etiqueta) {
 // que el aviso va con prioridad urgente y dice explicitamente que hay que cerrar
 // a mano.
 const MAX_CLOSE_FAILS = 3;
+// ── Sello de la etiqueta de cierre (2026-08-17) ──────────────────────────────
+//
+// POR QUE EXISTE. El cierre manual de la bitacora escribe closeReason =
+// 'MANUAL_FORZADO' pero a proposito NO marca status='closed' (deja que la
+// reconciliacion pasiva traiga el P&L real). O sea que el registro sigue en la
+// lista de "abiertas" del monitor, que 90s despues evalua TP/SL contra
+// cotizaciones y PISA la etiqueta. Resultado: los cierres del usuario quedan
+// archivados como aciertos del sistema.
+//
+// Caso real que lo destapo: los dos Iron Condor 1DTE del 13 y 14 de agosto
+// quedaron con closeReason='TP' y, a la vez, la nota "Cierre manual forzado desde
+// la bitacora" -- que solo escribe el endpoint manual. El historial decia 2 TP
+// cuando en realidad los cerro el usuario a mano. Es justo el dato que el modo
+// captura del 1DTE necesita medir, asi que la estrategia era inevaluable.
+//
+// Sella ademas CUANDO y QUIEN. Antes solo quedaba el valor final, asi que era
+// imposible reconstruir si disparo primero el monitor o el usuario.
+//
+// Devuelve false si NO se sello (habia una etiqueta manual que se respeta), para
+// que el llamador sepa que no debe dar el cierre por suyo.
+function sellarCierre(ex, motivo, quien) {
+  if (ex.closeReason === 'MANUAL_FORZADO' && quien !== 'manual') {
+    console.log(`[${quien}] ${ex.id}: ya venia cerrado a mano — no se pisa la etiqueta con '${motivo}'.`);
+    return false;
+  }
+  ex.closeReason   = motivo;
+  ex.closeReasonAt = new Date().toISOString();
+  ex.closeReasonBy = quien;
+  return true;
+}
+
 async function frenoDeCierre(ex, etiqueta) {
   if ((ex.closeFailCount || 0) < MAX_CLOSE_FAILS) return false;
   if (!ex.closeFailNotified) {
@@ -8669,7 +8700,9 @@ async function checkIronCondorTPSLImpl() {
         // desde tradier.getClosedPnl (la logica que ya tiene el fix de doble-conteo del
         // 2026-07-09) — mismo mecanismo que ya usan los cierres puramente manuales, en vez
         // de inventar una confirmacion de fill propia con una convencion de signos incierta.
-        ex.closeReason = cerrarPor; // la reconciliacion pasiva lo respeta (ex.closeReason || 'MANUAL')
+        // sellarCierre respeta una etiqueta manual previa; la reconciliacion
+        // pasiva sigue respetando lo que quede (ex.closeReason || 'MANUAL').
+        sellarCierre(ex, cerrarPor, 'Tradier-IC-TPSL');
         ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
         // pnlActual queda indefinido cuando se cierra por TIEMPO sin cotizaciones
@@ -9421,7 +9454,7 @@ async function checkDirectionalTPSLImpl() {
         // 'filled' a propósito para que checkTradierExecutions (reconciliación pasiva,
         // cada 5 min) traiga el P&L REAL desde tradier.getClosedPnl en vez de confiar en
         // la cotización de antes de cerrar (que solo sirve para decidir el trigger).
-        ex.closeReason = cerrarPor;
+        sellarCierre(ex, cerrarPor, 'Tradier-DIR-TPSL');
         ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
         console.log(`[Tradier-DIR-TPSL] Orden de cierre enviada por ${cerrarPor} — P&L real pendiente (lo completa la reconciliación pasiva en ≤5 min; estimado pre-cierre habia sido $${(pnlActual*100*ex.contracts).toFixed(2)}).`);
@@ -10423,7 +10456,7 @@ async function checkAlejamientoSMATPSLImpl() {
         // real de getClosedPnl) solo mira status='filled', nunca 'closed', así que el
         // P&L de esta estrategia se quedaba en null para siempre. Fix: dejar 'filled' a
         // propósito para que la reconciliación pasiva lo complete en su próximo ciclo.
-        ex.closeReason = cerrarPor;
+        sellarCierre(ex, cerrarPor, 'Tradier-REV-TPSL');
         ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
         console.log(`[Tradier-REV-TPSL] ✅ Cerrado por ${cerrarPor} — orden ${ex.orderId}`);
@@ -10667,7 +10700,12 @@ async function cerrarPosicionPorSimbolos(simbolos, { aMercado = false } = {}) {
         if (!['filled', 'submitted'].includes(ex.status)) continue;
         if (!Object.values(ex.legs || {}).some(sym => pedidos.has(sym))) continue;
         ex.closeOrderId = orden.orderId;
-        ex.closeReason  = 'MANUAL_FORZADO';
+        // closeOrderSentAt engancha el cooldown de 2 min de los monitores
+        // (CLOSE_ORDER_COOLDOWN_MS). Antes el cierre manual no lo seteaba, asi que
+        // el guard no protegia nada: el monitor podia mandar una SEGUNDA orden de
+        // cierre encima de la del usuario, sobre una posicion que ya estaba yendose.
+        ex.closeOrderSentAt = new Date().toISOString();
+        sellarCierre(ex, 'MANUAL_FORZADO', 'manual');
         ex.notes = (ex.notes ? ex.notes + ' | ' : '') + 'Cierre manual forzado desde la bitácora.';
         tocados.push(ex.id);
       }
