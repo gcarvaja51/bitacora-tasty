@@ -7982,6 +7982,83 @@ const MAX_CLOSE_FAILS = 3;
 //
 // Devuelve false si NO se sello (habia una etiqueta manual que se respeta), para
 // que el llamador sepa que no debe dar el cierre por suyo.
+// ── Apertura ATASCADA (2026-08-18) ───────────────────────────────────────────
+//
+// Simetrico a la deteccion de CIERRE atascado que ya vive en
+// verificarCierreAnterior, que hasta hoy cubria solo la mitad del problema: a las
+// ordenes de APERTURA que Tradier acepta, deja en 'pending' con exec_quantity 0 y
+// nunca llena, no las miraba nadie. La ejecucion se quedaba en 'submitted' para
+// siempre y hasLocalOpenSPXWPosition() —que cuenta 'submitted' como posicion
+// abierta— bloqueaba al direccional y al Iron Condor sin decir una palabra.
+//
+// Caso real que lo motivo: la orden 37165979 del 2026-08-18 (BEAR_PUT_SPREAD
+// 7700/7690 0DTE) quedo 'pending' CINCO HORAS con las dos patas en
+// exec_quantity 0 y avg_fill_price 0. Resultado: ni una entrada nueva en toda la
+// tarde, status.json en verde y cero alertas. Se destrabo a mano.
+//
+// SE CANCELA PRIMERO EN EL BROKER. Marcar 'canceled' solo en el libro seria
+// peligroso al reves: si la orden llenara despues, quedaria una posicion real que
+// el sistema ya no vigila. Si el cancel falla se marca igual —el bloqueo es un
+// daño cierto y el fill es hipotetico— pero el aviso sube a urgente y lo dice.
+//
+// Queda en 'canceled', NO en 'closed': nunca hubo posicion, y un closed con pnl 0
+// ensuciaria las metricas con un trade que no existio.
+const APERTURA_ATASCADA_MS = 5 * 60 * 1000;
+
+async function verificarAperturaAtascada(ex, order, etiqueta) {
+  if (ex.status !== 'submitted') return false;
+  const estado    = String(order?.status || '').toLowerCase();
+  const ejecutado = Number(order?.exec_quantity || 0);
+  const enviado   = order?.create_date || ex.timestamp;
+  const haceMs    = enviado ? Date.now() - new Date(enviado).getTime() : 0;
+
+  let motivo = null;
+  if (['rejected', 'error', 'expired', 'canceled'].includes(estado)) {
+    motivo = `Tradier la dejo en '${estado}'` + (order?.reason_description ? `: ${order.reason_description}` : '');
+  } else if (['pending', 'open'].includes(estado) && ejecutado === 0 && haceMs > APERTURA_ATASCADA_MS) {
+    motivo = `sigue '${estado}' sin ejecutar tras ${Math.round(haceMs / 60000)} min`;
+  }
+  if (!motivo) return false;
+
+  let canceladaEnBroker = false, errorCancel = null;
+  if (['pending', 'open'].includes(estado)) {
+    try { await tradier.cancelOrder(ex.orderId); canceladaEnBroker = true; }
+    catch (e) { errorCancel = e.message; }
+  } else {
+    canceladaEnBroker = true;   // ya venia muerta del broker
+  }
+
+  ex.status   = 'canceled';
+  ex.pnl      = 0;
+  ex.closedAt = new Date().toISOString();
+  sellarCierre(ex, 'ORDEN_ATASCADA_SIN_LLENAR', etiqueta);
+  ex.notes = (ex.notes ? ex.notes + ' | ' : '') +
+    `Apertura descartada: la orden ${ex.orderId} ${motivo}. Nunca se lleno, no hubo posicion. ` +
+    (canceladaEnBroker ? 'Cancelada en el broker.' : `NO SE PUDO CANCELAR EN EL BROKER (${errorCancel}) — vigilar por si llena.`);
+
+  console.error(`[${etiqueta}] 🧹 Apertura atascada ${ex.id} (orden ${ex.orderId}): ${motivo} — se libera el gate.`);
+  try {
+    await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+      method: 'POST',
+      headers: {
+        'Title':        canceladaEnBroker
+          ? `🧹 ${ex.strategy || 'Trade'}: apertura atascada descartada`
+          : `🚨 ${ex.strategy || 'Trade'}: apertura atascada SIN cancelar`,
+        'Priority':     canceladaEnBroker ? 'default' : 'urgent',
+        'Tags':         canceladaEnBroker ? 'broom' : 'rotating_light',
+        'Content-Type': 'text/plain',
+      },
+      body: `${ex.id} (${ex.strategy || '?'}): la orden ${ex.orderId} ${motivo}. Se marco canceled para dejar de bloquear entradas nuevas. ` +
+            (canceladaEnBroker
+              ? 'Cancelada en Tradier — no hubo posicion.'
+              : `NO se pudo cancelar en Tradier (${errorCancel}). Si llena, queda una posicion que el sistema NO esta vigilando: revisar a mano.`),
+    });
+  } catch (e) {
+    console.error(`[${etiqueta}] No se pudo enviar el aviso de apertura atascada:`, e.message);
+  }
+  return true;
+}
+
 function sellarCierre(ex, motivo, quien) {
   if (ex.closeReason === 'MANUAL_FORZADO' && quien !== 'manual') {
     console.log(`[${quien}] ${ex.id}: ya venia cerrado a mano — no se pisa la etiqueta con '${motivo}'.`);
@@ -8518,6 +8595,8 @@ async function checkIronCondorTPSLImpl() {
             } else {
               console.log(`[Tradier-IC-TPSL] (local, no ejecuta) detectaría fill parcial en orden ${ex.orderId}.`);
             }
+          } else if (await verificarAperturaAtascada(ex, order, 'Tradier-IC-TPSL')) {
+            cambios = true;
           }
         }
         continue;
@@ -9171,6 +9250,8 @@ async function checkDirectionalTPSLImpl() {
             } else {
               console.log(`[Tradier-DIR-TPSL] (local, no ejecuta) detectaría fill parcial en orden ${ex.orderId}.`);
             }
+          } else if (await verificarAperturaAtascada(ex, order, 'Tradier-DIR-TPSL')) {
+            cambios = true;
           }
         }
         continue;
@@ -10360,6 +10441,8 @@ async function checkAlejamientoSMATPSLImpl() {
             } else {
               console.log(`[Tradier-REV-TPSL] (local, no ejecuta) detectaría fill parcial en orden ${ex.orderId}.`);
             }
+          } else if (await verificarAperturaAtascada(ex, order, 'Tradier-REV-TPSL')) {
+            cambios = true;
           }
         }
         continue;
