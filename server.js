@@ -11162,6 +11162,39 @@ app.get('/api/spx/reversion-sombra', (req, res) => {
   const porEtapa = {};
   for (const et of [...new Set(rows.map(r => r.etapa))]) porEtapa[et] = stats(rows.filter(r => r.etapa === et));
 
+  // ── Corte por BANDA DE ALEJAMIENTO (2026-08-17) ──────────────────────────
+  //
+  // La pregunta que faltaba poder contestar con datos: donde conviene poner
+  // extBandMinPct. Hoy esta en 0.13 y eso dejo a Reversion sin operar — 195 de
+  // 195 evaluaciones rechazadas por SIN_ALEJAMIENTO el 17-ago, con un
+  // alejamiento MAXIMO de 0.090% en toda la sesion. La tentacion es bajarla,
+  // pero bajarla "un poco" sin saber si esa zona predice es cambiar una puerta
+  // arbitraria por otra.
+  //
+  // Esto parte las evaluaciones por magnitud del estiramiento y mide el win
+  // rate simulado de cada tramo. Si el win rate CRECE con la banda hay señal, y
+  // la puerta se pone donde el numero lo justifique. Si sale plano, el
+  // alejamiento no discrimina y el problema esta en otro lado — probablemente
+  // en la geometria objetivo/stop, que con ~1.4 pts de objetivo contra 20 de
+  // stop necesita un acierto que ninguna banda entrega.
+  //
+  // Los cortes NO son redondos a proposito: con mediana 0.03% y p90 0.05%,
+  // tramos de 0.05 en 0.05 dejarian casi toda la muestra en el primero.
+  const CORTES = [0, 0.03, 0.05, 0.08, 0.11, 0.14, 0.20, Infinity];
+  const porBandaAlejamiento = [];
+  for (let i = 0; i < CORTES.length - 1; i++) {
+    const lo = CORTES[i], hi = CORTES[i + 1];
+    const sub = rows.filter(r => {
+      const v = Math.abs(Number(r.ext8));
+      return Number.isFinite(v) && v >= lo && v < hi;
+    });
+    porBandaAlejamiento.push({
+      banda: hi === Infinity ? `>=${lo}%` : `${lo}-${hi}%`,
+      ...(stats(sub) || { n: 0, objetivo: 0, stop: 0, tiempo: 0, winRate: null, mfeMediano: null, maeMediano: null }),
+      dentroDeLaPuertaActual: lo >= 0.13 && hi <= 0.30,
+    });
+  }
+
   res.json({
     ok: true,
     evaluaciones: rows.length,
@@ -11172,6 +11205,7 @@ app.get('/api/spx/reversion-sombra', (req, res) => {
     noEntraron: stats(rows.filter(r => !r.entroDeVerdad)),
     porCheck,
     porEtapa,
+    porBandaAlejamiento,
     muestraSuficiente: rows.length >= 30,
     nota: 'Resultado simulado con las reglas reales (objetivo al earlyExitPct de la SMA8, stop en el extremo de la vela de 5m previa, empate a favor del stop). Mide DIRECCION y timing, no P&L en dolares: el credito del spread depende de la cadena de opciones de ese momento, que no se puede reconstruir hacia atras.',
   });
