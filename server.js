@@ -9924,14 +9924,32 @@ async function checkAlejamientoSMA() {
     // Caso testigo, el 2026-08-07 12:49: ext 0.03%, score 77.5, entro; mientras
     // que a las 12:33, con el alejamiento en banda optima y Vela 9 confirmada, el
     // score fue 73 y NO entro. El sistema rechazaba los setups y tomaba el ruido.
+    // ── Las dos puertas se evaluan JUNTAS (2026-08-17) ───────────────────────
+    //
+    // Antes cada puerta hacia `return` apenas fallaba, asi que el log guardaba
+    // solo la PRIMERA razon de rechazo. Con eso no se puede saber cuantas
+    // puertas hay que abrir para que algo pase.
+    //
+    // Caso que lo destapo, hoy 17-ago: 195 de 195 evaluaciones quedaron
+    // registradas como SIN_ALEJAMIENTO y CERO como GAMMA_NO_POSITIVO. Parecia
+    // que el alejamiento era el unico obstaculo — y el gamma estuvo NEGATIVO el
+    // 100% del dia (netGex -67.44B al cierre). Nunca se llego a mirarlo. Bajar
+    // la banda del alejamiento mirando ese log habria sido inutil: los trades
+    // habrian muerto igual en la puerta siguiente.
+    //
+    // La DECISION no cambia en nada: si alguna puerta falla, no hay trade. Lo
+    // unico que cambia es que ahora se anotan todas.
+    const puertasFallidas = [];
+
     if (cfg.alejamientoEsPuerta) {
       const lo = cfg.extBandMinPct ?? 0.07, hi = cfg.extBandMaxPct ?? 0.14;
       const abs = Math.abs(ext8);
       if (!(abs >= lo && abs < hi)) {
-        const reason = `Alejamiento ${ext8}% fuera de la banda ${lo}-${hi}% — sin estiramiento no hay setup de reversión`;
-        logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SIN_ALEJAMIENTO',
-          passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, edadVela5Seg, desfaseVsSigma, fuenteSerie }) });
-        return;
+        puertasFallidas.push({
+          puerta: 'ALEJAMIENTO',
+          motivo: `Alejamiento ${ext8}% fuera de la banda ${lo}-${hi}%`,
+          valor: ext8, banda: `${lo}-${hi}`,
+        });
       }
     }
 
@@ -9960,17 +9978,44 @@ async function checkAlejamientoSMA() {
     if (cfg.requiereGammaPositivo) {
       const reg = effectiveGex.regime;
       if (!reg) {
-        console.warn('[SPX-REV] ⚠️ Sin dato de gamma (ni Sigma ni cálculo interno) — la puerta NO bloquea, decide el score.');
-        logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GAMMA_SIN_DATO',
-          passed: true, reason: 'Sin régimen de gamma disponible: la puerta se abre para no repetir el bloqueo silencioso del 14/07',
-          snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
+        // Solo se registra si ninguna otra puerta ya fallo — antes este aviso
+        // no existia cuando el alejamiento rechazaba primero, y no tiene sentido
+        // anotar "la puerta de gamma se abre" en una evaluacion que ya murio.
+        if (!puertasFallidas.length) {
+          console.warn('[SPX-REV] ⚠️ Sin dato de gamma (ni Sigma ni cálculo interno) — la puerta NO bloquea, decide el score.');
+          logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GAMMA_SIN_DATO',
+            passed: true, reason: 'Sin régimen de gamma disponible: la puerta se abre para no repetir el bloqueo silencioso del 14/07',
+            snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
+        }
       } else if (reg !== 'POSITIVO') {
-        const reason = `Gamma ${reg} al momento de entrar (fuente: ${effectiveGex.source}) — la reversión solo opera con gamma positivo`;
-        console.log(`[SPX-REV] ❌ ${reason}`);
-        logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'GAMMA_NO_POSITIVO',
-          passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi }) });
-        return;
+        puertasFallidas.push({
+          puerta: 'GAMMA',
+          motivo: `Gamma ${reg} al momento de entrar (fuente: ${effectiveGex.source})`,
+          valor: reg, fuente: effectiveGex.source,
+        });
       }
+    }
+
+    // Un solo registro con TODAS las puertas que fallaron. `stage` conserva el
+    // nombre de la primera para no romper los agregados existentes (porEtapa,
+    // la sombra, los analisis viejos), y `puertasFallidas` trae el cuadro
+    // completo. Asi se puede preguntar "cuantas veces el alejamiento fue el
+    // UNICO obstaculo", que hasta hoy no tenia respuesta.
+    if (puertasFallidas.length) {
+      const stage = puertasFallidas[0].puerta === 'ALEJAMIENTO' ? 'SIN_ALEJAMIENTO' : 'GAMMA_NO_POSITIVO';
+      const reason = puertasFallidas.map(p => p.motivo).join(' | ')
+        + (puertasFallidas.length > 1 ? '  [2 puertas cerradas]' : '');
+      console.log(`[SPX-REV] ❌ ${reason}`);
+      logStrategyEvent({
+        strategyFamily: 'REVERSION', etTime: ctx.etTime, stage, passed: false, reason,
+        puertasFallidas,
+        puertasEvaluadas: [
+          ...(cfg.alejamientoEsPuerta   ? ['ALEJAMIENTO'] : []),
+          ...(cfg.requiereGammaPositivo ? ['GAMMA'] : []),
+        ],
+        snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, edadVela5Seg, desfaseVsSigma, fuenteSerie }),
+      });
+      return;
     }
 
     const scoreResult = calcReversionScore({
