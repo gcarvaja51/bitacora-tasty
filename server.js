@@ -10015,6 +10015,14 @@ async function checkAlejamientoSMA() {
         ],
         snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, edadVela5Seg, desfaseVsSigma, fuenteSerie }),
       });
+
+      // Libro sombra en dolares (2026-08-17). Abre el trade que NO se tomo, con
+      // la cadena real de Tasty, para poder responder si las puertas estan
+      // dejando plata sobre la mesa. Va en su propio try dentro de la funcion y
+      // NO se espera su resultado para nada: la estrategia real ya decidio.
+      abrirSombraPaper({ ctx, direction, ext8, sma8, price5m, bars5, cfg, puertasFallidas })
+        .catch(e => console.warn('[SOMBRA-LIBRO] error abriendo:', e.message));
+
       return;
     }
 
@@ -11062,6 +11070,208 @@ function loadReversionSombra() {
 function saveReversionSombra(rows) {
   fs.writeFileSync(SPX_REVERSION_SOMBRA_FILE, JSON.stringify(rows, null, 2), 'utf8');
 }
+
+// ── LIBRO SOMBRA EN DOLARES (2026-08-17) ───────────────────────────────────
+//
+// Que le faltaba a la sombra que ya existia: mide DIRECCION y timing en PUNTOS,
+// y su propia nota lo dice — "el credito del spread depende de la cadena de
+// opciones de ese momento, que no se puede reconstruir hacia atras". Cierto: no
+// se puede reconstruir. Pero SI se puede capturar hacia adelante.
+//
+// Esto abre un trade sombra EN VIVO cuando las puertas rechazan un setup, con la
+// cadena REAL de TastyTrade en ese instante, y lo cierra con la cadena REAL del
+// momento en que se cumple la condicion de salida. El P&L sale en dolares, no en
+// puntos, y ya trae descontado el cruce del bid/ask — marcarPaper vende la corta
+// al bid y compra la larga al ask, que es lo que pasa de verdad al ejecutar.
+//
+// Por que importa: hoy no hay forma de saber si los setups que la puerta bloquea
+// habrian ganado PLATA. La sombra en puntos dice que el 38% llega al objetivo,
+// pero un objetivo de 1.4 puntos sobre un spread que cuesta cruzar 0.08 puede ser
+// negativo aunque "acierte".
+//
+// ⚠️ SOLO OBSERVACION. No coloca ordenes, no toca la config, no altera ninguna
+// decision. Todo va en su propio try: si falla, la estrategia real ni se entera.
+const SPX_SOMBRA_LIBRO_FILE = path.join(DATA_DIR, 'spx_sombra_libro.json');
+const SOMBRA_LIBRO_MAX = 2000;
+function loadSombraLibro() {
+  try { return JSON.parse(fs.readFileSync(SPX_SOMBRA_LIBRO_FILE, 'utf8')); } catch(e) { return []; }
+}
+function saveSombraLibro(rows) {
+  fs.writeFileSync(SPX_SOMBRA_LIBRO_FILE, JSON.stringify(rows.slice(0, SOMBRA_LIBRO_MAX), null, 2), 'utf8');
+}
+
+// Abre un trade sombra. Se llama desde checkAlejamientoSMA cuando las puertas
+// rechazan, con el mismo `direction`, `sma8` y config que habria usado el trade
+// real. Exclusividad propia: uno a la vez, igual que la estrategia de verdad.
+async function abrirSombraPaper({ ctx, direction, ext8, sma8, price5m, bars5, cfg, puertasFallidas }) {
+  try {
+    const libro = loadSombraLibro();
+    if (libro.some(r => r.estado === 'abierto')) return;   // ya hay una sombra viva
+
+    const estrategia = direction === 'BULLISH' ? 'BULL_PUT_SPREAD' : 'BEAR_CALL_SPREAD';
+    const chainRes = await fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/SPX`);
+    const chainData = await chainRes.json();
+    const k = findStrikesByDelta(chainData.expirations || [], estrategia, ctx.spxPrice, '0DTE',
+                                 cfg.targetDelta, cfg.spreadWidth);
+    if (!k?.shortStrike || !k?.longStrike) return;
+
+    const tipo = estrategia === 'BULL_PUT_SPREAD' ? 'P' : 'C';
+    const legs = {
+      shortSym: tradier.buildOccSymbol('SPXW', k.expiry, tipo, k.shortStrike),
+      longSym:  tradier.buildOccSymbol('SPXW', k.expiry, tipo, k.longStrike),
+    };
+    // Cadena REAL de Tasty, cruzando el bid/ask. Si no cotiza, no se abre nada:
+    // una sombra con precio inventado es peor que no tenerla.
+    const apertura = await marcarPaper(legs, 'apertura');
+    if (!apertura?.confiable) return;
+
+    // Mismas anclas de salida que el trade real: objetivo al earlyExitPct del
+    // camino hacia la SMA8, stop en el extremo de la vela de 5m (con el piso de
+    // stopMinPts), y tope de velas.
+    let stopBar = null;
+    if (bars5?.length) {
+      let i = bars5.length - 1;
+      while (i > 0 && bars5[i].high === bars5[i].low) i--;
+      stopBar = bars5[i];
+    }
+    const stopMinPts = cfg.stopMinPts ?? 0;
+    const entryCandleLow  = stopBar ? (stopMinPts > 0 ? Math.min(stopBar.low,  price5m - stopMinPts) : stopBar.low)  : price5m - (stopMinPts || 10);
+    const entryCandleHigh = stopBar ? (stopMinPts > 0 ? Math.max(stopBar.high, price5m + stopMinPts) : stopBar.high) : price5m + (stopMinPts || 10);
+
+    libro.unshift({
+      id: `sombra-${Date.now()}`,
+      abiertoEn: new Date().toISOString(),
+      estado: 'abierto',
+      // por que NO entro de verdad
+      puertasFallidas: (puertasFallidas || []).map(p => p.puerta),
+      motivo: (puertasFallidas || []).map(p => p.motivo).join(' | '),
+      // contexto del setup
+      direction, estrategia, ext8, sma8, entryPrice: price5m,
+      gexRegimen: ctx.gex?.regime || null,
+      // el trade
+      strikes: { expiry: k.expiry, shortStrike: k.shortStrike, longStrike: k.longStrike, tipo },
+      legs,
+      // cadena REAL de Tasty al abrir
+      apertura,
+      creditoApertura: apertura.neto,          // cruzando el bid/ask
+      creditoAperturaAlMedio: apertura.netoAlMedio,
+      // anclas de salida
+      smaTarget: sma8,
+      earlyExitPct: cfg.earlyExitPct ?? 0.9,
+      entryCandleLow, entryCandleHigh, stopMinPts,
+      maxCandlesTimeStop: cfg.maxCandlesTimeStop ?? 5,
+      cierre: null, pnl: null, salidaPor: null,
+    });
+    saveSombraLibro(libro);
+    console.log(`[SOMBRA-LIBRO] Abierta ${estrategia} ${k.shortStrike}/${k.longStrike} — credito real Tasty ${apertura.neto} (puertas: ${(puertasFallidas||[]).map(p=>p.puerta).join('+')})`);
+  } catch (e) {
+    console.warn('[SOMBRA-LIBRO] no se pudo abrir (no afecta nada):', e.message);
+  }
+}
+
+// Monitor de salida del libro sombra. Aplica las MISMAS reglas que
+// checkAlejamientoSMATPSL, pero en vez de mandar una orden cotiza la cadena real
+// de Tasty y anota el P&L en dolares.
+async function checkSombraPaperSalida() {
+  try {
+    if (!isMarketHours()) return;
+    const libro = loadSombraLibro();
+    const abierta = libro.find(r => r.estado === 'abierto');
+    if (!abierta) return;
+
+    const spot = await precioSPXFresco({ rapido: true });
+    if (!spot?.price) return;
+    const price = spot.price;
+    const isBullish = abierta.direction === 'BULLISH';
+
+    const objetivo = abierta.entryPrice + (abierta.smaTarget - abierta.entryPrice) * abierta.earlyExitPct;
+    const velas = Math.floor((Date.now() - new Date(abierta.abiertoEn).getTime()) / (2 * 60 * 1000));
+
+    let salidaPor = null;
+    if      (isBullish  && price >= objetivo)              salidaPor = 'PRECIO_OBJETIVO';
+    else if (!isBullish && price <= objetivo)              salidaPor = 'PRECIO_OBJETIVO';
+    else if (isBullish  && price < abierta.entryCandleLow) salidaPor = 'PRECIO_INVALIDACION';
+    else if (!isBullish && price > abierta.entryCandleHigh) salidaPor = 'PRECIO_INVALIDACION';
+    else if (velas >= abierta.maxCandlesTimeStop)          salidaPor = 'TIME_STOP';
+    if (!salidaPor) return;
+
+    const cierre = await marcarPaper(abierta.legs, 'cierre');
+    if (!cierre?.confiable) {
+      // Sin cotizacion fiable no se inventa un cierre: se reintenta al proximo
+      // ciclo. Si el mercado cierra antes, queda 'abierto' y se ve en el reporte.
+      console.warn('[SOMBRA-LIBRO] salida detectada pero Tasty no cotizo — se reintenta');
+      return;
+    }
+
+    // apertura.neto = credito COBRADO al abrir (cruzando).
+    // cierre.neto   = lo que se COBRA al cerrar; para un credit spread es
+    //                 negativo (se paga para recomprar), asi que el P&L es la
+    //                 suma de los dos netos.
+    const pnlPorContrato = abierta.creditoApertura + cierre.neto;
+    abierta.estado = 'cerrado';
+    abierta.cerradoEn = new Date().toISOString();
+    abierta.salidaPor = salidaPor;
+    abierta.cierre = cierre;
+    abierta.spxAlCerrar = price;
+    abierta.pnl = +(pnlPorContrato * 100).toFixed(2);
+    abierta.pnlAlMedio = +((abierta.creditoAperturaAlMedio + cierre.netoAlMedio) * 100).toFixed(2);
+    // Lo que costo cruzar, aislado: la diferencia entre operar al mid y operar
+    // de verdad. Es el numero que no se puede ver en una sombra por puntos.
+    abierta.costoCruce = +(abierta.pnlAlMedio - abierta.pnl).toFixed(2);
+    saveSombraLibro(libro);
+    console.log(`[SOMBRA-LIBRO] Cerrada por ${salidaPor} — P&L real $${abierta.pnl} (al medio $${abierta.pnlAlMedio}, cruce $${abierta.costoCruce})`);
+  } catch (e) {
+    console.warn('[SOMBRA-LIBRO] monitor de salida fallo (no afecta nada):', e.message);
+  }
+}
+setInterval(checkSombraPaperSalida, 20 * 1000);
+
+// GET /api/spx/sombra-libro — el contrafactual EN DOLARES.
+// ?detalle=true para las filas crudas.
+app.get('/api/spx/sombra-libro', (req, res) => {
+  const rows = loadSombraLibro();
+  const cerradas = rows.filter(r => r.estado === 'cerrado' && typeof r.pnl === 'number');
+  const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return +s[Math.floor(s.length / 2)].toFixed(2); };
+  const stats = (list) => {
+    if (!list.length) return null;
+    const g = list.filter(r => r.pnl > 0);
+    const total = list.reduce((s, r) => s + r.pnl, 0);
+    return {
+      n: list.length,
+      ganadores: g.length,
+      winRate: +(g.length / list.length * 100).toFixed(1),
+      pnlTotal: +total.toFixed(2),
+      pnlMedio: +(total / list.length).toFixed(2),
+      pnlMediano: med(list.map(r => r.pnl)),
+      // Lo que se habria perdido SOLO por cruzar el bid/ask, aislado del resultado.
+      costoCruceMediano: med(list.map(r => r.costoCruce).filter(x => typeof x === 'number')),
+    };
+  };
+  const porPuerta = {};
+  for (const p of ['ALEJAMIENTO', 'GAMMA']) {
+    porPuerta[p] = stats(cerradas.filter(r => (r.puertasFallidas || []).includes(p)));
+  }
+  porPuerta['SOLO_ALEJAMIENTO'] = stats(cerradas.filter(r =>
+    (r.puertasFallidas || []).length === 1 && r.puertasFallidas[0] === 'ALEJAMIENTO'));
+
+  const porSalida = {};
+  for (const s of [...new Set(cerradas.map(r => r.salidaPor))]) {
+    porSalida[s] = stats(cerradas.filter(r => r.salidaPor === s));
+  }
+
+  res.json({
+    ok: true,
+    abiertas: rows.filter(r => r.estado === 'abierto').length,
+    cerradas: cerradas.length,
+    dias: [...new Set(rows.map(r => String(r.abiertoEn).slice(0, 10)))].sort(),
+    global: stats(cerradas),
+    porPuerta,
+    porSalida,
+    muestraSuficiente: cerradas.length >= 30,
+    nota: 'P&L REAL en dolares con la cadena de TastyTrade: apertura y cierre cotizados CRUZANDO el bid/ask (corta al bid, larga al ask). pnlAlMedio es el mismo trade valuado al punto medio, y costoCruce la diferencia — lo que cuesta ejecutar de verdad. Son trades que NUNCA se colocaron: el sistema los rechazo en las puertas.',
+    ...(req.query.detalle === 'true' ? { filas: rows.slice(0, 200) } : {}),
+  });
+});
 
 // Simula UNA evaluacion con las reglas de salida reales de la estrategia.
 // - objetivo: earlyExitPct del camino hacia la SMA8 (misma formula que smaTarget)
