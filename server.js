@@ -6715,12 +6715,29 @@ app.get('/api/spx/signals', (req, res) => {
 // nota junto a logStrategyEvent(). ?date=YYYY-MM-DD filtra por dia,
 // ?family=NEUTRAL|TENDENCIA|REVERSION filtra por estrategia; sin filtros
 // devuelve todo el historial (cap 5000).
+// ?resumen=true y ?stage= agregados el 2026-08-19: con 658 entradas en un dia
+// (224 solo de POSITION_CHECK_MISMATCH), traerse el log entero para contar donde
+// mueren las evaluaciones es incomodo desde el celular y desde curl. El resumen
+// responde "donde se esta muriendo esto" en una sola linea.
 app.get('/api/spx/strategy-log', (req, res) => {
   let log = loadStrategyLog();
-  const { date, family } = req.query;
+  const { date, family, stage } = req.query;
   if (date)   log = log.filter(e => (e.timestamp || '').slice(0, 10) === date);
   if (family) log = log.filter(e => e.strategyFamily === family);
-  res.json(log);
+  if (stage)  log = log.filter(e => e.stage === stage);
+
+  if (req.query.resumen === 'true') {
+    const porEtapa = {}, porFamilia = {};
+    for (const e of log) {
+      porEtapa[e.stage || '?']            = (porEtapa[e.stage || '?'] || 0) + 1;
+      porFamilia[e.strategyFamily || '?'] = (porFamilia[e.strategyFamily || '?'] || 0) + 1;
+    }
+    return res.json({ ok: true, total: log.length, porEtapa, porFamilia,
+                      primera: log[log.length - 1]?.timestamp || null, ultima: log[0]?.timestamp || null });
+  }
+  // Sin limit se devuelve todo, como siempre — no se rompe a ningun consumidor.
+  const limit = parseInt(req.query.limit, 10);
+  res.json(Number.isFinite(limit) && limit > 0 ? log.slice(0, Math.min(limit, 2000)) : log);
 });
 
 // ── Niveles de Sigma Terminal, alimentados en vivo (2026-07-21) ────────────
@@ -7205,44 +7222,6 @@ app.get('/api/spx/sigma-levels', (req, res) => {
   if (!data) return res.json({ ok: false, reason: 'sin datos todavía' });
   const ageMs = Date.now() - new Date(data.updatedAt).getTime();
   res.json({ ok: true, ...data, ageMs, fresh: ageMs <= SIGMA_LEVELS_MAX_AGE_MS });
-});
-
-// GET /api/spx/strategy-log — SOLO LECTURA del log de decisiones (2026-08-19)
-//
-// POR QUE. spx_strategy_log.json vive en el DATA_DIR de produccion y no habia
-// forma de leerlo sin entrar a la maquina. Tres veces en una semana hubo que
-// diagnosticar a ciegas por eso: por que el Iron Condor no entro, por que el
-// direccional se quedo mudo cinco horas, y por que un TP cerro en perdida. En
-// los tres casos la respuesta estaba escrita en este archivo y no se podia mirar.
-// El copia local del repo no sirve: produccion escribe en su propio volumen.
-//
-// Filtros: ?date=YYYY-MM-DD, ?familia=TENDENCIA|REVERSION|NEUTRAL, ?stage=...,
-// ?limit=N (200 por defecto, 2000 tope). El log ya viene mas reciente primero.
-// ?resumen=true devuelve solo el conteo por etapa, para ver de un vistazo donde
-// mueren las evaluaciones sin traerse miles de entradas.
-app.get('/api/spx/strategy-log', (req, res) => {
-  try {
-    let log = loadStrategyLog();
-    const { date, familia, stage } = req.query;
-    if (date)    log = log.filter(e => (e.timestamp || '').slice(0, 10) === date);
-    if (familia) log = log.filter(e => e.strategyFamily === familia);
-    if (stage)   log = log.filter(e => e.stage === stage);
-
-    if (req.query.resumen === 'true') {
-      const porEtapa = {}, porFamilia = {};
-      for (const e of log) {
-        porEtapa[e.stage || '?']            = (porEtapa[e.stage || '?'] || 0) + 1;
-        porFamilia[e.strategyFamily || '?'] = (porFamilia[e.strategyFamily || '?'] || 0) + 1;
-      }
-      return res.json({ ok: true, total: log.length, porEtapa, porFamilia,
-                        primera: log[log.length - 1]?.timestamp || null, ultima: log[0]?.timestamp || null });
-    }
-
-    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 2000);
-    res.json({ ok: true, total: log.length, devueltas: Math.min(limit, log.length), entries: log.slice(0, limit) });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
 });
 
 // Devuelve los niveles de Sigma Terminal solo si están frescos (<5 min) —
@@ -9400,17 +9379,28 @@ async function checkDirectionalTPSLImpl() {
           `el resultado de este trade no es comparable.`);
       }
 
+      // Foto del gatillo (2026-08-19). El monitor de salida no dejaba NINGUN
+      // rastro: cuando disparaba un TP no quedaba con que precio lo hizo, contra
+      // que base, ni de donde salio la cotizacion. El 19-ago un cierre etiquetado
+      // TP salio en -$45 y no se pudo explicar -- la base era el libro paper
+      // (3.15) y no el fill de Tradier (3.90), pero el valor que vio el gatillo se
+      // perdio. Esto lo conserva para que el proximo caso se resuelva mirando.
+      const dbg = { base: precioBase, baseFuente: base.fuente, esCredito,
+                    cotFuente: q?.fuente ?? null, cotEdadSeg: q?.edadSeg ?? null };
+
       if (cerrarPor) {
         // Ya hay motivo de cierre (tecnico) — igual se necesita pnlActual para el
         // registro, calculado con la misma formula de siempre segun credito/debito.
         const costoDeCerrar = q[shortSym] - q[longSym];
         pnlActual = esCredito ? (precioBase - costoDeCerrar) : ((q[longSym] - q[shortSym]) - precioBase);
+        dbg.valorVisto = esCredito ? costoDeCerrar : (q[longSym] - q[shortSym]);
       } else if (esCredito) {
         // Costo de cerrar ahora = recomprar la corta - vender la larga
         const costoDeCerrar = q[shortSym] - q[longSym];
         pnlActual = precioBase - costoDeCerrar;
         const tpUmbral      = precioBase * ((ex.tpPct || 30) / 100);
         const slCostoUmbral = precioBase * (ex.slMult || 1.5);
+        dbg.valorVisto = costoDeCerrar; dbg.tpUmbral = tpUmbral; dbg.slUmbral = slCostoUmbral;
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
       } else {
@@ -9423,9 +9413,13 @@ async function checkDirectionalTPSLImpl() {
         pnlActual = valorActual - precioBase; // precioBase duplica aca como "debito pagado"
         const tpUmbral = precioBase * ((ex.debitTpPct ?? 50) / 100);
         const slUmbral = precioBase * ((ex.debitSlPct ?? 50) / 100);
+        dbg.valorVisto = valorActual;
+        dbg.tpUmbral = precioBase + tpUmbral;   // el valor al que hay que vender
+        dbg.slUmbral = precioBase - slUmbral;
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
       }
+      dbg.pnlVisto = pnlActual;
 
       // ── Trailing en modo SOMBRA — sobre PUNTOS de SPX ───────────────────
       // Registra que habria hecho un trailing, SIN ejecutarlo.
@@ -9573,6 +9567,19 @@ async function checkDirectionalTPSLImpl() {
         // 'filled' a propósito para que checkTradierExecutions (reconciliación pasiva,
         // cada 5 min) traiga el P&L REAL desde tradier.getClosedPnl en vez de confiar en
         // la cotización de antes de cerrar (que solo sirve para decidir el trigger).
+        // Queda la foto del gatillo, en el registro y en el log de estrategia.
+        // Sin esto un cierre solo dejaba su etiqueta, y una etiqueta sin el precio
+        // que la produjo no se puede auditar (ver el caso del 19-ago).
+        ex.triggerCierre = { ...dbg, motivo: cerrarPor, at: new Date().toISOString() };
+        logStrategyEvent({
+          strategyFamily: 'TENDENCIA', stage: 'CIERRE_DISPARADO', passed: true,
+          reason: `${cerrarPor} en ${ex.orderId}: valor visto ${dbg.valorVisto?.toFixed?.(2) ?? '?'} ` +
+                  `contra base ${dbg.base ?? '?'} (${dbg.baseFuente ?? '?'})` +
+                  (dbg.tpUmbral != null ? ` | umbral TP ${Number(dbg.tpUmbral).toFixed(2)}` : '') +
+                  ` | P&L estimado $${(pnlActual * 100 * (ex.contracts || 1)).toFixed(2)}`,
+          snapshot: ex.triggerCierre,
+        });
+
         sellarCierre(ex, cerrarPor, 'Tradier-DIR-TPSL');
         ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
