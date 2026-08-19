@@ -101,26 +101,54 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyCon
 Write-Log "Corriendo recolector de datos (TradingView + Sigma) antes del skill..."
 Push-Location "C:\Users\gcarv\bitacora-tasty\premercado_collector"
 try {
-    # Timeout duro de 5 min: el colector se colgo indefinidamente el 2026-08-02
-    # (bug de conexion CDP). Sin techo, ese cuelgue consume la ventana previa a
-    # la apertura ANTES de que claude.cmd llegue a correr -- el timeout de 30 min
-    # de mas abajo no sirve de nada si nunca se llega a esa linea.
+    # Timeout de 10 min (era 5 hasta el 2026-08-19). El colector se colgo
+    # indefinidamente el 2026-08-02 (bug de conexion CDP) y por eso hay techo,
+    # pero 5 min resultaron ser MENOS de lo que tarda cuando tiene que relanzar
+    # TradingView. Medido el 19-ago: el gate declaro "TIMEOUT, proceso terminado"
+    # a las 12:35:05 y el colector siguio vivo y termino solo a las 12:39:17,
+    # escribiendo su bundle. O sea que el trabajo SI se hizo y el gate se lo
+    # perdio. El techo sigue existiendo, pero ahora por encima de lo que tarda de
+    # verdad. Hay margen: el chequeo de ventana horaria ya paso (linea ~45) y no
+    # se vuelve a evaluar, y el skill tarda ~20 min mas.
     $collectorOutFile = Join-Path $logDir "premercado_collector_ultima_salida.txt"
+
+    # LA VERDAD ESTA EN collector.log, NO EN stdout. El colector escribe su propio
+    # log con el detalle de que capturo y que fallo; su stdout sale vacio casi
+    # siempre (0 bytes los ultimos 4 dias), asi que el gate venia reportando
+    # "TIMEOUT" o una linea en blanco mientras en disco habia un bundle con el
+    # detalle real. Se cuentan las lineas ANTES para reportar despues solo las
+    # nuevas de esta corrida.
+    $collectorLog = Join-Path $logDir "data_collector\collector.log"
+    $lineasAntes = 0
+    if (Test-Path $collectorLog) { $lineasAntes = @(Get-Content $collectorLog -ErrorAction SilentlyContinue).Count }
+
     $cproc = Start-Process -FilePath "node" -ArgumentList 'collect.js' `
         -RedirectStandardOutput $collectorOutFile -RedirectStandardError (Join-Path $logDir "premercado_collector_stderr.txt") `
         -NoNewWindow -PassThru
     # Ver nota extensa en el bloque 5): tocar .Handle ANTES de esperar es lo
     # unico que hace que .ExitCode quede poblado con Start-Process -PassThru.
-    # Aca el exit code solo va al log, pero sin esto se loguea siempre vacio.
     $null = $cproc.Handle
-    if (-not $cproc.WaitForExit(5 * 60 * 1000)) {
+    $termino = $cproc.WaitForExit(10 * 60 * 1000)
+    if (-not $termino) {
         Stop-Process -Id $cproc.Id -Force -ErrorAction SilentlyContinue
-        Write-Log "Recolector: TIMEOUT (>5 min), proceso terminado. Se sigue igual con el fallback manual del skill."
+        Write-Log "Recolector: TIMEOUT (>10 min), proceso terminado."
+    }
+
+    Start-Sleep -Seconds 2   # que alcance a vaciar el buffer del log
+    $nuevas = @()
+    if (Test-Path $collectorLog) {
+        $todas = @(Get-Content $collectorLog -ErrorAction SilentlyContinue)
+        if ($todas.Count -gt $lineasAntes) { $nuevas = $todas[$lineasAntes..($todas.Count - 1)] }
+    }
+    if ($nuevas.Count -gt 0) {
+        foreach ($l in $nuevas) { Write-Log "  [colector] $l" }
+        if (@($nuevas | Where-Object { $_ -match 'FALLO|errores: [1-9]' }).Count -gt 0) {
+            Write-Log "Recolector: TERMINO CON ERRORES -- el skill corre igual, pero con datos incompletos. Revisar las lineas [colector] de arriba."
+        } else {
+            Write-Log "Recolector: OK."
+        }
     } else {
-        $collectorOut = ""
-        if (Test-Path $collectorOutFile) { $collectorOut = (Get-Content $collectorOutFile -Raw) }
-        $collectorLinea = ($collectorOut.Trim() -replace "`r?`n", ' | ')
-        Write-Log "Recolector (exit $($cproc.ExitCode)): $collectorLinea"
+        Write-Log "Recolector: no escribio NADA en collector.log (termino=$termino) -- se colgo antes de siquiera empezar. El skill corre en modo fallback."
     }
 } catch {
     Write-Log "Recolector fallo por completo (excepcion): $($_.Exception.Message)"
