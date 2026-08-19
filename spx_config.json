@@ -63,7 +63,7 @@
       "wallProximityPts": 15,
       "riskPctPerTrade": 1,
       "earlyExitPct": 0.6,
-      "requiereGammaPositivo": true,
+      "requiereGammaPositivo": false,
       "stopMinPts": 20,
       "alejamientoEsPuerta": true,
       "extBandMinPct": 0.1,
