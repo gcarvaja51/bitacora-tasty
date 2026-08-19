@@ -8054,21 +8054,33 @@ async function verificarAperturaAtascada(ex, order, etiqueta) {
     (canceladaEnBroker ? 'Cancelada en el broker.' : `NO SE PUDO CANCELAR EN EL BROKER (${errorCancel}) — vigilar por si llena.`);
 
   console.error(`[${etiqueta}] 🧹 Apertura atascada ${ex.id} (orden ${ex.orderId}): ${motivo} — se libera el gate.`);
+
+  // La gravedad de NO poder cancelar depende de la cuenta (2026-08-19). En el
+  // sandbox el cancel falla SIEMPRE —las 21 zombis acumuladas devuelven HTTP 400
+  // "order not available to be canceled"— y ademas es inofensivo: esas ordenes
+  // tampoco llenan nunca, que es justo la patologia. Mandar 'urgent' por algo
+  // que va a pasar en cada atasco entrena a ignorar la alerta, y entonces deja
+  // de servir el dia que importe. En cuenta REAL una orden viva que no se pudo
+  // cancelar si es urgente: puede llenar y dejar una posicion sin vigilancia.
+  const esSandbox = /sandbox/i.test(process.env.TRADIER_BASE_URL || '');
+  const grave = !canceladaEnBroker && !esSandbox;
   try {
     await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
       method: 'POST',
       headers: {
-        'Title':        canceladaEnBroker
-          ? `🧹 ${ex.strategy || 'Trade'}: apertura atascada descartada`
-          : `🚨 ${ex.strategy || 'Trade'}: apertura atascada SIN cancelar`,
-        'Priority':     canceladaEnBroker ? 'default' : 'urgent',
-        'Tags':         canceladaEnBroker ? 'broom' : 'rotating_light',
+        'Title':        grave
+          ? `🚨 ${ex.strategy || 'Trade'}: apertura atascada SIN cancelar`
+          : `🧹 ${ex.strategy || 'Trade'}: apertura atascada descartada`,
+        'Priority':     grave ? 'urgent' : 'default',
+        'Tags':         grave ? 'rotating_light' : 'broom',
         'Content-Type': 'text/plain',
       },
       body: `${ex.id} (${ex.strategy || '?'}): la orden ${ex.orderId} ${motivo}. Se marco canceled para dejar de bloquear entradas nuevas. ` +
             (canceladaEnBroker
               ? 'Cancelada en Tradier — no hubo posicion.'
-              : `NO se pudo cancelar en Tradier (${errorCancel}). Si llena, queda una posicion que el sistema NO esta vigilando: revisar a mano.`),
+              : esSandbox
+                ? `No se pudo cancelar (${errorCancel}) — normal en el sandbox, esas ordenes tampoco llenan.`
+                : `NO se pudo cancelar en Tradier (${errorCancel}). Si llena, queda una posicion que el sistema NO esta vigilando: revisar a mano.`),
     });
   } catch (e) {
     console.error(`[${etiqueta}] No se pudo enviar el aviso de apertura atascada:`, e.message);

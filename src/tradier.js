@@ -2,6 +2,12 @@
 
 const DEFAULT_BASE = 'https://sandbox.tradier.com/v1';
 
+// Edad a partir de la cual una orden 'pending' sin ejecutar deja de contar como
+// viva — ver hasOpenPosition(). Diez minutos deja margen sobre los 5 de
+// APERTURA_ATASCADA_MS (server.js): cuando una orden llega a este umbral, el
+// monitor ya deberia haberla dado por muerta en el libro.
+const ORDEN_ZOMBI_MS = 10 * 60 * 1000;
+
 // ── Precios de orden: 2 decimales, y en la direccion correcta ───────────────
 // Tradier rechaza con HTTP 400 "must use up to 2 decimal place(s)", asi que
 // redondear es obligatorio. Pero redondear NO es neutro, y esto se me paso en
@@ -222,6 +228,28 @@ class TradierClient {
     const openStates = ['open', 'pending', 'partially_filled'];
     const hasOpenOrder = ordList.some(o => {
       if (!openStates.includes((o.status || '').toLowerCase())) return false;
+      // Zombis del sandbox (2026-08-19). Tradier acepta el multileg, devuelve id
+      // y lo deja en 'pending' con exec_quantity 0 PARA SIEMPRE: ni se llena ni
+      // se deja cancelar (comprobado — las 21 acumuladas devuelven HTTP 400
+      // "order not available to be canceled"). Como 'pending' esta en openStates,
+      // cada una hacia que esta funcion devolviera true de por vida.
+      //
+      // Efecto medido el 19-ago: 224 POSITION_CHECK_MISMATCH en un dia
+      // ("Tradier dice true, registro local dice false"), cada 30s. Hoy no
+      // bloqueo nada porque el gate exige ADEMAS que el libro local confirme,
+      // pero es un falso positivo permanente sobre el que descansa la proteccion
+      // contra apilar posiciones — y esa proteccion deja de significar algo si
+      // su fuente siempre dice que si.
+      //
+      // El discriminante es la EDAD, no el estado: una orden recien mandada
+      // tambien esta pending con 0 ejecutado y esa SI debe contar, que es
+      // justamente lo que evita mandar dos entradas seguidas. A los 10 min ya
+      // no: para entonces verificarAperturaAtascada (5 min) ya la marco muerta
+      // en el libro.
+      const ejecutado = Number(o.exec_quantity || 0);
+      const edadMs = o.create_date ? Date.now() - new Date(o.create_date).getTime() : 0;
+      if (ejecutado === 0 && edadMs > ORDEN_ZOMBI_MS) return false;
+
       const legs = Array.isArray(o.leg) ? o.leg : (o.leg ? [o.leg] : []);
       return (o.symbol || '').startsWith(root) || legs.some(l => (l.option_symbol || '').startsWith(root));
     });
