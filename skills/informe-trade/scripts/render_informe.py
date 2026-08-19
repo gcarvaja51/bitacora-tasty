@@ -247,6 +247,38 @@ VELA_BAJA = (239, 83, 80)
 CAJA_GANA = (220, 252, 231)
 CAJA_PIERDE = (254, 226, 226)
 LINEA_ENT = (30, 41, 59)
+# EMAs 10/20 (2026-08-19, a pedido del usuario: "un dibujo similar a como
+# aparece en TradingView en CIARG_V3"). Ambar y azul — se eligen para no
+# confundirse con el verde/rojo de las velas ni con las lineas de entrada y
+# salida, que ya usan esos dos colores.
+EMA_10 = (255, 152, 0)
+EMA_20 = (63, 81, 181)
+
+
+def calc_ema(valores, periodo):
+    """EMA sembrada con la SMA de las primeras `periodo` muestras.
+
+    Devuelve una lista del mismo largo que `valores`, con None en las primeras
+    `periodo-1` posiciones: ahi todavia no hay media que mostrar y dibujar algo
+    seria inventarlo.
+
+    OJO con el arranque. El grafico del informe es una ventana corta alrededor
+    del trade, no la serie completa, asi que no hay historia previa con la que
+    arrancar la EMA. Sembrar con la SMA es lo estandar y converge rapido, pero
+    los primeros puntos de la linea son aproximados y NO coinciden exactamente
+    con los de TradingView, que si tiene todo el historico. Cerca de la entrada
+    —que es lo que el informe viene a auditar— ya convergieron.
+    """
+    if not valores or len(valores) < periodo:
+        return [None] * len(valores)
+    k = 2.0 / (periodo + 1)
+    out = [None] * (periodo - 1)
+    prev = sum(valores[:periodo]) / periodo
+    out.append(prev)
+    for v in valores[periodo:]:
+        prev = v * k + prev * (1 - k)
+        out.append(prev)
+    return out
 
 
 def draw_chart(pdf, chart):
@@ -328,6 +360,36 @@ def draw_chart(pdf, chart):
         pdf.line(px(i), py(v["h"]), px(i), py(v["l"]))
         yo, yc = py(v["o"]), py(v["c"])
         pdf.rect(px(i) - aw / 2, min(yo, yc), aw, max(0.35, abs(yc - yo)), style="F")
+
+    # EMAs 10 y 20, encima de las velas — mismo orden de capas que TradingView.
+    # Se calculan de los cierres de estas mismas velas (Sigma, la fuente con la
+    # que decide el sistema); no hace falta pedir datos nuevos.
+    cierres = [v["c"] for v in velas]
+    emas_dibujadas = []
+    for periodo, color in ((10, EMA_10), (20, EMA_20)):
+        serie = calc_ema(cierres, periodo)
+        puntos = [(px(i), py(p_)) for i, p_ in enumerate(serie) if p_ is not None]
+        if len(puntos) < 2:
+            continue          # ventana mas corta que el periodo: no se dibuja nada
+        pdf.set_draw_color(*color)
+        pdf.set_line_width(0.35)
+        for (xa, ya), (xb, yb) in zip(puntos, puntos[1:]):
+            pdf.line(xa, ya, xb, yb)
+        emas_dibujadas.append((periodo, color))
+
+    # Leyenda de las EMAs, arriba a la izquierda del panel
+    if emas_dibujadas:
+        lx, ly = x0 + 2.0, y0 + 3.0
+        pdf.set_font("Helvetica", "", 6)
+        for periodo, color in emas_dibujadas:
+            pdf.set_draw_color(*color)
+            pdf.set_line_width(0.35)
+            pdf.line(lx, ly, lx + 4.0, ly)
+            pdf.set_text_color(*color)
+            pdf.set_xy(lx + 4.8, ly - 1.6)
+            pdf.cell(12, 3, f"EMA {periodo}", align="L")
+            lx += 20.0
+        pdf.set_text_color(0, 0, 0)
 
     # Nivel de entrada y de salida
     pdf.set_line_width(0.3)
