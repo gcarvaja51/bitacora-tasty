@@ -7207,6 +7207,44 @@ app.get('/api/spx/sigma-levels', (req, res) => {
   res.json({ ok: true, ...data, ageMs, fresh: ageMs <= SIGMA_LEVELS_MAX_AGE_MS });
 });
 
+// GET /api/spx/strategy-log — SOLO LECTURA del log de decisiones (2026-08-19)
+//
+// POR QUE. spx_strategy_log.json vive en el DATA_DIR de produccion y no habia
+// forma de leerlo sin entrar a la maquina. Tres veces en una semana hubo que
+// diagnosticar a ciegas por eso: por que el Iron Condor no entro, por que el
+// direccional se quedo mudo cinco horas, y por que un TP cerro en perdida. En
+// los tres casos la respuesta estaba escrita en este archivo y no se podia mirar.
+// El copia local del repo no sirve: produccion escribe en su propio volumen.
+//
+// Filtros: ?date=YYYY-MM-DD, ?familia=TENDENCIA|REVERSION|NEUTRAL, ?stage=...,
+// ?limit=N (200 por defecto, 2000 tope). El log ya viene mas reciente primero.
+// ?resumen=true devuelve solo el conteo por etapa, para ver de un vistazo donde
+// mueren las evaluaciones sin traerse miles de entradas.
+app.get('/api/spx/strategy-log', (req, res) => {
+  try {
+    let log = loadStrategyLog();
+    const { date, familia, stage } = req.query;
+    if (date)    log = log.filter(e => (e.timestamp || '').slice(0, 10) === date);
+    if (familia) log = log.filter(e => e.strategyFamily === familia);
+    if (stage)   log = log.filter(e => e.stage === stage);
+
+    if (req.query.resumen === 'true') {
+      const porEtapa = {}, porFamilia = {};
+      for (const e of log) {
+        porEtapa[e.stage || '?']            = (porEtapa[e.stage || '?'] || 0) + 1;
+        porFamilia[e.strategyFamily || '?'] = (porFamilia[e.strategyFamily || '?'] || 0) + 1;
+      }
+      return res.json({ ok: true, total: log.length, porEtapa, porFamilia,
+                        primera: log[log.length - 1]?.timestamp || null, ultima: log[0]?.timestamp || null });
+    }
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 2000);
+    res.json({ ok: true, total: log.length, devueltas: Math.min(limit, log.length), entries: log.slice(0, limit) });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // Devuelve los niveles de Sigma Terminal solo si están frescos (<5 min) —
 // si no hay dato o está stale, null, para que el caller caiga a su propio
 // cálculo sin romper nada.
