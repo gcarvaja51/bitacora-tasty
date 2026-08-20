@@ -29,10 +29,29 @@ $maxEdadMin = 15    # el ciclo normal es de 30s y el degradado de 2 min
 function Write-WLog($m){
   "$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))  $m" | Out-File -FilePath $logF -Append -Encoding utf8
 }
+# Aviso por ntfy con HttpClient de .NET, NO con Invoke-RestMethod (2026-08-19).
+#
+# Invoke-RestMethod en PowerShell 5.1 se apoya en el motor de Internet Explorer y
+# en sesion no interactiva -- que es como corre esta tarea -- se atasca. No es
+# teorico: el propio log de este vigilante lo registro,
+#
+#   2026-08-19 15:02:18  ntfy fallo: The operation has timed out
+#
+# o sea que detecto un problema y NO pudo avisar. Un vigilante mudo es medio
+# vigilante: encuentra la falla y se la guarda. HttpClient va directo contra la
+# pila de red de .NET y no toca IE.
 function Send-Ntfy($titulo,$prioridad,$cuerpo){
   try {
-    Invoke-RestMethod -Uri $ntfy -Method Post -TimeoutSec 15 `
-      -Headers @{ Title=$titulo; Priority=$prioridad; Tags='rotating_light' } -Body $cuerpo | Out-Null
+    Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+    $h = New-Object System.Net.Http.HttpClient
+    $h.Timeout = [TimeSpan]::FromSeconds(15)
+    try {
+      [void]$h.DefaultRequestHeaders.TryAddWithoutValidation('Title', $titulo)
+      [void]$h.DefaultRequestHeaders.TryAddWithoutValidation('Priority', $prioridad)
+      [void]$h.DefaultRequestHeaders.TryAddWithoutValidation('Tags', 'rotating_light')
+      $c = New-Object System.Net.Http.StringContent($cuerpo, [System.Text.Encoding]::UTF8, 'text/plain')
+      [void]$h.PostAsync($ntfy, $c).GetAwaiter().GetResult()
+    } finally { $h.Dispose() }
   } catch { Write-WLog "ntfy fallo: $($_.Exception.Message)" }
 }
 
@@ -47,21 +66,54 @@ $proc = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Sil
         Where-Object { $_.CommandLine -match 'index\.js' -and $_.CommandLine -notmatch 'node_modules' }
 $vivo = [bool]$proc
 
-# 2) Sigue ciclando?
-$edadMin = $null
+# 2) Sigue ciclando? Y ademas: los ciclos SIRVEN de algo?
+$edadMin = $null; $fallos = 0; $modo = ''; $ultError = ''; $edadExitoMin = $null
 if (Test-Path $statusF) {
   try {
     $s = Get-Content $statusF -Raw | ConvertFrom-Json
     if ($s.lastCycleAt) {
       $edadMin = ((Get-Date).ToUniversalTime() - ([datetime]::Parse($s.lastCycleAt)).ToUniversalTime()).TotalMinutes
     }
+    if ($s.lastSuccessAt) {
+      $edadExitoMin = ((Get-Date).ToUniversalTime() - ([datetime]::Parse($s.lastSuccessAt)).ToUniversalTime()).TotalMinutes
+    }
+    $fallos   = [int]$s.consecutiveFailures
+    $modo     = [string]$s.mode
+    $ultError = [string]$s.lastError
   } catch { Write-WLog "no se pudo leer status.json: $($_.Exception.Message)" }
 }
+
+# ¿Estamos dentro del horario de mercado? (9:30-16:00 ET, lunes a viernes)
+# Solo entonces tiene sentido exigir exitos: fuera de horario el daemon CICLA
+# pero salta el trabajo a proposito (lastSkipReason=fuera_de_horario), asi que
+# lastSuccessAt se queda quieto toda la noche sin que eso sea una averia.
+$etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'Eastern Standard Time')
+$minEt = $etNow.Hour * 60 + $etNow.Minute
+$enMercado = ($etNow.DayOfWeek -ne 'Saturday') -and ($etNow.DayOfWeek -ne 'Sunday') -and ($minEt -ge 570) -and ($minEt -lt 960)
+
+# ── Ciclar no es lo mismo que funcionar (2026-08-19) ──────────────────────────
+#
+# Hasta hoy este vigilante solo miraba que el proceso existiera y que ciclara.
+# El 19-ago cumplio las dos cosas durante OCHO HORAS mientras el daemon no podia
+# leer Sigma: el Chrome de sigma_profile habia desaparecido y cada ciclo moria
+# con "Sigma Terminal no devolvio el simbolo tras 10s". consecutiveFailures en 4,
+# mode en degraded, y el vigilante reportando 0 tan tranquilo.
+#
+# Es el mismo punto ciego que ya aparecio dos veces esta semana: verde por fuera,
+# el dato de fondo muerto. Ciclar es condicion necesaria, no suficiente.
+#
+# NO se relanza por esto -- el proceso esta vivo y relanzarlo no arregla que
+# Sigma no cargue. Solo avisa, que es lo que faltaba.
+$maxSinExitoMin = 20
 
 $problema = $null
 if (-not $vivo)                    { $problema = 'el proceso node index.js NO existe' }
 elseif ($null -eq $edadMin)        { $problema = 'status.json ilegible o sin lastCycleAt' }
 elseif ($edadMin -gt $maxEdadMin)  { $problema = ('el proceso existe pero no cicla hace {0:N1} min' -f $edadMin) }
+elseif ($fallos -ge 3)             { $problema = ("cicla pero FALLA: {0} ciclos seguidos sin exito (modo {1}). Ultimo error: {2}" -f $fallos, $modo, $ultError) }
+elseif ($enMercado -and ($null -ne $edadExitoMin) -and ($edadExitoMin -gt $maxSinExitoMin)) {
+  $problema = ('cicla pero lleva {0:N0} min SIN UN CICLO EXITOSO, con el mercado abierto. Ultimo error: {1}' -f $edadExitoMin, $ultError)
+}
 
 if (-not $problema) {
   if ($yaAlertado) {
