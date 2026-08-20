@@ -941,10 +941,21 @@ app.get('/api/margin-raw', async (req, res) => {
   catch(e) { res.status(500).json({ error: e.message, stack: e.stack?.split('\n').slice(0,3) }); }
 });
 
+// `commit` / `arrancadoEn` (2026-08-20): hasta hoy no habia forma de saber, desde
+// afuera, QUE version esta corriendo en produccion. Cada despliegue se verificaba
+// buscando algun campo nuevo en alguna respuesta, y un cambio que solo toca logica
+// interna —como el del Iron Condor midiendo contra la cadena real— no deja ninguno:
+// quedaba sin confirmar. Railway inyecta RAILWAY_GIT_COMMIT_SHA en el entorno, asi
+// que basta con exponerlo. `arrancadoEn` distingue "ya redesplego" de "sigue el
+// proceso viejo" cuando el SHA no esta disponible.
+const ARRANCADO_EN = new Date().toISOString();
 app.get('/api/health', (req, res) => res.json({
   ok: true, auth: !!tt.accessToken,
   tokenLen: (tt.accessToken || '').length,
   account: tt.accountNumber,
+  commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || null,
+  arrancadoEn: ARRANCADO_EN,
+  uptimeSeg: Math.round(process.uptime()),
   ts: new Date().toISOString()
 }));
 
