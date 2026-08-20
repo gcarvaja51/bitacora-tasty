@@ -9179,6 +9179,35 @@ async function cerrarLibroPaper(ex, tag) {
 // libro de hace 15 min, asi que usarlo como base hace que los umbrales
 // disparen sobre un numero equivocado aunque el precio del momento se mida
 // bien — el arreglo quedaria a medias. Si hay marca propia confiable, manda esa.
+// Precio de entrada POR PATA segun la cadena real, para todas las posiciones que
+// siguen abiertas: { [option_symbol]: precio por accion }.
+//
+// El libro paper guarda la marca de apertura como un neto por vertical
+// (paperEntry.neto) mas el bid/ask de cada pata. La pantalla de Posiciones razona
+// pata por pata (Tradier devuelve posiciones sueltas, no estructuras), asi que
+// aca se desarma: la corta se VENDIO al bid y la larga se COMPRO al ask — la
+// misma convencion de cruce que usa marcarPaper, no el mid.
+//
+// Solo se incluyen marcas confiables. Una pata sin marca queda fuera del mapa y
+// la pantalla cae al cost_basis de Tradier para esa fila, marcandola como tal.
+function construirEntradaRealMap() {
+  const out = {};
+  try {
+    for (const ex of loadTradierExecutions()) {
+      if (!['filled', 'submitted'].includes(ex.status)) continue;
+      const p = ex.paperEntry;
+      if (!p?.confiable || !Array.isArray(p.patas)) continue;
+      for (const pata of p.patas) {
+        if (pata.shortSym && Number.isFinite(pata.shortBid)) out[pata.shortSym] = pata.shortBid;
+        if (pata.longSym  && Number.isFinite(pata.longAsk))  out[pata.longSym]  = pata.longAsk;
+      }
+    }
+  } catch (e) {
+    console.warn('[POSICIONES] No se pudo armar el mapa de entradas reales:', e.message);
+  }
+  return out;
+}
+
 function baseDePrecio(ex) {
   const p = ex?.paperEntry;
   if (p?.confiable && Number.isFinite(p.neto) && Math.abs(p.neto) > 0) {
@@ -12933,7 +12962,13 @@ app.get('/api/positions-tradier', async (req, res) => {
         }
       }
 
-      const groups = groupPositionsTradier(positions, quotesMap);
+      // Entrada de cada pata segun la CADENA REAL (2026-08-20) — ver
+      // construirEntradaRealMap y la nota en groupPositionsTradier. Sin esto la
+      // pantalla restaba un mark en vivo contra un costo del sandbox diferido, y
+      // Posiciones mostraba un P&L distinto del que mostraba Historial para la
+      // misma posicion abierta.
+      const entradaRealMap = construirEntradaRealMap();
+      const groups = groupPositionsTradier(positions, quotesMap, entradaRealMap);
 
       // Precio del subyacente por grupo — mismo endpoint generico (Yahoo,
       // broker-agnostico) que ya usa loadPositions() de Tasty.
@@ -12985,16 +13020,31 @@ app.get('/api/curve-tradier', async (req, res) => {
         running += metrics.stratByDay[d];
         return +running.toFixed(2);
       });
-      if (values.length > 0 && currentNlv > 0) {
-        values[values.length - 1] = +currentNlv.toFixed(2);
-      }
 
-      // Drawdown sobre NLV real (snapshots) cuando hay suficientes puntos,
-      // igual criterio que /api/curve (Tasty) — si no, cae al acumulado de P&L.
-      let peak = TRADIER_STARTING_BALANCE, maxDD = 0, maxDDPct = 0;
+      // ── LA CURVA NO SE ANCLA AL SALDO DE TRADIER (2026-08-20) ──────────────
+      //
+      // Aca habia un `values[values.length-1] = currentNlv`: la curva se armaba
+      // acumulando el P&L de cada dia y despues el ULTIMO punto se pisaba con el
+      // balance real de la cuenta de Tradier. Mientras las dos fuentes daban lo
+      // mismo era un ajuste inocente. Desde que el P&L se mide contra la cadena
+      // real (ver mapSpxExecution) ya no dan lo mismo, y ese pisado convertia la
+      // curva en un hibrido: todos los puntos menos uno de la cadena real, y el
+      // ultimo del sandbox, con un salto artificial entre los dos.
+      //
+      // Son dos cantidades distintas y no hay forma de promediarlas:
+      //   · la curva = cuanto gano la ESTRATEGIA, medido contra la cadena real;
+      //   · currentNlv = cuanta plata hay en la cuenta demo, movida por fills de
+      //     un sandbox con 15 min de atraso.
+      // La primera responde "¿esto funciona?", que es para lo que existe la
+      // bitacora. La segunda se conserva aparte (nlvTradier) para poder cuadrar
+      // contra el broker, pero NUNCA se mezcla dentro de un total ni de una serie.
       const nlvPoints = Object.entries(nlvHistory).sort((a,b)=>a[0].localeCompare(b[0])).map(([,v])=>v);
-      if (currentNlv > 0) nlvPoints.push(currentNlv);
-      const ddSource = nlvPoints.length >= 2 ? nlvPoints : values;
+
+      // Drawdown sobre la MISMA serie que se dibuja. Antes se calculaba sobre los
+      // snapshots de NLV de Tradier, asi que el "Max Drawdown" del Dashboard no
+      // correspondia a ningun punto de la curva que el usuario estaba viendo.
+      let peak = TRADIER_STARTING_BALANCE, maxDD = 0, maxDDPct = 0;
+      const ddSource = values;
       ddSource.forEach(v => {
         if (v > peak) peak = v;
         const dd = peak - v;
@@ -13012,6 +13062,11 @@ app.get('/api/curve-tradier', async (req, res) => {
         byMonth: metrics.strategyByMonth, byWeek: metrics.strategyByWeek,
         nlvByMonth, nlvByWeek,
         nlvSnapshots: agregarHoy ? nlvEntries.concat([[todayStr(), currentNlv]]) : nlvEntries,
+        // El saldo del sandbox, expuesto aparte y con nombre propio. La UI lo
+        // muestra como referencia para cuadrar contra el broker; no entra en la
+        // curva ni en ningun total (ver la nota de arriba).
+        nlvTradier: currentNlv > 0 ? +currentNlv.toFixed(2) : null,
+        equityCadenaReal: values.length ? values[values.length - 1] : TRADIER_STARTING_BALANCE,
         ts: new Date().toISOString(),
       };
     });

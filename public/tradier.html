@@ -3471,13 +3471,20 @@ async function loadTodayTradier() {
       s.capPct = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null;
       s.closeTime = s.closeExecAt ? new Date(s.closeExecAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '—';
     });
-    const wins     = strategies.filter(s => s.pnl > 0).length;
-    const totalPnl = strategies.reduce((a, b) => a + b.pnl, 0);
+    // 2026-08-20: los KPI sumaban TODAS las filas del dia, incluidas las que
+    // todavia no tienen resultado confirmado (pnlPending viaja con pnl:0). Eso
+    // las contaba como trades perdedores de $0 y bajaba el win rate del dia,
+    // mientras Dashboard, Curvas y Rendimiento las excluyen. Mismo criterio en
+    // todas: la tabla las sigue mostrando con su etiqueta, los totales no.
+    const resueltos = strategies.filter(s => !s.pnlPending);
+    const wins      = resueltos.filter(s => s.pnl > 0).length;
+    const totalPnl  = resueltos.reduce((a, b) => a + b.pnl, 0);
+    const pendientes = strategies.length - resueltos.length;
 
     $('today-kpis-tradier').innerHTML = [
-      kpiCard('P&L Hoy',  f$(totalPnl), 'trades cerrados hoy', cc(totalPnl)),
-      kpiCard('Trades',   strategies.length, 'cerrados hoy', 'dim'),
-      kpiCard('Win Rate', strategies.length ? Math.round(wins / strategies.length * 100) + '%' : '—', 'hoy', wins > 0 && wins === strategies.length ? 'pos' : 'dim'),
+      kpiCard('P&L Hoy',  f$(totalPnl), 'contra la cadena real', cc(totalPnl)),
+      kpiCard('Trades',   resueltos.length, pendientes ? `${pendientes} sin confirmar` : 'cerrados hoy', 'dim'),
+      kpiCard('Win Rate', resueltos.length ? Math.round(wins / resueltos.length * 100) + '%' : '—', 'hoy', wins > 0 && wins === resueltos.length ? 'pos' : 'dim'),
     ].join('');
 
     window._todayDataTradier = strategies;
@@ -3747,12 +3754,26 @@ async function loadPositionsTradier() {
     const [etiqueta, tono] = FUENTES[data.fuentePrecio] || ['fuente desconocida', 'dim'];
     const edad = data.edadTastySeg != null ? `cotización de hace ${data.edadTastySeg}s` : 'sin sello de tiempo';
 
+    // De donde sale la ENTRADA (2026-08-20). El precio actual ya venia etiquetado
+    // desde el 17-ago, pero la otra mitad del P&L —el costo contra el que se
+    // resta— salia del cost_basis de Tradier sin que nada lo dijera. Con las dos
+    // mitades de fuentes distintas el numero no era comparable con el de
+    // Historial, que mide contra la cadena real. Ahora coinciden, y la etiqueta
+    // deja ver cuando alguna pata tuvo que caer al fill del sandbox.
+    const conEntradaReal = groups.filter(g => g.entradaFuente === 'cadena_real').length;
+    const etiquetaEntrada = !groups.length ? '—'
+      : conEntradaReal === groups.length ? 'Cadena real'
+      : conEntradaReal ? `Mixta (${conEntradaReal}/${groups.length})`
+      : 'Fill de Tradier';
+    const tonoEntrada = conEntradaReal === groups.length && groups.length ? 'pos' : conEntradaReal ? 'dim' : 'neg';
+
     $('pos-count').textContent = `${groups.length} posiciones (${data.totalContracts||0} contratos)`;
     $('pos-kpis').innerHTML = [
       kpiCard('Posiciones', groups.length, `${data.totalContracts||0} contratos`, 'dim'),
       kpiCard('Premium Neto Rec.', fa$(totalPremium), 'en posiciones SHORT', 'pos'),
-      kpiCard('P&L No Realizado', f$(totalUnreal), 'mark-to-market actual', cc(totalUnreal)),
-      kpiCard('Fuente del precio', etiqueta, edad, tono),
+      kpiCard('P&L No Realizado', f$(totalUnreal), 'contra la cadena real', cc(totalUnreal)),
+      kpiCard('Precio actual', etiqueta, edad, tono),
+      kpiCard('Precio de entrada', etiquetaEntrada, 'base del P&L', tonoEntrada),
     ].join('');
     renderPosRowsTradier(groups);
   } catch(e) {
@@ -3889,8 +3910,21 @@ function renderEquityChartTradier(curve, nlvSnapshots, _tipo, _chtype) {
   var p0 = curve.labels[0] || '', pN = curve.labels[curve.labels.length-1] || '';
   var perEl = $('curve-period-t'); if (perEl) perEl.textContent = p0.slice(0,10) + ' → ' + pN.slice(0,10);
 
+  // ── LA LINEA PRINCIPAL ES LA CADENA REAL (2026-08-20) ─────────────────────
+  //
+  // Hasta hoy este bloque hacia `mainData = interp`: en modo acumulado la serie
+  // que se dibujaba se REEMPLAZABA entera por una interpolacion de los snapshots
+  // de NLV de Tradier. O sea que la curva de capital —el grafico grande del
+  // Dashboard— no mostraba el acumulado de `curve.values` que el servidor se
+  // tomaba el trabajo de calcular: mostraba el saldo del sandbox, con sus 15 min
+  // de atraso incorporados. Los KPI de al lado ya salen de la cadena real, asi
+  // que el grafico y los numeros que lo rodean contaban historias distintas.
+  //
+  // Ahora manda `curve.values` (capital inicial + P&L acumulado contra la cadena
+  // real) y el NLV de Tradier queda como una linea punteada de referencia. La
+  // separacion entre las dos lineas ES el costo del atraso del sandbox, dibujado.
   var mainData = curve.values;
-  var snapPts = [];
+  var nlvRef = null;
   if (_tipo === 'acumulado' && nlvSnapshots && nlvSnapshots.length) {
     var byDay = {};
     nlvSnapshots.forEach(function(e) { byDay[e[0].slice(0,10)] = e[1]; });
@@ -3909,9 +3943,8 @@ function renderEquityChartTradier(curve, nlvSnapshots, _tipo, _chtype) {
       }
       for (var ii=0; ii<pts[0].i; ii++) interp[ii] = pts[0].v;
       for (var ii=pts[pts.length-1].i; ii<interp.length; ii++) interp[ii] = pts[pts.length-1].v;
-      mainData = interp;
+      nlvRef = interp;
     }
-    snapPts = pts;
   }
 
   var fmtL = function(l) {
@@ -3939,7 +3972,7 @@ function renderEquityChartTradier(curve, nlvSnapshots, _tipo, _chtype) {
   };
 
   var datasets = [{
-    label: 'Net Equity',
+    label: 'Capital (cadena real)',
     data: mainData,
     backgroundColor: getBg,
     borderColor: getBorder,
@@ -3956,6 +3989,14 @@ function renderEquityChartTradier(curve, nlvSnapshots, _tipo, _chtype) {
     datasets.push({ label:'Capital Inicial', data:Array(mainData.length).fill(initial),
       borderColor:'rgba(245,200,66,.35)', borderWidth:1, borderDash:[6,4],
       fill:false, pointRadius:0, type:'line' });
+    // Referencia: el saldo real de la cuenta de Tradier. La distancia contra la
+    // linea principal es lo que el sandbox se desvia por llenar con 15 min de
+    // atraso — util para cuadrar contra el broker, nunca para medir la estrategia.
+    if (nlvRef) {
+      datasets.push({ label:'Saldo Tradier (ref.)', data:nlvRef,
+        borderColor:'rgba(139,150,168,.45)', borderWidth:1, borderDash:[3,3],
+        fill:false, pointRadius:0, tension:0.3, type:'line' });
+    }
   }
 
   S.charts.equityTradier = new Chart(ctx, {
@@ -3965,16 +4006,26 @@ function renderEquityChartTradier(curve, nlvSnapshots, _tipo, _chtype) {
       responsive:true, maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
       plugins:{
+        // Se ocultaba todo menos el dataset 0. Ahora hay una segunda serie real
+        // (el saldo de Tradier como referencia) y tiene que poder nombrarse: sin
+        // leyenda, una linea punteada gris al lado de la principal no se sabe
+        // que es. Solo se sigue ocultando 'Capital Inicial', que es una guia.
         legend:{ display:true, position:'top', labels:{color:'#4e5a70',font:{size:10},boxWidth:10,
-          filter: function(item){ return item.datasetIndex===0; }
+          filter: function(item){ return item.text !== 'Capital Inicial'; }
         }},
         tooltip:{
           backgroundColor:'#13161e', borderColor:'#1f2433', borderWidth:1,
           titleColor:'#8b96a8', bodyColor:'#c9d3e0',
           callbacks:{
             label: function(c) {
-              if (c.datasetIndex!==0 || c.parsed.y==null) return null;
+              if (c.parsed.y==null) return null;
+              if (c.dataset.label === 'Capital Inicial') return null;
               var v = c.parsed.y;
+              // La serie de referencia se muestra con su nombre para que no se
+              // confunda con el capital medido contra la cadena real.
+              if (c.datasetIndex!==0) {
+                return ' ' + c.dataset.label + ': $' + v.toLocaleString('es-CO',{minimumFractionDigits:2});
+              }
               if (_tipo==='acumulado') {
                 var diff = v-initial;
                 var sign = diff>=0?'+':'-';
@@ -4032,8 +4083,11 @@ async function loadRendimiento(){
     // inicial (el pico arrancaba en ese valor negativo en vez de en 0).
     const ejeDias = dias.length ? ['inicio', ...dias] : [];
 
-    // ── Cuenta: valor real, no P&L. Sale de /api/curve-tradier, que ancla el
-    // ultimo punto al NLV en vivo. Es plata de la cuenta, no de una estrategia.
+    // ── Cuenta: capital, no P&L de una estrategia. Sale de /api/curve-tradier.
+    // 2026-08-20: esa curva ya no se ancla al NLV de Tradier — es capital inicial
+    // mas el P&L acumulado contra la cadena real, la misma serie que dibuja el
+    // Dashboard. Antes el ultimo punto saltaba al saldo del sandbox y este KPI
+    // terminaba en un numero que no salia de ninguna de las curvas de abajo.
     const cl = curva.curve?.labels || [], cv = curva.curve?.values || [];
     const ini = cv.length? cv[0] : 0, fin = cv.length? cv[cv.length-1] : 0;
     $('rend-cuenta-kpi').innerHTML = cv.length
@@ -4610,16 +4664,31 @@ async function loadDashboardTradier() {
     // Filtro Estrategia (2026-08-01) — Net Equity/BP siguen mostrando la
     // cuenta completa (son valores reales, no separables por estrategia);
     // P&L No Realizado/Posiciones Abiertas ya se filtraron arriba.
-    const allStrats = (m.strategies || []).filter(s => incluirErrores || !s.flaggedError);
+    // 2026-08-20: `m.strategies` incluye posiciones ABIERTAS y trades con el P&L
+    // todavia sin confirmar (pnlPending), que viajan con pnl:0. Sumarlos hacia
+    // que el Dashboard mostrara un total y un win rate distintos de los que
+    // calcula el servidor en m.totalPnL/m.winRate — que si los excluyen — y de
+    // los de Curvas y Rendimiento, que tambien filtran por !pnlPending. Cuatro
+    // pantallas, tres criterios. Se unifica con el del servidor: un trade sin
+    // resultado real no cuenta en ningun agregado.
+    const allStrats = (m.strategies || [])
+      .filter(s => incluirErrores || !s.flaggedError)
+      .filter(s => !s.isOpen && !s.pnlPending);
     const stratsFiltrados = familia ? allStrats.filter(s => getFamilia(s) === familia) : allStrats;
     const winsF = stratsFiltrados.filter(s => s.pnl > 0);
     const totalPnLF = +stratsFiltrados.reduce((a,b)=>a+b.pnl,0).toFixed(2);
     const winRateF = stratsFiltrados.length ? +((winsF.length/stratsFiltrados.length)*100).toFixed(2) : 0;
 
-    const nlv = bp.nlv || 0;
-    const initial = curveData.curve?.initial || nlv;
-    const totalPnL = nlv - initial;
-    const pctPnL = initial ? totalPnL/initial*100 : 0;
+    // ── Capital: manda la cadena real, el saldo de Tradier es referencia ──────
+    // `bp.nlv` es el balance del sandbox: plata movida por fills con 15 min de
+    // atraso. `equityReal` es el capital inicial mas el P&L acumulado medido
+    // contra la cadena real — la misma serie que dibuja la curva y la misma de
+    // la que sale "P&L Realizado". Se muestran los dos, nunca sumados entre si.
+    const nlvTradier = bp.nlv || 0;
+    const initial = curveData.curve?.initial || TRADIER_STARTING_BALANCE_UI;
+    const equityReal = +(initial + totalPnLF).toFixed(2);
+    const pctPnL = initial ? totalPnLF/initial*100 : 0;
+    const desvioSandbox = nlvTradier > 0 ? +(nlvTradier - equityReal).toFixed(2) : null;
     const dd = curveData.curve?.maxDD || 0;
     const ddPct = curveData.curve?.maxDDPct || 0;
 
@@ -4643,20 +4712,25 @@ async function loadDashboardTradier() {
       // de NLV real (que no saben nada de este filtro).
       esCompleta: incluirErrores,
     };
-    // El ultimo punto se ancla al NLV real solo cuando no se esta excluyendo
-    // nada (el "todo incluido" es el unico caso donde el acumulado deberia
-    // coincidir exactamente con el balance real de la cuenta).
-    if (incluirErrores && dashCurveData.curve.values.length && nlv > 0) {
-      dashCurveData.curve.values[dashCurveData.curve.values.length - 1] = +nlv.toFixed(2);
-    }
+    // 2026-08-20: aca se pisaba el ultimo punto de la curva con el NLV de
+    // Tradier. Mientras las dos fuentes coincidian era inocente; desde que el
+    // P&L se mide contra la cadena real dejan de coincidir, y el pisado volvia
+    // la curva un hibrido — todos los puntos de una fuente y el ultimo de otra,
+    // con un salto artificial entre ambos. La curva ahora es integramente cadena
+    // real; el saldo del sandbox se muestra aparte, en su propio KPI.
 
     $('dash-kpis').innerHTML = [
-      kpiCard('Net Equity (Tradier)', fa$(nlv), fp(pctPnL), cc(totalPnL)),
-      kpiCard('BP Opciones Disp.', fa$(bp.derivAvail||0), 'ver Buying Power', 'dim'),
-      kpiCard('P&L No Realizado', f$(totalUnreal), `${groups.length} posiciones`, cc(totalUnreal)),
-      kpiCard('P&L Realizado', f$(totalPnLF), `${stratsFiltrados.length} estrategias`, cc(totalPnLF)),
+      kpiCard('Capital (cadena real)', fa$(equityReal), fp(pctPnL), cc(totalPnLF)),
+      kpiCard('P&L Realizado', f$(totalPnLF), `${stratsFiltrados.length} estrategias cerradas`, cc(totalPnLF)),
+      kpiCard('P&L No Realizado', f$(totalUnreal), `${groups.length} posiciones abiertas`, cc(totalUnreal)),
       kpiCard('Win Rate', winRateF+'%', benchmark(winRateF,'≥55% ✓','<55% ✗',55), winRateF>=55?'pos':'neg'),
       kpiCard('Max Drawdown', f$(-dd), `-${ddPct.toFixed(1)}% desde pico`, 'neg'),
+      // Referencia, no resultado: el saldo que tiene la cuenta demo. La brecha
+      // contra el capital de la cadena real es, en dolares, lo que el sandbox se
+      // desvio por llenar con 15 min de atraso. No se suma con nada.
+      kpiCard('Saldo Tradier (ref.)', fa$(nlvTradier),
+        desvioSandbox != null ? `${f$(desvioSandbox)} vs cadena real` : 'sin dato', 'dim'),
+      kpiCard('BP Opciones Disp.', fa$(bp.derivAvail||0), 'ver Buying Power', 'dim'),
     ].join('');
 
     _cDataT = dashCurveData; _chRedrawTradier();

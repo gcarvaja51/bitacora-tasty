@@ -14,7 +14,24 @@
 
 const { parseOccSymbol } = require('./bp_tradier_adapter');
 
-function groupPositionsTradier(positions = [], quotesMap = {}) {
+// entradaRealMap (2026-08-20): { [option_symbol]: precio de entrada por accion
+// segun la CADENA REAL de opciones }. Ver construirEntradaRealMap en server.js.
+//
+// Por que hace falta: `avgPrice` salia de `cost_basis`, o sea del fill del
+// sandbox de Tradier, que llena contra un libro de ~15 min de atraso. Las
+// cotizaciones de esta misma pantalla ya se piden en vivo a TastyTrade desde el
+// 2026-08-17, asi que el P&L no realizado se calculaba con el valor de AHORA
+// contra un costo de hace un cuarto de hora — mezclando las dos fuentes dentro
+// del mismo numero.
+//
+// Consecuencia concreta: la pestana Posiciones y el KPI "P&L No Realizado" del
+// Dashboard mostraban una cifra distinta de la que mostraba Historial para la
+// MISMA posicion abierta (Historial ya usa baseDePrecio, la entrada de la cadena
+// real). Dos pantallas, dos numeros, la misma posicion.
+//
+// Si un simbolo no esta en el mapa (posiciones de La Rueda, o adoptadas sin
+// marca propia) se cae a cost_basis como antes — no se pierde ninguna fila.
+function groupPositionsTradier(positions = [], quotesMap = {}, entradaRealMap = {}) {
   const map = new Map();
   for (const p of positions) {
     const parsed  = parseOccSymbol(p.symbol || '');
@@ -32,11 +49,15 @@ function groupPositionsTradier(positions = [], quotesMap = {}) {
     const qtySigned = parseFloat(p.quantity || 0); // signo: negativo = short
     const mul = isStock ? 1 : 100;
     const costBasis = parseFloat(p.cost_basis || 0); // monto TOTAL de la posicion (no por accion)
-    const avgPrice = Math.abs(qtySigned) > 0 ? Math.abs(costBasis) / (Math.abs(qtySigned) * mul) : 0;
+    const avgTradier = Math.abs(qtySigned) > 0 ? Math.abs(costBasis) / (Math.abs(qtySigned) * mul) : 0;
+    const entradaReal = entradaRealMap[p.symbol];
+    const avgPrice = Number.isFinite(entradaReal) ? entradaReal : avgTradier;
+    if (Number.isFinite(entradaReal)) g.entradaFuente = 'cadena_real';
+    else if (g.entradaFuente !== 'cadena_real') g.entradaFuente = 'tradier_fill';
     const q = quotesMap[p.symbol] || {};
     const mark = q.mark != null ? q.mark : 0;
 
-    g.legs.push({ ...p, ...(parsed || {}), avgPrice, mark, isShort: qtySigned < 0, delta: q.delta ?? null, theta: q.theta ?? null });
+    g.legs.push({ ...p, ...(parsed || {}), avgPrice, avgTradier, mark, isShort: qtySigned < 0, delta: q.delta ?? null, theta: q.theta ?? null });
     g.currentPrice = mark;
     g.totalQty += qtySigned;
 
