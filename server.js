@@ -9665,6 +9665,16 @@ setInterval(checkDirectionalMonitorHealth, 60 * 1000);
 // y el usuario las silencia — que es peor que no avisar.
 const _vigAvisado = new Map();
 
+// Minuto ET en que empezo la ventana que esta corriendo ahora, retrocediendo
+// mientras classifyWindow siga devolviendo la misma etiqueta. Se calcula en vez
+// de escribirse para que no vuelva a haber dos copias del mismo horario: la
+// unica fuente sigue siendo classifyWindow.
+function inicioDeVentana(mins, etiqueta) {
+  let i = mins;
+  while (i > 0 && classifyWindow(i - 1) === etiqueta) i--;
+  return i;
+}
+
 async function vigilarEstrategias() {
   try {
     if (!isMarketHours()) { _vigAvisado.clear(); return; }
@@ -9673,14 +9683,35 @@ async function vigilarEstrategias() {
     const cfg = loadSPXConfig();
     const t = cfg.trading || {};
 
-    // Ventana propia de cada una. El IC 0DTE no tiene ventana horaria (decide el
-    // PIN), asi que se lo vigila durante toda la sesion hasta su tope de apertura.
+    // LA VENTANA DEL IC NO SE ESCRIBE ACA (2026-08-20, falso positivo diario).
+    //
+    // Estaba puesta a mano como 9:30-14:30 con el argumento de que "el IC 0DTE no
+    // tiene ventana horaria". Lo tiene: checkIronCondor arranca con
+    // classifyWindow y solo corre en IC_FAVORABLE (10:00-13:00) y CIERRE_1DTE
+    // (15:45-15:52). Medido en el log del 17, 18, 19 y 20 de agosto: la primera
+    // evaluacion de NEUTRAL cae a las 10:03 los cuatro dias, y la ultima del
+    // tramo 0DTE a las 13:00.
+    //
+    // O sea que el vigilante reclamaba en dos franjas donde no habia nada roto:
+    //   9:42 -> 10:03  (~21 min) la estrategia todavia no abrio su ventana
+    //   13:12 -> 14:30 (~78 min) ya la cerro
+    // Un "Estrategia inactiva: Iron Condor" cada manana y otro cada tarde, todos
+    // los dias. El de la tarde dura 78 minutos, que es exactamente la queja:
+    // avisos de inactividad "durante mucho tiempo".
+    //
+    // El bug de fondo fue escribir la ventana DOS VECES. Ahora se deriva de
+    // classifyWindow, que es de donde la lee la estrategia: si alguien mueve la
+    // ventana, el vigilante la sigue solo.
+    const ventanaIC = classifyWindow(mins);
+    const icEnVentana = ventanaIC === 'IC_FAVORABLE' || ventanaIC === 'CIERRE_1DTE';
+
     const estrategias = [
-      { nom: 'Reversión',    fam: 'REVERSION',  activa: mins >= 585 && mins < 780,
+      { nom: 'Reversión',    fam: 'REVERSION',  activa: mins >= 585 && mins < 780, desde: 585,
         exec: (t.smaReversion || {}).tradierAutoExecute },
-      { nom: 'Direccional',  fam: 'TENDENCIA',  activa: mins >= 585 && mins < 840,
+      { nom: 'Direccional',  fam: 'TENDENCIA',  activa: mins >= 585 && mins < 840, desde: 585,
         exec: t.tradierAutoExecute },
-      { nom: 'Iron Condor',  fam: 'NEUTRAL',    activa: mins >= 570 && mins < 870,
+      { nom: 'Iron Condor',  fam: 'NEUTRAL',    activa: icEnVentana,
+        desde: icEnVentana ? inicioDeVentana(mins, ventanaIC) : mins,
         exec: (t.ironCondor || {}).tradierAutoExecute },
     ];
 
@@ -9701,9 +9732,19 @@ async function vigilarEstrategias() {
       // 2. MUDA — la ultima evaluacion de su familia es vieja. 12 min cubre al
       // mas lento de los tres ciclos (el IC corre cada 5) con margen para un
       // ciclo perdido.
+      //
+      // GRACIA AL ABRIR LA VENTANA (2026-08-20). La evaluacion "vieja" que se
+      // mide recien abierta la ventana es la del dia anterior, asi que sin esto
+      // el vigilante gritaba en los primeros minutos de cada franja — el mismo
+      // falso positivo, movido de las 9:42 a las 10:00. Se le dan los mismos 12
+      // min de margen desde que la ventana abre. Efecto lateral buscado: la
+      // franja de 7 minutos del 1DTE (15:45-15:52) nunca llega a los 12 y por lo
+      // tanto no se vigila por mudez, que es lo correcto — en una ventana mas
+      // corta que el umbral, ese umbral no significa nada.
+      const abiertaHaceMin = mins - e.desde;
       const ultimo = log.find(x => x.strategyFamily === e.fam && x.timestamp);
       const edadMin = ultimo ? (ahora - new Date(ultimo.timestamp).getTime()) / 60000 : Infinity;
-      if (edadMin > 12) {
+      if (abiertaHaceMin >= 12 && edadMin > 12) {
         await avisarVigilante(e.nom, 'muda',
           `${e.nom}: lleva ${edadMin === Infinity ? 'todo el día' : Math.round(edadMin) + ' min'} `
           + `sin evaluar dentro de su ventana. El monitor puede estar caído.`);
