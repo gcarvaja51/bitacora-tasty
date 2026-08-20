@@ -87,11 +87,47 @@ function mapSpxExecution(ex) {
   // buildMetricsTradier EXCLUYE estos trades de todos los agregados (win rate,
   // P&L total, curva, calendario...) -- si contaran, un trade sin resultado
   // real se leeria como perdedora de $0 y ensuciaria las metricas.
-  const pnlPending = isOpen || typeof ex.pnl !== 'number';
+  // ── EL DINERO SALE DE LA CADENA REAL, NO DE TRADIER (2026-08-20) ───────────
+  //
+  // Regla del usuario: "la apertura y el cierre de cada trade se hace vs la cadena
+  // de opciones real, no sobre lo que diga Tradier, que ya sabemos que tiene 15
+  // minutos de retraso... lo que vea en la bitacora frente a temas de dinero debe
+  // estar acotado a la cadena real".
+  //
+  // Hasta hoy `ex.pnl` era lo unico que llegaba a la pantalla, y `ex.pnl` sale
+  // SIEMPRE de los fills de Tradier (resolverPnlDesdeOrdenes / gainloss). El
+  // sandbox llena contra un libro de ~15 min de atraso, asi que ese numero no
+  // describe el trade que el algoritmo realmente hizo: describe el trade que
+  // habria hecho alguien operando con un cuarto de hora de retraso.
+  //
+  // El libro propio (ex.paperPnl, ver marcarPaper/cerrarLibroPaper en server.js)
+  // ya venia calculando el resultado contra la cadena en vivo de TastyTrade,
+  // cruzando el spread — vendiendo al bid y comprando al ask, sin regalarse el
+  // mid. Estaba bien calculado desde el 16-ago y no se mostraba en ningun lado.
+  //
+  // Lo que se veia (19 y 20 de agosto, 8 trades cerrados):
+  //     Tradier          cadena real
+  //     TP  ->   -$45     TP  ->  +$70.80
+  //     TP  ->   -$90     TP  ->  +$100.80
+  //     SL  ->   +$10     SL  ->  -$264.20
+  // Con Tradier un TP podia terminar en perdida y un SL en ganancia. Contra la
+  // cadena real cada TP es ganancia y cada SL es perdida, sin una sola excepcion.
+  //
+  // Se usa el BRUTO, no el neto: paperPnl.neto ya descuenta la comision asumida, y
+  // `commissionEstimate` viaja como columna aparte (asi lo muestra Historial). Con
+  // el neto la comision se contaria dos veces.
+  //
+  // Registros anteriores al libro (antes del 16-ago) no tienen paperPnl y siguen
+  // con el numero de Tradier — no hay dato de cadena real que ponerles, y borrar el
+  // historial para que no se mezcle seria peor. `pnlFuente` deja ver cual es cual.
+  const libro         = (ex.paperPnl && ex.paperPnl.confiable) ? ex.paperPnl : null;
+  const pnlPending    = isOpen || (libro ? false : typeof ex.pnl !== 'number');
   const contracts     = ex.contracts || 1;
-  const entryPremium  = Math.abs(ex.entryFillPrice ?? ex.creditReceived ?? 0) * 100 * contracts;
+  const marcaApertura = (ex.paperEntry && ex.paperEntry.confiable && Number.isFinite(ex.paperEntry.neto))
+    ? Math.abs(ex.paperEntry.neto) : null;
+  const entryPremium  = (marcaApertura ?? Math.abs(ex.entryFillPrice ?? ex.creditReceived ?? 0)) * 100 * contracts;
   const openValue     = ex.isCredit === false ? -entryPremium : entryPremium;
-  const pnlNum        = pnlPending ? 0 : ex.pnl;
+  const pnlNum        = pnlPending ? 0 : (libro ? libro.bruto : ex.pnl);
   const closeValue    = pnlPending ? 0 : +(pnlNum - openValue).toFixed(2);
   const openDate      = (ex.filledAt || ex.timestamp || '').slice(0, 10);
   // Una posicion abierta no tiene fecha de cierre real. Se usa la de apertura
@@ -123,12 +159,25 @@ function mapSpxExecution(ex) {
     closeValue,
     pnl:              +pnlNum.toFixed(2),
     pnlPending,                       // <- Historial lo usa para mostrar "pendiente"
-    pnlSource:        ex.pnlSource || null,
+    // 'cadena_real' = calculado contra TastyTrade en vivo (el numero bueno).
+    // Cualquier otro valor = viene de los fills diferidos de Tradier (registros
+    // previos al libro). Es lo que permite auditar de un vistazo cual es cual.
+    pnlFuente:        libro ? 'cadena_real' : (ex.pnlSource || null),
+    pnlSource:        libro ? 'cadena_real' : (ex.pnlSource || null),
+    // El numero del sandbox, conservado aparte: sigue siendo el saldo que mueve la
+    // cuenta de Tradier, y la diferencia contra el de la cadena real es —en
+    // dolares— lo que cuesta operar con 15 min de atraso.
+    pnlBroker:        typeof ex.pnl === 'number' ? ex.pnl : null,
+    entradaCadenaReal: marcaApertura,
+    salidaCadenaReal:  libro ? libro.salida : null,
     commissionEstimate: estimateSpxCommission(ex),
     amPm:             getAmPm(ex.filledAt || ex.timestamp),
     durationDays:     Math.round((new Date(closeDate) - new Date(openDate)) / 86400000),
     durationCat:      getDurationCat(openDate, closeDate),
-    win:              pnlPending ? null : ex.pnl > 0,
+    // Contra pnlNum, no contra ex.pnl: si el resultado que se muestra sale de la
+    // cadena real, el WIN/LOSS tiene que salir del MISMO numero. Con ex.pnl un
+    // trade podia figurar como perdedora en la etiqueta y ganadora en la cifra.
+    win:              pnlPending ? null : pnlNum > 0,
     flaggedError:     !!ex.flaggedError,
     flaggedErrorNote: ex.flaggedErrorNote || null,
     flaggedAt:        ex.flaggedAt || null,

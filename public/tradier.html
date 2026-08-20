@@ -2630,6 +2630,12 @@ function consolidateStrategies(legs) {
         // no realizado en vivo).
         pnlPending:leg.pnlPending, pnlSource:leg.pnlSource,
         isOpen:leg.isOpen, livePnl:null,
+        // 2026-08-20: el dinero de la bitacora ahora sale de la cadena real de
+        // opciones (ver mapSpxExecution, src/metrics_tradier.js). pnlFuente dice si
+        // esta fila es 'cadena_real' o el numero viejo de Tradier; pnlBroker guarda
+        // lo que dijo el sandbox, para poder ver la diferencia sin salir de la tabla.
+        pnlFuente:leg.pnlFuente, pnlBroker:leg.pnlBroker,
+        entradaCadenaReal:leg.entradaCadenaReal, salidaCadenaReal:leg.salidaCadenaReal,
         closeReason:leg.closeReason, entryFillPrice:leg.entryFillPrice });
     }
     const s = map.get(key);
@@ -2817,13 +2823,28 @@ async function loadHistoryTradier() {
               <td class="td-mono">${fillLabel}</td>
               ${s.isOpen
                 ? (s.livePnl != null
-                    // P&L NO REALIZADO — el "~" marca que es un estimado en vivo
-                    // (cotizaciones reales de Tradier), no un resultado cerrado.
-                    ? `<td class="td-mono ${cc(s.livePnl)}" style="font-weight:700;" title="P&L no realizado, estimado con cotizaciones en vivo de Tradier. Cambia con el mercado y NO cuenta todavía en win rate, curva ni KPIs.">~${f$(s.livePnl)}</td>`
+                    // P&L NO REALIZADO — el "~" marca que es un estimado en vivo.
+                    // 2026-08-20: entrada y valor actual salen los dos de la cadena
+                    // real de TastyTrade, la misma con la que el robot decide el
+                    // TP/SL. Antes la entrada era el fill diferido de Tradier y este
+                    // numero no coincidia con el del robot ni con el resultado final.
+                    ? `<td class="td-mono ${cc(s.livePnl)}" style="font-weight:700;" title="P&L no realizado contra la cadena real de opciones (TastyTrade en vivo) — la misma que usa el robot para decidir TP/SL. Cambia con el mercado y NO cuenta todavía en win rate, curva ni KPIs.">~${f$(s.livePnl)}</td>`
                     : `<td class="td-mono dim" style="font-size:10px;" title="Posición abierta — no se pudo cotizar en vivo (mercado cerrado o sin datos de las patas).">🔵 Abierta</td>`)
                 : s.pnlPending
-                  ? `<td class="td-mono dim" style="font-weight:600;font-size:10px;" title="El trade ya cerró, pero Tradier todavía no asentó el P&L real (gain_loss). La conciliación pasiva corre cada 5 min y lo completa sola. Este trade NO cuenta todavía en win rate, curva ni KPIs.">⏳ Pendiente</td>`
-                  : `<td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>`}
+                  ? `<td class="td-mono dim" style="font-weight:600;font-size:10px;" title="El trade ya cerró, pero todavía no hay resultado confirmado. La conciliación pasiva corre cada 5 min y lo completa sola. Este trade NO cuenta todavía en win rate, curva ni KPIs.">⏳ Pendiente</td>`
+                  : (() => {
+                      // Resultado cerrado. Si salio de la cadena real se muestra tal
+                      // cual; si es un registro viejo (previo al libro propio, antes
+                      // del 16-ago) el numero sigue siendo el de Tradier y se marca
+                      // con ° para que no se confunda con los buenos.
+                      const real = s.pnlFuente === 'cadena_real';
+                      const dif  = (real && typeof s.pnlBroker === 'number')
+                        ? ` · Tradier decía ${f$(s.pnlBroker)} (${f$(+(s.pnl - s.pnlBroker).toFixed(2))} de diferencia por los 15 min de atraso del sandbox)` : '';
+                      const tip = real
+                        ? `Resultado contra la cadena real de opciones: entrada ${s.entradaCadenaReal ?? '?'}, salida ${s.salidaCadenaReal ?? '?'}${dif}`
+                        : 'Registro anterior al libro de cadena real — este número viene de los fills diferidos de Tradier.';
+                      return `<td class="td-mono ${cc(s.pnl)}" style="font-weight:700;" title="${tip}">${f$(s.pnl)}${real?'':'°'}</td>`;
+                    })()}
               <td>${informeBtn}</td>
             </tr>`;
           }).join('');

@@ -8507,30 +8507,53 @@ async function sombraDeLimiteCondorSinEjecutar({ strikes, premium, tradingCfg, d
   }
 }
 
+// P&L NO REALIZADO de una posicion abierta — el numero que el usuario mira en la
+// bitacora para saber "como va" el trade.
+//
+// 2026-08-20 — LA BASE ES LA CADENA REAL, NO EL FILL DE TRADIER.
+//
+// Antes la entrada de esta cuenta era `ex.creditReceived`: el fill del sandbox de
+// Tradier, que llena contra un libro de ~15 min de atraso. Las cotizaciones del
+// momento ya venian en vivo (ver attachLivePnl), asi que la pantalla mezclaba dos
+// mundos — precio de entrada diferido contra valor actual real — y el resultado no
+// coincidia con NADA: ni con lo que decide el robot (que usa baseDePrecio), ni con
+// el P&L propio que se graba al cerrar (paperPnl).
+//
+// Caso real que lo destapo (2026-08-20, tex-1787240711305): Tradier habia llenado
+// el debito en 2.50 mientras la cadena real marcaba 4.20. Con la posicion valiendo
+// ~3.70, la pantalla mostraba +$120 (+48% sobre 2.50) y el usuario la cerro a mano
+// creyendo que el robot no reaccionaba. El robot estaba bien: contra los 4.20 de la
+// cadena real ese trade iba en -$50, no cerca del TP. La pantalla era la que mentia.
+//
+// Con baseDePrecio() la pantalla, el gatillo de TP/SL y el P&L final salen los tres
+// del mismo precio de entrada. Si no hay marca propia confiable, baseDePrecio cae al
+// fill de Tradier igual que antes — no se pierde ninguna fila.
 function calcLivePnl(ex, q) {
   try {
     const legs = ex.legs || {};
+    const base = baseDePrecio(ex).valor;
+    if (base == null) return null;
     if (ex.strategy === 'IRON_CONDOR') {
       const { putShortSym, putLongSym, callShortSym, callLongSym } = legs;
       if ([putShortSym, putLongSym, callShortSym, callLongSym].some(s => !s || q[s] == null)) return null;
       const costoDeCerrar = (q[putShortSym] - q[putLongSym]) + (q[callShortSym] - q[callLongSym]);
-      return +((ex.creditReceived - costoDeCerrar) * 100 * ex.contracts).toFixed(2);
+      return +((base - costoDeCerrar) * 100 * ex.contracts).toFixed(2);
     }
     if (ex.strategy === 'DEBIT_PUT_CONDOR') {
       const { outerHighSym, innerHighSym, innerLowSym, outerLowSym } = legs;
       if ([outerHighSym, innerHighSym, innerLowSym, outerLowSym].some(s => !s || q[s] == null)) return null;
       const valorActual = (q[outerHighSym] + q[outerLowSym]) - (q[innerHighSym] + q[innerLowSym]);
-      return +((valorActual - ex.creditReceived) * 100 * ex.contracts).toFixed(2);
+      return +((valorActual - base) * 100 * ex.contracts).toFixed(2);
     }
     if (['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD', 'BULL_CALL_SPREAD', 'BEAR_PUT_SPREAD'].includes(ex.strategy)) {
       const { shortSym, longSym } = legs;
       if (!shortSym || !longSym || q[shortSym] == null || q[longSym] == null) return null;
       if (ex.isCredit !== false) {
         const costoDeCerrar = q[shortSym] - q[longSym];
-        return +((ex.creditReceived - costoDeCerrar) * 100 * ex.contracts).toFixed(2);
+        return +((base - costoDeCerrar) * 100 * ex.contracts).toFixed(2);
       }
       const valorActual = q[longSym] - q[shortSym];
-      return +((valorActual - ex.creditReceived) * 100 * ex.contracts).toFixed(2);
+      return +((valorActual - base) * 100 * ex.contracts).toFixed(2);
     }
   } catch(e) {}
   return null;
@@ -10965,7 +10988,7 @@ async function cerrarPosicionPorSimbolos(simbolos, { aMercado = false } = {}) {
   // 3) Dejar coherente nuestro registro (best-effort, nunca bloquea el cierre).
   const tocados = [];
   try {
-    await withExecutionsLock(() => {
+    await withExecutionsLock(async () => {
       const all = loadTradierExecutions();
       for (const ex of all) {
         if (!['filled', 'submitted'].includes(ex.status)) continue;
@@ -10976,6 +10999,14 @@ async function cerrarPosicionPorSimbolos(simbolos, { aMercado = false } = {}) {
         // el guard no protegia nada: el monitor podia mandar una SEGUNDA orden de
         // cierre encima de la del usuario, sobre una posicion que ya estaba yendose.
         ex.closeOrderSentAt = new Date().toISOString();
+        // Cierre del libro paper (2026-08-20). Los tres monitores automaticos ya
+        // llamaban a cerrarLibroPaper al salir; el cierre manual no, asi que un
+        // trade cerrado desde la bitacora quedaba con paperExit/paperPnl en null y
+        // era el UNICO del dia sin resultado en la cadena real — justo el caso en
+        // que el usuario intervino porque la pantalla no le cuadraba
+        // (tex-1787240711305, 2026-08-20). Se marca aca, con la posicion recien
+        // enviada a cerrar, que es el mismo instante en que marcan los monitores.
+        await cerrarLibroPaper(ex, 'PAPER-MANUAL');
         sellarCierre(ex, 'MANUAL_FORZADO', 'manual');
         ex.notes = (ex.notes ? ex.notes + ' | ' : '') + 'Cierre manual forzado desde la bitácora.';
         tocados.push(ex.id);
@@ -11756,20 +11787,14 @@ app.get('/api/tradier/executions', async (req, res) => {
   // formulas que ya usan los monitores de TP/SL, solo de lectura, no cierra nada.
   // Se agrega como ex.livePnl, separado de ex.pnl (que sigue siendo null hasta que
   // realmente cierre) para no confundir el P&L realizado con el no realizado.
-  try {
-    const abiertas = executions.filter(e => e.status === 'filled' && e.creditReceived != null);
-    if (abiertas.length) {
-      const todosLosSimbolos = [...new Set(abiertas.flatMap(e => Object.values(e.legs || {}).filter(Boolean)))];
-      const quotes = await tradier.getQuotes(todosLosSimbolos);
-      const q = {};
-      quotes.forEach(x => { q[x.symbol] = x.mark; });
-      for (const ex of abiertas) {
-        ex.livePnl = calcLivePnl(ex, q);
-      }
-    }
-  } catch(e) {
-    console.error('[TRADIER] Error calculando P&L en vivo:', e.message);
-  }
+  //
+  // 2026-08-20: esto tenia su PROPIA copia del calculo, pidiendo las cotizaciones a
+  // tradier.getQuotes — el sandbox, ~15 min atrasado. El arreglo del 16-ago (cotizar
+  // en vivo contra TastyTrade) se aplico a attachLivePnl pero no aca, asi que este
+  // endpoint —el que alimenta el panel principal de Bitacora Tradier— siguio
+  // mostrando el mercado de hace un cuarto de hora. Se borra la copia y se usa la
+  // misma funcion que el Historial: una sola forma de calcular el P&L en vivo.
+  await attachLivePnl(executions);
 
   // Comision estimada (2026-07-28, a pedido del usuario — "no estamos
   // cargando los costos del broker") — Tradier no la expone via API (ver
