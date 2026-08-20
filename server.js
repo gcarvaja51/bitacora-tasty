@@ -12147,11 +12147,17 @@ async function cleanupStalePendingOrders() {
   if (!IS_PRODUCTION) return;
   return withExecutionsLock(cleanupStalePendingOrdersImpl);
 }
+// Ordenes que el broker se niega a cancelar — ver el catch de mas abajo. En
+// memoria a proposito: si el proceso reinicia se reintenta una vez cada una y se
+// vuelven a anotar, que es barato y evita un archivo de estado mas que mantener.
+const _ordenesIncancelables = new Set();
+
 async function cleanupStalePendingOrdersImpl() {
   try {
     const orders = await tradier.getOrders();
     const ahora = Date.now();
     for (const o of orders) {
+      if (_ordenesIncancelables.has(String(o.id))) continue;
       if (!ESTADOS_LIMPIABLES.includes((o.status || '').toLowerCase())) continue;
       if (!ordenEsDeNuestroUniverso(o)) continue;
       const edadMs = ahora - new Date(o.create_date).getTime();
@@ -12174,7 +12180,29 @@ async function cleanupStalePendingOrdersImpl() {
           console.log(`[TRADIER-CLEANUP] Registro de seguimiento ${ex.id} marcado como cancelado.`);
         }
       } catch(e) {
-        console.error(`[TRADIER-CLEANUP] Error cancelando orden ${o.id}:`, e.message);
+        // ORDENES QUE TRADIER NO DEJA CANCELAR (2026-08-20).
+        //
+        // El sandbox acepta el multileg, lo deja en 'pending' con exec_quantity 0
+        // para siempre, y despues rechaza el cancel con HTTP 400 "order not
+        // available to be canceled". No hay forma de sacarlas: son inmortales.
+        //
+        // Medido hoy: 24 acumuladas, la mas vieja de hace OCHO DIAS. Esta
+        // limpieza corre cada 10 min, o sea que llevaba semanas reintentando las
+        // mismas 24 cancelaciones imposibles -- unas 3.500 llamadas fallidas al
+        // dia contra el mismo broker al que despues le pedimos que ejecute
+        // ordenes de verdad. Nada de eso iba a funcionar nunca.
+        //
+        // Se anotan y no se vuelven a tocar. No hace falta mas: hasOpenPosition()
+        // ya las descarta por edad (ORDEN_ZOMBI_MS), asi que no bloquean nada;
+        // lo unico que hacian era ruido y consumo.
+        if (/not available to be canceled/i.test(e.message || '')) {
+          if (!_ordenesIncancelables.has(String(o.id))) {
+            _ordenesIncancelables.add(String(o.id));
+            console.log(`[TRADIER-CLEANUP] Orden ${o.id} es incancelable en el broker — se deja de reintentar (${_ordenesIncancelables.size} en total).`);
+          }
+        } else {
+          console.error(`[TRADIER-CLEANUP] Error cancelando orden ${o.id}:`, e.message);
+        }
       }
     }
   } catch(e) {

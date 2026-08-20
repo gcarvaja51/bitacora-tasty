@@ -50,20 +50,66 @@ class TradierClient {
     this.baseUrl       = baseUrl       || process.env.TRADIER_BASE_URL       || DEFAULT_BASE;
   }
 
+  // REINTENTO SOLO EN LECTURAS (2026-08-20).
+  //
+  // Hasta hoy un unico hipo del sandbox tumbaba el ciclo entero. Medido el
+  // 20-ago: seis ORDEN_RECHAZADA seguidas entre las 10:11 y las 10:14, todas
+  // "Tradier API 500 ... An error occurred while communicating with the
+  // backend" -- el backend de Tradier fallando, no nosotros. Un 5xx es
+  // transitorio por definicion, y una lectura que revienta aborta la evaluacion
+  // completa: sin cotizacion no hay senal, sin cadena no hay strikes. Ese es un
+  // trade perdido por plomeria, que es justo lo que el resto del sistema se
+  // esfuerza en registrar.
+  //
+  // NO SE REINTENTAN LAS ESCRITURAS, y no es una omision. Un POST /orders no es
+  // idempotente: si Tradier crea la orden y se cae al responder, el reintento
+  // manda una SEGUNDA orden y quedan dos posiciones donde debia haber una. Ese
+  // riesgo es peor que el ciclo perdido -- y las escrituras ya tienen su propio
+  // reintento sano, el ciclo siguiente de la estrategia, que antes de mandar
+  // vuelve a consultar hasOpenPosition(). Aca solo se cubre lo que se puede
+  // repetir sin consecuencias.
+  //
+  // Tampoco se reintentan los 4xx: son respuestas del servidor diciendo que la
+  // peticion esta mal (precio invalido, orden ya no cancelable). Repetirla da el
+  // mismo 4xx y solo gasta cupo.
   async _req(path, opts = {}) {
     if (!this.accessToken) throw new Error('Falta TRADIER_ACCESS_TOKEN en .env');
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      ...opts,
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-        Accept: 'application/json',
-        ...(opts.headers || {}),
-      },
-    });
-    const text = await res.text();
-    let json; try { json = text ? JSON.parse(text) : {}; } catch(e) { json = { raw: text }; }
-    if (!res.ok) throw new Error(`Tradier API ${res.status} ${path}: ${text.slice(0, 300)}`);
-    return json;
+
+    const metodo = String(opts.method || 'GET').toUpperCase();
+    const esLectura = metodo === 'GET';
+    const INTENTOS = esLectura ? 3 : 1;
+    const ESPERA_MS = [0, 400, 1200];   // backoff corto: el ciclo dura 30s
+
+    let ultimoError = null;
+    for (let intento = 0; intento < INTENTOS; intento++) {
+      if (intento > 0) await new Promise(r => setTimeout(r, ESPERA_MS[intento]));
+      try {
+        const res = await fetch(`${this.baseUrl}${path}`, {
+          ...opts,
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            Accept: 'application/json',
+            ...(opts.headers || {}),
+          },
+        });
+        const text = await res.text();
+        let json; try { json = text ? JSON.parse(text) : {}; } catch(e) { json = { raw: text }; }
+        if (!res.ok) {
+          const err = new Error(`Tradier API ${res.status} ${path}: ${text.slice(0, 300)}`);
+          err.status = res.status;
+          // 4xx: la peticion esta mal, repetirla no la arregla. Sale ya.
+          if (res.status < 500) throw err;
+          ultimoError = err;
+          continue;                       // 5xx -> vale la pena reintentar
+        }
+        if (intento > 0) console.log(`[Tradier] ✔ ${path} respondio al intento ${intento + 1}`);
+        return json;
+      } catch (e) {
+        if (e.status && e.status < 500) throw e;   // 4xx ya decidido arriba
+        ultimoError = e;                            // fallo de red: reintentable
+      }
+    }
+    throw ultimoError;
   }
 
   // Simbolo OCC: {root, pad a 6 con espacios}{YYMMDD}{C|P}{strike*1000, 8 digitos}
