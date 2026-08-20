@@ -2801,7 +2801,16 @@ async function loadHistoryTradier() {
           : (s.strikes.shortStrike != null && s.strikes.longStrike != null) ? `${s.strikes.shortStrike}/${s.strikes.longStrike}`
           : String(s.strikes.shortStrike ?? s.strikes.longStrike);
             const cierreLabel = s.closeReason ? (CIERRE_LABELS[s.closeReason] || s.closeReason) : '—';
-            const fillLabel = s.entryFillPrice != null ? '$'+s.entryFillPrice : '—';
+            // Entrada del trade. 2026-08-20: mostraba entryFillPrice — el fill del
+        // sandbox de Tradier, con ~15 min de atraso — al lado de un P&L que ya
+        // sale de la cadena real. Las dos cifras de la MISMA fila no cerraban
+        // entre si (ej. "fill $4.3" con "+$105", que solo cuadra contra la
+        // entrada real de 3.15). Ahora manda la entrada de la cadena real y el
+        // numero de Tradier queda en el tooltip, que es donde sirve: para ver
+        // cuanto se desvio el fill del sandbox.
+        const fillLabel = s.entradaCadenaReal != null
+          ? `<span title="Entrada segun la cadena real de opciones (TastyTrade en vivo)${s.entryFillPrice != null ? ` · Tradier llenó en $${s.entryFillPrice}` : ''}">$${s.entradaCadenaReal}</span>`
+          : (s.entryFillPrice != null ? `<span title="Fill de Tradier — este registro no tiene marca de la cadena real.">$${s.entryFillPrice}°</span>` : '—');
             const tieneInforme = s.key ? window._repInformesMap[s.key] : null;
             const informeBtn = s.isOpen
               // Posición abierta: botón de cierre manual forzado en vez del PDF
@@ -3183,7 +3192,16 @@ async function loadReportsTradier(forceRefresh) {
           : (s.strikes.shortStrike != null && s.strikes.longStrike != null) ? `${s.strikes.shortStrike}/${s.strikes.longStrike}`
           : String(s.strikes.shortStrike ?? s.strikes.longStrike);
         const cierreLabel = s.closeReason ? (CIERRE_LABELS[s.closeReason] || s.closeReason) : '—';
-        const fillLabel = s.entryFillPrice != null ? '$'+s.entryFillPrice : '—';
+        // Entrada del trade. 2026-08-20: mostraba entryFillPrice — el fill del
+        // sandbox de Tradier, con ~15 min de atraso — al lado de un P&L que ya
+        // sale de la cadena real. Las dos cifras de la MISMA fila no cerraban
+        // entre si (ej. "fill $4.3" con "+$105", que solo cuadra contra la
+        // entrada real de 3.15). Ahora manda la entrada de la cadena real y el
+        // numero de Tradier queda en el tooltip, que es donde sirve: para ver
+        // cuanto se desvio el fill del sandbox.
+        const fillLabel = s.entradaCadenaReal != null
+          ? `<span title="Entrada segun la cadena real de opciones (TastyTrade en vivo)${s.entryFillPrice != null ? ` · Tradier llenó en $${s.entryFillPrice}` : ''}">$${s.entradaCadenaReal}</span>`
+          : (s.entryFillPrice != null ? `<span title="Fill de Tradier — este registro no tiene marca de la cadena real.">$${s.entryFillPrice}°</span>` : '—');
         const comisionLabel = typeof s.commissionEstimate === 'number' ? '-'+fa$(s.commissionEstimate) : '—';
         const sig = s.signalId ? (window._repSignalsById||new Map()).get(s.signalId) : null;
         const checksBtn = sig && sig.playbook
