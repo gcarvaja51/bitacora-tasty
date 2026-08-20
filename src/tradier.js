@@ -3,10 +3,17 @@
 const DEFAULT_BASE = 'https://sandbox.tradier.com/v1';
 
 // Edad a partir de la cual una orden 'pending' sin ejecutar deja de contar como
-// viva — ver hasOpenPosition(). Diez minutos deja margen sobre los 5 de
-// APERTURA_ATASCADA_MS (server.js): cuando una orden llega a este umbral, el
-// monitor ya deberia haberla dado por muerta en el libro.
-const ORDEN_ZOMBI_MS = 10 * 60 * 1000;
+// viva — ver hasOpenPosition(). Va DETRAS de APERTURA_ATASCADA_MS (server.js),
+// que es quien cancela de verdad; este umbral es solo la red por si el monitor
+// no llego a pasar. Tiene que quedar por encima para no declarar zombi a una
+// orden que el monitor aun considera viva, pero no tan arriba que la red tarde
+// mas que el problema que cubre.
+//
+// 10 min -> 3 min (2026-08-20), siguiendo a APERTURA_ATASCADA_MS de 5 min a 90s.
+// Se conserva la proporcion (el doble del umbral del monitor); lo que cambia es
+// la escala, porque el costo de que una orden muerta siga contando como viva es
+// bloquear las señales siguientes — ver la nota de APERTURA_ATASCADA_MS.
+const ORDEN_ZOMBI_MS = 3 * 60 * 1000;
 
 // ── Precios de orden: 2 decimales, y en la direccion correcta ───────────────
 // Tradier rechaza con HTTP 400 "must use up to 2 decimal place(s)", asi que

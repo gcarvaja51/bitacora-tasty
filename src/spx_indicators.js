@@ -479,8 +479,24 @@ function calcReversionScore(indicators, config) {
   // reportando, para que quede el registro de con que valores entro, pero su peso
   // sale del total: el score pasa a medir SOLO el contexto (patron, RSI,
   // Weinstein, Compas), que es lo que decide si un setup valido se opera o no.
+  // 2026-08-20: "es puerta" y "es binaria" no son lo mismo, y confundirlos dejo
+  // al gamma sin voz ni voto. puertasBinarias sacaba del score a ESTOS DOS
+  // factores siempre, sin mirar si de verdad estaban actuando como puerta. El
+  // 19-ago se apago la puerta del gamma (requiereGammaPositivo:false) para que
+  // volviera a PONDERAR 10 -- y no ponderó nada: siguio con peso 0. No vetaba y
+  // no puntuaba. Un factor inerte.
+  //
+  // Ahora cada peso se anula solo si ese factor esta realmente funcionando como
+  // puerta en esta config. Lo que no es puerta, puntua.
   const puertasBinarias = !!config.puertasBinarias;
-  const w1 = puertasBinarias ? 0 : (weights.alejamiento_sma8 ?? 35);
+  const alejEsPuerta  = puertasBinarias && config.alejamientoEsPuerta !== false;
+  const gammaEsPuerta = puertasBinarias && !!config.requiereGammaPositivo;
+  // Peso que sale del score por estar ya garantizado en una puerta. Se acumula
+  // para poder encoger el umbral en la misma proporcion, mas abajo.
+  let pesoEnPuertas = 0;
+
+  const w1 = alejEsPuerta ? 0 : (weights.alejamiento_sma8 ?? 35);
+  if (alejEsPuerta) pesoEnPuertas += (weights.alejamiento_sma8 ?? 35);
   totalWeight += w1;
   let banda = 'ninguna', fracAlejamiento = 0;
   if (direccionCorrecta) {
@@ -575,7 +591,8 @@ function calcReversionScore(indicators, config) {
   // GEX negativo resta el peso completo de este check (ok:false, 0.5 de w5)
   // pero NO anula la entrada — el resto del score puede compensar si es lo
   // bastante fuerte (ver incidente del gate amplio de GEX-solo, 17-20 jul).
-  const w5 = puertasBinarias ? 0 : (weights.regimen_gex ?? 10);
+  const w5 = gammaEsPuerta ? 0 : (weights.regimen_gex ?? 10);
+  if (gammaEsPuerta) pesoEnPuertas += (weights.regimen_gex ?? 10);
   totalWeight += w5;
   const regimenPositivo = indicators.gammaRegime === 'POSITIVO';
   const muroRelevante = dir === 'BULLISH' ? indicators.putWall : indicators.callWall;
@@ -594,7 +611,9 @@ function calcReversionScore(indicators, config) {
     ok:      regimenPositivo,
     value:   `${indicators.gammaRegime || 'desconocido'}${cercaDelMuro ? ` + muro a ${distanciaMuro.toFixed(1)}pts` : ''}`,
     reason:  !regimenPositivo
-      ? `GEX ${indicators.gammaRegime || 'desconocido'} — la reversión pierde su hábitat, resta puntos (5/10) pero ya no bloquea la entrada ❌`
+      ? (w5 === 0
+          ? `GEX ${indicators.gammaRegime || 'desconocido'} — actúa como puerta, no puntúa aquí ❌`
+          : `GEX ${indicators.gammaRegime || 'desconocido'} — la reversión pierde su hábitat, resta puntos (${(w5 * 0.5).toFixed(0)}/${w5}) pero ya no bloquea la entrada ❌`)
       : cercaDelMuro
         ? `Precio a ${distanciaMuro.toFixed(1)}pts del muro relevante — confluencia fuerte (setup dorado) ✅`
         : `Sin muro de gamma cerca (${distanciaMuro != null ? distanciaMuro.toFixed(1) + 'pts' : 'sin datos'}) — confluencia parcial ⚠️`,
@@ -623,9 +642,42 @@ function calcReversionScore(indicators, config) {
   if (compas.ok) score += w6;
 
   const pct = totalWeight > 0 ? +(score / totalWeight * 100).toFixed(1) : 0;
-  const minScore = config.minScore ?? 70;
+  const minScoreBase = config.minScore ?? 70;
 
-  return { score: pct, passed: pct >= minScore, minScore, checks };
+  // EL UMBRAL TIENE QUE ENCOGER CON LA CANASTA (2026-08-20, bug medido).
+  //
+  // minScore=75 se calibro contra una canasta de 100 puntos. Cuando
+  // puertasBinarias saco el alejamiento (45 pts) del score, la canasta quedo en
+  // 55 -- pero el 75 se quedo igual, comparandose contra una escala que ya no
+  // era la suya. Resultado medido el 20-ago: sin patron de confirmacion el
+  // maximo alcanzable era 25/45 = 56%, o sea IMPOSIBLE llegar a 75. Nueve dias
+  // de mercado sin una sola señal, con setups que el propio log calificaba de
+  // "optimo".
+  //
+  // Es el mismo accidente que ya habia pasado en julio con el alejamiento y que
+  // esta documentado arriba ("el peso de este check, 45%, hace que sea
+  // matematicamente imposible llegar a 75% sin el"). Se repitio porque el
+  // umbral y los pesos se tocan en sitios distintos y nadie los compara.
+  //
+  // La traduccion es exacta, no una calibracion a ojo. Si un factor es puerta,
+  // llegar hasta aca YA implica que paso: bajo la regla vieja habria aportado su
+  // peso entero. Entonces
+  //     regla vieja:  pesoEnPuertas + X >= minScore
+  //     regla nueva:  X / totalWeight * 100 >= (minScore - pesoEnPuertas) / totalWeight * 100
+  // Con 75, 45 en puertas y 55 de canasta: (75-45)/55*100 = 54.5%. Exige la
+  // misma evidencia total que antes, medida sobre lo que de verdad se puntua.
+  const minScore = pesoEnPuertas > 0 && totalWeight > 0
+    ? +Math.max(0, (minScoreBase - pesoEnPuertas) / totalWeight * 100).toFixed(1)
+    : minScoreBase;
+
+  // Red de seguridad: si ni acertando TODO se llega al umbral, el gate esta
+  // muerto y hay que verlo en el log, no deducirlo nueve dias despues.
+  const inalcanzable = minScore > 100;
+
+  return {
+    score: pct, passed: pct >= minScore, minScore, checks,
+    minScoreBase, pesoEnPuertas, totalWeight, inalcanzable,
+  };
 }
 
 // bars/closes: cierres cronologicos de 5m, idealmente >=25 barras (poco mas de

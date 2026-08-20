@@ -7870,11 +7870,32 @@ function limiteDeAperturaVertical(strategy, premium, tradingCfg, esCreditoForzad
   if (!Number.isFinite(prem) || prem <= 0) return null;
   let cfgT = tradingCfg;
   if (!cfgT) { try { cfgT = loadSPXConfig()?.trading; } catch (e) { cfgT = null; } }
-  const tol = Number(cfgT?.toleranciaDeslizamientoPct ?? 25);
-  if (!Number.isFinite(tol) || tol < 0 || tol >= 100) return null;
+  const tolCruda = Number(cfgT?.toleranciaDeslizamientoPct ?? 25);
+  if (!Number.isFinite(tolCruda) || tolCruda < 0) return null;
   const esCredito = esCreditoForzado != null
     ? !!esCreditoForzado
     : (strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_CALL_SPREAD');
+
+  // 100 DEJABA LA ORDEN A MERCADO SIN DECIRLO (2026-08-20).
+  //
+  // El guard era `tol >= 100 -> return null`, y null significa orden A MERCADO.
+  // El motivo de excluir el 100 es real, pero vale solo del lado credito: ahi el
+  // limite es prem*(1-tol/100), asi que con tol=100 el piso cae a 0 y deja de
+  // proteger. En debito es al reves — prem*(1+tol/100) con tol=100 es el doble
+  // de la prima: amplio, pero un limite de verdad.
+  //
+  // El problema es a donde caia. La config esta en 100 desde el 17-ago; quien la
+  // puso quiso decir "acepta cualquier deslizamiento" y obtuvo "manda a
+  // mercado", que es otra cosa y mas arriesgada, porque sin limite no hay piso
+  // ninguno. UN VALOR FUERA DE RANGO DEBE CAER AL DEFAULT, NUNCA A DESACTIVAR LA
+  // PROTECCION.
+  //
+  // Se probo primero capando el credito al 95% y se descarto: sobre una prima de
+  // 1.35 dejaba el limite en 0.07, o sea vender el spread por nada. Peor que el
+  // bug. El credito fuera de rango vuelve al 25 documentado; el debito respeta
+  // lo configurado, que ahi si es sano.
+  const TOL_DEFAULT = 25;
+  const tol = (esCredito && tolCruda >= 100) ? TOL_DEFAULT : tolCruda;
   const limite = esCredito ? prem * (1 - tol / 100) : prem * (1 + tol / 100);
   return +limite.toFixed(2);
 }
@@ -8020,7 +8041,23 @@ const MAX_CLOSE_FAILS = 3;
 //
 // Queda en 'canceled', NO en 'closed': nunca hubo posicion, y un closed con pnl 0
 // ensuciaria las metricas con un trade que no existio.
-const APERTURA_ATASCADA_MS = 5 * 60 * 1000;
+// 5 MIN -> 90 SEG (2026-08-20). El umbral se eligio pensando en el caso de las
+// CINCO HORAS de arriba, donde cualquier valor servia. Pero el daño real no es
+// que la orden muerta se quede: es que mientras respira BLOQUEA a las que vienen
+// detras, porque hasLocalOpenSPXWPosition() la cuenta como posicion abierta.
+//
+// Medido el 20-ago en la direccional: 09:46 señal -> orden que no llena; 09:47
+// señal nueva RECHAZADA por "Ya hay un trade abierto"; ~5 min hasta cancelarla;
+// 09:53 el ciclo entero otra vez; 10:05 la tercera. Tres señales validas, cero
+// trades. Cada orden muerta se comio unos cinco minutos de ventana.
+//
+// 90 segundos porque el discriminante es exec_quantity === 0: un multileg 0DTE
+// que no ejecuto NI UN contrato en minuto y medio no se esta llenando despacio,
+// no se esta llenando. Y el costo de equivocarse es barato y simetrico — si la
+// orden iba a llenar, se cancela y la proxima evaluacion vuelve a mandarla, con
+// precio mas fresco. El costo de esperar de mas ya lo conocemos: son las señales
+// que no se mandan.
+const APERTURA_ATASCADA_MS = 90 * 1000;
 
 async function verificarAperturaAtascada(ex, order, etiqueta) {
   if (ex.status !== 'submitted') return false;
