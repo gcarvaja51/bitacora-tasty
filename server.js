@@ -8714,7 +8714,11 @@ async function checkIronCondorTPSLImpl() {
         : [ex.legs?.putShortSym, ex.legs?.putLongSym, ex.legs?.callShortSym, ex.legs?.callLongSym].filter(Boolean);
       if (legSymbols.length < 4) continue;
 
-      let pnlActual, cerrarPor = null;
+      // dbgIC: foto del gatillo, mismo patron que triggerCierre en la direccional
+      // (2026-08-19). Un cierre que solo deja su etiqueta no se puede auditar —
+      // asi fue como un "TP" en -$45 quedo sin explicacion hasta que se agrego
+      // esta traza. Queda null en los cierres por tiempo, que no miran precio.
+      let pnlActual, cerrarPor = null, dbgIC = null;
 
       // ── Cierres por TIEMPO primero — NO dependen de cotizaciones ──
       //
@@ -8785,34 +8789,65 @@ async function checkIronCondorTPSLImpl() {
         ex.fuenteCotizacionTPSL = cot.fuente;
         ex.edadCotizacionTPSLSeg = cot.edadSeg;
 
+      // ── LA BASE ES LA CADENA REAL (2026-08-20) ────────────────────────────
+      //
+      // Hasta hoy este monitor media contra `ex.creditReceived`: el fill del
+      // sandbox de Tradier, que llena contra un libro de ~15 min de atraso. Las
+      // cotizaciones de arriba ya venian en vivo (cotizarPatasFresco), asi que el
+      // gatillo comparaba el valor de AHORA contra una prima de hace un cuarto de
+      // hora — exactamente el defecto que la direccional tenia y que produjo, el
+      // 19 y 20 de agosto, cierres etiquetados "TP" que en la cadena real eran
+      // otra cosa (y un "SL" de -$260 que Tradier reporto como +$10).
+      //
+      // La direccional se corrigio ese mismo dia con baseDePrecio(); el condor
+      // quedo afuera porque no se abrio ninguno en esos dias. Se cierra la brecha
+      // ahora, antes de que muerda. Si no hay marca propia confiable,
+      // baseDePrecio() cae al fill de Tradier igual que antes — no se bloquea
+      // ningun cierre, solo se avisa.
+      const baseIC = baseDePrecio(ex);
+      const primaIC = baseIC.valor;
+      if (primaIC == null) {
+        console.warn(`[Tradier-IC-TPSL] ${ex.orderId} sin prima de referencia — se salta la evaluacion por precio.`);
+        continue;
+      }
+      if (baseIC.fuente === 'tradier_fill') {
+        console.warn(`[Tradier-IC-TPSL] ${ex.orderId}: TP/SL sobre el fill de Tradier ` +
+          `(sin marca confiable de la cadena real al abrir) — este trade no es comparable con el resto.`);
+      }
+      dbgIC = { base: primaIC, baseFuente: baseIC.fuente, esDebito,
+                cotFuente: cot.fuente, cotEdadSeg: cot.edadSeg };
+
       if (esDebito) {
         // Valor actual = alas compradas (outerHigh+outerLow) - cuerpo vendido (innerHigh+innerLow) —
         // mismo par que la construccion de entrada, restado igual. Riesgo maximo ya es
         // 100% del debito pagado, por eso TP/SL en % de la prima, no un multiplicador.
         const valorActual = (q[ex.legs.outerHighSym] + q[ex.legs.outerLowSym]) - (q[ex.legs.innerHighSym] + q[ex.legs.innerLowSym]);
-        pnlActual = valorActual - ex.creditReceived;
-        const tpUmbral = ex.creditReceived * ((ex.debitTpPct ?? 50) / 100);
-        const slUmbral = ex.creditReceived * ((ex.debitSlPct ?? 50) / 100);
+        pnlActual = valorActual - primaIC;
+        const tpUmbral = primaIC * ((ex.debitTpPct ?? 50) / 100);
+        const slUmbral = primaIC * ((ex.debitSlPct ?? 50) / 100);
+        dbgIC.valorVisto = valorActual; dbgIC.tpUmbral = primaIC + tpUmbral; dbgIC.slUmbral = primaIC - slUmbral;
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (pnlActual <= -slUmbral) cerrarPor = 'SL';
       } else {
         // Costo de cerrar ahora = recomprar las cortas + vender las largas
         const costoDeCerrar = (q[ex.legs.putShortSym] - q[ex.legs.putLongSym]) + (q[ex.legs.callShortSym] - q[ex.legs.callLongSym]);
-        pnlActual = ex.creditReceived - costoDeCerrar;
+        pnlActual = primaIC - costoDeCerrar;
         // slMult === null significa SIN STOP a proposito (1DTE, decision del
         // usuario 2026-08-09: "dejalo sin stop hasta las 10:30 am"). Se distingue
         // null de ausente: `ex.slMult || 1.5` habria puesto 1.5 en los dos casos
         // y el stop habria seguido vivo sin que nada lo delatara.
         const sinStop1DTE = ex.slMult === null;
-        const tpUmbral    = ex.creditReceived * ((ex.tpPct || 25) / 100);
+        const tpUmbral    = primaIC * ((ex.tpPct || 25) / 100);
         // El multiplicador de SL aplica al COSTO DE CERRAR (bruto), no al P&L neto —
         // a 1.5x credito=$200 el costo de cerrar llega a $300, perdida neta real=200-300=-$100
         // (-0.5x), NO -$300 (-1.5x) como se calculaba antes (bug: comparaba el neto contra
         // -slMult directo, esperando que el neto cayera 1.5x en vez de que el costo SUBIERA 1.5x).
-        const slCostoUmbral = ex.creditReceived * (ex.slMult ?? 1.5);
+        const slCostoUmbral = primaIC * (ex.slMult ?? 1.5);
+        dbgIC.valorVisto = costoDeCerrar; dbgIC.tpUmbral = tpUmbral; dbgIC.slUmbral = slCostoUmbral;
         if (pnlActual >= tpUmbral) cerrarPor = 'TP';
         else if (!sinStop1DTE && costoDeCerrar >= slCostoUmbral) cerrarPor = 'SL';
       }
+      dbgIC.pnlVisto = pnlActual;
       }   // fin del bloque de TP/SL por precio
 
       if (!cerrarPor) continue;
@@ -8870,6 +8905,21 @@ async function checkIronCondorTPSLImpl() {
         // de inventar una confirmacion de fill propia con una convencion de signos incierta.
         // sellarCierre respeta una etiqueta manual previa; la reconciliacion
         // pasiva sigue respetando lo que quede (ex.closeReason || 'MANUAL').
+        // Foto del gatillo (2026-08-20) — mismo patron que la direccional. Deja
+        // con QUE precio se disparo, contra que base y de donde salio la
+        // cotizacion, para que un cierre raro se resuelva mirando en vez de
+        // reconstruyendo. `dbgIC` es null en los cierres por tiempo/horario, que
+        // no miran precio: ahi solo queda el motivo.
+        ex.triggerCierre = { ...(dbgIC || {}), motivo: cerrarPor, at: new Date().toISOString() };
+        logStrategyEvent({
+          strategyFamily: 'NEUTRAL', stage: 'CIERRE_DISPARADO', passed: true,
+          reason: `${cerrarPor} en ${ex.orderId}: ` + (dbgIC
+            ? `valor visto ${dbgIC.valorVisto?.toFixed?.(2) ?? '?'} contra base ${dbgIC.base ?? '?'} ` +
+              `(${dbgIC.baseFuente ?? '?'}) | P&L estimado $${(pnlActual * 100 * (ex.contracts || 1)).toFixed(2)}`
+            : 'cierre por tiempo, sin evaluacion de precio'),
+          snapshot: ex.triggerCierre,
+        });
+
         sellarCierre(ex, cerrarPor, 'Tradier-IC-TPSL');
         ex.closeOrderSentAt = new Date().toISOString(); // ver CLOSE_ORDER_COOLDOWN_MS arriba
         cambios = true;
@@ -9053,6 +9103,17 @@ function paresDePatas(legs) {
   if (legs?.shortSym && legs?.longSym) return [[legs.shortSym, legs.longSym]];
   if (legs?.putShortSym && legs?.putLongSym && legs?.callShortSym && legs?.callLongSym) {
     return [[legs.putShortSym, legs.putLongSym], [legs.callShortSym, legs.callLongSym]];
+  }
+  // Condor de DEBITO (2026-08-20). Faltaba: sus patas se llaman distinto, asi que
+  // paresDePatas devolvia null, marcarPaper fallaba con "faltan las patas" y esta
+  // familia quedaba sin marca de la cadena real — la unica de las cuatro.
+  // Sides confirmados en placeDebitCondorOrder (src/tradier.js): outerHigh y
+  // outerLow se COMPRAN, innerHigh e innerLow se VENDEN. Se arma como dos
+  // verticales (corta, larga) para que el signo salga por la misma via que el
+  // resto: apertura = corta al bid - larga al ask, o sea negativo = debito pagado,
+  // igual que una vertical de debito.
+  if (legs?.innerHighSym && legs?.outerHighSym && legs?.innerLowSym && legs?.outerLowSym) {
+    return [[legs.innerHighSym, legs.outerHighSym], [legs.innerLowSym, legs.outerLowSym]];
   }
   return null;
 }
