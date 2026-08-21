@@ -11887,20 +11887,37 @@ app.get('/api/spx/shadow-trail', (req, res) => {
       pnlComparable: r.comparable,
       motivoNoComparable: r.comparable ? null : r.nota,
       pnlBroker: r.pnlBroker,
-      picoPct: e.shadowTrail.picoPct === -Infinity ? null : e.shadowTrail.picoPct,
+      // BUG (2026-08-21): esto leia `picoPct`, un campo que no existe. El trailing
+      // en sombra dejo de medirse en % de prima y paso a PUNTOS de SPX (commit
+      // f67a089), el escritor pasa a grabar `picoPts` y este lector nunca se
+      // entero — devolvia null para las 38 ejecuciones, o sea que la unica columna
+      // que decia cuanto habia llegado a favor cada trade estaba en blanco desde
+      // entonces y nadie lo noto porque null se ve igual que "no aplica".
+      picoPts: e.shadowTrail.picoPts === -Infinity ? null : e.shadowTrail.picoPts,
       trailDisparo: e.shadowTrail.disparo || null,
       diferencia: (e.shadowTrail.disparo && r.comparable && r.pnl != null)
         ? +(e.shadowTrail.disparo.pnlEstimado - r.pnl).toFixed(2) : null,
     };
   });
   const comparables = filas.filter(f => f.diferencia != null);
+  // Sin esto, un `comparables: 0` no dice si el problema es la regla del dinero o
+  // que el trailing simplemente nunca disparo. Son dos diagnosticos distintos y
+  // hasta hoy la respuesta no estaba en ningun lado.
+  const conDisparo   = filas.filter(f => f.trailDisparo).length;
+  const conLibro     = filas.filter(f => f.pnlComparable).length;
   res.json({
     ok: true,
     config: { activacion: 0.20, devolucion: 0.30 },
     reglaDelDinero: 'cadena real de TastyTrade (src/pnl_oficial.js)',
     total: filas.length,
+    conDisparo,
+    conLibro,
     comparables: comparables.length,
     descartadas: filas.length - comparables.length,
+    porQueNoHayMuestra: comparables.length ? null
+      : (conDisparo === 0
+          ? `el trailing en sombra no disparo ni una vez en ${filas.length} ejecuciones`
+          : `hay ${conDisparo} disparos pero solo ${conLibro} trades con libro propio`),
     resumen: comparables.length ? {
       pnlRealTotal:  +comparables.reduce((a, b) => a + b.pnlReal, 0).toFixed(2),
       pnlTrailTotal: +comparables.reduce((a, b) => a + b.trailDisparo.pnlEstimado, 0).toFixed(2),
