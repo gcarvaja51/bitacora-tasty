@@ -31,3 +31,7 @@ trm_cache.json
 
 # Volcados de depuracion de sesiones de analisis (89MB, no son fuente)
 .scratch_*
+
+# Cierres diarios del Contador (Fase 1) — salida generada, no fuente.
+# El motor es scripts/cierre_diario.py y se puede rehacer con --dias N.
+cierres/
