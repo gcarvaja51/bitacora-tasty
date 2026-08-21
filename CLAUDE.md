@@ -2576,6 +2576,68 @@ Nota: en el escenario del 2026-07-24 (Yahoo congelado) Tradier tampoco pasaría 
 ~16 min lo dejan fuera— así que ese día los monitores habrían quedado ciegos **y avisando**, en
 vez de operar sobre un precio inventado.
 
+## Fase 0 — una sola respuesta a «¿cuánto ganó este trade?» (`src/pnl_oficial.js`, 2026-08-21)
+
+El 20-ago se cambió la regla del dinero a la cadena real, pero **solo en las pantallas**.
+La regla quedó viviendo dentro de `src/metrics_tradier.js` y ningún otro consumidor se
+enteró. Resultado: la misma pregunta tenía **cinco implementaciones distintas** —métricas,
+`/api/spx/version-stats`, `/api/spx/shadow-trail`, el skill del informe de trade y
+`scripts/control_cambios.py`— y cada pantalla nueva inventaba la sexta.
+
+`src/pnl_oficial.js` es ahora **la única puerta**. Devuelve, por ejecución:
+
+| Campo | Qué es |
+|---|---|
+| `pnl` / `neto` | El resultado oficial. Bruto (sin comisión) y neto |
+| `fuente` | `cadena_real` · `broker` · `broker_dudoso` · `no_operacion` |
+| `esCadenaReal` | `true` solo si salió del libro propio (`paperPnl.confiable`) |
+| `comparable` | Apto para promediar con otros comparables. **Solo `cadena_real` lo es** |
+| `pnlBroker` / `diferencia` | El número del sandbox y lo que cuesta operar con 15 min de atraso |
+
+**Nadie más lee `ex.pnl` directamente salvo para auditar la diferencia.** Así la regla deja
+de ser una convención (que se olvida) y pasa a ser una dependencia (que no se puede saltar
+sin darse cuenta).
+
+**Cortes que aplica:** `2026-08-03` (antes, el `/gainloss` viejo asignaba mal las patas) y
+`2026-08-16` (antes no existe el libro propio, así que no hay medición contra la cadena
+real que ponerles). Y excluye siempre lo que **no fue una operación**: la orden fantasma del
+sandbox (`pnl=0`, `SANDBOX_GLITCH_SIN_POSICION`) entraba a las estadísticas.
+
+⚠️ **Comparables y legado nunca se suman.** Van en bloques separados en todos los reportes.
+Mezclarlos es de donde salían los promedios sin sentido: sobre los trades que tienen las dos
+mediciones, **4 de cada 12 cambian de signo**.
+
+**Consumidores conectados el 2026-08-21:**
+
+- `/api/spx/version-stats` — además se arreglaron dos defectos: **mezclaba familias** (la fila
+  `(sin sello)` reportaba 51 trades como TENDENCIA cuando eran 23 TENDENCIA + 26 REVERSION +
+  2 NEUTRAL; ahora la clave es `familia|huella`) y **dejaba pasar basura** (el filtro excluía
+  solo `gainloss` exacto).
+- `/api/spx/shadow-trail` — es el instrumento con el que se valida un cambio antes de
+  aplicarlo. Comparaba la sombra contra los fills de Tradier: validar contra el número
+  equivocado no es medir de menos, es medir otra cosa.
+- `/api/tradier/executions` — expone `resultadoOficial` ya calculado, **para que los
+  consumidores que no son JavaScript no reimplementen la regla**.
+- `scripts/control_cambios.py` — lee ese campo. Los libros ahora traen **Pérdida media** y
+  **Legado (Tradier)** como columnas propias, y el veredicto distingue *«sin trades aún»* de
+  *«no comparable (N trades medidos con Tradier)»*.
+- `skills/informe-trade` — el nombre del archivo sale del mismo número que el cuerpo. Antes
+  el cuerpo mostraba la cadena real y el nombre se armaba con Tradier, así que podía salir un
+  `..._perdedor100.pdf` cuyo informe mostraba ganancia.
+
+**Lo que esto reveló al conectarlo** (192 ejecuciones, 2026-08-21):
+
+| | |
+|---|---|
+| Comparables (cadena real) | **13**, todos de TENDENCIA |
+| REVERSION y NEUTRAL | **cero** trades medidos contra la cadena real |
+| TENDENCIA `f85c9f8e` | 13 trades · WR 69.2% · +$130 · ganancia media **+$111** · pérdida media **−$217.50** |
+
+Los 41 trades con «muestra suficiente» que reportaba la tabla vieja eran los fills del
+sandbox sobre una bolsa mezclada. **La muestra útil arranca el 17-ago.** Y la pérdida media
+duplica a la ganancia media: el 69% de acierto es lo único que sostiene el número, que es
+exactamente el riesgo de cola que hay que vigilar.
+
 ## Control de cambios — NORMA: todo ajuste queda documentado (2026-08-08)
 
 > **Regla del usuario:** *"necesito que sea una norma, siempre que cualquier ajuste o cambio se

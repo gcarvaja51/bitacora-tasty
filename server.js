@@ -11253,51 +11253,93 @@ app.post('/api/wheel-trading/roll-preview', async (req, res) => {
 // Se agrupa por huella y no por fecha porque un mismo dia puede tener dos
 // versiones (hoy mismo pasaron tres cambios de alto impacto en una tarde).
 //
-// Filtra el P&L no confiable: 39 de los 62 trades direccionales previos al
-// 2026-08-03 vienen del /gainloss viejo, que asignaba mal las patas cuando
-// varios trades compartian strikes el mismo dia — al menos 5 registran una
-// perdida MAYOR al debito pagado, imposible en un spread de debito. Incluirlos
-// contaminaria cualquier comparacion entre versiones.
+// FASE 0 (2026-08-21): el dinero sale de src/pnl_oficial.js, no de ex.pnl.
+//
+// Antes esta tabla —el instrumento de medicion del proyecto— sumaba los fills de
+// Tradier, o sea la regla equivocada. De aqui salia el unico grupo con "muestra
+// suficiente" (41 trades, 58.5% de acierto) y estaba medido con el sandbox.
+//
+// Se arreglan ademas dos defectos que arrastraba:
+//
+//   a) MEZCLABA FAMILIAS. La clave del grupo era solo la huella, y `(sin sello)`
+//      colapsaba todo en una fila que tomaba la familia del primer trade que
+//      encontrara: reportaba 51 trades con 45.1% como TENDENCIA cuando eran 23
+//      de TENDENCIA + 26 de REVERSION + 2 de NEUTRAL. Ahora la clave es
+//      familia+huella y ninguna fila puede mezclar.
+//
+//   b) DEJABA PASAR BASURA. El filtro excluia solo `gainloss` exacto, asi que la
+//      orden fantasma del sandbox (pnl=0, SANDBOX_GLITCH_SIN_POSICION, jamas
+//      hubo posicion) entraba a las estadisticas. Ahora la excluye pnl_oficial.
+//
+// Comparables y legado van SEPARADOS y nunca sumados: mezclar lo medido contra
+// la cadena real con lo medido contra Tradier es de donde salian los promedios
+// que no significaban nada.
 app.get('/api/spx/version-stats', (req, res) => {
+  const { resultadoOficial, MUESTRA_MINIMA } = require('./src/pnl_oficial');
   const familia = req.query.familia || null;
-  const incluirDudosos = req.query.incluirDudosos === 'true';
   const ex = loadTradierExecutions().filter(e =>
-    e.status === 'closed' && typeof e.pnl === 'number'
-    && (!familia || e.strategyFamily === familia));
+    e.status === 'closed' && (!familia || e.strategyFamily === familia));
 
-  const confiable = e => e.pnlSource && !/^gainloss$/.test(e.pnlSource);
   const grupos = {};
+  let excluidas = 0;
   for (const e of ex) {
-    if (!incluirDudosos && !confiable(e)) continue;
-    const h = e.algoVersion?.huella || '(sin sello)';
-    const g = grupos[h] = grupos[h] || {
-      huella: h, familia: e.strategyFamily || null,
+    const r = resultadoOficial(e);
+    if (r.fuente === 'no_operacion') { excluidas++; continue; }
+    if (r.pendiente || r.pnl == null) continue;
+
+    const fam = e.strategyFamily || '(sin familia)';
+    const h   = e.algoVersion?.huella || '(sin sello)';
+    const key = `${fam}|${h}`;
+    const g = grupos[key] = grupos[key] || {
+      familia: fam, huella: h,
       commit: e.algoVersion?.commit || null,
       parametros: e.algoVersion?.parametros || null,
-      trades: 0, ganadores: 0, pnl: 0, desde: null, hasta: null,
+      comparable: { trades: 0, ganadores: 0, pnl: 0, ganancias: [], perdidas: [] },
+      legado:     { trades: 0, ganadores: 0, pnl: 0 },
+      desde: null, hasta: null,
     };
-    g.trades++;
-    if (e.pnl > 0) g.ganadores++;
-    g.pnl += e.pnl;
-    const d = (e.filledAt || e.timestamp || '').slice(0, 10);
+    const bloque = r.comparable ? g.comparable : g.legado;
+    bloque.trades++;
+    if (r.pnl > 0) bloque.ganadores++;
+    bloque.pnl += r.pnl;
+    if (r.comparable) (r.pnl > 0 ? g.comparable.ganancias : g.comparable.perdidas).push(r.pnl);
+
+    const d = (e.closedAt || e.filledAt || e.timestamp || '').slice(0, 10);
     if (d && (!g.desde || d < g.desde)) g.desde = d;
     if (d && (!g.hasta || d > g.hasta)) g.hasta = d;
   }
+
+  const media = a => a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : null;
+  const cerrar = b => ({
+    trades: b.trades,
+    ganadores: b.ganadores,
+    winRate: b.trades ? +(b.ganadores / b.trades * 100).toFixed(1) : null,
+    pnl: +b.pnl.toFixed(2),
+    pnlPorTrade: b.trades ? +(b.pnl / b.trades).toFixed(2) : null,
+  });
+
   const filas = Object.values(grupos).map(g => ({
-    ...g,
-    pnl: +g.pnl.toFixed(2),
-    winRate: +(g.ganadores / g.trades * 100).toFixed(1),
-    pnlPorTrade: +(g.pnl / g.trades).toFixed(2),
-    // Con menos de 30 trades la diferencia entre 60% y 80% no se distingue del
-    // azar. Se marca explicitamente para no sacar conclusiones de 5 trades.
-    muestraSuficiente: g.trades >= 30,
+    familia: g.familia, huella: g.huella, commit: g.commit, parametros: g.parametros,
+    desde: g.desde, hasta: g.hasta,
+    comparable: {
+      ...cerrar(g.comparable),
+      gananciaMedia: media(g.comparable.ganancias),
+      // En estructuras de credito el win rate engaña: se gana seguido y poco, se
+      // pierde rara vez y mucho. La variable a vigilar es esta.
+      perdidaMedia:  media(g.comparable.perdidas),
+      muestraSuficiente: g.comparable.trades >= MUESTRA_MINIMA,
+      faltan: Math.max(0, MUESTRA_MINIMA - g.comparable.trades),
+    },
+    legado: cerrar(g.legado),
   })).sort((a, b) => (b.hasta || '').localeCompare(a.hasta || ''));
 
   res.json({
     ok: true,
     objetivo: 'win rate 80%',
-    excluidos: incluirDudosos ? 0 : ex.filter(e => !confiable(e)).length,
-    nota: 'Los trades con pnlSource "gainloss" se excluyen por defecto: ese metodo asignaba mal las patas. ?incluirDudosos=true para verlos igual.',
+    reglaDelDinero: 'cadena real de TastyTrade (src/pnl_oficial.js)',
+    muestraMinima: MUESTRA_MINIMA,
+    excluidas,
+    nota: 'comparable = medido contra la cadena real. legado = medido con los fills de Tradier; se muestra para no perder el historial, pero NO se suma con lo comparable ni sirve para concluir.',
     versiones: filas,
   });
 });
@@ -11821,30 +11863,50 @@ app.post('/api/spx/analizar-reversion-sombra', async (req, res) => {
   res.json({ ok: true, analizados: n });
 });
 
+// FASE 0 (2026-08-21): la sombra se juzga contra la cadena real, no contra Tradier.
+//
+// Este endpoint compara lo que habria hecho el trailing stop contra el cierre que
+// de verdad ocurrio. Hasta hoy ese "de verdad" era `ex.pnl` — los fills del
+// sandbox. O sea que la sombra competia contra un rival que no existe: el trade
+// que habria hecho alguien con 15 minutos de atraso.
+//
+// El punto es que ESTE es el instrumento del Auditor. Validar un cambio contra un
+// numero equivocado no es medir de menos: es medir otra cosa. Ahora solo entran a
+// la comparacion los trades con libro propio (r.comparable), y los demas quedan
+// listados con su motivo para que se vea cuantos hay y por que no cuentan.
 app.get('/api/spx/shadow-trail', (req, res) => {
+  const { resultadoOficial } = require('./src/pnl_oficial');
   const ex = loadTradierExecutions().filter(e => e.strategyFamily === 'TENDENCIA' && e.shadowTrail);
-  const fiable = e => typeof e.pnl === 'number' && e.pnlSource && !/^gainloss/.test(e.pnlSource);
-  const filas = ex.map(e => ({
-    id: e.id, dia: (e.filledAt || '').slice(0, 10), estado: e.status,
-    cierreReal: e.closeReason || null,
-    pnlReal: typeof e.pnl === 'number' ? e.pnl : null,
-    pnlFiable: fiable(e),
-    picoPct: e.shadowTrail.picoPct === -Infinity ? null : e.shadowTrail.picoPct,
-    trailDisparo: e.shadowTrail.disparo || null,
-    diferencia: (e.shadowTrail.disparo && fiable(e)) ? +(e.shadowTrail.disparo.pnlEstimado - e.pnl).toFixed(2) : null,
-  }));
+  const filas = ex.map(e => {
+    const r = resultadoOficial(e);
+    return {
+      id: e.id, dia: (e.filledAt || '').slice(0, 10), estado: e.status,
+      cierreReal: e.closeReason || null,
+      pnlReal: r.pnl,
+      pnlFuente: r.fuente,
+      pnlComparable: r.comparable,
+      motivoNoComparable: r.comparable ? null : r.nota,
+      pnlBroker: r.pnlBroker,
+      picoPct: e.shadowTrail.picoPct === -Infinity ? null : e.shadowTrail.picoPct,
+      trailDisparo: e.shadowTrail.disparo || null,
+      diferencia: (e.shadowTrail.disparo && r.comparable && r.pnl != null)
+        ? +(e.shadowTrail.disparo.pnlEstimado - r.pnl).toFixed(2) : null,
+    };
+  });
   const comparables = filas.filter(f => f.diferencia != null);
   res.json({
     ok: true,
     config: { activacion: 0.20, devolucion: 0.30 },
+    reglaDelDinero: 'cadena real de TastyTrade (src/pnl_oficial.js)',
     total: filas.length,
     comparables: comparables.length,
+    descartadas: filas.length - comparables.length,
     resumen: comparables.length ? {
       pnlRealTotal:  +comparables.reduce((a, b) => a + b.pnlReal, 0).toFixed(2),
       pnlTrailTotal: +comparables.reduce((a, b) => a + b.trailDisparo.pnlEstimado, 0).toFixed(2),
       diferenciaTotal: +comparables.reduce((a, b) => a + b.diferencia, 0).toFixed(2),
     } : null,
-    nota: 'pnlEstimado del trailing es la cotizacion viva del momento, no un fill real — el cierre verdadero tendria algo de deslizamiento.',
+    nota: 'Solo se comparan trades con libro propio contra la cadena real. pnlEstimado del trailing es la cotizacion viva del momento, no un fill real — el cierre verdadero tendria algo de deslizamiento.',
     filas,
   });
 });
@@ -11896,6 +11958,22 @@ app.get('/api/tradier/executions', async (req, res) => {
   // mostrando el mercado de hace un cuarto de hora. Se borra la copia y se usa la
   // misma funcion que el Historial: una sola forma de calcular el P&L en vivo.
   await attachLivePnl(executions);
+
+  // FASE 0 (2026-08-21): el resultado oficial viaja en la respuesta, calculado.
+  //
+  // Los consumidores que no son JavaScript —scripts/control_cambios.py, que arma
+  // los seis libros de Excel— no pueden importar src/pnl_oficial.js, y si cada uno
+  // reimplementa la regla vuelve el problema que la Fase 0 vino a resolver: la
+  // misma pregunta con varias respuestas. Asi que la regla se aplica UNA vez, aca,
+  // y todos leen `resultadoOficial` en vez de decidir por su cuenta.
+  //
+  // `ex.pnl` se deja intacto: sigue siendo el saldo que de verdad mueve la cuenta
+  // del sandbox, y la diferencia contra el oficial es —en dolares— lo que cuesta
+  // operar con 15 minutos de atraso. Se audita, no se borra.
+  {
+    const { resultadoOficial } = require('./src/pnl_oficial');
+    for (const ex of executions) ex.resultadoOficial = resultadoOficial(ex);
+  }
 
   // Comision estimada (2026-07-28, a pedido del usuario — "no estamos
   // cargando los costos del broker") — Tradier no la expone via API (ver

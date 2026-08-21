@@ -44,9 +44,21 @@ C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentor
 - PDFs: `<MMDDYYYY_fecha_cierre>_<ESTRATEGIA>_<ganador|perdedor><monto_entero>.pdf`
   — a pedido explícito del usuario, para poder ubicar un trade a simple vista sin
   abrir el PDF (ej. `07152026_BULL_PUT_SPREAD_perdedor15.pdf`,
-  `07152026_BULL_CALL_SPREAD_perdedor100.pdf`). `monto_entero` = `round(abs(pnl))`
-  (sin signo, el prefijo ganador/perdedor ya lo indica); `ganador` si `pnl >= 0`,
-  `perdedor` si `pnl < 0`. Si el nombre resultante ya existe en la carpeta (dos
+  `07152026_BULL_CALL_SPREAD_perdedor100.pdf`).
+
+  ⚠️ **El nombre sale del MISMO número que el cuerpo del informe** (Fase 0,
+  2026-08-21). `monto_entero` = `round(abs(N))` y `ganador` si `N >= 0`, donde
+  `N` es `ex.resultadoOficial.pnl` — el de la cadena real cuando hay libro
+  propio. Hasta hoy el cuerpo mostraba la cadena real y **el nombre se armaba con
+  `ex.pnl` de Tradier**, así que podía salir un `..._perdedor100.pdf` cuyo
+  informe mostraba una ganancia. Sobre los trades que tienen las dos mediciones,
+  4 de cada 12 cambian de signo: no es un caso teórico.
+
+  Si `resultadoOficial.esCadenaReal` es `false` (registros previos al libro,
+  16-ago), agregar el sufijo `_broker` antes de `.pdf` para que se vea de un
+  vistazo que ese nombre no está medido con la regla buena.
+
+  Si el nombre resultante ya existe en la carpeta (dos
   trades mismo día/estrategia/monto redondeado — puede pasar en scalping 0DTE),
   agregar un sufijo `_2`, `_3`, etc. antes de `.pdf` hasta encontrar uno libre —
   nunca sobrescribir un PDF existente.
@@ -107,11 +119,14 @@ Base URL: `https://web-production-23473.up.railway.app`
         — Iron Condor tiene 4 patas, direccional/reversión 2), expiry, contratos,
         crédito recibido o débito pagado, TP/SL configurado (`tpPct`/`slMult` o
         `debitTpPct`/`debitSlPct` según `isCredit`).
-      - **Resultado**: `pnl` con signo, banner verde/rojo (`result_banner`,
-        `positive: pnl >= 0`), `pnlSource` (traducir a texto legible: `gainloss` =
-        "confirmado por Tradier", `tp_sl_auto`/`precio_spx_auto` = "calculado por
-        el monitor de TP/SL al momento de cerrar", `pendiente_verificar` no debería
-        llegar aquí por el filtro del paso 3).
+      - **Resultado**: el número que encabeza el informe es el de la **cadena
+        real** — `ex.paperPnl.bruto` cuando `ex.paperPnl.confiable` es true — con
+        su banner verde/rojo (`positive: paperPnl.bruto >= 0`). Ver la sección
+        "El dinero sale de la cadena real" más abajo. El `ex.pnl` de Tradier va en
+        la tabla de comparación, nunca en el banner. Si NO hay `paperPnl`
+        confiable (registros anteriores al 2026-08-16, o un cierre que no marcó el
+        libro), el banner lleva el número de Tradier **rotulado como tal** y el
+        informe dice explícitamente que no hay medición en la cadena real.
       - **Condiciones de cierre**: traducir `closeReason` a una frase (`TP` =
         "cerró por Take Profit", `SL` = "cerró por Stop Loss", `TECHNICAL_STOP` =
         "cerró por invalidación técnica — precio rompió el Fractal 15m
@@ -241,8 +256,9 @@ eso en dólares para decidir si pasa a cuenta real: *"lo que necesitamos quitarn
 del medio es la duda de cuánto hubiera cerrado si la cadena de opciones estuviera
 on line"*.
 
-**No se toca el resultado que reporta Tradier.** Ese es el que ocurrió y es el
-que manda en la bitácora. La comparación es información adicional.
+**El resultado que reporta Tradier se conserva, pero ya no manda.** Desde el
+2026-08-20 el resultado de la bitácora es el de la cadena real (ver abajo); el
+número de Tradier queda como referencia para cuadrar contra el broker.
 
 Campos que deja el servidor en cada ejecución direccional:
 
@@ -294,14 +310,19 @@ quiere sacarse de encima antes de pasar a cuenta real: *"lo que necesitamos
 quitarnos del medio es la duda de cuánto hubiera cerrado si la cadena de opciones
 estuviera on line"*.
 
-**El P&L de Tradier no se toca.** Es el que ocurrió en el sandbox y se reporta tal
-cual, con su banner y su tabla. Esta sección responde otra pregunta y va aparte.
+**El P&L de Tradier se conserva, en la tabla de comparación.** Desde el
+2026-08-20 dejó de ser el resultado del informe (ver la sección siguiente).
 
 De dónde sale el dato, en orden de preferencia:
 
-1. **`ex.cierreVivo`** — el valor del spread según la cadena de TastyTrade en vivo,
-   congelado en el instante en que se mandó el cierre. Es la medición exacta. Trae
-   `netoTasty` y `pnlSiFueraEnVivo`. Si está, se usa y no hace falta nada más.
+1. **`ex.cierreVivo`** — cuanto valia el spread segun la cadena de TastyTrade en el
+   instante en que se mando el cierre. Trae `netoTasty` y `pnlSiFueraEnVivo`.
+   ⚠️ **NO es una verificacion independiente del libro propio** (error cometido y
+   corregido el 2026-08-20): el servidor calcula `pnlSiFueraEnVivo` con la salida
+   AL MEDIO (`mark`, sin cruzar el spread) contra la **entrada de Tradier**, o sea
+   que es una cifra mixta. Sirve para mostrar el valor de salida en vivo; el
+   resultado del trade es `paperPnl`. Rotularlos distinto — presentar este numero
+   como "verificacion" le da un peso que no tiene.
 2. **`/api/spx/sombra-cadenas?date=YYYY-MM-DD`** — el muestreo cada 5 min de las dos
    cadenas sobre strikes ATM. Si hay una muestra a pocos minutos del cierre, sirve
    como referencia del *signo y el orden de magnitud* del error, nunca como el valor
@@ -322,6 +343,60 @@ para decidir el paso a cuenta real sería el peor lugar posible para adornar.
 el error con un `catch` vacío y caía a Black-Scholes. Al no ser dato de mercado, la
 función devolvía `null` — correctamente. Corregido ese día para usar
 `/api/option-chain/SPX`, la misma cadena que ya alimentaba el muestreo de sombra.
+
+## El dinero sale de la cadena real (2026-08-20) — REGLA QUE MANDA
+
+Regla del usuario, textual: *"la apertura y el cierre de cada trade se hace vs la
+cadena de opciones real y no sobre lo que diga Tradier, que ya sabemos que tiene 15
+minutos de retraso... lo que vea en la bitácora frente a temas de dinero debe estar
+acotado a la cadena de opciones reales, no a Tradier."*
+
+**El resultado de cada informe es `ex.paperPnl.bruto`**, el libro propio medido
+contra la cadena de TastyTrade en vivo cruzando el spread (la corta se vendió al
+bid, la larga se compró al ask). No `ex.pnl`. Lo mismo vale para el nombre del
+archivo (`ganador`/`perdedor` + monto) y para el `gano` del bloque `chart` — si el
+gráfico sombrea al revés que el banner, el informe se contradice solo.
+
+Por qué: el sandbox de Tradier no solo cotiza con atraso, **llena** contra ese
+libro viejo. Su fill no describe el trade que el algoritmo hizo. Los dos días que
+lo destaparon (19 y 20 de agosto, 8 trades) daban esto:
+
+```
+              Tradier      cadena real
+TP    ->        -$45           +$75
+TP    ->        -$90          +$105
+SL    ->        +$10          -$260
+```
+
+Con Tradier un TP podía terminar en pérdida y un SL en ganancia. Contra la cadena
+real cada TP es ganancia y cada SL es pérdida, sin una sola excepción.
+
+**Banner de dos cifras (obligatorio).** El `result_banner` lleva la cifra real a la
+izquierda y la de Tradier a la derecha, en gris y mas chica — pedido explicito del
+usuario el 2026-08-20: *"quiero que aparezca arriba, como esta, el valor real de
+ganancia o perdida y a la derecha el segundo valor que tendria Tradier (el dato
+retrasado 15 min)"*. Se pasa asi:
+
+```json
+"result_banner": {
+  "label": "GANANCIA (cadena real)", "value": "+$105.00", "positive": true,
+  "secondary": {"label": "Tradier (dato con 15 min de atraso)", "value": "-$90.00"}
+}
+```
+
+`draw_banner` agranda el recuadro solo si viene `secondary`. Ver juntas las dos
+cifras es el punto: hay trades donde ni el signo coincide.
+
+**Campos:** `paperEntry.neto` (entrada), `paperExit.neto` (salida), `paperPnl`
+(`bruto`, `neto` ya con comisión, `comisionAsumida`). Usar `bruto` para el banner y
+mostrar el neto en la tabla — así el número es comparable con el de Tradier, que
+tampoco lleva comisión descontada.
+
+**Si falta `paperPnl`:** decirlo, no rellenar con Tradier en silencio. Es lo que
+pasa con el cierre manual anterior al 2026-08-20 (`cerrarPosicionPorSimbolos` no
+marcaba el libro; corregido ese día). Una reconstrucción a partir de otro trade
+cercano se puede incluir en la conclusión **rotulada como estimación**, jamás en el
+banner ni en el nombre del archivo.
 
 ## Formato del PDF (ajustado 2026-07-21, a pedido explícito del usuario)
 

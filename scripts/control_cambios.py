@@ -333,18 +333,77 @@ def _abierto_en(e):
     return (e.get("timestamp") or e.get("filledAt") or "")[:16].replace("T", " ")
 
 
+def resultado_oficial(e):
+    """FASE 0 (2026-08-21): el numero oficial lo calcula el servidor.
+
+    Este script no reimplementa la regla del dinero. `src/pnl_oficial.js` la
+    aplica una sola vez y la manda en cada ejecucion como `resultadoOficial`, y
+    aca solo se lee. Es lo que evita que vuelva el problema de origen: la misma
+    pregunta con cinco respuestas distintas segun quien la hiciera.
+
+    Devuelve (pnl, comparable, cuenta). `cuenta` es False para lo que ni siquiera
+    fue una operacion (orden fantasma del sandbox): esas no entran a ningun lado.
+    """
+    r = e.get("resultadoOficial")
+    if isinstance(r, dict):
+        if r.get("fuente") == "no_operacion":
+            return None, False, False
+        if r.get("pendiente") or r.get("pnl") is None:
+            return None, False, True
+        return r["pnl"], bool(r.get("comparable")), True
+    # Fallback: JSON local viejo o servidor sin desplegar. Se usa el numero del
+    # broker y se marca NO comparable, que es lo que honestamente es.
+    p = e.get("pnl")
+    if isinstance(p, (int, float)):
+        return p, False, True
+    return None, False, True
+
+
 def medir(trades, desde, hasta):
-    """desde/hasta en 'YYYY-MM-DD HH:MM'. hasta=None -> abierto hasta hoy."""
+    """desde/hasta en 'YYYY-MM-DD HH:MM'. hasta=None -> abierto hasta hoy.
+
+    Comparables y legado se cuentan SEPARADO. Mezclar lo medido contra la cadena
+    real con lo medido contra los fills de Tradier daba promedios sin sentido:
+    sobre los trades que tienen las dos mediciones, 4 de 12 cambian de signo.
+    """
     dentro = [e for e in trades if _abierto_en(e) >= desde and (hasta is None or _abierto_en(e) < hasta)]
-    cerrados = [e for e in dentro if isinstance(e.get("pnl"), (int, float))]
-    ganadores = [e for e in cerrados if e["pnl"] > 0]
-    pnl = round(sum(e["pnl"] for e in cerrados), 2)
-    wr = round(len(ganadores) / len(cerrados) * 100) if cerrados else None
-    return dict(n=len(dentro), cerrados=len(cerrados), ganadores=len(ganadores), wr=wr, pnl=pnl)
+    comp, legado, descartados = [], [], 0
+    for e in dentro:
+        pnl, comparable, cuenta = resultado_oficial(e)
+        if not cuenta:
+            descartados += 1
+            continue
+        if pnl is None:
+            continue
+        (comp if comparable else legado).append(pnl)
+
+    gan = [p for p in comp if p > 0]
+    per = [p for p in comp if p <= 0]
+    wr = round(len(gan) / len(comp) * 100) if comp else None
+    return dict(
+        n=len(dentro) - descartados,
+        cerrados=len(comp),
+        ganadores=len(gan),
+        wr=wr,
+        pnl=round(sum(comp), 2),
+        # La variable que hay que vigilar en estructuras de credito: el win rate
+        # engaña, lo que mata es el tamaño de la cola.
+        perdida_media=round(sum(per) / len(per), 2) if per else None,
+        ganancia_media=round(sum(gan) / len(gan), 2) if gan else None,
+        legado=len(legado),
+        legado_pnl=round(sum(legado), 2),
+        descartados=descartados,
+    )
 
 
 def veredicto(m, desde):
+    """`cerrados` son SOLO los medidos contra la cadena real. Un periodo con
+    trades de legado y ninguno comparable no es 'sin trades': es un periodo que
+    no se puede juzgar, y hay que decirlo con esas palabras."""
+    legado = m.get("legado", 0)
     if m["cerrados"] == 0:
+        if legado:
+            return f"no comparable ({legado} trades medidos con Tradier)"
         return "sin trades aun"
     if desde[:10] < CORTE_PNL_FIABLE:
         return f"no comparable (P&L previo al {CORTE_PNL_FIABLE})"
@@ -480,9 +539,12 @@ def construir():
         ws3.append(["4", "Muestra mínima antes de concluir: 30 trades. Con menos, la diferencia "
                          "entre 60% y 80% no es distinguible del azar."])
         ws3.append([])
+        # Trades / Ganadores / Win rate / P&L cuentan SOLO lo medido contra la
+        # cadena real. "Legado" son los que solo tienen el numero de Tradier: se
+        # muestran para no perder el historial, nunca se suman con los de al lado.
         ws3.append(["Período (commit)", "Qué cambió", "Desde", "Hasta", "Trades", "Ganadores",
-                    "Win rate", "P&L", "Validado"])
-        for i in range(1, 10):
+                    "Win rate", "P&L", "Pérdida media", "Legado (Tradier)", "Validado"])
+        for i in range(1, 12):
             ws3.cell(10, i).font = Font(bold=True, color="FFFFFF")
             ws3.cell(10, i).fill = PatternFill("solid", fgColor="1F3864")
         for p in periodos:
@@ -490,9 +552,12 @@ def construir():
                         f"{p['n']} / {p['cerrados']} cerrados",
                         p["ganadores"],
                         f"{p['wr']}%" if p["wr"] is not None else "—",
-                        p["pnl"], veredicto(p, p["desde"])])
-            v = str(ws3.cell(ws3.max_row, 9).value)
-            ws3.cell(ws3.max_row, 9).fill = PatternFill(
+                        p["pnl"],
+                        p.get("perdida_media") if p.get("perdida_media") is not None else "—",
+                        f"{p.get('legado', 0)}" if p.get("legado") else "—",
+                        veredicto(p, p["desde"])])
+            v = str(ws3.cell(ws3.max_row, 11).value)
+            ws3.cell(ws3.max_row, 11).fill = PatternFill(
                 "solid", fgColor="C6EFCE" if v == "SI" else "FFEB9C" if v.startswith("insuf") else "F2F2F2")
             ws3.cell(ws3.max_row, 2).alignment = Alignment(wrap_text=True, vertical="top")
 
@@ -504,34 +569,43 @@ def construir():
             hv = (e.get("algoVersion") or {}).get("huella")
             if not hv:
                 continue
-            d = huellas.setdefault(hv, dict(n=0, cerrados=0, gan=0, pnl=0.0, desde="9999", hasta=""))
+            pnl, comparable, cuenta = resultado_oficial(e)
+            if not cuenta:
+                continue          # orden fantasma: nunca hubo operacion
+            d = huellas.setdefault(hv, dict(n=0, cerrados=0, gan=0, pnl=0.0,
+                                            legado=0, desde="9999", hasta=""))
             d["n"] += 1
             t = _abierto_en(e)
             d["desde"], d["hasta"] = min(d["desde"], t), max(d["hasta"], t)
-            if isinstance(e.get("pnl"), (int, float)):
-                d["cerrados"] += 1
-                d["pnl"] += e["pnl"]
-                if e["pnl"] > 0:
-                    d["gan"] += 1
+            if pnl is None:
+                continue
+            if not comparable:
+                d["legado"] += 1  # medido con Tradier: se cuenta, no se suma
+                continue
+            d["cerrados"] += 1
+            d["pnl"] += pnl
+            if pnl > 0:
+                d["gan"] += 1
         if huellas:
             ws3.append([])
             ws3.append(["Huella (algoVersion)", "= misma configuración", "Desde", "Hasta", "Trades",
-                        "Ganadores", "Win rate", "P&L", "Validado"])
+                        "Ganadores", "Win rate", "P&L", "Pérdida media", "Legado (Tradier)", "Validado"])
             enc = ws3.max_row
-            for i in range(1, 10):
+            for i in range(1, 12):
                 ws3.cell(enc, i).font = Font(bold=True, color="FFFFFF")
                 ws3.cell(enc, i).fill = PatternFill("solid", fgColor="404040")
             for hv, d in sorted(huellas.items(), key=lambda kv: kv[1]["desde"]):
                 wr = round(d["gan"] / d["cerrados"] * 100) if d["cerrados"] else None
-                m = dict(cerrados=d["cerrados"])
+                m = dict(cerrados=d["cerrados"], legado=d["legado"])
                 ws3.append([hv, "", d["desde"], d["hasta"], f"{d['n']} / {d['cerrados']} cerrados",
                             d["gan"], f"{wr}%" if wr is not None else "—", round(d["pnl"], 2),
+                            "—", f"{d['legado']}" if d["legado"] else "—",
                             veredicto(m, d["desde"])])
 
         ws3.append([])
         ws3.append(["Fuente de los trades", fuente])
         ws3.append(["Generado", datetime.now().strftime("%Y-%m-%d %H:%M")])
-        for col, ancho in zip("ABCDEFGHI", [22, 60, 18, 18, 20, 11, 10, 11, 26]):
+        for col, ancho in zip("ABCDEFGHIJK", [22, 60, 18, 18, 20, 11, 10, 11, 14, 16, 30]):
             ws3.column_dimensions[col].width = ancho
         for r in range(4, 9):
             ws3.cell(r, 2).alignment = Alignment(wrap_text=True, vertical="top")

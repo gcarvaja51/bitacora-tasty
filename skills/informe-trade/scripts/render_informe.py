@@ -91,19 +91,52 @@ def draw_title(pdf, title, subtitle):
 
 
 def draw_banner(pdf, banner):
+    """Banner de resultado.
+
+    Desde 2026-08-20 lleva DOS cifras, a pedido del usuario: a la izquierda el
+    resultado real (medido contra la cadena de opciones en vivo) y a la derecha,
+    en gris y mas chico, el que reporto Tradier -- el sandbox que cotiza y llena
+    con ~15 min de atraso. Verlas juntas es el punto: en varios trades del 19 y
+    20 de agosto la de Tradier tenia hasta el SIGNO cambiado, y poder hacer esa
+    comparacion de un vistazo es justo lo que se pidio.
+
+    La segunda cifra es opcional (`secondary`): {"label": ..., "value": ...}.
+    Sin ella el banner se dibuja como siempre.
+    """
     if not banner:
         return
     positive = banner.get("positive")
     bg = GREEN_BG if positive else RED_BG
     fg = GREEN if positive else RED
+    sec = banner.get("secondary")
+
+    # Con dos cifras el bloque necesita algo mas de alto: la de la derecha va en
+    # dos lineas (rotulo arriba, valor abajo) para que no compita visualmente
+    # con la principal.
+    h = 16 if sec else 13
+    y0 = pdf.get_y()
     pdf.set_fill_color(*bg)
     pdf.set_draw_color(*bg)
-    pdf.rect(15, pdf.get_y(), pdf.w - 30, 13, style="F")
-    pdf.set_xy(20, pdf.get_y() + 2)
+    pdf.rect(15, y0, pdf.w - 30, h, style="F")
+
+    pdf.set_xy(20, y0 + (3 if sec else 2))
     pdf.set_text_color(*fg)
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 9, sanitize(f"{banner.get('label','')}: {banner.get('value','')}"))
-    pdf.set_y(pdf.get_y() + 13)
+
+    if sec:
+        # Ancho fijo a la derecha, alineado al borde interno del recuadro.
+        w_sec = 68
+        x_sec = pdf.w - 15 - w_sec - 5
+        pdf.set_text_color(*MUTED)
+        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_xy(x_sec, y0 + 2.5)
+        pdf.cell(w_sec, 4, sanitize(sec.get("label", "")), align="R")
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_xy(x_sec, y0 + 7.5)
+        pdf.cell(w_sec, 6, sanitize(sec.get("value", "")), align="R")
+
+    pdf.set_y(y0 + h)
     pdf.set_text_color(*TEXT)
     pdf.ln(2)
 
