@@ -214,7 +214,18 @@ async function humo(base = BASE) {
 
 async function conServidorLocal(fn) {
   const { spawn } = require('child_process');
-  const puerto = 3999;
+  // Puerto libre pedido al sistema, no uno fijo. Con 3999 fijo el hook fallo una
+  // vez por colision con una corrida anterior que todavia soltaba el puerto, y
+  // un guardian que falla al azar es peor que ninguno: enseña a saltarselo con
+  // SKIP_PRUEBAS y deja de guardar nada.
+  const puerto = await new Promise((resolve, reject) => {
+    const srv = require('net').createServer();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const p = srv.address().port;
+      srv.close(() => resolve(p));
+    });
+  });
   console.log(`\n  levantando servidor local en MODO_PRUEBAS (puerto ${puerto})...`);
   const srv = spawn(process.execPath, ['server.js'], {
     cwd: require('path').join(__dirname, '..'),
@@ -222,14 +233,19 @@ async function conServidorLocal(fn) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let salida = '';
+  let murio = null;
   srv.stdout.on('data', d => { salida += d; });
   srv.stderr.on('data', d => { salida += d; });
+  // Si el proceso se cae al arrancar, fallar YA con su salida en vez de esperar
+  // el minuto completo: un arranque roto y un arranque lento son diagnosticos
+  // distintos y no deberian verse igual.
+  srv.on('exit', (code) => { murio = code; });
   try {
     // Esperar a que responda, no dormir un rato fijo: si arranca lento la
     // prueba fallaria por impaciencia y no por un defecto.
-    const limite = Date.now() + 60000;
+    const limite = Date.now() + 90000;
     let vivo = false;
-    while (Date.now() < limite) {
+    while (Date.now() < limite && murio === null) {
       try {
         const r = await fetch(`http://localhost:${puerto}/api/health`);
         if (r.ok) { vivo = true; break; }
@@ -237,9 +253,11 @@ async function conServidorLocal(fn) {
       await new Promise(r => setTimeout(r, 1000));
     }
     if (!vivo) {
-      console.log('  FALLA  el servidor local no respondio en 60s');
+      console.log(murio !== null
+        ? `  FALLA  el servidor local murio al arrancar (codigo ${murio})`
+        : '  FALLA  el servidor local no respondio en 90s');
       console.log(salida.split('\n').slice(-15).join('\n'));
-      fail++; fallos.push('el servidor local no arranco');
+      fail++; fallos.push(murio !== null ? `el servidor local murio al arrancar (codigo ${murio})` : 'el servidor local no arranco en 90s');
       return;
     }
     await fn(`http://localhost:${puerto}`);
