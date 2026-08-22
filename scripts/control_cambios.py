@@ -151,6 +151,50 @@ def impacto_declarado(cuerpo):
     return m.group(1).upper() if m else None
 
 
+# ── Correccion o ajuste: quien abre periodo de medicion (2026-08-22) ────────
+#
+# EL DEFECTO QUE ESTO ARREGLA: cada commit ALTO abria un periodo nuevo y cerraba
+# el anterior. Los ALTO llegan cada 3 a 9 horas y la muestra minima son 30
+# trades cerrados, asi que un periodo de 2.7 horas NUNCA junta 30 trades.
+# Resultado: 185 periodos registrados y CERO validados. El libro documentaba
+# impecablemente que cambio y jamas llegaba a decir si sirvio.
+#
+# La causa no era el umbral sino la definicion: se estaba tratando cada ARREGLO
+# como si fuera un EXPERIMENTO. Arreglar un calculo roto no plantea una
+# hipotesis que haya que medir — devuelve el sistema a lo que ya se creia que
+# hacia. Solo un cambio que altera DECISIONES abre periodo.
+#
+# El trailer manda; la heuristica solo cubre los ~360 commits historicos que no
+# lo tienen.
+_TRAILER_TIPO = re.compile(r'^\s*tipo\s*:\s*(CORRECCION|CORRECCIÓN|AJUSTE)\s*$', re.I | re.M)
+
+# Verbos de arreglo. Deliberadamente conservadora: ante la duda se trata como
+# ajuste y se abre periodo. Un periodo de mas ensucia; uno de menos ESCONDE un
+# cambio de conducta, que es mucho peor.
+_PALABRAS_CORRECCION = [
+    "arregla", "arreglo", "fix", "bug", "corrige", "corregir", "correccion",
+    "ya no ", "dejaba de", "no se escribia", "no se escribe", "se perdia",
+    "estaba mal", "mal calculad", "rompi", "rompio", "regresion", "500",
+    "referenceerror", "no existe", "leia un campo", "hardcodead",
+]
+
+
+def tipo_declarado(cuerpo):
+    m = _TRAILER_TIPO.search(cuerpo or "")
+    if not m:
+        return None
+    return "CORRECCION" if m.group(1).upper().startswith("CORRECC") else "AJUSTE"
+
+
+def es_correccion(asunto, cuerpo):
+    """True si el commit ARREGLA algo, en vez de cambiar una decision."""
+    t = tipo_declarado(cuerpo)
+    if t:
+        return t == "CORRECCION"
+    a = (asunto or "").lower()
+    return any(k in a for k in _PALABRAS_CORRECCION)
+
+
 # Alias -> familia canonica. "TENDENCIA" es como se llama la familia en el codigo
 # y en el strategy log; "DIRECCIONAL" es como se llama la carpeta. Los dos son lo
 # mismo y los dos aparecen escritos en los commits.
@@ -432,7 +476,11 @@ def construir():
             fams = familias_declaradas(crudo) or clasificar_familias(c["asunto"], archivos_commit(c["sha"]))
             if familia not in fams:
                 continue
-            filas.append(dict(c, impacto=impacto_declarado(crudo) or clasificar_impacto(c["asunto"])))
+            # `cuerpo` viaja para que es_correccion() pueda leer el trailer
+            # `Tipo:`. Sin el solo quedaria la heuristica sobre el asunto, y el
+            # trailer tiene que poder mandar sobre ella.
+            filas.append(dict(c, cuerpo=crudo,
+                              impacto=impacto_declarado(crudo) or clasificar_impacto(c["asunto"])))
         filas.sort(key=lambda r: (r["fecha"], r["hora"]), reverse=True)
 
         print(f"\n{familia}: {len(filas)} cambios  "
@@ -460,7 +508,16 @@ def construir():
         # orden descendente, asi que el "siguiente" cronologico es el ALTO que
         # aparece ANTES en la lista.
         trades = trades_de_familia(familia, spx, rueda)
-        altos = [f for f in filas if f["impacto"] == "ALTO"]
+        # Solo los ALTO que cambian DECISIONES abren periodo. Los arreglos se
+        # siguen registrando en la hoja Cambios —el registro no pierde nada—
+        # pero no parten la medicion en pedazos inservibles.
+        altos = [f for f in filas
+                 if f["impacto"] == "ALTO" and not es_correccion(f["asunto"], f.get("cuerpo", ""))]
+        altos_correccion = sum(1 for f in filas
+                               if f["impacto"] == "ALTO" and es_correccion(f["asunto"], f.get("cuerpo", "")))
+        print(f"   {familia}: {len(altos)} periodos de medicion "
+              f"({altos_correccion} de los {len(altos) + altos_correccion} ALTO son correcciones "
+              f"y no abren periodo)")
         periodos = []
         for i, f in enumerate(altos):
             desde = f"{f['fecha']} {f['hora']}"

@@ -123,7 +123,10 @@ PROPUESTAS = [
         "id": "DIR-1", "familia": "DIRECCIONAL", "nivel": "alto",
         "titulo": "El filtro de direccion de 15m va horas atrasado",
         "pregunta": "¿Que el MACD 15m pueda vetar mejora el resultado?",
-        "instrumento": None,   # no hay sombra que replique el filtro de direccion
+        # Instrumento construido el 2026-08-22 (scripts/sombra_direccion.py). No
+        # simula: usa trades REALES con su resultado real contra la cadena, y los
+        # parte segun el MACD de 15m que habia en el instante de la señal.
+        "instrumento": "sombra_direccion",
     },
     {
         "id": "NEU-2", "familia": "NEUTRAL", "nivel": "medio",
@@ -174,7 +177,27 @@ def juzgar_REV_4(datos):
     return global_v, {"porCheck": res}
 
 
-JUECES = {"REV-3": juzgar_REV_3, "REV-4": juzgar_REV_4}
+def juzgar_DIR_1(datos):
+    """El veto del MACD: compara los trades donde el MACD acompañaba contra
+    aquellos donde contradecia. Son los que el veto habria evitado."""
+    d = datos.get("direccion") or {}
+    g = d.get("grupos") or {}
+    ac, en = g.get("DE_ACUERDO") or {}, g.get("EN_CONTRA") or {}
+    if not ac.get("n") and not en.get("n"):
+        return "SIN INSTRUMENTO", {"motivo": "la sombra de direccion no pudo emparejar ni un trade"}
+    v, det = comparar("con el veto (MACD de acuerdo)", ac.get("ganadores", 0), ac.get("n", 0),
+                      "hoy, sin veto (MACD en contra)", en.get("ganadores", 0), en.get("n", 0))
+    det["efectoDelVeto"] = d.get("efectoDelVeto")
+    det["emparejados"] = d.get("emparejados")
+    det["descartados"] = d.get("descartados")
+    # El instrumento es nuevo y su muestra arranca donde arranca el libro propio
+    # (17-ago). Decirlo evita que un "insuficiente" se lea como "no hay señal".
+    det["notaInstrumento"] = ("instrumento nuevo: solo entran trades con libro propio, "
+                              "asi que la muestra arranca el 2026-08-17 y crece desde ahi")
+    return v, det
+
+
+JUECES = {"REV-3": juzgar_REV_3, "REV-4": juzgar_REV_4, "DIR-1": juzgar_DIR_1}
 
 
 def evaluar(p, datos):
@@ -255,6 +278,14 @@ def main():
         "salidas":   _get_json(f"{PROD}/api/spx/salidas-alternativas"),
         "cadenas":   _get_json(f"{PROD}/api/spx/sombra-cadenas"),
     }
+    # La sombra de direccion la calcula un script propio (no hay endpoint): se
+    # lee del archivo que deja, y si no esta se dice en vez de fallar callado.
+    _sd = os.path.join(SALIDA, "sombra_direccion.json")
+    if os.path.exists(_sd):
+        with open(_sd, encoding="utf-8") as fh:
+            datos["direccion"] = json.load(fh)
+    else:
+        datos["direccion"] = {}
 
     props = [p for p in PROPUESTAS if not a.id or p["id"] == a.id]
     filas = [{**p, **evaluar(p, datos)} for p in props]
