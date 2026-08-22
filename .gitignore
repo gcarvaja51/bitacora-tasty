@@ -41,3 +41,6 @@ veredictos/
 
 # Calidad del dato y analisis (Fase 3) — salida generada, no fuente.
 datos/
+
+# Vigilancia intradia (Fase 4) — salida generada, no fuente.
+vigilancia/
