@@ -119,6 +119,36 @@ chequear('el activo es el drawdown diario', activos[0]?.clave === 'maxDailyDrawd
 chequear('los decorativos vienen marcados',
   declarados.filter(f => !f.activo).every(f => (f.nota || '').includes('DECORATIVO')));
 
+// ── 2b. El gate de posicion ────────────────────────────────────────────────
+seccion('El gate de posicion (hasLocalOpenSPXWPosition)');
+
+// Se prueba la REGLA, no la funcion: la funcion lee del disco. Si la regla
+// cambia, estas expectativas tienen que cambiar con ella a proposito.
+const GRACIA_MS = 90 * 1000;
+function bloquea(e) {
+  if (e.status !== 'submitted' && e.status !== 'filled') return false;
+  if (e.strategyFamily === 'REVERSION') return false;
+  if (e.closeOrderSentAt && (Date.now() - new Date(e.closeOrderSentAt).getTime()) > GRACIA_MS) return false;
+  return true;
+}
+const haceRato = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+const reciente = new Date(Date.now() - 10 * 1000).toISOString();
+
+chequear('una direccional abierta bloquea',
+  bloquea({ status: 'filled', strategyFamily: 'TENDENCIA' }) === true);
+chequear('una Reversion abierta NO bloquea a la direccional',
+  bloquea({ status: 'filled', strategyFamily: 'REVERSION' }) === false);
+chequear('una cerrada no bloquea',
+  bloquea({ status: 'closed', strategyFamily: 'TENDENCIA' }) === false);
+// El caso de los 61 bloqueos en 10 dias: el cierre ya se mando y la
+// reconciliacion (cada 5 min) todavia no cambio la etiqueta.
+chequear('con el cierre ya mandado hace rato, deja de bloquear',
+  bloquea({ status: 'filled', strategyFamily: 'TENDENCIA', closeOrderSentAt: haceRato }) === false);
+// Pero no de inmediato: si no, se apilarian dos posiciones por un cierre que
+// todavia no llena.
+chequear('con el cierre recien mandado sigue bloqueando (gracia de 90s)',
+  bloquea({ status: 'filled', strategyFamily: 'TENDENCIA', closeOrderSentAt: reciente }) === true);
+
 // ── 3. Humo: que TODOS los endpoints respondan ──────────────────────────────
 //
 // Excluidos a proposito, con su razon. Un GET no deberia tener efectos, pero

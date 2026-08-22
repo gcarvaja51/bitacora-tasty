@@ -5140,12 +5140,37 @@ function buildStrategySnapshot(ctx, extra = {}) {
 // fuentes indica una posicion en curso (la mas conservadora manda). No incluye
 // REVERSION (Alejamiento de SMA) a proposito — esa estrategia ya tiene su propio
 // slot de exclusividad separado, ver checkAlejamientoSMA.
+// 2026-08-22: si la orden de cierre YA SE MANDO, la posicion deja de bloquear.
+//
+// Es exactamente el arreglo que la Reversion recibio el 2026-08-09 y que aca
+// quedo pendiente (el comentario del ciclo direccional ya decia "es el MISMO
+// patron... aca quedo pendiente"). El monitor de salida deja status='filled' a
+// proposito para que la reconciliacion pasiva complete el P&L real, y esa
+// reconciliacion corre cada 5 minutos: entre el cierre y el cambio de etiqueta
+// el registro local sigue diciendo que hay posicion cuando el broker ya no la
+// tiene.
+//
+// Medido sobre el log: 61 evaluaciones en 10 dias con "Tradier dice false,
+// registro local dice true". Ese es el unico sentido del desacuerdo que BLOQUEA
+// de verdad, y llegaba en rachas — 31 el 11-ago, 22 el 20-ago, 8 el 21-ago.
+// Justo despues de cerrar es cuando el precio suele seguir extendido, asi que el
+// bloqueo caia en el peor momento.
+//
+// La gracia corta evita el problema opuesto: que se apilen dos posiciones por un
+// cierre que todavia no llena.
+const CIERRE_ENVIADO_GRACIA_SPXW_MS = 90 * 1000;
+
 function hasLocalOpenSPXWPosition() {
   const executions = loadTradierExecutions();
-  return executions.some(e =>
-    (e.status === 'submitted' || e.status === 'filled') &&
-    e.strategyFamily !== 'REVERSION'
-  );
+  return executions.some(e => {
+    if (e.status !== 'submitted' && e.status !== 'filled') return false;
+    if (e.strategyFamily === 'REVERSION') return false;
+    if (e.closeOrderSentAt &&
+        (Date.now() - new Date(e.closeOrderSentAt).getTime()) > CIERRE_ENVIADO_GRACIA_SPXW_MS) {
+      return false;   // el cierre se mando hace rato: ya no cuenta como abierta
+    }
+    return true;
+  });
 }
 
 // ¿TODO lo que Tradier tiene abierto en SPXW se explica como patas de una
@@ -6041,7 +6066,23 @@ async function checkDirectionalAutonomous() {
     const tradierDiceAbierto = await tradier.hasOpenPosition('SPXW');
     const localDiceAbierto = hasLocalOpenSPXWPosition();
     if (tradierDiceAbierto !== localDiceAbierto) {
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbierto}, registro local dice ${localDiceAbierto} — se usa el mas conservador (bloquear si cualquiera dice true).` });
+      // 2026-08-22: solo se anota el sentido que SORPRENDE.
+      //
+      // El otro —Tradier si, local no— es lo ESPERADO desde el 2026-08-11: el
+      // registro local excluye la Reversion a proposito, asi que cada vez que hay
+      // una Reversion abierta salta un desacuerdo que no bloquea nada. Eran 1138
+      // de 1199 lineas, el 24% del log entero, y el log guarda 5000 entradas: ese
+      // ruido estaba DESALOJANDO diagnostico real de los mismos dias.
+      //
+      // Y el texto mentia: decia "se usa el mas conservador (bloquear si
+      // cualquiera dice true)", que dejo de ser cierto con ese mismo cambio —
+      // abajo se ve que una Reversion abierta NO bloquea a la direccional.
+      if (localDiceAbierto && !tradierDiceAbierto) {
+        logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null,
+          reason: 'El registro local cree que hay una posicion abierta y Tradier dice que no. ' +
+                  'Se bloquea por precaucion. Suele ser un cierre ya mandado que la reconciliacion ' +
+                  'todavia no asento (ver la gracia en hasLocalOpenSPXWPosition).' });
+      }
     }
     const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoEsReversion() : true;
     if (localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta)) return; // hay algo abierto que NO es una Reversion
@@ -6577,7 +6618,23 @@ async function processDirectionalEntry(direction, meta = {}) {
         const tradierDiceAbierto = await tradier.hasOpenPosition('SPXW');
         const localDiceAbierto = hasLocalOpenSPXWPosition();
         if (tradierDiceAbierto !== localDiceAbierto) {
-          logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbierto}, registro local dice ${localDiceAbierto} — se usa el mas conservador (bloquear si cualquiera dice true).` });
+          // 2026-08-22: solo se anota el sentido que SORPRENDE.
+      //
+      // El otro —Tradier si, local no— es lo ESPERADO desde el 2026-08-11: el
+      // registro local excluye la Reversion a proposito, asi que cada vez que hay
+      // una Reversion abierta salta un desacuerdo que no bloquea nada. Eran 1138
+      // de 1199 lineas, el 24% del log entero, y el log guarda 5000 entradas: ese
+      // ruido estaba DESALOJANDO diagnostico real de los mismos dias.
+      //
+      // Y el texto mentia: decia "se usa el mas conservador (bloquear si
+      // cualquiera dice true)", que dejo de ser cierto con ese mismo cambio —
+      // abajo se ve que una Reversion abierta NO bloquea a la direccional.
+      if (localDiceAbierto && !tradierDiceAbierto) {
+        logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null,
+          reason: 'El registro local cree que hay una posicion abierta y Tradier dice que no. ' +
+                  'Se bloquea por precaucion. Suele ser un cierre ya mandado que la reconciliacion ' +
+                  'todavia no asento (ver la gracia en hasLocalOpenSPXWPosition).' });
+      }
         }
         // Misma regla que el gate de evaluacion: una Reversion abierta no cuenta.
         const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoEsReversion() : true;
@@ -7400,7 +7457,14 @@ async function checkIronCondor() {
     const tradierDiceAbiertoIC = await tradier.hasOpenPosition('SPXW');
     const localDiceAbiertoIC = hasLocalOpenSPXWPosition();
     if (tradierDiceAbiertoIC !== localDiceAbiertoIC) {
-      logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_CHECK_MISMATCH', passed: null, reason: `Tradier dice ${tradierDiceAbiertoIC}, registro local dice ${localDiceAbiertoIC} — se usa el mas conservador (bloquear si cualquiera dice true).` });
+      // Mismo criterio que en la direccional: solo se anota el sentido que
+      // sorprende (local cree abierto, el broker dice que no).
+      if (localDiceAbiertoIC && !tradierDiceAbiertoIC) {
+        logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`,
+          stage: 'POSITION_CHECK_MISMATCH', passed: null,
+          reason: 'El registro local cree que hay una posicion abierta y Tradier dice que no. ' +
+                  'Se bloquea por precaucion; suele ser un cierre ya mandado sin asentar.' });
+      }
     }
     // REVERSION E IRON CONDOR NO SON EXCLUYENTES (2026-08-09, aclaracion del
     // usuario: "IC aparece cuando tengo un strike pinneado y un gamma positivo").
