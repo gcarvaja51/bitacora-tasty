@@ -38,3 +38,6 @@ cierres/
 
 # Veredictos del Auditor (Fase 2) — salida generada, no fuente.
 veredictos/
+
+# Calidad del dato y analisis (Fase 3) — salida generada, no fuente.
+datos/
