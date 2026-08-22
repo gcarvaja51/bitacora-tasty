@@ -6610,6 +6610,22 @@ async function processDirectionalEntry(direction, meta = {}) {
               // comportamiento, asi que un ajuste hecho via POST /api/spx/config
               // sin anotarlo en el control de cambios igual queda separado.
               algoVersion:   sellarVersion(spxConfig, signal.strategyFamily || 'TENDENCIA'),
+              // Sello del MACD de 15m en el instante de la señal (2026-08-22).
+              //
+              // Es el instrumento de DIR-1, la propuesta mas vieja del backlog:
+              // el filtro de direccion de 15m va atrasado y se propone que el
+              // MACD pueda vetar cuando lo contradice. Para juzgarla hay que
+              // saber que decia el MACD CUANDO se entro, no ahora.
+              //
+              // Ese dato existia solo en el snapshot del log, que guarda las
+              // ultimas 5000 entradas (~10 dias): la muestra tenia techo y no
+              // crecia. Sellandolo aca —igual que algoVersion— se acumula para
+              // siempre y deja de depender de una retencion.
+              macd15mEntrada: ctx?.indicators?.m15?.macd
+                ? { hist: ctx.indicators.m15.macd.hist,
+                    bullish: !!ctx.indicators.m15.macd.bullish,
+                    bearish: !!ctx.indicators.m15.macd.bearish }
+                : null,
               isCredit:      !!signal.isCredit, // false = debito, para que checkDirectionalTPSL sepa que formula de P&L usar
               direction:     signal.direction,
               strikes:       signal.strikes,
@@ -11864,7 +11880,12 @@ app.get('/api/spx/reversion-sombra', (req, res) => {
   // Validar contra el numero equivocado no es medir de menos: es medir otra
   // cosa. Ahora sale de la configuracion viva, asi que cuando alguien mueva la
   // perilla el instrumento se entera solo.
-  const _rev = (spxConfig?.trading?.smaReversion) || {};
+  // OJO: `spxConfig` NO es global — es un const local en cuatro funciones
+  // distintas. Usarlo aca lanzaba ReferenceError y tumbaba el endpoint con un
+  // 500 (introducido y desplegado el 2026-08-22, detectado a los ~20 min al
+  // correr el Auditor). El optional chaining no protege de esto: `a?.b` sigue
+  // fallando si `a` no esta declarada.
+  const _rev = (loadSPXConfig()?.trading?.smaReversion) || {};
   const PUERTA_MIN = Number.isFinite(+_rev.extBandMinPct) ? +_rev.extBandMinPct : 0.13;
   const PUERTA_MAX = Number.isFinite(+_rev.extBandMaxPct) ? +_rev.extBandMaxPct : 0.30;
   const porBandaAlejamiento = [];
