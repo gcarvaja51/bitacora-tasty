@@ -1,0 +1,40 @@
+#!/bin/sh
+# Bateria de pruebas antes de empujar (2026-08-22).
+#
+# Por que existe, con caso y fecha: el 2026-08-22 se empujo un cambio que
+# tumbaba /api/spx/reversion-sombra con un 500 en cada request — un
+# ReferenceError, no un error de sintaxis, asi que `node -c` no lo veia. Un push
+# a main dispara el despliegue en Railway, o sea que se subio roto y se
+# descubrio veinte minutos despues, de casualidad.
+#
+# Este hook levanta el servidor en MODO_PRUEBAS, le pide TODAS las rutas y aborta
+# el push si alguna devuelve 5xx. Tarda ~40 segundos. El endpoint caido se habria
+# cazado en dos.
+#
+# A DIFERENCIA de post-commit, este SI puede abortar: salir distinto de cero
+# cancela el push. Es deliberado — un commit roto se arregla con otro commit; un
+# despliegue roto deja el robot operando mal, o sin operar.
+#
+# Para saltarlo cuando de verdad haga falta (una emergencia, o un push que no
+# toca codigo):  SKIP_PRUEBAS=1 git push ...
+#
+# Instalacion en un clon nuevo (.git/hooks no se versiona):
+#   cp scripts/hooks/pre-push .git/hooks/ && chmod +x .git/hooks/pre-push
+
+[ -n "$SKIP_PRUEBAS" ] && { echo "[pre-push] saltado por SKIP_PRUEBAS"; exit 0; }
+command -v node >/dev/null 2>&1 || exit 0
+
+RAIZ=$(git rev-parse --show-toplevel)
+cd "$RAIZ" || exit 0
+
+echo "[pre-push] bateria de pruebas (unidad + humo local)..."
+if node scripts/pruebas.js --local; then
+  echo "[pre-push] OK — se empuja"
+  exit 0
+fi
+
+echo ""
+echo "[pre-push] PUSH ABORTADO: hay pruebas en rojo."
+echo "           Un push a main despliega. Arregla, o usa SKIP_PRUEBAS=1 si"
+echo "           sabes lo que estas haciendo y por que."
+exit 1

@@ -10,6 +10,33 @@ const { buildMetrics, buildEquityCurve, buildCalendar } = require('./src/metrics
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// ── MODO_PRUEBAS: levantar el servidor SIN que opere (2026-08-22) ───────────
+//
+// Con MODO_PRUEBAS=1 no se programa ni un solo ciclo periodico. Las rutas
+// siguen respondiendo igual, que es lo unico que la prueba de humo necesita.
+//
+// Por que hacia falta: hasta hoy la unica forma de comprobar que un endpoint no
+// se cae era desplegarlo y pedirselo a produccion — o sea, DESPUES. El 2026-08-22
+// se subio un ReferenceError que tumbo /api/spx/reversion-sombra con un 500 en
+// cada request y se descubrio 20 minutos mas tarde, de casualidad. `node -c` no
+// lo ve porque no es un error de sintaxis.
+//
+// Aclaracion, para no exagerar el riesgo: local YA no operaba — hay una guarda
+// que deshabilita la auto-ejecucion fuera de Railway ("Entorno LOCAL detectado").
+// Lo que MODO_PRUEBAS agrega es que los 19 ciclos ni siquiera se programen: el
+// arranque queda rapido y determinista, no consulta al broker ni a Yahoo cada 30
+// segundos y no dispara el monitor de notificaciones. Una prueba de humo tiene
+// que medir las rutas, no competir con doce temporizadores.
+//
+// Sin la variable, el comportamiento es identico al de siempre: cicloDeTrading
+// es setInterval y ya.
+const MODO_PRUEBAS = process.env.MODO_PRUEBAS === '1';
+function cicloDeTrading(fn, ms) {
+  if (MODO_PRUEBAS) return null;
+  return setInterval(fn, ms);
+}
+if (MODO_PRUEBAS) console.log('[MODO_PRUEBAS] ciclos periodicos APAGADOS — solo se sirven rutas');
+
 // ── NLV History ────────────────────────────────────────────────
 // Snapshots históricos obtenidos de TastyTrade (fin de mes)
 // ── Directorio de datos persistentes ────────────────────────
@@ -2995,7 +3022,7 @@ app.post('/api/wheel-trading/scan', async (req, res) => {
   }
 });
 
-setInterval(checkWheelCandidates, 24 * 60 * 60 * 1000); // una vez al dia — horizonte de semanas, no minutos
+cicloDeTrading(checkWheelCandidates, 24 * 60 * 60 * 1000); // una vez al dia — horizonte de semanas, no minutos
 
 // ── Rueda Automatizada — Fase 2: aprobar señal → colocar el CSP ──
 // El único checkpoint manual del ciclo (ver CLAUDE.md/memoria del proyecto): aprobar
@@ -3467,7 +3494,7 @@ async function checkWheelExecutionFillsImpl() {
   }
 }
 function checkWheelExecutionFills() { return withWheelExecutionsLock(checkWheelExecutionFillsImpl); }
-setInterval(checkWheelExecutionFills, 30 * 1000);
+cicloDeTrading(checkWheelExecutionFills, 30 * 1000);
 
 // ══════════════════════════════════════════════════════════════
 // ── Rueda Automatizada — Fase 3: gestión activa del Put ───────
@@ -3847,7 +3874,7 @@ async function checkWheelPutManagementImpl() {
   }
 }
 function checkWheelPutManagement() { return withWheelExecutionsLock(checkWheelPutManagementImpl); }
-setInterval(checkWheelPutManagement, 5 * 60 * 1000);
+cicloDeTrading(checkWheelPutManagement, 5 * 60 * 1000);
 
 // Chequeo pasivo de vencimiento/asignación/reinicio — Fase 4: además de transicionar
 // CSP_ACTIVA→ASIGNADO/CERRADO, ahora también resuelve CC_ACTIVA→CERRADO/ASIGNADO (el
@@ -3990,7 +4017,7 @@ async function checkWheelExpiryImpl() {
   }
 }
 function checkWheelExpiry() { return withWheelExecutionsLock(checkWheelExpiryImpl); }
-setInterval(checkWheelExpiry, 30 * 60 * 1000); // cada 30 min — solo importa el dia del vencimiento
+cicloDeTrading(checkWheelExpiry, 30 * 60 * 1000); // cada 30 min — solo importa el dia del vencimiento
 
 // ── Dividendos de las acciones en mano (2026-08-03) ─────────────────────
 // Un dividendo cobrado mientras se tienen las acciones entre el CSP y la Covered
@@ -4071,7 +4098,7 @@ async function checkWheelDividendsImpl() {
   }
 }
 function checkWheelDividends() { return withWheelExecutionsLock(checkWheelDividendsImpl); }
-setInterval(checkWheelDividends, 6 * 60 * 60 * 1000); // 4 veces al dia — un dividendo se acredita una vez, no hay apuro
+cicloDeTrading(checkWheelDividends, 6 * 60 * 60 * 1000); // 4 veces al dia — un dividendo se acredita una vez, no hay apuro
 
 // ── Monitor de gestión de la Covered Call (Fase 4) — mismos 4 triggers que el Put
 // (extrínseco, delta, DTE, ganancia), pero la decisión es distinta: ser asignado en
@@ -4229,7 +4256,7 @@ async function checkWheelCallManagementImpl() {
   }
 }
 function checkWheelCallManagement() { return withWheelExecutionsLock(checkWheelCallManagementImpl); }
-setInterval(checkWheelCallManagement, 5 * 60 * 1000);
+cicloDeTrading(checkWheelCallManagement, 5 * 60 * 1000);
 
 // Disparo manual del monitor de gestión — mismo espíritu que POST /api/wheel-trading/scan,
 // para poder probar sin esperar el ciclo de 5 minutos.
@@ -6049,7 +6076,7 @@ async function checkDirectionalAutonomous() {
     console.error('[SPX] checkDirectionalAutonomous error:', e.message);
   }
 }
-setInterval(checkDirectionalAutonomous, 30 * 1000);
+cicloDeTrading(checkDirectionalAutonomous, 30 * 1000);
 
 // Genera y (si corresponde) ejecuta la señal direccional una vez que Camino B
 // ya decidio la direccion — extraido del webhook el 2026-07-27 para poder
@@ -7779,7 +7806,7 @@ async function checkIronCondor() {
     }
   }
 }
-setInterval(checkIronCondor, 5 * 60 * 1000);
+cicloDeTrading(checkIronCondor, 5 * 60 * 1000);
 
 // Verifica que TODAS las patas de una orden multileg se llenaron completas — no
 // solo que el agregado tenga exec_quantity>0. Antes, un fill parcial/desbalanceado
@@ -8967,7 +8994,7 @@ async function checkIronCondorTPSLImpl() {
     console.error('[Tradier-IC-TPSL] Error:', e.message);
   }
 }
-setInterval(checkIronCondorTPSL, 90 * 1000); // cada 90s — el TP/SL necesita reaccionar rapido
+cicloDeTrading(checkIronCondorTPSL, 90 * 1000); // cada 90s — el TP/SL necesita reaccionar rapido
 
 // ── Monitor activo de TP/SL para direccionales (Bull Put/Bear Call) — mismo
 // patron que Iron Condor. Antes de esto, los direccionales solo mostraban el
@@ -9783,7 +9810,7 @@ async function checkDirectionalTPSLImpl() {
     console.error('[Tradier-DIR-TPSL] Error:', e.message);
   }
 }
-setInterval(checkDirectionalTPSL, 30 * 1000); // 90s->30s (2026-07-09): estas son operaciones de scalping 0DTE, reaccionar mas rapido reduce (no elimina) la carrera contra un cierre manual
+cicloDeTrading(checkDirectionalTPSL, 30 * 1000); // 90s->30s (2026-07-09): estas son operaciones de scalping 0DTE, reaccionar mas rapido reduce (no elimina) la carrera contra un cierre manual
 
 // ── Watchdog del monitor direccional (2026-07-09) — Tradier no soporta OTOCO/bracket
 // nativo sobre spreads multi-pata (el segundo/tercer leg de un OTOCO debe compartir
@@ -9819,7 +9846,7 @@ async function checkDirectionalMonitorHealth() {
     });
   } catch(e) { console.error('[MONITOR-WATCHDOG] Error enviando ntfy:', e.message); }
 }
-setInterval(checkDirectionalMonitorHealth, 60 * 1000);
+cicloDeTrading(checkDirectionalMonitorHealth, 60 * 1000);
 
 // ── Vigilante de estrategias inactivas (2026-08-10) ──────────────────────
 //
@@ -9959,7 +9986,7 @@ async function avisarVigilante(nombre, motivo, mensaje) {
     });
   } catch (e) { console.error('[VIGILANTE] no se pudo enviar el ntfy:', e.message); }
 }
-setInterval(vigilarEstrategias, 3 * 60 * 1000);
+cicloDeTrading(vigilarEstrategias, 3 * 60 * 1000);
 
 // ── Chequeo PRE-MERCADO de capacidad de ordenar en Tradier (2026-08-03) ──
 // Nace de un incidente real del mismo dia: el sandbox de Tradier empezo a
@@ -10005,7 +10032,7 @@ async function checkTradierOrderCapability() {
     });
   } catch(e) { console.error('[TRADIER-HEALTH] Error enviando ntfy:', e.message); }
 }
-setInterval(checkTradierOrderCapability, 15 * 60 * 1000); // cada 15 min; el guard horario decide si corre
+cicloDeTrading(checkTradierOrderCapability, 15 * 60 * 1000); // cada 15 min; el guard horario decide si corre
 
 // ══════════════════════════════════════════════════════════════
 // ── Alejamiento de SMA — reversión a la media (playbook Luis Silva) ──
@@ -10685,7 +10712,7 @@ async function checkAlejamientoSMA() {
     console.error('[SPX-REV] Error:', e.message);
   }
 }
-setInterval(checkAlejamientoSMA, 60 * 1000); // cada 60s — solo puede confirmar con una vela de 2m ya cerrada
+cicloDeTrading(checkAlejamientoSMA, 60 * 1000); // cada 60s — solo puede confirmar con una vela de 2m ya cerrada
 
 // ── Monitor de cierre de Alejamiento de SMA — rapido (15-20s, el hold es de
 // minutos) y por PRECIO del SPX, no por % de credito como las otras dos
@@ -10893,7 +10920,7 @@ async function checkAlejamientoSMATPSLImpl() {
     console.error('[Tradier-REV-TPSL] Error:', e.message);
   }
 }
-setInterval(checkAlejamientoSMATPSL, 15 * 1000); // cada 15s — hold de minutos, necesita reaccionar rapido
+cicloDeTrading(checkAlejamientoSMATPSL, 15 * 1000); // cada 15s — hold de minutos, necesita reaccionar rapido
 
 // ── Muestreo periodico de la sombra Tasty vs Tradier ──────────────────────
 // La sombra pegada a cada trade (sombraApertura/sombraCierre) da 2 o 3 muestras
@@ -10956,7 +10983,7 @@ async function muestrearSombraCadena() {
     console.warn('[SOMBRA] muestreo fallido (no afecta nada):', e.message);
   }
 }
-setInterval(muestrearSombraCadena, 5 * 60 * 1000);
+cicloDeTrading(muestrearSombraCadena, 5 * 60 * 1000);
 
 // Lectura del muestreo, con el reparto ya calculado.
 app.get('/api/spx/sombra-cadenas', (req, res) => {
@@ -11418,7 +11445,7 @@ async function analizarSalidasDelDia(fecha) {
     return n;
   } catch(e) { console.error('[SALIDAS] error:', e.message); return 0; }
 }
-setInterval(() => {
+cicloDeTrading(() => {
   const et = getETHour();
   if (et.hour === 16 && et.min < 5) {
     analizarSalidasDelDia();
@@ -11659,7 +11686,7 @@ async function checkSombraPaperSalida() {
     console.warn('[SOMBRA-LIBRO] monitor de salida fallo (no afecta nada):', e.message);
   }
 }
-setInterval(checkSombraPaperSalida, 20 * 1000);
+cicloDeTrading(checkSombraPaperSalida, 20 * 1000);
 
 // GET /api/spx/sombra-libro — el contrafactual EN DOLARES.
 // ?detalle=true para las filas crudas.
@@ -12491,7 +12518,7 @@ async function cleanupStalePendingOrdersImpl() {
     console.error('[TRADIER-CLEANUP] Error:', e.message);
   }
 }
-setInterval(cleanupStalePendingOrders, 10 * 60 * 1000); // cada 10 min
+cicloDeTrading(cleanupStalePendingOrders, 10 * 60 * 1000); // cada 10 min
 
 // ── Seguimiento de ejecuciones en Tradier (dashboard independiente) ──
 const TRADIER_TRACK_MS = 5 * 60 * 1000; // 5 min

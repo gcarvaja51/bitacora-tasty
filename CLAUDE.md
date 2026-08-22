@@ -2576,6 +2576,65 @@ Nota: en el escenario del 2026-07-24 (Yahoo congelado) Tradier tampoco pasaría 
 ~16 min lo dejan fuera— así que ese día los monitores habrían quedado ciegos **y avisando**, en
 vez de operar sobre un precio inventado.
 
+## Batería de pruebas (`scripts/pruebas.js`, 2026-08-22)
+
+```bash
+node scripts/pruebas.js            # unidad — rápido, sin red
+node scripts/pruebas.js --local    # + levanta el servidor y le pide TODAS las rutas
+node scripts/pruebas.js --humo     # + las mismas rutas contra producción
+```
+
+**Por qué existe, con caso y fecha.** El 2026-08-22 se desplegó un cambio que tumbaba
+`/api/spx/reversion-sombra` con un **500 en cada request**: usaba `spxConfig`, que no es
+global sino un `const` local en otras cuatro funciones.
+
+Ni `node -c` ni el optional chaining lo habrían visto — no es error de sintaxis sino de
+ejecución, y `a?.b` sigue fallando si `a` no está declarada. Estuvo caído ~20 minutos y se
+descubrió de casualidad, corriendo el Auditor: **ningún chequeo tocaba ese endpoint**.
+
+La prueba de humo lo caza en dos segundos.
+
+### Qué cubre
+
+| Bloque | Qué prueba |
+|---|---|
+| **El dinero** | `resultadoOficial` en sus ramas: libro propio, libro no confiable, broker, `gainloss` dudoso, orden fantasma, posición abierta. Y que `agregar` **nunca** sume comparable con legado |
+| **Los frenos** | El circuito diario en sus bordes, incluido el límite **exacto** (caza el día que alguien cambie `<=` por `<`), y que solo uno de los tres frenos declarados esté activo |
+| **Humo** | Las 52 rutas GET sin parámetros. Un 4xx se acepta; un **5xx nunca**: significa que el endpoint se cayó solo |
+
+### `MODO_PRUEBAS=1`
+
+Levanta el servidor **sin programar ni un ciclo periódico**. Las rutas responden igual, que
+es lo único que el humo necesita. Sin la variable el comportamiento es idéntico al de
+siempre.
+
+No es una protección contra operar —esa ya existía, la auto-ejecución está deshabilitada
+fuera de Railway— sino contra el ruido: sin los 19 ciclos el arranque es rápido y
+determinista, no consulta al broker cada 30 segundos y no dispara notificaciones.
+
+### El hook `pre-push`
+
+`scripts/hooks/pre-push` corre `--local` y **aborta el push** si algo queda en rojo. A
+diferencia de `post-commit`, este sí puede abortar, y es deliberado: un commit roto se
+arregla con otro commit; un despliegue roto deja el robot operando mal, o sin operar.
+
+Para saltarlo: `SKIP_PRUEBAS=1 git push`.
+
+⚠️ **`.git/hooks/` no se versiona.** En un clon nuevo:
+`cp scripts/hooks/pre-push .git/hooks/ && chmod +x .git/hooks/pre-push`.
+
+### Roturas conocidas
+
+`CONOCIDOS`, dentro del script, lista lo que ya estaba roto **con fecha y diagnóstico**. No
+hace fallar la corrida —el trabajo de la batería es cazar lo nuevo— pero se imprime fuerte
+en cada pasada. Si una entrada lleva semanas ahí, el problema ya no es el endpoint: es que
+nadie decidió qué hacer con él.
+
+Hoy hay una: **`/api/margin-raw`**, que devuelve 500 porque TastyTrade responde 404 a
+`/accounts/<acct>/margin-requirements`. **No lo llama nadie** —ni el frontend ni los
+scripts— y `getMarginRequirements()` solo se usa ahí: es código muerto. *Pendiente: decidir
+si se borra.*
+
 ## Parámetros vigentes de Reversión — la fuente declarada (2026-08-22)
 
 Este bloque existe porque el manual no se podía leer sin adivinar. `scripts/deriva.py`
