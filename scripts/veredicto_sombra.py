@@ -131,8 +131,15 @@ PROPUESTAS = [
     {
         "id": "NEU-2", "familia": "NEUTRAL", "nivel": "medio",
         "titulo": "El piso de credito y el limite de precio son la misma perilla",
-        "pregunta": "¿Desacoplarlos mejora el credito recibido?",
-        "instrumento": None,   # haria falta una sombra de fills del Iron Condor
+        "pregunta": "¿El desacople aplicado el 13-ago esta cumpliendo?",
+        # YA APLICADA. limiteDeAperturaVertical() calcula el limite desde la prima
+        # estimada y minCreditoAnchoPct quedo como gate de entrada. Se resolvio el
+        # MISMO dia en que se anoto la propuesta, y el backlog la arrastro nueve
+        # dias como pendiente — con el Auditor devolviendo SIN INSTRUMENTO por ella.
+        #
+        # Ya no se juzga si conviene: se vigila que cumpla, que es el paso 4.
+        "aplicada": "2026-08-13",
+        "instrumento": "sombra_credito",
     },
 ]
 
@@ -197,7 +204,29 @@ def juzgar_DIR_1(datos):
     return v, det
 
 
-JUECES = {"REV-3": juzgar_REV_3, "REV-4": juzgar_REV_4, "DIR-1": juzgar_DIR_1}
+def juzgar_NEU_2(datos):
+    """Una propuesta YA APLICADA no se juzga: se vigila. La pregunta deja de ser
+    "¿conviene?" y pasa a ser "¿esta cumpliendo?"."""
+    d = datos.get("credito") or {}
+    n = d.get("aperturas") or 0
+    if not n:
+        return "SIN INSTRUMENTO", {"motivo": "todavia no hay aperturas con sombra que verificar"}
+    bajo = d.get("fillsPorDebajoDelLimite") or 0
+    det = {"aperturas": n, "fillsPorDebajoDelLimite": bajo,
+           "medianas": d.get("medianas"), "aplicada": "2026-08-13",
+           "toleranciaConfigurada": d.get("toleranciaConfigurada"),
+           "toleranciaAplicada": d.get("toleranciaAplicada")}
+    if bajo:
+        det["motivo"] = (f"{bajo} de {n} aperturas se llenaron POR DEBAJO del limite calculado: "
+                         "el limite no se esta aplicando")
+        return "EMPEORA", det
+    det["motivo"] = (f"{n} aperturas, ninguna por debajo del limite. El arreglo cumple; "
+                     f"con {n} casos todavia no es una muestra, pero no hay señal en contra")
+    return "MUESTRA INSUFICIENTE" if n < MUESTRA_MINIMA else "MEJORA", det
+
+
+JUECES = {"REV-3": juzgar_REV_3, "REV-4": juzgar_REV_4,
+          "DIR-1": juzgar_DIR_1, "NEU-2": juzgar_NEU_2}
 
 
 def evaluar(p, datos):
@@ -219,7 +248,8 @@ def parte(fecha, filas, datos):
     L.append(f"ESTADO: {'ambar' if rojos else 'verde'}")
     L.append("VEREDICTOS:")
     for f in filas:
-        L.append(f"  - {f['id']} ({f['familia']}, nivel {f['nivel']}) · {f['veredicto']}")
+        marca = f" · APLICADA {f['aplicada']}" if f.get("aplicada") else ""
+        L.append(f"  - {f['id']} ({f['familia']}, nivel {f['nivel']}){marca} · {f['veredicto']}")
         L.append(f"      {f['titulo']}")
         m = (f["detalle"] or {}).get("motivo")
         if m:
@@ -280,12 +310,14 @@ def main():
     }
     # La sombra de direccion la calcula un script propio (no hay endpoint): se
     # lee del archivo que deja, y si no esta se dice en vez de fallar callado.
-    _sd = os.path.join(SALIDA, "sombra_direccion.json")
-    if os.path.exists(_sd):
-        with open(_sd, encoding="utf-8") as fh:
-            datos["direccion"] = json.load(fh)
-    else:
-        datos["direccion"] = {}
+    for clave, archivo in (("direccion", "sombra_direccion.json"),
+                           ("credito", "sombra_credito.json")):
+        ruta = os.path.join(SALIDA, archivo)
+        if os.path.exists(ruta):
+            with open(ruta, encoding="utf-8") as fh:
+                datos[clave] = json.load(fh)
+        else:
+            datos[clave] = {}
 
     props = [p for p in PROPUESTAS if not a.id or p["id"] == a.id]
     filas = [{**p, **evaluar(p, datos)} for p in props]

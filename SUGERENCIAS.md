@@ -57,39 +57,8 @@ ejecutado — con el filtro de dirección todavía retrasado. Ver
 
 ---
 
-### 2. El piso de crédito y el límite de precio de entrada son la MISMA perilla — NEUTRAL, impacto MEDIO
 
-**Anotado:** 2026-08-13 · **Evidencia:** el IC 1DTE `tex-1786564157055` del 2026-08-12
-
-`server.js` deriva el límite de la orden directamente del piso de crédito:
-
-```js
-minCreditPrice: +((icCfg.minCreditoAnchoPct ?? 25) / 100 * gate.spreadWidth).toFixed(2)
-```
-
-Con `minCreditoAnchoPct` en **0** (decisión del 2026-08-08, "no le pongamos límite a la prima
-recibida por ahora"), ese precio da 0, y `placeIronCondorOrder` lo lleva a
-`Math.max(0.01, 0)`. La orden sale como `type: credit` **con límite de un centavo**: acepta
-cualquier fill.
-
-**Medido en el primer IC 1DTE que disparó de verdad:** crédito estimado sobre el mid
-**$125**, crédito real de fill **$65** — casi la mitad. Riesgo neto $435 para un TP de
-$19.50.
-
-Poner el piso en 0 no solo apagó el filtro de *"no entres si pagan poco"* — apagó también el
-*"no me llenes a cualquier precio"*, que es una protección distinta y que nadie quiso quitar.
-Ese acoplamiento no estaba documentado.
-
-**Opción natural:** desacoplar las dos cosas. Mantener `minCreditoAnchoPct` en 0 (para que el
-setup siga disparando y se junte muestra) pero mandar el límite al **mid observado menos un
-colchón**, igual que ya hacen los cierres direccionales con `closeSlippageBufferPts`.
-
-⚠️ Al tocarlo, tener presente el trade-off que ya se aceptó en los cierres: un colchón muy
-angosto puede dejar la orden sin llenar, y la ventana del 1DTE da **1 o 2 intentos, no más**.
-
----
-
-### 3. La banda de alejamiento deja pasar el setup por centésimas — REVERSION, impacto ALTO
+### 2. La banda de alejamiento deja pasar el setup por centésimas — REVERSION, impacto ALTO
 
 **Anotado:** 2026-08-13 · **Evidencia:** 112 evaluaciones del 2026-08-13
 
@@ -104,7 +73,7 @@ por qué cambió.
 
 ---
 
-### 4. Los dos checks de 5m son un VETO, no un peso — REVERSION, impacto ALTO
+### 3. Los dos checks de 5m son un VETO, no un peso — REVERSION, impacto ALTO
 
 **Anotado:** 2026-08-13 · **Evidencia:** los 34 `SCORE_FAIL` del 2026-08-13
 
@@ -145,7 +114,7 @@ contra a los 15 min, 32 a los 30 min**. Un día no prueba nada, pero cambia la p
 *"¿el veto es muy estricto?"* a *"¿cuántas veces acertó?"*. Eso lo va a contestar
 `GET /api/spx/reversion-sombra` con semanas de muestra, no con intuición.
 
-⚠️ **No mover 3 y 4 el mismo día.** Son las dos de impacto ALTO sobre la misma estrategia; si
+⚠️ **No mover 2 y 3 el mismo día.** Son las dos de impacto ALTO sobre la misma estrategia; si
 se aplican juntas no se puede saber cuál funcionó. Además la 3 cambia *cuántas* señales
 llegan a evaluarse y la 4 cambia *cuántas* pasan — mezclarlas hace ilegible la medición.
 
@@ -165,6 +134,36 @@ evaluaciones).
 ---
 
 ## Aplicadas
+
+### El piso de crédito y el límite de precio, desacoplados · **2026-08-13**
+
+Era la sugerencia 2. **Se resolvió el mismo día en que se anotó**, y el backlog la arrastró
+nueve días como pendiente — con el Auditor devolviendo `SIN INSTRUMENTO` por ella cada vez
+que corría. Queda anotado para que la próxima se cierre al aplicarla.
+
+`limiteDeAperturaVertical()` calcula el límite desde la **prima estimada**
+(`prem * (1 − tolerancia/100)` en crédito). `minCreditoAnchoPct` quedó como lo que es —el
+gate de **entrada**— y sigue en 0 a propósito por el modo captura. Son dos decisiones
+distintas, y mezclarlas ataba el precio de ejecución a un parámetro de estrategia.
+
+**Verificado el 2026-08-22** con `scripts/sombra_credito.py`, que compara por apertura el mid
+de la cadena real, el precio de cruzar el spread, el límite calculado y el fill real:
+
+| día | mid | cruzando | límite | fill | vs límite |
+|---|---|---|---|---|---|
+| 14-ago | $65 | $50 | $49 | $55 | **+6** |
+| 13-ago | $65 | $55 | $49 | $50 | **+1** |
+
+**Ningún fill por debajo del límite.** Mediana contra el precio de cruzar: **$0** — se está
+cobrando lo que da tomar el mercado, que es lo esperable y sano. Con 2 casos no es una
+muestra; el Auditor lo dice así y lo sigue vigilando como su paso 4.
+
+⚠️ **Ojo con la tolerancia.** `toleranciaDeslizamientoPct` está en **100** en producción. Hasta
+el 2026-08-20 eso mandaba la orden **a mercado sin decirlo**; desde ese arreglo un valor fuera
+de rango cae al 25 documentado en vez de desactivar la protección. El canario todavía lo
+describe como *«orden a mercado, deliberado 16-ago»* — **ese comentario quedó viejo** y
+conviene corregirlo antes de que alguien decida sobre él.
+
 
 ### Reversión — el stop se valida en 5m, no en 2m · **2026-08-05**
 
