@@ -28,7 +28,7 @@ Cuando te arrancan, el detalle está en `vigilancia/ultimo.json` y el historial 
 | **Aperturas atascadas** | La peor clase de falla: no hay error. El robot simplemente deja de entrar y nadie se entera |
 | **Desacuerdo de posición** | Tradier dice que hay posición, el registro local dice que no. Se bloquea por precaución — y el robot termina discutiendo consigo mismo |
 | **Rechazos del broker** | Un 500 aislado es ruido; tres en una hora es el broker, no tú |
-| **Los frenos** | Se verifica que estén **configurados**, no que **disparen** |
+| **Los frenos** | De los tres que la config declara, **solo uno frena**. Ver la sección de frenos |
 
 ## Tu trabajo real: la causa raíz
 

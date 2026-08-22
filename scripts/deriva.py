@@ -73,20 +73,34 @@ def leer_canario():
 
 
 def leer_manual():
-    """Busca en CLAUDE.md los valores que el manual afirma. Es una lectura por
-    patron, no un parser: si no encuentra algo lo dice, no lo inventa."""
+    """Lee el bloque `parametros-vigentes-reversion` de CLAUDE.md.
+
+    Ya no es una adivinanza sobre prosa: el manual declara la puerta vigente en
+    un bloque etiquetado y aca solo se parsea. Si el bloque falta, se dice."""
     try:
         s = open(MANUAL, encoding="utf-8").read()
     except OSError:
         return {}, "no se pudo leer el manual"
+    # 2026-08-22: antes esto barria el documento con un regex buscando pares de
+    # porcentajes, y pescaba los del esquema de PUNTAJE VIEJO que las secciones
+    # historicas todavia describen. Reportaba deriva donde no la habia.
+    #
+    # Ahora el manual DECLARA la puerta vigente en un bloque etiquetado. Si el
+    # bloque no esta, se dice — no se adivina.
+    m = re.search(r"```parametros-vigentes-reversion\s*\n(.*?)```", s, re.S)
+    if not m:
+        return {}, ("el manual no tiene el bloque `parametros-vigentes-reversion`: "
+                    "sin el, la comparacion contra el manual seria adivinanza")
     out = {}
-    # Banda de alejamiento: "0.10%-0.35%", "0.13% a 0.3%", "0.13–0.30"
-    for m in re.finditer(r"(\d\.\d{1,2})\s*%?\s*[-–—aA]\s*(\d\.\d{1,2})\s*%", s):
-        lo, hi = float(m.group(1)), float(m.group(2))
-        if 0.0 < lo < 1.0 and lo < hi < 1.0:
-            out.setdefault("extBandMinPct", lo)
-            out.setdefault("extBandMaxPct", hi)
-            break
+    for k, v in re.findall(r"^\s*([A-Za-z_]+)\s*:\s*(\S+)\s*$", m.group(1), re.M):
+        v = v.strip()
+        if v.lower() in ("true", "false"):
+            out[k] = (v.lower() == "true")
+        else:
+            try:
+                out[k] = float(v) if "." in v else int(v)
+            except ValueError:
+                out[k] = v
     return out, None
 
 

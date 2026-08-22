@@ -2576,6 +2576,46 @@ Nota: en el escenario del 2026-07-24 (Yahoo congelado) Tradier tampoco pasaría 
 ~16 min lo dejan fuera— así que ese día los monitores habrían quedado ciegos **y avisando**, en
 vez de operar sobre un precio inventado.
 
+## Parámetros vigentes de Reversión — la fuente declarada (2026-08-22)
+
+Este bloque existe porque el manual no se podía leer sin adivinar. `scripts/deriva.py`
+comparaba producción contra el canario y contra **prosa**: un regex barría el documento
+buscando pares de porcentajes, y el 2026-08-22 pescó «0.1-0.2» de una frase sobre la meseta
+óptima del esquema de puntaje **viejo** y lo reportó como si el manual dijera que la banda
+máxima es 0.2.
+
+El problema de fondo: las secciones históricas de más arriba describen el esquema de
+**puntaje por bandas** que ya no rige. Era el diseño correcto en su momento y se conservan
+porque explican por qué se llegó acá — pero no describen la puerta que corre hoy.
+
+Así que la puerta vigente se declara acá, en un bloque que se lee sin interpretar. **Si se
+cambia un valor en producción, se cambia también acá y en `ESPERADO_REVERSION` del canario.**
+Tres fuentes que dicen lo mismo o una deriva que alguien tiene que explicar.
+
+```parametros-vigentes-reversion
+extBandMinPct: 0.10
+extBandMaxPct: 0.30
+requiereGammaPositivo: false
+alejamientoEsPuerta: true
+puertasBinarias: true
+minScore: 75
+earlyExitPct: 0.6
+stopMinPts: 20
+maxDailyDrawdownPct: 3.5
+```
+
+**Historia de los dos que derivaron**, para que no se vuelvan a marcar como sospechosos:
+
+| Parámetro | Cambio | Commit |
+|---|---|---|
+| `extBandMinPct` | 0.13 → 0.10 | `075945c` «la banda de alejamiento baja a 0.10% — estaba cerrada de hecho». Con 0.13 el setup moría por centésimas: 77 de 112 evaluaciones de un día quedaban entre −0.09% y −0.12%, siempre afuera |
+| `requiereGammaPositivo` | true → false | `6084471` «el gamma vuelve a ponderar en vez de vetar». El GEX dejó de ser puerta y pasa a pesar 10 en el score |
+
+⚠️ **Ojo con `riskPctPerTrade` y `maxStopsPerDay`:** siguen guardados en `spx_config.json` con
+valores que parecen protecciones (1 y 2) y **no frenan nada** — ver `src/frenos.js`. No están
+en este bloque a propósito: declarar como vigente algo que el robot no aplica es justo lo que
+hace que se tomen decisiones creyendo que hay protecciones puestas.
+
 ## Fase 0 — una sola respuesta a «¿cuánto ganó este trade?» (`src/pnl_oficial.js`, 2026-08-21)
 
 El 20-ago se cambió la regla del dinero a la cadena real, pero **solo en las pantallas**.

@@ -86,7 +86,14 @@ def calidad(ejec, log, desde):
             continue
         m = e.get("closeReason") or "?"
         totales_motivo[m] += 1
-        for campo in ("edadCotizacionTPSLSeg", "fuenteCotizacionTPSL", "paperEntry", "paperExit"):
+        campos = ["edadCotizacionTPSLSeg", "fuenteCotizacionTPSL", "paperEntry", "paperExit"]
+        # En un cierre manual no hay decision automatica de TP/SL, asi que no hay
+        # cotizacion con la que se haya decidido: pedirla es un falso positivo que
+        # aparecia todas las semanas. Lo que si importa es la frescura de la
+        # cadena con que se valoro la salida, y esa vive en paperExit.
+        if e.get("fuenteCotizacionTPSL") == "cierre_manual" or m == "MANUAL_FORZADO":
+            campos.remove("edadCotizacionTPSLSeg")
+        for campo in campos:
             if e.get(campo) in (None, "", {}):
                 faltan[m][campo] += 1
     campos_faltantes = [

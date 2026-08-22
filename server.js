@@ -11121,6 +11121,21 @@ async function cerrarPosicionPorSimbolos(simbolos, { aMercado = false } = {}) {
         // enviada a cerrar, que es el mismo instante en que marcan los monitores.
         await cerrarLibroPaper(ex, 'PAPER-MANUAL');
         sellarCierre(ex, 'MANUAL_FORZADO', 'manual');
+        // 2026-08-22: `edadCotizacionTPSLSeg` quedaba en null y el chequeo de
+        // calidad lo marcaba como campo faltante, semana tras semana (3 de cada
+        // 4 cierres MANUAL_FORZADO).
+        //
+        // No era un descuido: en un cierre manual NO HAY decision automatica de
+        // TP/SL, asi que no hay cotizacion con la que se haya decidido. El
+        // defecto real es que `null` es ambiguo — no distingue "no aplica" de
+        // "se nos olvido escribirlo", y esa duda obliga a revisar el caso cada
+        // vez.
+        //
+        // Se marca explicitamente. La frescura que SI importa en un cierre
+        // manual es la de la cadena con que se valoro la salida, y esa ya queda
+        // en paperExit.edadSeg gracias a cerrarLibroPaper.
+        ex.fuenteCotizacionTPSL  = 'cierre_manual';
+        ex.edadCotizacionTPSLSeg = null;
         ex.notes = (ex.notes ? ex.notes + ' | ' : '') + 'Cierre manual forzado desde la bitácora.';
         tocados.push(ex.id);
       }
