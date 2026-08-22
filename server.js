@@ -10026,23 +10026,35 @@ async function checkAlejamientoSMA() {
     // reales (Reversión, Direccional e Iron Condor) para poder calcular el average
     // de bateo de cada una. El tope de drawdown % sigue como única red de
     // seguridad diaria — decisión explícita del usuario, no quitar sin que lo pida.
-    const reversionesHoy = executions
-      .filter(e => e.strategyFamily === 'REVERSION' && (e.closedAt || '').slice(0, 10) === today)
-      .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
-
     let capital = 10000;
     try {
       const balances = await tradier.getBalances();
       capital = parseFloat(balances?.total_equity || capital);
     } catch(e) {}
 
-    const pnlHoy = reversionesHoy.reduce((sum, e) => sum + (e.pnl || 0), 0);
-    const drawdownPct = capital > 0 ? (pnlHoy / capital) * 100 : 0;
-    const maxDrawdown = cfg.maxDailyDrawdownPct ?? 3.5;
-    if (drawdownPct <= -maxDrawdown) {
-      const reason = `Circuito diario: drawdown ${drawdownPct.toFixed(2)}% (límite -${maxDrawdown}%)`;
-      console.log(`[SPX-REV] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'DAILY_CIRCUIT_DRAWDOWN', passed: false, reason });
+    // 2026-08-22: el circuito se movio a src/frenos.js por dos razones.
+    //
+    // Una, para poder PROBARLO: aca dentro no habia forma de verificar que
+    // frenara sin perder 3.5% en un dia real, o sea sin verificarlo nunca.
+    // Ahora hay simulacro (scripts/simulacro_frenos.js).
+    //
+    // Dos, porque sumaba con la regla equivocada: usaba `e.pnl`, los fills del
+    // sandbox. Y la brecha contra la cadena real es DIRECCIONAL — en los 4 stops
+    // del 17 al 21 de agosto la cadena real reporto mas perdida que el broker.
+    // Para un circuito de perdida eso subestima el drawdown y hace que dispare
+    // tarde, o que no dispare: el peor sesgo posible en la unica proteccion que
+    // hay.
+    const { evaluarCircuitoDiario } = require('./src/frenos');
+    const circuito = evaluarCircuitoDiario(executions, {
+      familia: 'REVERSION', fecha: today, capital,
+      maxDrawdownPct: cfg.maxDailyDrawdownPct ?? 3.5,
+    });
+    if (circuito.bloquea) {
+      console.log(`[SPX-REV] ❌ ${circuito.motivo}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`,
+        stage: 'DAILY_CIRCUIT_DRAWDOWN', passed: false, reason: circuito.motivo,
+        snapshot: { pnlHoy: circuito.pnlHoy, drawdownPct: circuito.drawdownPct,
+                    fuente: circuito.fuente, trades: circuito.trades } });
       return;
     }
 

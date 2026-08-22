@@ -89,14 +89,26 @@ Si algo queda en rojo, avisas **antes** de que se publique.
 
 ## Los frenos, una vez por semana
 
-`python scripts/vigilancia.py --frenos` reporta `maxDailyDrawdownPct` y `riskPctPerTrade`.
+```bash
+python scripts/vigilancia.py --frenos     # que estan puestos
+node   scripts/simulacro_frenos.js        # que FRENAN — 16 casos
+```
 
-⚠️ **Eso verifica que estén configurados, no que disparen.** Probar que un freno frena exige
-un simulacro deliberado que todavía no existe. **Nunca reportes los frenos como
-«verificados»** — el campo `verificadoConSimulacro` está en `false` a propósito, y va a
-seguir así hasta que alguien construya la prueba.
+⚠️ **De los tres «frenos» que la configuración declara, solo UNO frena.**
 
-Un freno que nadie probó es un freno que no existe.
+| Freno | Estado |
+|---|---|
+| `maxDailyDrawdownPct: 3.5` | **Activo.** Probado con simulacro el 2026-08-22 |
+| `riskPctPerTrade: 1` | **Decorativo.** La reversión usa `contracts = 1` fijo desde el 2026-07-27: ese porcentaje no sizea nada |
+| `maxStopsPerDay: 2` | **Decorativo.** No hay una sola línea que lo lea desde esa misma fecha |
+
+Los dos decorativos siguen guardados con valores que **parecen** protecciones. **Nunca los
+reportes como si frenaran.** Una config que dice cosas que el robot no hace es peor que una
+incompleta: se toman decisiones creyendo que hay protecciones puestas.
+
+El simulacro corre los bordes —el límite exacto, el capital, las órdenes fantasma, la
+familia y el día equivocados— y compara el disparo con las dos reglas del dinero. Si alguien
+toca `src/frenos.js`, correrlo antes de desplegar.
 
 ## No duplicas el chequeo de las 07:00
 

@@ -173,15 +173,26 @@ def chequear(frenos=False):
             cfg = _get_json(f"{PROD}/api/spx/config")
             t = (cfg.get("config") or cfg).get("trading") or {}
             rev = t.get("smaReversion") or {}
+            # Solo UNO de los tres frena de verdad. Los otros dos estan
+            # guardados con valores que parecen protecciones y no lo son:
+            # riskPctPerTrade no sizea nada (la reversion usa contracts=1 fijo
+            # desde el 2026-07-27) y maxStopsPerDay no lo lee ninguna linea desde
+            # esa misma fecha. Reportarlos juntos —como se hizo el 2026-08-21—
+            # es exactamente el error contra el que el propio codigo advierte:
+            # se toman decisiones creyendo que hay protecciones puestas.
             det["frenos"] = {
-                "maxDailyDrawdownPct": rev.get("maxDailyDrawdownPct"),
-                "riskPctPerTrade": rev.get("riskPctPerTrade"),
-                "verificadoConSimulacro": False,
-                "nota": "configurados, NO probados: un freno que nadie probo es un freno que no existe",
+                "activos": {"maxDailyDrawdownPct": rev.get("maxDailyDrawdownPct")},
+                "decorativos": {"riskPctPerTrade": rev.get("riskPctPerTrade"),
+                                "maxStopsPerDay": rev.get("maxStopsPerDay")},
+                "verificadoConSimulacro": True,
+                "simulacro": "node scripts/simulacro_frenos.js — 16 casos, 2026-08-22",
+                "nota": "SOLO maxDailyDrawdownPct frena. Los decorativos estan en la config pero "
+                        "ninguna linea de codigo los lee: no reportarlos como proteccion.",
             }
-            for k in ("maxDailyDrawdownPct", "riskPctPerTrade"):
-                if rev.get(k) in (None, 0):
-                    inc_ambar.append(f"el freno {k} esta en {rev.get(k)!r}: no esta limitando nada")
+            if rev.get("maxDailyDrawdownPct") in (None, 0):
+                inc_rojo.append("maxDailyDrawdownPct esta en "
+                                f"{rev.get('maxDailyDrawdownPct')!r}: el UNICO freno real "
+                                "no esta limitando nada")
         except Exception as e:      # noqa: BLE001
             inc_ambar.append(f"no se pudo leer la configuracion de frenos: {str(e)[:80]}")
 
