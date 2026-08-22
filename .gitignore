@@ -35,3 +35,6 @@ trm_cache.json
 # Cierres diarios del Contador (Fase 1) — salida generada, no fuente.
 # El motor es scripts/cierre_diario.py y se puede rehacer con --dias N.
 cierres/
+
+# Veredictos del Auditor (Fase 2) — salida generada, no fuente.
+veredictos/
