@@ -41,7 +41,7 @@ if not "%PASO1%"=="0" (
 )
 
 REM ---------- FASE 2: el agente lee y entrega ----------
-claude --permission-mode acceptEdits --allowedTools "Bash" "Read" "Write" "Glob" "Grep" -p "/contador Ya corri scripts/cierre_diario.py: el parte y el JSON del dia estan en cierres/. NO vuelvas a correr el motor. Haz los pasos 2 a 5 de la skill: lee el JSON completo del dia (no solo el parte), revisa rojo y ambar, mira si algun ambar se viene repitiendo en los dias anteriores de cierres/historico.jsonl, y entregame el parte final. Si hay algo en rojo, marcalo como posible correccion y dilo primero. Si el estado es verde y no hay nada que agregar, entrega el parte tal cual esta." >> "%LOG%" 2>&1
+claude --permission-mode acceptEdits --allowedTools "Bash" "Read" "Write" "Glob" "Grep" "mcp__whatsapp__whatsapp_enviar" -p "/contador Ya corri scripts/cierre_diario.py: el parte y el JSON del dia estan en cierres/. NO vuelvas a correr el motor. Haz los pasos 2 a 5 de la skill: lee el JSON completo del dia (no solo el parte), revisa rojo y ambar, mira si algun ambar se viene repitiendo en los dias anteriores de cierres/historico.jsonl, y entregame el parte final. Si hay algo en rojo, marcalo como posible correccion y dilo primero. Si el estado es verde y no hay nada que agregar, entrega el parte tal cual esta. Termina mandandolo por WhatsApp como dice el paso 5: cuenta colombia, destino 573186252537@s.whatsapp.net. Manda aunque el estado sea verde." >> "%LOG%" 2>&1
 
 echo [%DATE% %TIME%] Finalizado (codigo %ERRORLEVEL%) >> "%LOG%"
 

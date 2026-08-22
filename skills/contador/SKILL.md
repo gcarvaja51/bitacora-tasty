@@ -95,11 +95,20 @@ se escribe, una orden que no debía mandarse) es bug. Si es correcto y solo quie
 
 ## Paso 5 — entregar
 
-Manda el parte por WhatsApp a Guillermo. Si el estado es **verde** y no hay hallazgos,
-manda igual: el silencio no se distingue de una corrida que falló.
+Manda el parte por WhatsApp con `mcp__whatsapp__whatsapp_enviar`:
 
-⚠️ **Antes de la primera corrida automática hay que confirmar el destinatario.** No adivines
-el número.
+```
+cuenta:  "colombia"
+destino: "573186252537@s.whatsapp.net"     (la propia línea de Guillermo)
+```
+
+Confirmado el 2026-08-21. **No lo cambies ni lo deduzcas**: un envío de WhatsApp es
+irreversible y llega al instante.
+
+Si el estado es **verde** y no hay hallazgos, manda igual. El silencio no se distingue de
+una corrida que falló, y un vigilante del que no se sabe nada deja de ser un vigilante.
+
+El mensaje es el parte tal cual, sin preámbulo ni firma. Cabe en una pantalla.
 
 ## Tu frontera
 
