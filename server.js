@@ -11828,6 +11828,18 @@ app.get('/api/spx/reversion-sombra', (req, res) => {
   // Los cortes NO son redondos a proposito: con mediana 0.03% y p90 0.05%,
   // tramos de 0.05 en 0.05 dejarian casi toda la muestra en el primero.
   const CORTES = [0, 0.03, 0.05, 0.08, 0.11, 0.14, 0.20, Infinity];
+  // BUG (2026-08-21): la puerta estaba HARDCODEADA en 0.13-0.30 mientras
+  // produccion corria en 0.10-0.30. O sea que este endpoint —el instrumento con
+  // el que el Auditor decide si vale la pena mover la banda— marcaba como
+  // "puerta actual" un tramo que hacia rato no era el vigente, y comparaba
+  // contra el la banda equivocada.
+  //
+  // Validar contra el numero equivocado no es medir de menos: es medir otra
+  // cosa. Ahora sale de la configuracion viva, asi que cuando alguien mueva la
+  // perilla el instrumento se entera solo.
+  const _rev = (spxConfig?.trading?.smaReversion) || {};
+  const PUERTA_MIN = Number.isFinite(+_rev.extBandMinPct) ? +_rev.extBandMinPct : 0.13;
+  const PUERTA_MAX = Number.isFinite(+_rev.extBandMaxPct) ? +_rev.extBandMaxPct : 0.30;
   const porBandaAlejamiento = [];
   for (let i = 0; i < CORTES.length - 1; i++) {
     const lo = CORTES[i], hi = CORTES[i + 1];
@@ -11838,12 +11850,13 @@ app.get('/api/spx/reversion-sombra', (req, res) => {
     porBandaAlejamiento.push({
       banda: hi === Infinity ? `>=${lo}%` : `${lo}-${hi}%`,
       ...(stats(sub) || { n: 0, objetivo: 0, stop: 0, tiempo: 0, winRate: null, mfeMediano: null, maeMediano: null }),
-      dentroDeLaPuertaActual: lo >= 0.13 && hi <= 0.30,
+      dentroDeLaPuertaActual: lo >= PUERTA_MIN && hi <= PUERTA_MAX,
     });
   }
 
   res.json({
     ok: true,
+    puertaVigente: { minPct: PUERTA_MIN, maxPct: PUERTA_MAX, fuente: 'spx_config.json en vivo' },
     evaluaciones: rows.length,
     unidad: req.query.porEvaluacion === 'true' ? 'evaluacion' : 'racha (evaluaciones consecutivas del mismo setup cuentan 1)',
     dias: [...new Set(rows.map(r => r.fecha))].sort(),
