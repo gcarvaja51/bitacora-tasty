@@ -142,10 +142,9 @@ class TastytradeClient {
     return d.data?.items ?? [];
   }
 
-  async getMarginRequirements() {
-    const d = await this._req(`/accounts/${this.accountNumber}/margin-requirements`);
-    return d.data;
-  }
+  // getMarginRequirements() se borro el 2026-08-22 junto con /api/margin-raw, su
+  // unico consumidor. TastyTrade responde 404 a esa ruta: llevaba tiempo
+  // devolviendo 500 y nadie se entero porque nada la llamaba.
 
   async getGreeks(symbols = []) {
     if (!symbols.length) return {};

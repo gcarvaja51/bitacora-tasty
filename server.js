@@ -963,10 +963,12 @@ app.get('/api/debug-today-strategies', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/margin-raw', async (req, res) => {
-  try { res.json(await tt.getMarginRequirements()); }
-  catch(e) { res.status(500).json({ error: e.message, stack: e.stack?.split('\n').slice(0,3) }); }
-});
+// /api/margin-raw se borro el 2026-08-22. Devolvia 500 en cada request porque
+// TastyTrade responde 404 a /accounts/<acct>/margin-requirements, no lo llamaba
+// nadie —ni el frontend ni los scripts— y getMarginRequirements() (src/tastytrade.js)
+// solo existia para servirlo. Lo encontro la primera corrida de la bateria de
+// pruebas. Si algun dia hace falta el margen por API, se vuelve a escribir con
+// la ruta que TastyTrade tenga entonces; resucitar esta no ahorraria nada.
 
 // `commit` / `arrancadoEn` (2026-08-20): hasta hoy no habia forma de saber, desde
 // afuera, QUE version esta corriendo en produccion. Cada despliegue se verificaba

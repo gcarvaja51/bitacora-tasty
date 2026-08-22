@@ -2630,10 +2630,13 @@ hace fallar la corrida —el trabajo de la batería es cazar lo nuevo— pero se
 en cada pasada. Si una entrada lleva semanas ahí, el problema ya no es el endpoint: es que
 nadie decidió qué hacer con él.
 
-Hoy hay una: **`/api/margin-raw`**, que devuelve 500 porque TastyTrade responde 404 a
-`/accounts/<acct>/margin-requirements`. **No lo llama nadie** —ni el frontend ni los
-scripts— y `getMarginRequirements()` solo se usa ahí: es código muerto. *Pendiente: decidir
-si se borra.*
+**Hoy la lista está vacía**, y ese es el estado correcto. La única entrada que hubo duró un
+día: `/api/margin-raw` devolvía 500 porque TastyTrade responde 404 a
+`/accounts/<acct>/margin-requirements`, no lo llamaba nadie y `getMarginRequirements()` solo
+existía para servirlo. La batería lo encontró el 2026-08-22 y se borró el mismo día.
+
+Si algo entra a `CONOCIDOS`, tiene que salir pronto — por arreglo o por borrado. Una lista
+de roturas toleradas que crece deja de ser deuda y pasa a ser costumbre.
 
 ## Parámetros vigentes de Reversión — la fuente declarada (2026-08-22)
 

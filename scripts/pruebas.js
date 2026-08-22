@@ -164,10 +164,10 @@ const EXCLUIDOS = {
 // Si una entrada lleva semanas aca, el problema ya no es el endpoint: es que
 // nadie decidio que hacer con el.
 const CONOCIDOS = {
-  '/api/margin-raw':
-    'desde antes del 2026-08-22. TastyTrade responde 404 a /accounts/<acct>/margin-requirements. ' +
-    'No lo llama NADIE (ni el frontend ni los scripts) y getMarginRequirements() solo se usa aca: ' +
-    'es codigo muerto. PENDIENTE: decidir si se borra.',
+  // Vacio a proposito. La unica entrada que hubo —/api/margin-raw— duro un dia:
+  // la bateria la encontro el 2026-08-22 y el endpoint se borro el mismo dia por
+  // ser codigo muerto. Que esta lista este vacia es el estado correcto; si algo
+  // entra aca, tiene que salir pronto o deja de ser deuda y pasa a ser costumbre.
 };
 
 const conocidosVistos = [];
