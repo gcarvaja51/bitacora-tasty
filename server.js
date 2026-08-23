@@ -5117,7 +5117,20 @@ function buildStrategySnapshot(ctx, extra = {}) {
     // las velas de 1m de Yahoo para inferirlo; ahora esta en el registro.
     spxPrice: ctx.spxPrice, spotFuente: ctx.spotFuente, spotEdadSeg: ctx.spotEdadSeg,
     vix: ctx.vix, ivRank: ctx.ivRank,
-    gex: ctx.gex ? { regime: ctx.gex.regime, callWall: ctx.gex.callWall, putWall: ctx.gex.putWall, gammaFlip: ctx.gex.gammaFlip, maxPain: ctx.gex.maxPain } : null,
+    // `source` y `maxPainFuente` viajan al snapshot desde el 2026-08-22.
+    //
+    // Sin ellos, el registro guardaba niveles sin decir de donde salieron, y las
+    // dos fuentes pueden discrepar mucho: el 21-ago el max pain interno daba 7425
+    // y el de Sigma 7675. Al analizar la semana despues, no habia forma de saber
+    // cual se habia guardado — y la respuesta resulto ser "un hibrido": muros de
+    // Sigma con max pain propio, sin que nada lo indicara.
+    //
+    // Un nivel sin procedencia no se puede auditar: se puede leer, creer, y sacar
+    // la conclusion equivocada.
+    gex: ctx.gex ? { regime: ctx.gex.regime, callWall: ctx.gex.callWall, putWall: ctx.gex.putWall,
+                     gammaFlip: ctx.gex.gammaFlip, maxPain: ctx.gex.maxPain,
+                     source: ctx.gex.source || null,
+                     maxPainFuente: ctx.gex.maxPainFuente || null } : null,
     weinstein15m: ctx.indicators?.m15?.weinstein ? { fase: ctx.indicators.m15.weinstein.fase } : null,
     weinstein2m: ctx.indicators?.m2?.weinstein ? { fase: ctx.indicators.m2.weinstein.fase } : null,
     macd15m: ctx.indicators?.m15?.macd ? { hist: ctx.indicators.m15.macd.hist, bullish: ctx.indicators.m15.macd.bullish, bearish: ctx.indicators.m15.macd.bearish } : null,
@@ -6304,8 +6317,24 @@ async function processDirectionalEntry(direction, meta = {}) {
     // Sigma Terminal fresco, queda undefined y regimen_institucional cae solo
     // al fallback GEX-solo (ver calcPlaybookScore).
     const effectiveGex = sigmaLevelsWebhook
-      ? { regime: sigmaLevelsWebhook.regime, netDex: sigmaLevelsWebhook.netDex, callWall: sigmaLevelsWebhook.callWall, putWall: sigmaLevelsWebhook.putWall, gammaFlip: sigmaLevelsWebhook.gammaFlip, maxPain: ctx.gex?.maxPain, source: 'sigma_terminal' }
-      : { regime: ctx.gex?.regime, netDex: undefined, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain, source: 'interno' };
+      ? { regime: sigmaLevelsWebhook.regime, netDex: sigmaLevelsWebhook.netDex, callWall: sigmaLevelsWebhook.callWall, putWall: sigmaLevelsWebhook.putWall, gammaFlip: sigmaLevelsWebhook.gammaFlip,
+          // 2026-08-22, a pedido del usuario: EL MAX PAIN SALE DE SIGMA, SIEMPRE.
+          //
+          // Estaba tomando ctx.gex.maxPain —el calculo interno— aun cuando la
+          // fuente declarada era 'sigma_terminal'. O sea que effectiveGex era un
+          // HIBRIDO: muros de Sigma con max pain propio, y nada lo decia.
+          //
+          // El 21-ago la diferencia fue de 250 puntos: el interno daba 7425 y
+          // Sigma 7675. Los muros del dia se movieron varias veces (7900/7500,
+          // 7700/7640, 7690/7685) y el max pain quedo congelado en 7425 en las
+          // 214 evaluaciones. Sigma manda maxPain desde el 2026-08-09; solo
+          // faltaba leerlo aca.
+          //
+          // Se conserva el interno como respaldo por si Sigma no lo trae.
+          maxPain: sigmaLevelsWebhook.maxPain ?? ctx.gex?.maxPain,
+          maxPainFuente: sigmaLevelsWebhook.maxPain != null ? 'sigma' : 'interno',
+          source: 'sigma_terminal' }
+      : { regime: ctx.gex?.regime, netDex: undefined, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain, maxPainFuente: 'interno', source: 'interno' };
     console.log(`[SPX] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source}) DEX: ${effectiveGex.netDex ?? 'sin dato'}`);
 
     // Capital de la cuenta — DEBE ser el de Tradier (donde de verdad se ejecuta la
@@ -7525,13 +7554,24 @@ async function checkIronCondor() {
     // calculo interno tiene un sesgo negativo ya medido (~-3.7B, memoria
     // gamma_flip_discrepancy), y el gammaFlip diverge fuerte: el 2026-08-05 el
     // interno daba 7600 contra 7753 de Sigma, 153 puntos — con un buffer de
-    // 20pts eso decide el gate. maxPain se mantiene del calculo interno porque
-    // Sigma no lo empuja (POST /api/spx/sigma-levels no lo recibe).
+    // 20pts eso decide el gate.
+    //
+    // 2026-08-22: aca decia "maxPain se mantiene del calculo interno porque Sigma
+    // no lo empuja (POST /api/spx/sigma-levels no lo recibe)". Era cierto hasta el
+    // 2026-08-09, cuando maxPain se agrego al webhook junto con totalGamma,
+    // putCallOi e ivPromedio. El rodeo se quedo y el comentario congelo la verdad
+    // vieja: durante dos semanas el sistema uso un max pain propio creyendo que no
+    // habia otro.
+    //
+    // El 21-ago la diferencia fue de 250 puntos (interno 7425, Sigma 7675). Ahora
+    // MANDA SIEMPRE EL DE SIGMA, a pedido del usuario, con el interno de respaldo.
     const sigmaIC = getFreshSigmaLevels();
     const effectiveGex = sigmaIC
       ? { regime: sigmaIC.regime, netGex: sigmaIC.netGex, netDex: sigmaIC.netDex,
           callWall: sigmaIC.callWall, putWall: sigmaIC.putWall, gammaFlip: sigmaIC.gammaFlip,
-          maxPain: ctx.gex?.maxPain, source: 'sigma_terminal' }
+          maxPain: sigmaIC.maxPain ?? ctx.gex?.maxPain,
+          maxPainFuente: sigmaIC.maxPain != null ? 'sigma' : 'interno',
+          source: 'sigma_terminal' }
       : { ...(ctx.gex || {}), source: 'interno' };
     console.log(`[SPX-IC ${dte}] Régimen GEX: ${effectiveGex.regime || 'desconocido'} flip: ${effectiveGex.gammaFlip ?? 'sin dato'} (fuente: ${effectiveGex.source})`);
     // Se escribe de vuelta en ctx para que buildStrategySnapshot() registre en
@@ -10231,10 +10271,30 @@ async function checkAlejamientoSMA() {
     // sigue guardando aca de todos modos, sin usarse todavia en ningun check,
     // para poder medir su correlacion real con el resultado antes de decidir
     // si algun dia vuelve a pesar en el score.
+    // 2026-08-22: se suman gammaFlip y maxPain, que aca no estaban.
+    //
+    // Este objeto solo traia regime/netDex/callWall/putWall, asi que la señal de
+    // Reversion terminaba mezclando fuentes: los muros de Sigma y el flip y el
+    // max pain del calculo interno, en el mismo registro y sin decirlo. El max
+    // pain llega de Sigma desde el 2026-08-09 y aca nunca se leyo.
     const sigmaLevels = getFreshSigmaLevels();
     const effectiveGex = sigmaLevels
-      ? { regime: sigmaLevels.regime, netDex: sigmaLevels.netDex, callWall: sigmaLevels.callWall, putWall: sigmaLevels.putWall, source: 'sigma_terminal' }
-      : { regime: ctx.gex?.regime, netDex: undefined, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, source: 'interno' };
+      ? { regime: sigmaLevels.regime, netDex: sigmaLevels.netDex,
+          callWall: sigmaLevels.callWall, putWall: sigmaLevels.putWall,
+          gammaFlip: sigmaLevels.gammaFlip ?? ctx.gex?.gammaFlip,
+          maxPain: sigmaLevels.maxPain ?? ctx.gex?.maxPain,
+          maxPainFuente: sigmaLevels.maxPain != null ? 'sigma' : 'interno',
+          source: 'sigma_terminal' }
+      : { regime: ctx.gex?.regime, netDex: undefined,
+          callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall,
+          gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain,
+          maxPainFuente: 'interno', source: 'interno' };
+    // Se escribe de vuelta en ctx —igual que hace el Iron Condor— para que los
+    // snapshots del log registren los niveles que DE VERDAD se usaron. Sin esto,
+    // las ~200 evaluaciones diarias de Reversion guardaban los internos mientras
+    // la decision se tomaba con los de Sigma, y al analizar la semana despues no
+    // habia forma de notarlo.
+    ctx.gex = effectiveGex;
     console.log(`[SPX-REV] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source}) DEX: ${effectiveGex.netDex ?? 'sin dato'}`);
 
     // Velas de 5m — el "Juez" (2026-08-02, a pedido explicito del usuario,
@@ -10580,9 +10640,18 @@ async function checkAlejamientoSMA() {
     const signal = buildSignalSummary(strategy, strikes, {
       valid: true, strategy, isCredit: true, expType: '0DTE', spreadWidth: cfg.spreadWidth, contracts,
     }, {
+      // 2026-08-22: sale todo de effectiveGex, no de ctx.gex.
+      //
+      // Aca convivian las dos fuentes EN EL MISMO OBJETO: unas lineas mas arriba
+      // la señal ya tomaba callWall de effectiveGex (Sigma), y estas tomaban
+      // regimen, muros, flip y max pain del calculo interno. La Reversion es la
+      // unica de las tres que no escribe effectiveGex de vuelta en ctx.gex —el
+      // Iron Condor si lo hace (ctx.gex = effectiveGex)— asi que arrastraba los
+      // valores internos sin que nada lo dijera.
       direction, spxPrice: ctx.spxPrice, vix: ctx.vix, ivRank: ctx.ivRank,
-      gammaRegime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall,
-      gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain,
+      gammaRegime: effectiveGex.regime, callWall: effectiveGex.callWall,
+      putWall: effectiveGex.putWall, gammaFlip: effectiveGex.gammaFlip,
+      maxPain: effectiveGex.maxPain,
       technicalStop: null, technicalStopSource: null, etTime: ctx.etTime,
     });
     signal.strategyFamily = 'REVERSION';
