@@ -23,7 +23,7 @@
 // daemon ya persiste ahi su ultima lectura exitosa (lastLevels/lastSuccessAt) cada vez
 // que corre un ciclo dentro de horario de mercado, que es exactamente el dato que hace
 // falta ("el ultimo disponible") sin necesidad de tocar el navegador para nada.
-import { connectToSpxWindow, launch as launchTv } from '../gamma_daemon/tv.js';
+import { connectToSpxWindow } from '../gamma_daemon/tv.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -32,6 +32,43 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GAMMA_STATUS_PATH = path.join(__dirname, '..', 'gamma_daemon', 'status.json');
 const OUT_ROOT = 'C:\\Users\\gcarv\\Documents\\CARPETA PERSONAL\\01. guillermo carvajal\\01_Sigma\\mentoria alejandro\\premercados alejandro\\control premercado\\data_collector';
 const LOG_PATH = path.join(OUT_ROOT, 'collector.log');
+
+// Presupuesto de tiempo para TODA la parte de TradingView. Incidente real 19 y 20 de
+// agosto de 2026: connectToSpxWindow() se colgo ~9 minutos. CDP no tiene timeout propio
+// -- si una ventana de TradingView no responde a Runtime.enable()/evaluate(), el await
+// no vuelve NUNCA. Y mientras este proceso esperaba, el gamma_daemon (que es el dueño
+// real de esa ventana, ver CLAUDE.md) relanzo TradingView por debajo y le mato el
+// WebSocket. Por eso en collector.log los dos sintomas aparecian siempre juntos:
+// "no se pudo restaurar la resolucion ... readyState 3 (CLOSED)" y "FALLO: WebSocket
+// connection closed". El gate, del otro lado, mataba el proceso por timeout y anotaba
+// "se colgo antes de siquiera empezar" -- diagnostico equivocado: si habia empezado, lo
+// que no tenia era techo. Ahora cada paso tiene el suyo y el bloque entero tambien: si
+// TradingView no coopera en 2 minutos se abandona esa parte y se escribe igual el bundle
+// con los datos de Sigma, que son los que de verdad usa el informe.
+// OJO -- el techo va PASO POR PASO, nunca envolviendo el bloque entero. Promise.race
+// no cancela nada: si se le pone un limite global a collectFromTradingView(), la carrera
+// rechaza pero la cadena de adentro SIGUE corriendo, y puede ejecutar setResolution('30')
+// justo mientras main() va camino al process.exit(). Resultado: el chart del SPX queda
+// clavado en 30 minutos sin que nadie restaure la resolucion original -- y el usuario
+// opera el SPX en 15 min (ver CLAUDE.md). Con el techo por paso, en cambio, el rechazo
+// viaja por el camino normal de excepciones y el bloque finally SI corre: se restaura la
+// resolucion y se cierra el cliente. Peor caso sumando todos los pasos: ~220s, por debajo
+// del watchdog interno de 300s.
+const TV_STEP_MS = Number(process.env.TV_STEP_MS || 20000);
+const TV_CONNECT_MS = Number(process.env.TV_CONNECT_MS || 60000);
+// Cinturon final: pase lo que pase, este proceso no vive mas de 5 minutos. unref() para
+// que este temporizador no sea lo que mantenga vivo el event loop cuando todo salio bien.
+const HARD_KILL_MS = Number(process.env.COLLECTOR_HARD_KILL_MS || 300000);
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timeout de ${Math.round(ms / 1000)}s en ${label}`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 function todayStamp() {
   // MMDDAAAA, mismo formato que ya usa el resto del skill para nombrar archivos.
@@ -118,6 +155,18 @@ async function captureChartPng(client, paneIndex, outPath) {
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     })()
   `);
+  // Page.captureScreenshot SOLO devuelve algo si la ventana esta realmente visible:
+  // sin frames del compositor (ventana tapada o minimizada) la llamada no vuelve nunca.
+  // Medido el 21-ago-2026 sobre las 5 ventanas de TradingView abiertas: la unica al frente
+  // capturo en 0,6s y las otras CUATRO se colgaron indefinidamente, la del SPX incluida.
+  // Ese, y no "TradingView no responde", era el cuelgue que se comia 9-12 minutos del
+  // premercado. Tambien explica por que esto funciono hasta el 12-ago y despues no: la
+  // ventana dejo de estar al frente, nada mas. Con bringToFront() la misma captura tarda
+  // 0,8s. Cuesta levantar la ventana del SPX un instante a las 7:30am, antes de la
+  // apertura -- es el precio de tener la captura, y es la unica forma de obtenerla.
+  await client.Page.enable();
+  await client.Page.bringToFront();
+  await new Promise((r) => setTimeout(r, 1200));   // que el compositor pinte al menos un frame
   const params = { format: 'png' };
   if (bounds) params.clip = { ...bounds, scale: 1 };
   const { data } = await client.Page.captureScreenshot(params);
@@ -161,40 +210,46 @@ async function getStudyValues(client) {
 }
 
 async function collectFromTradingView(outDir) {
-  let conn;
-  try {
-    conn = await connectToSpxWindow();
-  } catch (e) {
-    log(`[tv] conexion inicial fallo (${e.message}), relanzando TradingView...`);
-    await launchTv({ killExisting: true });
-    await new Promise((r) => setTimeout(r, 15000));
-    conn = await connectToSpxWindow();
-  }
+  // NO se relanza TradingView desde aca. Antes, si la conexion inicial fallaba, esto
+  // llamaba a launchTv({ killExisting: true }) -- es decir taskkill /F /IM TradingView.exe.
+  // Relanzar TradingView es potestad EXCLUSIVA del gamma_daemon (ver CLAUDE.md): hacerlo
+  // desde el colector deja al usuario sin poder operar en plena preapertura y ademas
+  // levanta una ventana que puede quedar en otro layout o simbolo, con la que despues
+  // pelea el daemon. Si no hay ventana usable, este colector se resigna y devuelve el
+  // error: el informe ya tiene fallback para el chart (datos de Yahoo + niveles).
+  const conn = await withTimeout(connectToSpxWindow(), TV_CONNECT_MS, 'connectToSpxWindow');
 
   const { client, panes } = conn;
   const paneIndex = panes.find((p) => !p.error)?.index ?? 0;
-  const originalResolution = await getResolution(client).catch(() => null);
+  const originalResolution = await withTimeout(getResolution(client), TV_STEP_MS, 'getResolution').catch(() => null);
 
   try {
-    await focusPane(client, paneIndex);
-    await setResolution(client, '30');
-    await setVisibleRangeDays(client, 3);
-    await captureChartPng(client, paneIndex, path.join(outDir, 'chart_30m.png'));
-    const studyValues = await getStudyValues(client);
+    await withTimeout(focusPane(client, paneIndex), TV_STEP_MS, 'focusPane');
+    await withTimeout(setResolution(client, '30'), TV_STEP_MS, 'setResolution 30');
+    await withTimeout(setVisibleRangeDays(client, 3), TV_STEP_MS, 'setVisibleRangeDays');
+    await withTimeout(captureChartPng(client, paneIndex, path.join(outDir, 'chart_30m.png')), TV_STEP_MS * 1.5, 'captureChartPng');
+    const studyValues = await withTimeout(getStudyValues(client), TV_STEP_MS, 'getStudyValues');
     return { success: true, paneIndex, studyValues };
   } finally {
+    // Devolver la resolucion original es cortesia, no requisito: si el socket ya murio
+    // no se insiste. Esta linea era el primer sintoma visible del cuelgue.
     try {
       if (originalResolution) {
-        await setResolution(client, originalResolution);
+        await withTimeout(setResolution(client, originalResolution), TV_STEP_MS, 'restaurar resolucion');
       }
     } catch (e) {
       log(`[tv] no se pudo restaurar la resolucion original del pane ${paneIndex}: ${e.message}`);
     }
-    await client.close();
+    try { await withTimeout(client.close(), 10000, 'client.close'); } catch { /* noop */ }
   }
 }
 
 async function main() {
+  setTimeout(() => {
+    log(`[fatal] watchdog interno: ${Math.round(HARD_KILL_MS / 60000)} min sin terminar, saliendo a la fuerza`);
+    process.exit(1);
+  }, HARD_KILL_MS).unref();
+
   const stamp = todayStamp();
   const outDir = path.join(OUT_ROOT, stamp);
   mkdirSync(outDir, { recursive: true });

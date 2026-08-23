@@ -148,7 +148,19 @@ try {
             Write-Log "Recolector: OK."
         }
     } else {
-        Write-Log "Recolector: no escribio NADA en collector.log (termino=$termino) -- se colgo antes de siquiera empezar. El skill corre en modo fallback."
+        # OJO con el diagnostico: "no escribio nada" NO significa "no empezo". El colector
+        # solo escribe en collector.log cuando termina un bloque, asi que un proceso al que
+        # ESTE gate acaba de matar por timeout nunca alcanza a dejar rastro. El 19 y el
+        # 20-ago se logueo aca "se colgo antes de siquiera empezar" y era falso: las dos
+        # veces el colector estaba vivo y escribio su bundle 3 minutos DESPUES de que lo
+        # mataramos. Desde el 21-ago collect.js tiene sus propios techos (2 min para todo
+        # TradingView, 5 min de watchdog interno), asi que si se llega hasta aca con
+        # termino=False el problema es del colector y hay que mirarlo, no asumir nada.
+        if (-not $termino) {
+            Write-Log "Recolector: lo matamos por timeout antes de que escribiera en collector.log. NO se puede concluir donde se colgo. El skill corre en modo fallback."
+        } else {
+            Write-Log "Recolector: termino solo (exit $($cproc.ExitCode)) pero no escribio NADA en collector.log. El skill corre en modo fallback."
+        }
     }
 } catch {
     Write-Log "Recolector fallo por completo (excepcion): $($_.Exception.Message)"
@@ -179,6 +191,8 @@ $errFile = Join-Path $logDir "premercado_auto_launch_stderr.txt"
 # -RedirectStandardOutput/-RedirectStandardError escribe directo a archivo
 # sin depender de que la tuberia de PowerShell tenga una consola detras,
 # que es lo que fallaba antes.
+# Instante de arranque: la verificacion final exige que el .docx sea POSTERIOR a esto.
+$runStart = Get-Date
 $proc = Start-Process -FilePath "claude.cmd" `
     -ArgumentList '-p', '"/premercado-spx"', '--permission-mode', 'bypassPermissions', '--chrome' `
     -RedirectStandardOutput $outFile -RedirectStandardError $errFile `
@@ -203,7 +217,17 @@ $null = $proc.Handle
 # atascado) y solo "goteo" hasta morir cerca del limite de 1h de la Tarea
 # -- sin este timeout, un cuelgue similar consume toda la ventana previa a
 # la apertura sin que quede ninguna senal clara de que algo salio mal.
-$timeoutMin = 30
+# Techo de claude.cmd. Era fijo en 30 min y se quedo corto dos veces (17 y 20-ago: la
+# corrida murio en el minuto 30 sin entregar). Pero subirlo a ciegas es peor: lo que
+# importa no son los minutos, es no pisar la apertura. Ahora se calcula contra el reloj
+# real -- todo lo que haga falta, pero nunca mas alla de las 09:15 ET, que deja 15 min de
+# colchon antes de las 09:30. Piso de 10 min por si el gate arranca tardisimo dentro de
+# su ventana.
+$etLaunch = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, "Eastern Standard Time")
+$deadlineEt = New-Object DateTime($etLaunch.Year, $etLaunch.Month, $etLaunch.Day, 9, 15, 0)
+$minutosDisponibles = [int][Math]::Floor(($deadlineEt - $etLaunch).TotalMinutes)
+$timeoutMin = [Math]::Max(10, [Math]::Min(35, $minutosDisponibles))
+Write-Log "Techo de esta corrida: $timeoutMin min (son las $($etLaunch.ToString('HH:mm')) ET, tope 09:15 ET)."
 $docxEsperado = Join-Path (Join-Path $logDir "..\documentos premercado") "$($etNow.ToString('MMddyyyy'))_premercado claude.docx"
 
 # Periodo de gracia: el .docx no siempre esta en disco en el instante exacto en
@@ -212,18 +236,28 @@ $docxEsperado = Join-Path (Join-Path $logDir "..\documentos premercado") "$($etN
 # verifico la existencia del .docx ~1 min ANTES de que se escribiera y logueo
 # FALLO sobre una corrida que si habia funcionado. Reintentar unos minutos
 # cuesta nada y elimina esa clase entera de falso negativo.
-function Wait-ForDocx($ruta, $graciaSeg) {
+function Wait-ForDocx($ruta, $graciaSeg, $minTime) {
     $limite = (Get-Date).AddSeconds($graciaSeg)
     while ((Get-Date) -lt $limite) {
         if (Test-Path $ruta) {
-            # Esperar a que el tamaño se estabilice: existir != estar completo.
-            $t1 = (Get-Item $ruta).Length
-            Start-Sleep -Seconds 3
-            if ((Test-Path $ruta) -and (Get-Item $ruta).Length -eq $t1 -and $t1 -gt 0) { return $true }
+            # $minTime es lo que separa "esta corrida entrego" de "hay un archivo de hoy".
+            # Sin este chequeo, una corrida que murio sin producir nada se logueaba EXITO
+            # con solo encontrar el .docx que el usuario habia generado a mano un rato
+            # antes -- falso positivo estructural, visto el 17 y el 20-ago. El log quedaba
+            # verde justo los dias en que la automatizacion no habia funcionado, que es
+            # exactamente cuando uno necesita que avise.
+            $item = Get-Item $ruta
+            if ($item.LastWriteTime -ge $minTime) {
+                # Esperar a que el tamaño se estabilice: existir != estar completo.
+                $t1 = $item.Length
+                Start-Sleep -Seconds 3
+                if ((Test-Path $ruta) -and (Get-Item $ruta).Length -eq $t1 -and $t1 -gt 0) { return $true }
+            }
         }
         Start-Sleep -Seconds 5
     }
-    return (Test-Path $ruta)
+    if (Test-Path $ruta) { return ((Get-Item $ruta).LastWriteTime -ge $minTime) }
+    return $false
 }
 
 $colgado = $false
@@ -239,7 +273,7 @@ if ($null -eq $exitCode) { $exitCode = "desconocido" }
 # El documento es la unica senal que importa: es el entregable. El exit code va
 # al log como informacion, pero NO decide exito/fallo -- decidirlo con el exit
 # code fue exactamente el bug que rompio la deteccion durante 12 dias.
-if (Wait-ForDocx $docxEsperado 180) {
+if (Wait-ForDocx $docxEsperado 180 $runStart) {
     $nombreDocx = Split-Path $docxEsperado -Leaf
     $nota = if ($colgado) { " (se genero pese a que hubo que matar el proceso por timeout de $timeoutMin min -- revisar $outFile)" } else { "" }
     Write-Log "EXITO - documento generado$nota. Exit code reportado: $exitCode. Ver $outFile para el detalle."
@@ -247,7 +281,12 @@ if (Wait-ForDocx $docxEsperado 180) {
     exit 0
 } else {
     $motivo = if ($colgado) { "se colgo mas de $timeoutMin min y se cancelo" } else { "termino (exit $exitCode)" }
-    Write-Log "FALLO - la corrida $motivo y NO se encontro el documento esperado tras 3 min de gracia ($docxEsperado). Revisar $outFile y $errFile."
+    $detalle = if (Test-Path $docxEsperado) {
+        "SI existe un .docx con el nombre de hoy, pero es de antes de esta corrida ($((Get-Item $docxEsperado).LastWriteTime.ToString('HH:mm:ss')), la corrida arranco $($runStart.ToString('HH:mm:ss'))) -- lo genero otra cosa, no la automatizacion"
+    } else {
+        "no hay ningun .docx con el nombre de hoy"
+    }
+    Write-Log "FALLO - la corrida $motivo y NO dejo documento tras 3 min de gracia: $detalle ($docxEsperado). Revisar $outFile y $errFile."
     Send-Ntfy "La corrida $motivo y NO genero el documento. HOY NO HAY PREMERCADO -- hay que correrlo a mano antes de la apertura." "Premercado SPX: FALLO (sin documento)" "high"
     # exit 2 = "fallo, pero YA notifique yo mismo" -- el .vbs no debe duplicar el aviso
     exit 2

@@ -1,5 +1,1290 @@
 [
   {
+    "id": "spx-1786981730617",
+    "timestamp": "2026-08-17T15:48:50.617Z",
+    "symbol": "SPX",
+    "strategy": "BEAR_PUT_SPREAD",
+    "strategyName": "Bear Put Spread (débito)",
+    "direction": "BEARISH",
+    "expType": "0DTE",
+    "expiry": "2026-08-17",
+    "contracts": 1,
+    "spreadWidth": 15,
+    "strikes": {
+      "expiry": "2026-08-17",
+      "longStrike": 7770,
+      "shortStrike": 7760,
+      "longDelta": 0.451,
+      "shortDelta": 0.228,
+      "premium": -2.4
+    },
+    "isCredit": false,
+    "credit": null,
+    "debit": 240,
+    "maxRisk": 240,
+    "maxProfit": 1260,
+    "probSuccess": null,
+    "riskReward": 5.25,
+    "rrNote": "R:R 5.25 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
+    "context": {
+      "spxPrice": 7772.08,
+      "vix": 14.98,
+      "ivRank": 29,
+      "gammaRegime": "NEGATIVO",
+      "callWall": 7800,
+      "putWall": 7755,
+      "gammaFlip": 7780,
+      "technicalStop": 7779.28,
+      "technicalStopSource": "Fractal 15m",
+      "maxPain": 7755,
+      "etTime": "11:48"
+    },
+    "status": "PENDING",
+    "fractalLevel": null,
+    "pocLevel": null,
+    "playbook": {
+      "score": 85,
+      "passed": true,
+      "minScore": 80,
+      "checks": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7772.08) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        },
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7776.4411 EMA20:7778.9483 Ext10:-0.03% Ext20:-0.06%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        },
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.2x",
+          "reason": "Volumen insuficiente (0.2x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-3.0988 Signal:-2.751 (3 velas atrás: -3.2443)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ],
+      "mundo1": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7772.08) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        }
+      ],
+      "mundo2": [
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7776.4411 EMA20:7778.9483 Ext10:-0.03% Ext20:-0.06%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        }
+      ],
+      "mundo3": [
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.2x",
+          "reason": "Volumen insuficiente (0.2x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-3.0988 Signal:-2.751 (3 velas atrás: -3.2443)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ]
+    },
+    "fuerzaTotal": false,
+    "source": "CaminoB_autonomo",
+    "timeframe": "2m",
+    "tf15m": "BEARISH",
+    "strategyFamily": "TENDENCIA",
+    "trading": {
+      "delta": 0.3,
+      "tpPct": 30,
+      "slMult": 1.5,
+      "spreadWidth": 10,
+      "tpTarget": 72,
+      "slTarget": 360,
+      "breakeven": 7757.6,
+      "creditoRiesgoPct": 100,
+      "minCreditoRiesgoPct": 20
+    },
+    "vetoMuroSombra": {
+      "aplica": true,
+      "vetaria": false,
+      "direction": "BEARISH",
+      "muro": 7755,
+      "muroLado": "put_wall",
+      "spxPrice": 7772.08,
+      "aire": 17.08,
+      "puntosParaTP": 3.23,
+      "margen": 13.85,
+      "deltaNeto": 0.223,
+      "deltaNetoFuente": "cadena",
+      "primaPts": 2.4,
+      "tpPctDebito": 30,
+      "frescura": {
+        "muroFuente": "interno",
+        "muroEdadSeg": null,
+        "spotFuente": "yahoo",
+        "spotEdadSeg": 2,
+        "cadenaFuente": "tastytrade"
+      },
+      "nota": "El TP exige 3.23 pts y hay 17.08 pts hasta el muro (7755) — margen 13.85 pts."
+    },
+    "sombraLimite": null
+  },
+  {
+    "id": "spx-1786980977637",
+    "timestamp": "2026-08-17T15:36:17.637Z",
+    "symbol": "SPX",
+    "strategy": "BEAR_PUT_SPREAD",
+    "strategyName": "Bear Put Spread (débito)",
+    "direction": "BEARISH",
+    "expType": "0DTE",
+    "expiry": "2026-08-17",
+    "contracts": 1,
+    "spreadWidth": 15,
+    "strikes": {
+      "expiry": "2026-08-17",
+      "longStrike": 7775,
+      "shortStrike": 7765,
+      "longDelta": 0.529,
+      "shortDelta": 0.279,
+      "premium": -3.77
+    },
+    "isCredit": false,
+    "credit": null,
+    "debit": 377,
+    "maxRisk": 377,
+    "maxProfit": 1123,
+    "probSuccess": null,
+    "riskReward": 2.98,
+    "rrNote": "R:R 2.98 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
+    "context": {
+      "spxPrice": 7773.89,
+      "vix": 14.93,
+      "ivRank": 29,
+      "gammaRegime": "NEGATIVO",
+      "callWall": 7800,
+      "putWall": 7755,
+      "gammaFlip": 7780,
+      "technicalStop": 7779.28,
+      "technicalStopSource": "Fractal 15m",
+      "maxPain": 7755,
+      "etTime": "11:36"
+    },
+    "status": "PENDING",
+    "fractalLevel": null,
+    "pocLevel": null,
+    "playbook": {
+      "score": 85,
+      "passed": true,
+      "minScore": 80,
+      "checks": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7773.89) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        },
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7777.0831 EMA20:7779.5204 Ext10:0.02% Ext20:-0.01%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        },
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.18x",
+          "reason": "Volumen insuficiente (0.18x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-2.9987 Signal:-2.6569 (3 velas atrás: -3.0686)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ],
+      "mundo1": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7773.89) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        }
+      ],
+      "mundo2": [
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7777.0831 EMA20:7779.5204 Ext10:0.02% Ext20:-0.01%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        }
+      ],
+      "mundo3": [
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.18x",
+          "reason": "Volumen insuficiente (0.18x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-2.9987 Signal:-2.6569 (3 velas atrás: -3.0686)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ]
+    },
+    "fuerzaTotal": false,
+    "source": "CaminoB_autonomo",
+    "timeframe": "2m",
+    "tf15m": "BEARISH",
+    "strategyFamily": "TENDENCIA",
+    "trading": {
+      "delta": 0.3,
+      "tpPct": 30,
+      "slMult": 1.5,
+      "spreadWidth": 10,
+      "tpTarget": 113,
+      "slTarget": 566,
+      "breakeven": 7761.23,
+      "creditoRiesgoPct": 100,
+      "minCreditoRiesgoPct": 20
+    },
+    "vetoMuroSombra": {
+      "aplica": true,
+      "vetaria": false,
+      "direction": "BEARISH",
+      "muro": 7755,
+      "muroLado": "put_wall",
+      "spxPrice": 7773.89,
+      "aire": 18.89,
+      "puntosParaTP": 4.52,
+      "margen": 14.37,
+      "deltaNeto": 0.25,
+      "deltaNetoFuente": "cadena",
+      "primaPts": 3.77,
+      "tpPctDebito": 30,
+      "frescura": {
+        "muroFuente": "interno",
+        "muroEdadSeg": null,
+        "spotFuente": "yahoo",
+        "spotEdadSeg": 1,
+        "cadenaFuente": "tastytrade"
+      },
+      "nota": "El TP exige 4.52 pts y hay 18.89 pts hasta el muro (7755) — margen 14.37 pts."
+    },
+    "sombraLimite": null
+  },
+  {
+    "id": "spx-1786980948938",
+    "timestamp": "2026-08-17T15:35:48.938Z",
+    "symbol": "SPX",
+    "strategy": "BEAR_PUT_SPREAD",
+    "strategyName": "Bear Put Spread (débito)",
+    "direction": "BEARISH",
+    "expType": "0DTE",
+    "expiry": "2026-08-17",
+    "contracts": 1,
+    "spreadWidth": 15,
+    "strikes": {
+      "expiry": "2026-08-17",
+      "longStrike": 7775,
+      "shortStrike": 7765,
+      "longDelta": 0.529,
+      "shortDelta": 0.279,
+      "premium": -3.53
+    },
+    "isCredit": false,
+    "credit": null,
+    "debit": 353,
+    "maxRisk": 353,
+    "maxProfit": 1147,
+    "probSuccess": null,
+    "riskReward": 3.25,
+    "rrNote": "R:R 3.25 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
+    "context": {
+      "spxPrice": 7772.92,
+      "vix": 14.93,
+      "ivRank": 29,
+      "gammaRegime": "NEGATIVO",
+      "callWall": 7800,
+      "putWall": 7755,
+      "gammaFlip": 7780,
+      "technicalStop": 7779.28,
+      "technicalStopSource": "Fractal 15m",
+      "maxPain": 7755,
+      "etTime": "11:35"
+    },
+    "status": "PENDING",
+    "fractalLevel": null,
+    "pocLevel": null,
+    "playbook": {
+      "score": 85,
+      "passed": true,
+      "minScore": 80,
+      "checks": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7772.92) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        },
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7777.1377 EMA20:7779.549 Ext10:0.02% Ext20:-0.01%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        },
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.18x",
+          "reason": "Volumen insuficiente (0.18x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-2.9748 Signal:-2.6522 (3 velas atrás: -3.0686)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ],
+      "mundo1": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7772.92) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        }
+      ],
+      "mundo2": [
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7777.1377 EMA20:7779.549 Ext10:0.02% Ext20:-0.01%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        }
+      ],
+      "mundo3": [
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.18x",
+          "reason": "Volumen insuficiente (0.18x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-2.9748 Signal:-2.6522 (3 velas atrás: -3.0686)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ]
+    },
+    "fuerzaTotal": false,
+    "source": "CaminoB_autonomo",
+    "timeframe": "2m",
+    "tf15m": "BEARISH",
+    "strategyFamily": "TENDENCIA",
+    "trading": {
+      "delta": 0.3,
+      "tpPct": 30,
+      "slMult": 1.5,
+      "spreadWidth": 10,
+      "tpTarget": 106,
+      "slTarget": 530,
+      "breakeven": 7761.47,
+      "creditoRiesgoPct": 100,
+      "minCreditoRiesgoPct": 20
+    },
+    "vetoMuroSombra": {
+      "aplica": true,
+      "vetaria": false,
+      "direction": "BEARISH",
+      "muro": 7755,
+      "muroLado": "put_wall",
+      "spxPrice": 7772.92,
+      "aire": 17.92,
+      "puntosParaTP": 4.24,
+      "margen": 13.68,
+      "deltaNeto": 0.25,
+      "deltaNetoFuente": "cadena",
+      "primaPts": 3.53,
+      "tpPctDebito": 30,
+      "frescura": {
+        "muroFuente": "interno",
+        "muroEdadSeg": null,
+        "spotFuente": "yahoo",
+        "spotEdadSeg": 7,
+        "cadenaFuente": "tastytrade"
+      },
+      "nota": "El TP exige 4.24 pts y hay 17.92 pts hasta el muro (7755) — margen 13.68 pts."
+    },
+    "sombraLimite": null
+  },
+  {
+    "id": "spx-1786980919541",
+    "timestamp": "2026-08-17T15:35:19.541Z",
+    "symbol": "SPX",
+    "strategy": "BEAR_PUT_SPREAD",
+    "strategyName": "Bear Put Spread (débito)",
+    "direction": "BEARISH",
+    "expType": "0DTE",
+    "expiry": "2026-08-17",
+    "contracts": 1,
+    "spreadWidth": 15,
+    "strikes": {
+      "expiry": "2026-08-17",
+      "longStrike": 7775,
+      "shortStrike": 7765,
+      "longDelta": 0.529,
+      "shortDelta": 0.279,
+      "premium": -3.77
+    },
+    "isCredit": false,
+    "credit": null,
+    "debit": 377,
+    "maxRisk": 377,
+    "maxProfit": 1123,
+    "probSuccess": null,
+    "riskReward": 2.98,
+    "rrNote": "R:R 2.98 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
+    "context": {
+      "spxPrice": 7773.67,
+      "vix": 14.94,
+      "ivRank": 29,
+      "gammaRegime": "NEGATIVO",
+      "callWall": 7800,
+      "putWall": 7755,
+      "gammaFlip": 7780,
+      "technicalStop": 7779.28,
+      "technicalStopSource": "Fractal 15m",
+      "maxPain": 7755,
+      "etTime": "11:35"
+    },
+    "status": "PENDING",
+    "fractalLevel": null,
+    "pocLevel": null,
+    "playbook": {
+      "score": 85,
+      "passed": true,
+      "minScore": 80,
+      "checks": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7773.67) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        },
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7777.0886 EMA20:7779.5233 Ext10:0.02% Ext20:-0.01%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        },
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.18x",
+          "reason": "Volumen insuficiente (0.18x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-2.9963 Signal:-2.6565 (3 velas atrás: -3.0686)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ],
+      "mundo1": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7773.67) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        }
+      ],
+      "mundo2": [
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7777.0886 EMA20:7779.5233 Ext10:0.02% Ext20:-0.01%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        }
+      ],
+      "mundo3": [
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.18x",
+          "reason": "Volumen insuficiente (0.18x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-2.9963 Signal:-2.6565 (3 velas atrás: -3.0686)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ]
+    },
+    "fuerzaTotal": false,
+    "source": "CaminoB_autonomo",
+    "timeframe": "2m",
+    "tf15m": "BEARISH",
+    "strategyFamily": "TENDENCIA",
+    "trading": {
+      "delta": 0.3,
+      "tpPct": 30,
+      "slMult": 1.5,
+      "spreadWidth": 10,
+      "tpTarget": 113,
+      "slTarget": 566,
+      "breakeven": 7761.23,
+      "creditoRiesgoPct": 100,
+      "minCreditoRiesgoPct": 20
+    },
+    "vetoMuroSombra": {
+      "aplica": true,
+      "vetaria": false,
+      "direction": "BEARISH",
+      "muro": 7755,
+      "muroLado": "put_wall",
+      "spxPrice": 7773.67,
+      "aire": 18.67,
+      "puntosParaTP": 4.52,
+      "margen": 14.15,
+      "deltaNeto": 0.25,
+      "deltaNetoFuente": "cadena",
+      "primaPts": 3.77,
+      "tpPctDebito": 30,
+      "frescura": {
+        "muroFuente": "interno",
+        "muroEdadSeg": null,
+        "spotFuente": "yahoo",
+        "spotEdadSeg": 7,
+        "cadenaFuente": "tastytrade"
+      },
+      "nota": "El TP exige 4.52 pts y hay 18.67 pts hasta el muro (7755) — margen 14.15 pts."
+    },
+    "sombraLimite": null
+  },
+  {
+    "id": "spx-1786980888870",
+    "timestamp": "2026-08-17T15:34:48.870Z",
+    "symbol": "SPX",
+    "strategy": "BEAR_PUT_SPREAD",
+    "strategyName": "Bear Put Spread (débito)",
+    "direction": "BEARISH",
+    "expType": "0DTE",
+    "expiry": "2026-08-17",
+    "contracts": 1,
+    "spreadWidth": 15,
+    "strikes": {
+      "expiry": "2026-08-17",
+      "longStrike": 7775,
+      "shortStrike": 7765,
+      "longDelta": 0.529,
+      "shortDelta": 0.279,
+      "premium": -3.45
+    },
+    "isCredit": false,
+    "credit": null,
+    "debit": 345,
+    "maxRisk": 345,
+    "maxProfit": 1155,
+    "probSuccess": null,
+    "riskReward": 3.35,
+    "rrNote": "R:R 3.35 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
+    "context": {
+      "spxPrice": 7774.06,
+      "vix": 14.94,
+      "ivRank": 29,
+      "gammaRegime": "NEGATIVO",
+      "callWall": 7800,
+      "putWall": 7755,
+      "gammaFlip": 7780,
+      "technicalStop": 7779.28,
+      "technicalStopSource": "Fractal 15m",
+      "maxPain": 7755,
+      "etTime": "11:34"
+    },
+    "status": "PENDING",
+    "fractalLevel": null,
+    "pocLevel": null,
+    "playbook": {
+      "score": 85,
+      "passed": true,
+      "minScore": 80,
+      "checks": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7774.06) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        },
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7777.0067 EMA20:7779.4804 Ext10:0.01% Ext20:-0.02%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        },
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.18x",
+          "reason": "Volumen insuficiente (0.18x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-3.0322 Signal:-2.6636 (3 velas atrás: -3.0686)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ],
+      "mundo1": [
+        {
+          "id": "fase_weinstein",
+          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
+          "mundo": 1,
+          "weight": 45,
+          "points": 45,
+          "ok": true,
+          "value": "bajista (Camino B)",
+          "reason": "Alineación bajista confirmada por Camino B (2m + marco 15m) ✅"
+        },
+        {
+          "id": "regimen_institucional",
+          "label": "Régimen Institucional (GEX + DEX)",
+          "mundo": 1,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "Regime:NEGATIVO Flip:7780 DEX:sin dato",
+          "reason": "Precio (7774.06) bajo Gamma Flip (7780) ✅ (sin DEX fresco, fallback GEX-solo)"
+        }
+      ],
+      "mundo2": [
+        {
+          "id": "patrones_estructurales",
+          "label": "Patrón Estructural (HL/LH)",
+          "mundo": 2,
+          "weight": 20,
+          "points": 20,
+          "ok": true,
+          "value": "7790.68 → 7779.28",
+          "reason": "Lower-High confirmado (7790.68 → 7779.28) ✅"
+        },
+        {
+          "id": "ema_10_20_alineadas",
+          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
+          "mundo": 2,
+          "weight": 10,
+          "points": 10,
+          "ok": true,
+          "value": "EMA10:7777.0067 EMA20:7779.4804 Ext10:0.01% Ext20:-0.02%",
+          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
+        }
+      ],
+      "mundo3": [
+        {
+          "id": "volumen_rompimiento",
+          "label": "Volumen de Rompimiento > 2x",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "0.18x",
+          "reason": "Volumen insuficiente (0.18x < 2x) ❌"
+        },
+        {
+          "id": "macd_cruce_pendiente",
+          "label": "MACD cruce + pendiente (15m)",
+          "mundo": 3,
+          "weight": 15,
+          "points": 0,
+          "ok": false,
+          "value": "MACD:-3.0322 Signal:-2.6636 (3 velas atrás: -3.0686)",
+          "reason": "MACD no alineado o sin pendiente sostenida a favor ❌"
+        },
+        {
+          "id": "confirmacion_algoritmica",
+          "label": "Confirmación Algorítmica (Camino A)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": false,
+          "value": "Camino A no confirma retroceso clásico",
+          "reason": "Camino A no confirma ❌"
+        },
+        {
+          "id": "macd_doble_marco",
+          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
+          "mundo": 3,
+          "weight": 0,
+          "points": 0,
+          "ok": true,
+          "value": "15m:no 2m:confirma",
+          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
+        }
+      ]
+    },
+    "fuerzaTotal": false,
+    "source": "CaminoB_autonomo",
+    "timeframe": "2m",
+    "tf15m": "BEARISH",
+    "strategyFamily": "TENDENCIA",
+    "trading": {
+      "delta": 0.3,
+      "tpPct": 30,
+      "slMult": 1.5,
+      "spreadWidth": 10,
+      "tpTarget": 104,
+      "slTarget": 518,
+      "breakeven": 7761.55,
+      "creditoRiesgoPct": 100,
+      "minCreditoRiesgoPct": 20
+    },
+    "vetoMuroSombra": {
+      "aplica": true,
+      "vetaria": false,
+      "direction": "BEARISH",
+      "muro": 7755,
+      "muroLado": "put_wall",
+      "spxPrice": 7774.06,
+      "aire": 19.06,
+      "puntosParaTP": 4.14,
+      "margen": 14.92,
+      "deltaNeto": 0.25,
+      "deltaNetoFuente": "cadena",
+      "primaPts": 3.45,
+      "tpPctDebito": 30,
+      "frescura": {
+        "muroFuente": "interno",
+        "muroEdadSeg": null,
+        "spotFuente": "yahoo",
+        "spotEdadSeg": 5,
+        "cadenaFuente": "tastytrade"
+      },
+      "nota": "El TP exige 4.14 pts y hay 19.06 pts hasta el muro (7755) — margen 14.92 pts."
+    },
+    "sombraLimite": null
+  },
+  {
     "id": "spx-1785866392712",
     "timestamp": "2026-08-04T17:59:52.712Z",
     "symbol": "SPX",
@@ -10435,1166 +11720,6 @@
       "tpTarget": 25000,
       "slTarget": 200000,
       "breakeven": 6740,
-      "creditoRiesgoPct": 0,
-      "minCreditoRiesgoPct": 20
-    }
-  },
-  {
-    "id": "spx-1785863065764",
-    "timestamp": "2026-08-04T17:04:25.764Z",
-    "symbol": "SPX",
-    "strategy": "BULL_CALL_SPREAD",
-    "strategyName": "Bull Call Spread (débito)",
-    "direction": "BULLISH",
-    "expType": "0DTE",
-    "expiry": "2026-08-04",
-    "contracts": 1,
-    "spreadWidth": 15,
-    "strikes": {
-      "expiry": "2026-08-04",
-      "longStrike": 7730,
-      "shortStrike": 7740,
-      "longDelta": 0.536,
-      "premium": -5
-    },
-    "isCredit": false,
-    "credit": null,
-    "debit": 500,
-    "maxRisk": 500,
-    "maxProfit": 1000,
-    "probSuccess": null,
-    "riskReward": 2,
-    "rrNote": "R:R 2 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
-    "context": {
-      "spxPrice": 7724.67,
-      "vix": 16.23,
-      "ivRank": 30,
-      "gammaRegime": "POSITIVO",
-      "callWall": 7700,
-      "putWall": 7400,
-      "gammaFlip": 7510,
-      "technicalStop": 7598.72,
-      "technicalStopSource": "Fractal 15m",
-      "maxPain": 7555,
-      "etTime": "13:04"
-    },
-    "status": "PENDING",
-    "fractalLevel": 7598.72,
-    "pocLevel": 7640,
-    "playbook": {
-      "score": 100,
-      "passed": true,
-      "minScore": 80,
-      "checks": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7510 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        },
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7701.6409 EMA20:7674.0477 Ext10:0.29% Ext20:0.65%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        },
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.63x",
-          "reason": "Volumen insuficiente (0.63x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:36.0846 Signal:33.5698 (3 velas atrás: 35.2634)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:confirma",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ],
-      "mundo1": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7510 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        }
-      ],
-      "mundo2": [
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7701.6409 EMA20:7674.0477 Ext10:0.29% Ext20:0.65%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        }
-      ],
-      "mundo3": [
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.63x",
-          "reason": "Volumen insuficiente (0.63x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:36.0846 Signal:33.5698 (3 velas atrás: 35.2634)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:confirma",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ]
-    },
-    "fuerzaTotal": false,
-    "source": "CaminoB_autonomo",
-    "timeframe": "2m",
-    "tf15m": "BULLISH",
-    "strategyFamily": "TENDENCIA",
-    "trading": {
-      "delta": 0.4,
-      "tpPct": 25,
-      "slMult": 2,
-      "spreadWidth": 10,
-      "tpTarget": 25000,
-      "slTarget": 200000,
-      "breakeven": 6740,
-      "creditoRiesgoPct": 0,
-      "minCreditoRiesgoPct": 20
-    }
-  },
-  {
-    "id": "spx-1785863029219",
-    "timestamp": "2026-08-04T17:03:49.219Z",
-    "symbol": "SPX",
-    "strategy": "BULL_CALL_SPREAD",
-    "strategyName": "Bull Call Spread (débito)",
-    "direction": "BULLISH",
-    "expType": "0DTE",
-    "expiry": "2026-08-04",
-    "contracts": 1,
-    "spreadWidth": 15,
-    "strikes": {
-      "expiry": "2026-08-04",
-      "longStrike": 7730,
-      "shortStrike": 7740,
-      "longDelta": 0.536,
-      "premium": -4.7
-    },
-    "isCredit": false,
-    "credit": null,
-    "debit": 470,
-    "maxRisk": 470,
-    "maxProfit": 1030,
-    "probSuccess": null,
-    "riskReward": 2.19,
-    "rrNote": "R:R 2.19 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
-    "context": {
-      "spxPrice": 7725.11,
-      "vix": 16.22,
-      "ivRank": 30,
-      "gammaRegime": "POSITIVO",
-      "callWall": 7700,
-      "putWall": 7400,
-      "gammaFlip": 7510,
-      "technicalStop": 7598.72,
-      "technicalStopSource": "Fractal 15m",
-      "maxPain": 7555,
-      "etTime": "13:03"
-    },
-    "status": "PENDING",
-    "fractalLevel": 7598.72,
-    "pocLevel": 7640,
-    "playbook": {
-      "score": 100,
-      "passed": true,
-      "minScore": 80,
-      "checks": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7510 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        },
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7701.7464 EMA20:7674.1029 Ext10:0.3% Ext20:0.66%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        },
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.62x",
-          "reason": "Volumen insuficiente (0.62x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:36.1309 Signal:33.579 (3 velas atrás: 35.2634)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:confirma",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ],
-      "mundo1": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7510 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        }
-      ],
-      "mundo2": [
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7701.7464 EMA20:7674.1029 Ext10:0.3% Ext20:0.66%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        }
-      ],
-      "mundo3": [
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.62x",
-          "reason": "Volumen insuficiente (0.62x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:36.1309 Signal:33.579 (3 velas atrás: 35.2634)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:confirma",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ]
-    },
-    "fuerzaTotal": false,
-    "source": "CaminoB_autonomo",
-    "timeframe": "2m",
-    "tf15m": "BULLISH",
-    "strategyFamily": "TENDENCIA",
-    "trading": {
-      "delta": 0.4,
-      "tpPct": 25,
-      "slMult": 2,
-      "spreadWidth": 10,
-      "tpTarget": 25750,
-      "slTarget": 206000,
-      "breakeven": 6710,
-      "creditoRiesgoPct": 0,
-      "minCreditoRiesgoPct": 20
-    }
-  },
-  {
-    "id": "spx-1785863003400",
-    "timestamp": "2026-08-04T17:03:23.400Z",
-    "symbol": "SPX",
-    "strategy": "BULL_CALL_SPREAD",
-    "strategyName": "Bull Call Spread (débito)",
-    "direction": "BULLISH",
-    "expType": "0DTE",
-    "expiry": "2026-08-04",
-    "contracts": 1,
-    "spreadWidth": 15,
-    "strikes": {
-      "expiry": "2026-08-04",
-      "longStrike": 7730,
-      "shortStrike": 7740,
-      "longDelta": 0.539,
-      "premium": -4.6
-    },
-    "isCredit": false,
-    "credit": null,
-    "debit": 460,
-    "maxRisk": 460,
-    "maxProfit": 1040,
-    "probSuccess": null,
-    "riskReward": 2.26,
-    "rrNote": "R:R 2.26 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
-    "context": {
-      "spxPrice": 7724.61,
-      "vix": 16.22,
-      "ivRank": 30,
-      "gammaRegime": "POSITIVO",
-      "callWall": 7700,
-      "putWall": 7400,
-      "gammaFlip": 7510,
-      "technicalStop": 7598.72,
-      "technicalStopSource": "Fractal 15m",
-      "maxPain": 7555,
-      "etTime": "13:03"
-    },
-    "status": "PENDING",
-    "fractalLevel": 7598.72,
-    "pocLevel": 7640,
-    "playbook": {
-      "score": 100,
-      "passed": true,
-      "minScore": 80,
-      "checks": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7510 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        },
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7701.7591 EMA20:7674.1096 Ext10:0.3% Ext20:0.66%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        },
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.62x",
-          "reason": "Volumen insuficiente (0.62x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:36.1365 Signal:33.5802 (3 velas atrás: 35.2634)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:confirma",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ],
-      "mundo1": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7510 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        }
-      ],
-      "mundo2": [
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7701.7591 EMA20:7674.1096 Ext10:0.3% Ext20:0.66%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        }
-      ],
-      "mundo3": [
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.62x",
-          "reason": "Volumen insuficiente (0.62x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:36.1365 Signal:33.5802 (3 velas atrás: 35.2634)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:confirma",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ]
-    },
-    "fuerzaTotal": false,
-    "source": "CaminoB_autonomo",
-    "timeframe": "2m",
-    "tf15m": "BULLISH",
-    "strategyFamily": "TENDENCIA",
-    "trading": {
-      "delta": 0.4,
-      "tpPct": 25,
-      "slMult": 2,
-      "spreadWidth": 10,
-      "tpTarget": 26000,
-      "slTarget": 208000,
-      "breakeven": 6700,
-      "creditoRiesgoPct": 0,
-      "minCreditoRiesgoPct": 20
-    }
-  },
-  {
-    "id": "spx-1785862975091",
-    "timestamp": "2026-08-04T17:02:55.091Z",
-    "symbol": "SPX",
-    "strategy": "BULL_CALL_SPREAD",
-    "strategyName": "Bull Call Spread (débito)",
-    "direction": "BULLISH",
-    "expType": "0DTE",
-    "expiry": "2026-08-04",
-    "contracts": 1,
-    "spreadWidth": 15,
-    "strikes": {
-      "expiry": "2026-08-04",
-      "longStrike": 7730,
-      "shortStrike": 7740,
-      "longDelta": 0.539,
-      "premium": -4.65
-    },
-    "isCredit": false,
-    "credit": null,
-    "debit": 465,
-    "maxRisk": 465,
-    "maxProfit": 1035,
-    "probSuccess": null,
-    "riskReward": 2.23,
-    "rrNote": "R:R 2.23 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
-    "context": {
-      "spxPrice": 7724.25,
-      "vix": 16.23,
-      "ivRank": 30,
-      "gammaRegime": "POSITIVO",
-      "callWall": 7700,
-      "putWall": 7400,
-      "gammaFlip": 7510,
-      "technicalStop": 7598.72,
-      "technicalStopSource": "Fractal 15m",
-      "maxPain": 7555,
-      "etTime": "13:02"
-    },
-    "status": "PENDING",
-    "fractalLevel": 7598.72,
-    "pocLevel": 7640,
-    "playbook": {
-      "score": 100,
-      "passed": true,
-      "minScore": 80,
-      "checks": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7510 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        },
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7701.6336 EMA20:7674.0439 Ext10:0.29% Ext20:0.65%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        },
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.62x",
-          "reason": "Volumen insuficiente (0.62x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:36.0815 Signal:33.5692 (3 velas atrás: 35.2634)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:confirma",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ],
-      "mundo1": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7510 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        }
-      ],
-      "mundo2": [
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7701.6336 EMA20:7674.0439 Ext10:0.29% Ext20:0.65%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        }
-      ],
-      "mundo3": [
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.62x",
-          "reason": "Volumen insuficiente (0.62x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:36.0815 Signal:33.5692 (3 velas atrás: 35.2634)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:confirma",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ]
-    },
-    "fuerzaTotal": false,
-    "source": "CaminoB_autonomo",
-    "timeframe": "2m",
-    "tf15m": "BULLISH",
-    "strategyFamily": "TENDENCIA",
-    "trading": {
-      "delta": 0.4,
-      "tpPct": 25,
-      "slMult": 2,
-      "spreadWidth": 10,
-      "tpTarget": 25875,
-      "slTarget": 207000,
-      "breakeven": 6705,
-      "creditoRiesgoPct": 0,
-      "minCreditoRiesgoPct": 20
-    }
-  },
-  {
-    "id": "spx-1785859757619",
-    "timestamp": "2026-08-04T16:09:17.619Z",
-    "symbol": "SPX",
-    "strategy": "BULL_CALL_SPREAD",
-    "strategyName": "Bull Call Spread (débito)",
-    "direction": "BULLISH",
-    "expType": "0DTE",
-    "expiry": "2026-08-04",
-    "contracts": 1,
-    "spreadWidth": 15,
-    "strikes": {
-      "expiry": "2026-08-04",
-      "longStrike": 7710,
-      "shortStrike": 7720,
-      "longDelta": 0.502,
-      "premium": -4.2
-    },
-    "isCredit": false,
-    "credit": null,
-    "debit": 420,
-    "maxRisk": 420,
-    "maxProfit": 1080,
-    "probSuccess": null,
-    "riskReward": 2.57,
-    "rrNote": "R:R 2.57 — fuera del rango ATM esperado (~1:1), revisar antes de ejecutar",
-    "context": {
-      "spxPrice": 7708.74,
-      "vix": 16.35,
-      "ivRank": 30,
-      "gammaRegime": "POSITIVO",
-      "callWall": 7700,
-      "putWall": 7400,
-      "gammaFlip": 7515,
-      "technicalStop": 7598.72,
-      "technicalStopSource": "Fractal 15m",
-      "maxPain": 7555,
-      "etTime": "12:09"
-    },
-    "status": "PENDING",
-    "fractalLevel": 7598.72,
-    "pocLevel": 7640,
-    "playbook": {
-      "score": 100,
-      "passed": true,
-      "minScore": 80,
-      "checks": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7515 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        },
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7679.9732 EMA20:7652.1198 Ext10:0.37% Ext20:0.73%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        },
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.49x",
-          "reason": "Volumen insuficiente (0.49x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:35.1387 Signal:30.282 (3 velas atrás: 31.9609)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:no",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ],
-      "mundo1": [
-        {
-          "id": "fase_weinstein",
-          "label": "Fase Weinstein (2m + 15m, confirmada por el gate de entrada Camino B)",
-          "mundo": 1,
-          "weight": 45,
-          "points": 45,
-          "ok": true,
-          "value": "alcista (Camino B)",
-          "reason": "Alineación alcista confirmada por Camino B (2m + marco 15m) ✅"
-        },
-        {
-          "id": "regimen_institucional",
-          "label": "Régimen Institucional (GEX + DEX)",
-          "mundo": 1,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "Regime:POSITIVO Flip:7515 DEX:sin dato",
-          "reason": "Gamma positivo — mercado estabilizador ✅ (sin DEX fresco, fallback GEX-solo)"
-        }
-      ],
-      "mundo2": [
-        {
-          "id": "patrones_estructurales",
-          "label": "Patrón Estructural (HL/LH)",
-          "mundo": 2,
-          "weight": 20,
-          "points": 20,
-          "ok": true,
-          "value": "7598 → 7598.72",
-          "reason": "Higher-Low confirmado (7598 → 7598.72) ✅"
-        },
-        {
-          "id": "ema_10_20_alineadas",
-          "label": "EMAs 10/20 alineadas y no extendidas (15m)",
-          "mundo": 2,
-          "weight": 10,
-          "points": 10,
-          "ok": true,
-          "value": "EMA10:7679.9732 EMA20:7652.1198 Ext10:0.37% Ext20:0.73%",
-          "reason": "EMAs alineadas y precio partiendo desde EMAs ✅"
-        }
-      ],
-      "mundo3": [
-        {
-          "id": "volumen_rompimiento",
-          "label": "Volumen de Rompimiento > 2x",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "0.49x",
-          "reason": "Volumen insuficiente (0.49x < 2x) ❌"
-        },
-        {
-          "id": "macd_cruce_pendiente",
-          "label": "MACD cruce + pendiente (15m)",
-          "mundo": 3,
-          "weight": 15,
-          "points": 15,
-          "ok": true,
-          "value": "MACD:35.1387 Signal:30.282 (3 velas atrás: 31.9609)",
-          "reason": "MACD sobre signal, línea en ascenso vs 3 velas atrás ✅"
-        },
-        {
-          "id": "confirmacion_algoritmica",
-          "label": "Confirmación Algorítmica (Camino A)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": false,
-          "value": "Camino A no confirma retroceso clásico",
-          "reason": "Camino A no confirma ❌"
-        },
-        {
-          "id": "macd_doble_marco",
-          "label": "MACD 15m + 2m (alerta si ninguno confirma — informativo)",
-          "mundo": 3,
-          "weight": 0,
-          "points": 0,
-          "ok": true,
-          "value": "15m:confirma 2m:no",
-          "reason": "Al menos un marco (15m o 2m) confirma la dirección ✅"
-        }
-      ]
-    },
-    "fuerzaTotal": false,
-    "source": "CaminoB_autonomo",
-    "timeframe": "2m",
-    "tf15m": "BULLISH",
-    "strategyFamily": "TENDENCIA",
-    "trading": {
-      "delta": 0.4,
-      "tpPct": 25,
-      "slMult": 2,
-      "spreadWidth": 10,
-      "tpTarget": 27000,
-      "slTarget": 216000,
-      "breakeven": 6640,
       "creditoRiesgoPct": 0,
       "minCreditoRiesgoPct": 20
     }

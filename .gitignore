@@ -48,3 +48,20 @@ vigilancia/
 # Deriva y actas (Fase 5) — salida generada, no fuente.
 deriva/
 actas/
+
+# Trabajo temporal de sesiones de analisis — se regenera, no es fuente.
+.tmp_*/
+.tmp_*.json
+.tmp_*.txt
+
+# Copias de seguridad puntuales antes de reescribir un archivo. La version
+# buena es la que esta versionada; el .bak solo sirve durante el cambio.
+*.bak_20*
+gamma_daemon/live_source.bak.txt
+
+# Logs y estado de runtime (misma familia que gamma_daemon/status.json,
+# ya ignorado arriba): cambian solos y ensucian todos los diffs.
+gamma_daemon/watchdog.log
+gamma_daemon/watchdog_state.json
+gamma_daemon/daemon_stdout.log
+scripts/revision_reversion.log

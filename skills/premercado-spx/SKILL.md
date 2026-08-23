@@ -844,6 +844,133 @@ línea/etiqueta de raíz. Ya NO hace falta ningún paso de `indicator_toggle_vis
 en el loop; el ciclo de 2 min es simple otra vez (leer Sigma Terminal →
 `pane_focus(0)` → `indicator_set_inputs`, nada más).
 
+## Paso 3bis — Día de vencimiento mensual (OPEX): imantación al Max Pain (2026-08-21, nuevo)
+
+Pedido explícito del usuario el 2026-08-21 (que era él mismo un 3er viernes): en los días
+de vencimiento **el Max Pain deja de ser un dato de adorno y pasa a ser un eje del
+análisis**. La teoría que hay que evaluar con fuerza es la de la **imantación**: que al
+cierre de los contratos el precio tiende a ser atraído hacia el strike de Max Pain, porque
+es el nivel donde vence sin valor la mayor cantidad de primas, y los dealers que están
+cortos esas opciones tienen el incentivo (y, vía cobertura de gamma, el mecanismo) para
+que el precio termine ahí.
+
+Hasta el 2026-08-21 el Max Pain aparecía UNA sola vez en todo este skill — como un valor
+más de la lista de "bonus disponible" del Paso 3. No tenía ningún papel analítico.
+
+### Cómo saber si hoy es día de vencimiento
+
+Regla general (usar esta, no la lista): **el vencimiento mensual de opciones es el 3er
+viernes del mes**. Si ese 3er viernes es feriado NYSE, el vencimiento se corre al **jueves
+anterior** — no es hipotético: el 3er viernes de junio de 2026 fue el 19, que es Juneteenth
+y está en la lista de feriados del gate.
+
+Terceros viernes de 2026, calculados y verificados el 2026-08-21:
+
+| Fecha | Tipo |
+|---|---|
+| 2026-01-16, 02-20, 04-17, 05-15, 07-17 | mensual (ya pasaron) |
+| 2026-03-20, 06-19 | trimestral — **06-19 cayó en Juneteenth**, corrió al jueves 18 |
+| **2026-08-21** | mensual — el día en que se escribió esta sección |
+| **2026-09-18** | **trimestral** (quad witching) |
+| **2026-10-16** | mensual |
+| **2026-11-20** | mensual |
+| **2026-12-18** | **trimestral** (quad witching) |
+
+Los trimestrales (marzo, junio, septiembre, diciembre) vencen índices, futuros y opciones a
+la vez — el interés abierto es mucho mayor y, si la imantación existe, ahí debería verse
+más fuerte que en un mensual común. Anotar siempre cuál de los dos es.
+
+### Qué hacer en el premercado de un día así
+
+1. **Poner la distancia al Max Pain al frente**, junto al precio de apertura implícita:
+   cuántos puntos y qué % separan al precio del Max Pain, y **en qué dirección** habría que
+   moverse para llegar. Ese número es el que hay que mirar todo el día.
+2. **Comparar Max Pain con Gamma Flip, Call Wall y Put Wall.** El caso interesante es
+   cuando el Max Pain cae DENTRO del corredor Put Wall–Call Wall: ahí la imantación y los
+   muros empujan para el mismo lado y el escenario Neutral se refuerza. Si el Max Pain
+   queda FUERA del corredor, las dos fuerzas se contradicen — decirlo explícitamente en
+   vez de promediarlas.
+3. **El régimen de gamma manda sobre la teoría.** La imantación necesita dealers en gamma
+   POSITIVO (venden fuerza, compran debilidad: eso es lo que fija el precio). Con **gamma
+   negativo la teoría se debilita mucho** — los dealers amplifican el movimiento en vez de
+   amortiguarlo. Nunca invocar la imantación sin decir en qué régimen estamos.
+4. **Escribirlo como escenario, no como profecía**: qué tendría que pasar para que el
+   precio termine pegado al Max Pain, y qué lo invalidaría (típicamente: romper y sostener
+   un muro, o una noticia macro que domine la sesión).
+
+### Factor 6 del scorecard, SOLO en días de vencimiento
+
+El Paso 6.1 fija 5 factores y exige anotar explícitamente cualquier alta o baja. Esta es
+esa anotación: **en días de vencimiento se agrega un 6º factor, "Imantación al Max Pain"**,
+y el resto del año el scorecard sigue teniendo 5. Marcar en la entrada del log
+`factores: 6` para que las comparaciones históricas no mezclen manzanas con peras.
+
+Cómo puntuarlo (0-10 por escenario):
+- **Neutral** se lleva el score alto cuando el Max Pain está cerca del precio (menos de
+  ~0,3%), el gamma es positivo y el Max Pain cae dentro del corredor de muros.
+- **Alcista / Bajista** se llevan el score alto cuando el Max Pain está claramente por
+  encima / por debajo del precio: ahí la imantación, si opera, empuja en esa dirección.
+- Con **gamma negativo, ningún escenario pasa de 4 en este factor** — la teoría no tiene el
+  mecanismo que la sostiene.
+
+### Y ahora la parte incómoda: medirla, no creerle
+
+La imantación al Max Pain es una teoría muy repetida y con evidencia empírica mixta — hay
+estudios en ambos sentidos, y buena parte del efecto que se le atribuye se explica igual de
+bien por el gamma positivo, que ocurre a la vez. Así que se incorpora al análisis como pide
+el usuario, **y al mismo tiempo se instrumenta para poder desmentirla con sus propios
+datos**, que es la única forma de que en diciembre esto valga algo.
+
+En cada día de vencimiento, agregar al objeto de esa fecha en
+`premercado_hipotesis_log.json` un bloque `max_pain`:
+
+```json
+"max_pain": {
+  "es_vencimiento": true,
+  "tipo": "mensual",
+  "trimestral": false,
+  "max_pain": 7675.0,
+  "gamma_regime": "MIXTO",
+  "gamma_regime_nota": "NEGATIVO en el spot de cierre (7.641), POSITIVO si abre sobre el Flip 7.673",
+  "dentro_del_corredor": true,
+  "corredor": "7640-7700 (Put Wall - Call Wall)",
+  "precio_apertura": 7682.74,
+  "precio_apertura_nota": "apertura IMPLICITA desde ES=F al momento del premercado, no la apertura real de la campana; el postmercado la reemplaza por la real al completar los campos de cierre",
+  "distancia_apertura_pts": 7.74,
+  "distancia_apertura_pct": 0.101,
+  "direccion_para_converger": "BAJAR",
+  "cierre_real": null,
+  "distancia_cierre_pts": null,
+  "distancia_cierre_pct": null,
+  "convergio": null
+}
+```
+
+Este es el bloque real de la entrada `2026-08-21`, no un ejemplo inventado — copiar esa
+forma. Tres campos merecen atención:
+
+- **`gamma_regime` admite `"MIXTO"`.** El 21-ago el régimen era negativo en el cierre
+  previo (7.641) y pasaba a positivo si el precio abría sobre el Flip (7.673), que es
+  justo lo que pasó. Forzar un único valor ahí habría falseado la evidencia del día más
+  informativo de la serie. Cuando sea MIXTO, el `gamma_regime_nota` explica de qué lado
+  cayó.
+- **`precio_apertura` es la apertura IMPLÍCITA** que se conocía en el premercado, no la
+  real de la campana. El Paso 8 la reemplaza por la real al cerrar los campos — si no, se
+  estaría midiendo la convergencia contra un número que nunca existió.
+- **`direccion_para_converger`** (`SUBIR` / `BAJAR` / `YA ESTA`) evita tener que
+  reinterpretar el signo de la distancia cada vez que se lee el log.
+
+Los cuatro últimos campos los completa el **Paso 8 (postmercado)**. `convergio` es `true`
+si la distancia al cierre resultó MENOR que la de la apertura — o sea, si el precio
+efectivamente se acercó al Max Pain durante la sesión.
+
+**Al cuarto día de vencimiento registrado (o sea, a partir del 2026-12-18), reportar el
+acumulado**: en cuántos de ellos convergió, cuánto se acercó en promedio, y si la
+diferencia entre los días de gamma positivo y los de gamma negativo se sostiene. Si el
+saldo dice que la teoría no aguanta con los datos del usuario, **decirlo tal cual y bajarle
+el peso al factor 6** — no maquillarlo. Es exactamente el mismo criterio que ya rige para
+los backtests en este proyecto.
+
 ## Paso 4 — Estructura Intradía y Futuros
 
 - Timeframes 30/15/2 minutos: `chart_set_timeframe` a `"30"`, `"15"`, `"2"`.
@@ -949,6 +1076,110 @@ la lectura de niveles relativos pero sí pueden generar una diferencia de unos
 pocos puntos al comparar "gap vs. cierre del viernes". No es un error, es
 inherente a usar un CFD como proxy — no tratar de reconciliar el precio exacto
 entre ambos símbolos.
+
+## Paso 4ter — Capa de catalizadores: calendario económico (2026-08-21, nuevo)
+
+Pedido del usuario el 2026-08-21: incorporar las noticias que "alborotan" el mercado, para
+tener identificados de antemano los momentos en que el precio se mueve por un dato y no por
+la estructura técnica. Hasta ese día el premercado no miraba el calendario económico en
+absoluto — un dato de alto impacto a media sesión llegaba como sorpresa.
+
+### Por qué el filtro NO es "solo nivel 3"
+
+El usuario lo pidió como "noticias de nivel 3", y el mismo día en que lo pidió quedó
+demostrado que ese filtro se pierde lo importante: **el 21-ago-2026 no hubo NINGÚN evento
+de 3 toros en EE.UU.**, y sin embargo los PMI flash — que Investing califica con **2
+toros** — salían a las 09:45 ET, **quince minutos después de la apertura**, justo encima
+del rango de apertura y dentro de un corsé de 26 puntos. Con un filtro de nivel 3 el
+informe habría dicho "hoy no hay noticias relevantes". Por eso el criterio es:
+
+1. **Todo evento de 3 toros de EE.UU.**, sin excepción, esté donde esté en el día.
+2. **Los de 2 toros que caigan DENTRO de la ventana operativa** (04:00–16:00 ET). Un dato
+   de 2 toros a las 09:45 pesa más que uno de 3 toros a las 20:00.
+3. **Discursos y comparecencias sin calificación fija** — Presidente, miembros de la Fed,
+   Tesoro. Investing no les pone toros porque el impacto depende de lo que digan, y son
+   precisamente los que producen los movimientos que no estaban en ningún plan.
+4. Ignorar el ruido de 1 toro (Baker Hughes, inventarios menores) salvo que sea el único
+   evento del día.
+
+### Cómo traerlo
+
+`WebFetch` sobre `https://es.investing.com/economic-calendar/`, pidiendo los eventos de
+EE.UU. de la fecha con importancia, pronóstico y previo.
+
+⚠️ **Los HORARIOS no vienen en el HTML estático** (verificado el 21-ago-2026: el fetch
+devuelve nombre, toros, pronóstico y previo, pero la columna de hora llega vacía porque se
+puebla por JavaScript). Hay que confirmarlos aparte — por horario conocido del dato (flash
+PMI 09:45 ET, CPI/PPI/nóminas 08:30 ET, ISM 10:00 ET, minutas de la Fed 14:00 ET) o con una
+segunda fuente. **Nunca inventar la hora**: si no se pudo confirmar, escribir "hora sin
+confirmar" en el documento, porque el valor entero de este paso está en saber CUÁNDO.
+
+### Clasificar por ventana, que es lo que cambia la lectura
+
+| Ventana | Qué significa |
+|---|---|
+| **Antes de 09:30 ET** | Ya está en el gap. Afecta la apertura implícita, que el Paso 4bis ya captura |
+| **09:30–10:30 ET** | **La más peligrosa.** Choca con el rango de apertura y con la regla del cóndor de las 10:00 |
+| **10:30–15:00 ET** | Rompe la sesión en dos: la estructura de la mañana puede no valer para la tarde |
+| **Después de 16:00 ET** | No es riesgo del día: es riesgo de gap para la sesión siguiente. Decirlo así |
+
+### Cómo se cruza con el resto del análisis
+
+- **Régimen gamma.** Con gamma POSITIVO los dealers absorben la sorpresa; con gamma
+  NEGATIVO la amplifican. El mismo dato produce dos días distintos según de qué lado del
+  Gamma Flip esté el precio cuando sale.
+- **Días de vencimiento (Paso 3bis).** Un catalizador dentro de la sesión es la principal
+  causa de que la imantación al Max Pain NO se cumpla — domina la estructura de opciones.
+  En un día de vencimiento con dato de alto impacto en sesión, **el factor 6 no pasa de 5**
+  aunque todo lo demás lo favorezca, y hay que decir explícitamente que el dato es el
+  riesgo principal de esa tesis.
+- **Regla del cóndor.** Si hay una publicación entre 09:30 y 10:00, la prohibición de
+  cóndor antes de las 10:00 deja de ser una regla de horario y pasa a ser una regla de
+  evento: **no abrir hasta que el dato esté publicado y digerido**, aunque sean las 10:05.
+
+### El punto que no hay que confundir: varianza no es dirección
+
+Un dato **cuyo resultado todavía no se conoce** no vota por una dirección — vota por
+**varianza**. No hay forma de saber si el PMI sale mejor o peor, así que sería falsear el
+análisis usarlo para subir el Alcista o el Bajista.
+
+Por eso **NO se agrega como factor del scorecard**. Lo que hace es **bajar el escenario
+Neutral**: un catalizador de resultado desconocido dentro de la sesión reduce la
+probabilidad de un día de rango tranquilo. Se aplica como ajuste explícito sobre el
+Neutral, anotado en las notas de la entrada del log, no como un sexto (o séptimo) factor.
+
+La excepción es un dato **ya publicado** antes de escribir el informe: ahí sí se conoce el
+resultado y la sorpresa vs. pronóstico es evidencia direccional legítima, que entra por el
+factor de momentum intradía.
+
+### En el documento del día
+
+Tabla **"Catalizadores del día"** justo después del Termómetro, con columnas:
+`Hora ET | Evento | Importancia | Pronóstico | Previo | Ventana`. Debajo, dos o tres frases
+sobre cuál es el que de verdad importa y qué le hace a los 3 escenarios. Si no hay ningún
+evento que pase el filtro, escribir **"Sin catalizadores programados"** de forma explícita
+— es información, no una sección para omitir.
+
+En `premercado_hipotesis_log.json`, bloque `catalizadores` de esa fecha:
+
+```json
+"catalizadores": [
+  {"hora_et": "09:45", "evento": "S&P Global PMI manufacturero flash (Ago)",
+   "toros": 2, "pronostico": 54.0, "previo": 53.9, "ventana": "09:30-10:30",
+   "hora_confirmada": true},
+  {"hora_et": "09:45", "evento": "S&P Global PMI de servicios flash (Ago)",
+   "toros": 2, "pronostico": 53.9, "previo": 54.6, "ventana": "09:30-10:30",
+   "hora_confirmada": true},
+  {"hora_et": "19:00", "evento": "Declaraciones de Trump", "toros": null,
+   "pronostico": null, "previo": null, "ventana": "post-cierre",
+   "hora_confirmada": false}
+],
+"ajuste_neutral_por_catalizador": -4
+```
+
+El `ajuste_neutral_por_catalizador` es el descuento en puntos porcentuales que se le aplicó
+al Neutral por el punto anterior. Guardarlo permite revisar más adelante si el descuento
+estuvo bien calibrado, igual que se hace con los pesos del scorecard.
 
 ## Paso 5 — Los 3 Escenarios (SIEMPRE el cierre del documento)
 
@@ -1084,7 +1315,13 @@ anotado explícitamente en esa entrada del log):
    confluencia (Paso 5, "Principio de confluencia") justo encima o debajo del
    precio actual, eso pesa a favor del escenario que la usa como barrera.
 
-Normalización: `prob_escenario = sum(score_escenario en los 5 factores) /
+6. **Imantación al Max Pain** — **SOLO en días de vencimiento mensual** (3er viernes;
+   ver Paso 3bis, que define cómo puntuarlo y cómo se registra). El resto de los días
+   este factor NO existe y el scorecard sigue siendo de 5. Cuando se usa, anotar
+   `factores: 6` en la entrada del log de esa fecha.
+
+Normalización: `prob_escenario = sum(score_escenario en los 5 factores, o 6 si es día
+de vencimiento) /
 sum(todos los scores de los 3 escenarios) × 100`, redondeado a entero. Ejemplo
 real (2026-07-20): alcista 23/71→32%, neutral 17/71→24%, bajista 31/71→44%.
 
@@ -1553,6 +1790,26 @@ el mercado", "revisa si acertamos el premercado", o equivalente.
      (agregan al FINAL del documento por defecto en python-docx) — no hace falta
      la técnica de insertar-antes-de-un-ancla que se usa en otras partes de este
      skill, porque acá el postmercado siempre va último.
+4bis. **Si el día fue de vencimiento mensual** (3er viernes — Paso 3bis), el postmercado
+   lleva ADEMÁS una sección propia, **"Vencimiento — ¿el precio buscó el Max Pain?"**:
+   - Distancia del cierre al Max Pain, en puntos y %, contra la distancia que había en la
+     apertura. ¿Se acercó o se alejó?
+   - El camino: ¿orbitó el Max Pain durante la sesión, lo cruzó, o nunca se le arrimó? La
+     hora en que se pegó (o se despegó) importa más que el cierre solo.
+   - Veredicto explícito de si la imantación se observó ese día, **cruzado con el régimen
+     de gamma** — un acierto en gamma negativo vale más como evidencia que uno en gamma
+     positivo, donde el efecto se explica igual por la cobertura de los dealers.
+   - Completar los campos `cierre_real`, `distancia_cierre_pts`, `distancia_cierre_pct` y
+     `convergio` del bloque `max_pain` de esa fecha en el log.
+   - No forzar la conclusión hacia la teoría. Si el precio se fue al otro lado, se escribe
+     que se fue al otro lado.
+
+4ter. **Si hubo catalizadores en sesión** (Paso 4ter), el postmercado dice qué hizo el
+   precio en los 15 minutos alrededor de cada publicación: valor real vs. pronóstico, y si
+   el movimiento respetó o rompió la estructura que el premercado había marcado. Es lo que
+   permite, con el tiempo, saber si el descuento al Neutral
+   (`ajuste_neutral_por_catalizador`) está bien calibrado o es puro reflejo.
+
 5. **Actualizar `premercado_hipotesis_log.json`** (Paso 6) con el campo
    `resultado` de la entrada de esa fecha, si todavía está en `null` — mismo
    contrato que documenta el Paso 6.2 (`escenario_validado`, `cierre_real`,

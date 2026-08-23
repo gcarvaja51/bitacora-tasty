@@ -4,7 +4,7 @@
     "signalId": null,
     "symbol": "SOFI",
     "timestamp": "2026-07-10T15:27:45.402Z",
-    "phase": "CSP_ACTIVA",
+    "phase": "CERRADO",
     "entryPrice": null,
     "costBasisTarget": null,
     "fairValue": null,
@@ -16,7 +16,7 @@
       "contracts": 1
     },
     "orderId": null,
-    "status": "filled",
+    "status": "closed",
     "entryFillPrice": 1.27,
     "creditReceived": 1.27,
     "totalCreditAccumulated": 1.27,
@@ -26,14 +26,16 @@
     "forced": false,
     "events": [],
     "adopted": true,
-    "notes": "[DRY-RUN] Rolaría 18→18 2026-08-21→2026-08-07 (crédito/día $0.0483, caminata/mismo strike)."
+    "notes": "Cerrado automaticamente 2026-08-17: la pata SOFI260821P00018000 no existe en la cuenta de Tradier (cerrada/vencida fuera de nuestros monitores). Se deja de reintentar. P&L no verificable desde aca — revisar a mano si hace falta.",
+    "closedAt": "2026-08-17T13:32:33.305Z",
+    "closeReason": "HUERFANO_SIN_POSICION"
   },
   {
     "id": "wtex-adopt-1785851344983-ANET",
     "signalId": null,
     "symbol": "ANET",
     "timestamp": "2026-08-04T13:46:16.151Z",
-    "phase": "CSP_ACTIVA",
+    "phase": "CERRADO",
     "entryPrice": null,
     "costBasisTarget": null,
     "fairValue": null,
@@ -45,7 +47,7 @@
       "contracts": 1
     },
     "orderId": null,
-    "status": "filled",
+    "status": "closed",
     "entryFillPrice": 4.95,
     "creditReceived": 4.95,
     "totalCreditAccumulated": 4.95,
@@ -55,14 +57,16 @@
     "forced": false,
     "events": [],
     "adopted": true,
-    "notes": "Adoptada 2026-08-04: la posicion existia en Tradier sin registro local, quedaba sin gestionar. Credito reconstruido del cost_basis ($4.95); fairValue/costBasisTarget quedan en null (no se inventan) — el roll defensivo por fair value no aplica hasta completarlos, el roll por las normas de 60%/extrinseco si funciona sin ellos."
+    "notes": "Cerrado automaticamente 2026-08-17: la pata ANET260904P00160000 no existe en la cuenta de Tradier (cerrada/vencida fuera de nuestros monitores). Se deja de reintentar. P&L no verificable desde aca — revisar a mano si hace falta.",
+    "closedAt": "2026-08-17T13:32:33.306Z",
+    "closeReason": "HUERFANO_SIN_POSICION"
   },
   {
     "id": "wtex-adopt-1785852545568-ANET",
     "signalId": null,
     "symbol": "ANET",
     "timestamp": "2026-08-04T14:06:05.953Z",
-    "phase": "CSP_ACTIVA",
+    "phase": "CERRADO",
     "entryPrice": null,
     "costBasisTarget": null,
     "fairValue": null,
@@ -74,7 +78,7 @@
       "contracts": 1
     },
     "orderId": null,
-    "status": "filled",
+    "status": "closed",
     "entryFillPrice": 4.55,
     "creditReceived": 4.55,
     "totalCreditAccumulated": 4.55,
@@ -84,6 +88,38 @@
     "forced": false,
     "events": [],
     "adopted": true,
-    "notes": "Adoptada 2026-08-04: la posicion existia en Tradier sin registro local, quedaba sin gestionar. Credito reconstruido del cost_basis ($4.55); fairValue/costBasisTarget quedan en null (no se inventan) — el roll defensivo por fair value no aplica hasta completarlos, el roll por las normas de 60%/extrinseco si funciona sin ellos."
+    "notes": "Cerrado automaticamente 2026-08-17: la pata ANET260904P00165000 no existe en la cuenta de Tradier (cerrada/vencida fuera de nuestros monitores). Se deja de reintentar. P&L no verificable desde aca — revisar a mano si hace falta.",
+    "closedAt": "2026-08-17T13:32:33.307Z",
+    "closeReason": "HUERFANO_SIN_POSICION"
+  },
+  {
+    "id": "wtex-adopt-1786973553303-SOFI",
+    "signalId": null,
+    "symbol": "SOFI",
+    "timestamp": "2026-08-10T13:59:07.516Z",
+    "phase": "CSP_ACTIVA",
+    "entryPrice": null,
+    "costBasisTarget": null,
+    "fairValue": null,
+    "leg": {
+      "optionSymbol": "SOFI260828P00018000",
+      "strike": 18,
+      "expiry": "2026-08-28",
+      "side": "sell_to_open",
+      "contracts": 1
+    },
+    "adoptedSymbol": "SOFI260828P00018000",
+    "orderId": null,
+    "status": "filled",
+    "entryFillPrice": 0.61,
+    "creditReceived": 0.61,
+    "totalCreditAccumulated": 0.61,
+    "filledAt": "2026-08-10T13:59:07.516Z",
+    "rollCount": 0,
+    "readyForAssignment": false,
+    "forced": false,
+    "events": [],
+    "adopted": true,
+    "notes": "[DRY-RUN] Rolaría 18→18 2026-08-28→2026-09-04 (crédito/día $0.0325, caminata/mismo strike)."
   }
 ]
