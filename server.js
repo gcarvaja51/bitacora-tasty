@@ -7171,9 +7171,19 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // Terminal, no el instante en que llego el POST. Opcional, mismo criterio que
   // el resto — un caller viejo que no lo mande queda con capturadoEn = null y
   // los consumidores caen al comportamiento anterior (medir contra updatedAt).
+  // expiry agregado 2026-08-22: A QUE VENCIMIENTO pertenecen estos numeros.
+  //
+  // Hasta hoy se guardaban los 12 valores sin decirlo, y eso hacia inservible el
+  // historial para analisis. La serie de max pain de la semana del 17 al 21
+  // (7755, 7755, 7725, 7720, 7675) podia ser el del vencimiento del viernes
+  // migrando dia a dia, o el 0DTE de cada jornada: dos cosas distintas, y solo
+  // una sostiene un setup. No habia forma de distinguirlas.
+  //
+  // Opcional, como el resto: un daemon viejo que no lo mande deja expiry=null y
+  // nada se rompe.
   const { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
           totalGamma, maxPain, putCallOi, ivPromedio, velas5m, velas2m, velas15m,
-          vix, vix52High, vix52Low, capturadoEn } = req.body || {};
+          vix, vix52High, vix52Low, capturadoEn, expiry } = req.body || {};
   if (Array.isArray(velas15m) && velas15m.length) {
     try {
       fs.writeFileSync(SIGMA_VELAS15M_FILE,
@@ -7202,6 +7212,7 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   const entry = { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
                   totalGamma, maxPain, putCallOi, ivPromedio,
                   vix, vix52High, vix52Low,
+                  expiry: expiry || null,
                   updatedAt: recibidoEn,
                   capturadoEn: capturadoEn || null };
   if (capturadoEn) {
@@ -7351,6 +7362,79 @@ app.get('/api/spx/monitor', async (req, res) => {
   } catch(e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// ── Niveles historicos por SIMBOLO y VENCIMIENTO (2026-08-22) ──────────────
+//
+// A pedido del usuario: capturar el max pain del dia Y el del viernes siguiente,
+// no solo del SPX sino de los activos que tenga abiertos, para poder buscar una
+// regla del movimiento esperado. La meta es tener muestra util para la tercera
+// semana de septiembre.
+//
+// ⚠️ VIVE APARTE DEL HISTORIAL DE SIGMA, Y NO ES UN DETALLE.
+//
+// getFreshSigmaLevels() toma history[0] —la lectura mas reciente— y con eso
+// deciden las tres estrategias. Si las lecturas de otros vencimientos u otros
+// simbolos entraran a ese mismo historial, la mas reciente podria ser la del
+// viernes o la de NVDA, y una estrategia abriria un SPX 0DTE con los muros de
+// otra cosa. Por eso: archivo propio, endpoint propio, y ningun consumidor de
+// trading lo lee.
+//
+// Es solo para analisis. Acumula y espera.
+const NIVELES_HIST_FILE = path.join(DATA_DIR, 'niveles_historicos.json');
+const NIVELES_HIST_MAX = 20000;
+
+function loadNivelesHistoricos() {
+  try {
+    const d = JSON.parse(fs.readFileSync(NIVELES_HIST_FILE, 'utf8'));
+    return Array.isArray(d) ? d : [];
+  } catch { return []; }
+}
+
+app.post('/api/spx/niveles-historicos', (req, res) => {
+  const { symbol, expiry, dte, levels, capturadoEn } = req.body || {};
+  if (!symbol || !expiry || !levels) {
+    return res.status(400).json({ ok: false, error: 'faltan symbol, expiry o levels' });
+  }
+  const hist = loadNivelesHistoricos();
+  const entrada = {
+    symbol: String(symbol).toUpperCase(),
+    expiry, dte: dte ?? null,
+    maxPain: levels.maxPain ?? null, mvs: levels.mvs ?? null,
+    callWall: levels.callWall ?? null, putWall: levels.putWall ?? null,
+    gammaFlip: levels.gammaFlip ?? null, spot: levels.spxPrice ?? null,
+    netGex: levels.netGex ?? null, netDex: levels.netDex ?? null,
+    totalGamma: levels.totalGamma ?? null, putCallOi: levels.putCallOi ?? null,
+    ivPromedio: levels.ivPromedio ?? null, regime: levels.regime ?? null,
+    capturadoEn: capturadoEn || null,
+    guardadoEn: new Date().toISOString(),
+  };
+  hist.unshift(entrada);
+  try {
+    fs.writeFileSync(NIVELES_HIST_FILE, JSON.stringify(hist.slice(0, NIVELES_HIST_MAX)), 'utf8');
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+  res.json({ ok: true, guardados: Math.min(hist.length, NIVELES_HIST_MAX) });
+});
+
+app.get('/api/spx/niveles-historicos', (req, res) => {
+  let hist = loadNivelesHistoricos();
+  const { symbol, expiry, desde, hasta } = req.query;
+  if (symbol) hist = hist.filter(e => e.symbol === String(symbol).toUpperCase());
+  if (expiry) hist = hist.filter(e => e.expiry === expiry);
+  if (desde)  hist = hist.filter(e => (e.capturadoEn || e.guardadoEn || '') >= desde);
+  if (hasta)  hist = hist.filter(e => (e.capturadoEn || e.guardadoEn || '') <= hasta + 'T23:59:59Z');
+  const simbolos = {}, vencimientos = {};
+  for (const e of hist) {
+    simbolos[e.symbol] = (simbolos[e.symbol] || 0) + 1;
+    vencimientos[e.expiry] = (vencimientos[e.expiry] || 0) + 1;
+  }
+  res.json({
+    ok: true, total: hist.length, simbolos, vencimientos,
+    nota: 'Solo para analisis. NINGUNA estrategia decide con esto — las decisiones usan /api/spx/sigma-levels, que trae unicamente el vencimiento del dia para SPX.',
+    entradas: req.query.resumen === 'true' ? [] : hist.slice(0, 5000),
+  });
 });
 
 app.get('/api/spx/sigma-levels', (req, res) => {

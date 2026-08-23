@@ -25,19 +25,38 @@ const TERMINAL_URL = 'https://web.sigma.trade/terminal/?tab=greeks';
 //   IV Promedio  — volatilidad implicita ATM de la cadena del SPX. Es la que mas
 //                  falta hacia: hoy los spreads se valuan con el VIX, que es del
 //                  indice entero y no de la cadena que realmente se opera.
+//
+// 2026-08-22 — DOS CAMBIOS, y el segundo evito un apagon el lunes.
+//
+// 1) ALIAS. Sigma renombro "IV Promedio" a "Average IV" durante el fin de
+//    semana: el viernes a las 20:05 la lectura entro normal y el sabado el panel
+//    ya decia otra cosa. Cada etiqueta acepta ahora varios nombres.
+//
+// 2) OBLIGATORIAS vs OPCIONALES. Antes CUALQUIER etiqueta faltante tumbaba la
+//    lectura completa. O sea que el rename de una metrica que NINGUNA estrategia
+//    usa habria dejado el lunes sin muros, sin gamma flip y sin max pain — el
+//    daemon fallando en cada ciclo por un dato decorativo.
+//
+//    Ahora solo abortan las que de verdad deciden. Si falta una opcional se
+//    avisa por stderr y la lectura sigue: es mejor operar sin la IV promedio que
+//    no operar.
 const LABEL_MAP = {
-  'Spot SPX': 'spxPrice',
-  'Net GEX': 'netGex',
-  'Total Gamma': 'totalGamma',
-  'Net DEX': 'netDex',
-  'Net Vanna': 'netVanna',
-  'Gamma Flip': 'gammaFlip',
-  'Max Pain': 'maxPain',
-  'Put Wall': 'putWall',
-  'Call Wall': 'callWall',
-  'P/C (OI)': 'putCallOi',
-  'MVS': 'mvs',
-  'IV Promedio': 'ivPromedio',
+  // El spot lleva el ticker en la etiqueta: 'Spot SPX', 'Spot NFLX'. Con el
+  // capturador recorriendo otros activos, un alias fijo solo servia para SPX.
+  spxPrice:   { alias: [/^Spot/], obligatoria: true },
+  netGex:     { alias: ['Net GEX'], obligatoria: true },
+  gammaFlip:  { alias: ['Gamma Flip'], obligatoria: true },
+  maxPain:    { alias: ['Max Pain'], obligatoria: true },
+  putWall:    { alias: ['Put Wall'], obligatoria: true },
+  callWall:   { alias: ['Call Wall'], obligatoria: true },
+  mvs:        { alias: ['MVS'], obligatoria: true },
+  // De aca abajo: se guardan para poder medirlas, pero ninguna estrategia
+  // decide con ellas todavia. Que falte una no puede costar una sesion.
+  totalGamma: { alias: ['Total Gamma'], obligatoria: false },
+  netDex:     { alias: ['Net DEX'], obligatoria: false },
+  netVanna:   { alias: ['Net Vanna'], obligatoria: false },
+  putCallOi:  { alias: ['P/C (OI)', 'P/C (OI) '], obligatoria: false },
+  ivPromedio: { alias: ['IV Promedio', 'Average IV', 'Avg IV'], obligatoria: false },
 };
 
 let browser = null;
@@ -190,7 +209,7 @@ function parseMoney(str) {
   return neg ? -num : num;
 }
 
-async function readSymbol(p) {
+export async function readSymbol(p) {
   return p.evaluate(() => {
     const el = document.querySelector('[class*="greeks_sym__"]');
     return el ? el.textContent.trim() : null;
@@ -232,7 +251,143 @@ async function readRawMetrics(p) {
 // el dropdown de FAVORITOS) -- si el usuario cambio el activo en Sigma Terminal, se
 // prefiere fallar con un error claro antes que simular UI a ciegas sin poder confirmar
 // visualmente el resultado. Recalibrar/ampliar esto si se vuelve frecuente en la practica.
-export async function readLevels() {
+// ── El VENCIMIENTO al que pertenece la lectura (2026-08-22) ────────────────
+//
+// Hasta hoy el daemon leia los 12 numeros del panel y los mandaba sin decir de
+// que expiracion eran. El panel SIEMPRE muestra uno concreto —lo rotula como
+// "SPX — Exp 2026-08-24"— y los chips de arriba permiten cambiarlo.
+//
+// Sin ese dato, un max pain guardado es inservible para analisis: el 21-ago la
+// serie de la semana (7755, 7755, 7725, 7720, 7675) podia ser el max pain del
+// vencimiento del viernes migrando dia a dia, o el 0DTE de cada jornada, y no
+// habia forma de distinguirlo. Son dos cosas distintas y solo una sostiene un
+// setup.
+async function readExpiry(p) {
+  return p.evaluate(() => {
+    const txt = (e) => (e && e.textContent || '').trim().replace(/\s+/g, ' ');
+    // "SPX — Exp 2026-08-24" en el subtitulo de un panel.
+    for (const el of document.querySelectorAll('[class*="greeks_panelSub__"]')) {
+      const m = txt(el).match(/Exp\s+(\d{4}-\d{2}-\d{2})/);
+      if (m) return m[1];
+    }
+    return null;
+  });
+}
+
+// Los chips de vencimiento: [{ etiqueta: "28 (6d)", dia: 28, dte: 6, activo }]
+export async function readExpiryChips(p) {
+  return p.evaluate(() => {
+    const out = [];
+    for (const b of document.querySelectorAll('[class*="greeks_expBtn__"]')) {
+      const t = (b.textContent || '').trim().replace(/\s+/g, ' ');
+      const m = t.match(/^(\d{1,2})\s*\((\d+)d\)$/);
+      if (!m) continue;
+      out.push({ etiqueta: t, dia: +m[1], dte: +m[2],
+                 activo: /greeks_active__/.test(b.className || '') });
+    }
+    return out;
+  });
+}
+
+// Cambia de vencimiento y ESPERA a que el panel confirme el cambio.
+// Devuelve la fecha nueva, o lanza si no cambio: un click que no toma efecto
+// dejaria leyendo el vencimiento anterior y creyendo que es otro, que es peor
+// que no leer nada.
+export async function seleccionarExpiry(p, etiqueta) {
+  const antes = await readExpiry(p);
+  const ok = await p.evaluate((et) => {
+    for (const b of document.querySelectorAll('[class*="greeks_expBtn__"]')) {
+      if ((b.textContent || '').trim().replace(/\s+/g, ' ') === et) { b.click(); return true; }
+    }
+    return false;
+  }, etiqueta);
+  if (!ok) throw new Error(`no existe el chip de vencimiento "${etiqueta}"`);
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const ahora = await readExpiry(p);
+    if (ahora && ahora !== antes) return ahora;
+  }
+  throw new Error(`el panel no cambio de vencimiento tras clickear "${etiqueta}" (seguia en ${antes})`);
+}
+
+// Cambia el simbolo del panel. Sigma no tiene lista fija: hay un buscador
+// ("Search symbol (e.g. GOOG, PLTR, COIN...)"), asi que se abre el desplegable,
+// se escribe el ticker y se toma el primer resultado.
+//
+// Verifica el cambio leyendo: un click que no toma efecto dejaria leyendo el
+// simbolo anterior y guardandolo con el nombre nuevo, que es peor que fallar.
+export async function seleccionarSimbolo(p, ticker) {
+  const actual = await readSymbol(p);
+  if (actual && actual.toUpperCase() === ticker.toUpperCase()) return actual;
+
+  await p.click('[class*="greeks_tickerBtn__"]');
+  await new Promise((r) => setTimeout(r, 1200));
+
+  const campo = await p.$('input[placeholder*="Search symbol"]');
+  if (!campo) throw new Error('no aparecio el buscador de simbolo tras abrir el desplegable');
+  await campo.click({ clickCount: 3 });
+  await campo.type(ticker, { delay: 60 });
+  await new Promise((r) => setTimeout(r, 1800));
+
+  // Los resultados son `div.greeks_ddItem__`, y dentro traen el ticker y el
+  // nombre en spans separados. El texto del item viene pegado ("NFLYYieldMax
+  // NFLX Option Income Strategy ETFETS"), asi que comparar contra el item entero
+  // no sirve: hay que buscar el hijo cuyo texto ES el ticker, exacto.
+  //
+  // Importa la exactitud: buscar "NFLX" tambien devuelve NFLY y NFX, dos ETF que
+  // lo mencionan en el nombre. Elegir por coincidencia parcial capturaria los
+  // niveles del activo equivocado y los guardaria con el ticker pedido.
+  const clicado = await p.evaluate((tk) => {
+    const norm = (e) => (e.textContent || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    for (const item of document.querySelectorAll('[class*="greeks_ddItem__"]')) {
+      for (const hijo of item.querySelectorAll('*')) {
+        if (hijo.children.length) continue;
+        if (norm(hijo) === tk) { item.click(); return tk; }
+      }
+    }
+    return null;
+  }, ticker.toUpperCase());
+  if (!clicado) {
+    await p.keyboard.press('Escape');
+    throw new Error(`Sigma no ofrecio "${ticker}" en el buscador`);
+  }
+
+  // No basta con que cambie el BOTON del ticker: las tarjetas de metricas siguen
+  // cargando unos segundos mas. Si se lee en ese hueco, readRawMetrics devuelve
+  // un objeto vacio o a medias y la lectura muere con "faltan metricas
+  // obligatorias" — un mensaje que apunta a sesion expirada o cambio de UI, dos
+  // causas que no tienen nada que ver.
+  //
+  // Se espera a que la etiqueta del spot nombre al ticker nuevo: es el propio
+  // panel confirmando que ya recargo, no un sleep a ojo.
+  // 90 segundos, no 15: recargar la cadena de un subyacente liquido tarda, y un
+  // presupuesto corto hace fallar por impaciencia algo que iba a funcionar.
+  for (let i = 0; i < 180; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    // La comparacion se hace AFUERA a proposito: el evaluate solo LEE la
+    // etiqueta y la devuelve.
+    //
+    // Pasandole el ticker como argumento y comparando adentro daba `false` con
+    // etiqueta "Spot BA" y ticker "BA" — imposible, o sea que el argumento no
+    // llegaba al contexto de la pagina. Costo una hora de depuracion porque el
+    // sintoma ("el panel no termino de cargar en 90s") apuntaba a lentitud y el
+    // problema era el paso de parametros.
+    //
+    // Un evaluate que solo lee, y nunca decide, no puede volver a hacer esto.
+    const etiquetaSpot = await p.evaluate(() =>
+      [...document.querySelectorAll('[class*="greeks_metricLabel__"]')]
+        .map((e) => (e.textContent || '').trim())
+        .find((t) => /^Spot/.test(t)) || null);
+    const listo = !!etiquetaSpot && etiquetaSpot.toUpperCase().includes(ticker.toUpperCase());
+    if (listo) {
+      const ahora = await readSymbol(p);
+      if (ahora && ahora.toUpperCase() === ticker.toUpperCase()) return ahora;
+    }
+  }
+  throw new Error(`el panel no termino de cargar "${ticker}" en 90s (ticker actual: ${await readSymbol(p)})`);
+}
+
+export async function readLevels({ exigirSPX = true } = {}) {
   const p = await ensurePage();
 
   // El simbolo tambien necesita paciencia en frio (2026-08-11). La espera activa
@@ -250,10 +405,15 @@ export async function readLevels() {
     if (symbol) break;
     if (intento < 5) await new Promise((r) => setTimeout(r, 2000));
   }
-  if (!symbol || !/^SPX$/i.test(symbol)) {
-    throw new Error(symbol
-      ? `Sigma Terminal no esta en SPX (simbolo actual: "${symbol}") -- cambiar a mano y reintentar`
-      : 'Sigma Terminal no devolvio el simbolo tras 10s -- la pagina no termino de cargar');
+  // `exigirSPX` (2026-08-22): el daemon SIEMPRE exige SPX —si Sigma quedo en otro
+  // activo, sus muros no son los del SPX y empujarlos a TradingView seria peor
+  // que no empujar nada—. El capturador de niveles historicos pasa false a
+  // proposito, porque su trabajo es justamente recorrer otros simbolos.
+  if (!symbol) {
+    throw new Error('Sigma Terminal no devolvio el simbolo tras 10s -- la pagina no termino de cargar');
+  }
+  if (exigirSPX && !/^SPX$/i.test(symbol)) {
+    throw new Error(`Sigma Terminal no esta en SPX (simbolo actual: "${symbol}") -- cambiar a mano y reintentar`);
   }
 
   await ensureMvsAbsolute(p);
@@ -267,22 +427,48 @@ export async function readLevels() {
   //
   // Reproducido: con el perfil recien liberado, el primer intento llega con el
   // panel a medio pintar. Al segundo o tercero ya esta.
-  let raw = {}, missing = [];
+  // Un alias puede ser texto exacto o una expresion regular (para etiquetas que
+  // llevan el ticker dentro, como "Spot NFLX").
+  const buscar = (raw, alias) => {
+    for (const a of alias) {
+      if (a instanceof RegExp) {
+        const k = Object.keys(raw).find((k) => a.test(k));
+        if (k) return raw[k];
+      } else if (a in raw) {
+        return raw[a];
+      }
+    }
+    return undefined;
+  };
+  let raw = {}, faltanObl = [], faltanOpc = [];
   for (let intento = 1; intento <= 6; intento++) {
     raw = await readRawMetrics(p);
-    missing = Object.keys(LABEL_MAP).filter((k) => !(k in raw));
-    if (!missing.length) break;
+    faltanObl = Object.entries(LABEL_MAP)
+      .filter(([, d]) => d.obligatoria && buscar(raw, d.alias) === undefined)
+      .map(([k]) => k);
+    if (!faltanObl.length) break;
     if (intento < 6) await new Promise((r) => setTimeout(r, 2500));
   }
-  if (missing.length > 0) {
-    throw new Error(`Sigma Terminal: faltan metricas esperadas tras 15s de espera (${missing.join(', ')}) -- posible sesion expirada o cambio de UI`);
+  faltanOpc = Object.entries(LABEL_MAP)
+    .filter(([, d]) => !d.obligatoria && buscar(raw, d.alias) === undefined)
+    .map(([k]) => k);
+  if (faltanObl.length > 0) {
+    throw new Error(`Sigma Terminal: faltan metricas OBLIGATORIAS tras 15s (${faltanObl.join(', ')}) -- posible sesion expirada o cambio de UI`);
+  }
+  if (faltanOpc.length) {
+    // A stderr, no a stdout: hay scripts que consumen este modulo como JSON puro.
+    console.error(`[sigma] faltan metricas opcionales (${faltanOpc.join(', ')}) -- se sigue igual, ninguna estrategia decide con ellas. Si persiste, revisar si Sigma renombro la etiqueta.`);
   }
 
   const levels = {};
-  for (const [label, key] of Object.entries(LABEL_MAP)) {
-    levels[key] = parseMoney(raw[label]);
+  for (const [key, d] of Object.entries(LABEL_MAP)) {
+    const v = buscar(raw, d.alias);
+    levels[key] = v === undefined ? null : parseMoney(v);
   }
   levels.regime = levels.netGex > 0 ? 'POSITIVO' : 'NEGATIVO';
+  // A que expiracion pertenecen estos numeros. Va con cada lectura, siempre.
+  levels.expiry = await readExpiry(p);
+  levels.symbol = symbol;
   return levels;
 }
 
