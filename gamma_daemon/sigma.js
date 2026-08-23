@@ -43,7 +43,7 @@ const TERMINAL_URL = 'https://web.sigma.trade/terminal/?tab=greeks';
 const LABEL_MAP = {
   // El spot lleva el ticker en la etiqueta: 'Spot SPX', 'Spot NFLX'. Con el
   // capturador recorriendo otros activos, un alias fijo solo servia para SPX.
-  spxPrice:   { alias: [/^Spot/], obligatoria: true },
+  spxPrice:   { alias: ['Spot SPX'], prefijo: 'Spot', obligatoria: true },
   netGex:     { alias: ['Net GEX'], obligatoria: true },
   gammaFlip:  { alias: ['Gamma Flip'], obligatoria: true },
   maxPain:    { alias: ['Max Pain'], obligatoria: true },
@@ -429,14 +429,20 @@ export async function readLevels({ exigirSPX = true } = {}) {
   // panel a medio pintar. Al segundo o tercero ya esta.
   // Un alias puede ser texto exacto o una expresion regular (para etiquetas que
   // llevan el ticker dentro, como "Spot NFLX").
-  const buscar = (raw, alias) => {
-    for (const a of alias) {
-      if (a instanceof RegExp) {
-        const k = Object.keys(raw).find((k) => a.test(k));
-        if (k) return raw[k];
-      } else if (a in raw) {
-        return raw[a];
-      }
+  // Un alias es texto exacto, o un patron para las etiquetas que llevan el
+  // ticker dentro ('Spot SPX', 'Spot NFLX').
+  //
+  // Se comprueba por `typeof === string` y NO por `instanceof RegExp`: con el
+  // segundo, un /^Spot/ que existia en el mapa y casaba contra una clave que
+  // estaba en el objeto devolvia undefined igual. Sea cual sea la causa (realm,
+  // transpilacion), no vale la pena pelearla: preguntar que ES algo es mas
+  // fragil que preguntar que NO es.
+  // Busca por alias exacto y, si el descriptor lo declara, por prefijo.
+  const buscar = (raw, d) => {
+    for (const a of d.alias || []) if (a in raw) return raw[a];
+    if (d.prefijo) {
+      const clave = Object.keys(raw).find((k) => k.startsWith(d.prefijo));
+      if (clave) return raw[clave];
     }
     return undefined;
   };
@@ -444,16 +450,16 @@ export async function readLevels({ exigirSPX = true } = {}) {
   for (let intento = 1; intento <= 6; intento++) {
     raw = await readRawMetrics(p);
     faltanObl = Object.entries(LABEL_MAP)
-      .filter(([, d]) => d.obligatoria && buscar(raw, d.alias) === undefined)
+      .filter(([, d]) => d.obligatoria && buscar(raw, d) === undefined)
       .map(([k]) => k);
     if (!faltanObl.length) break;
     if (intento < 6) await new Promise((r) => setTimeout(r, 2500));
   }
   faltanOpc = Object.entries(LABEL_MAP)
-    .filter(([, d]) => !d.obligatoria && buscar(raw, d.alias) === undefined)
+    .filter(([, d]) => !d.obligatoria && buscar(raw, d) === undefined)
     .map(([k]) => k);
   if (faltanObl.length > 0) {
-    throw new Error(`Sigma Terminal: faltan metricas OBLIGATORIAS tras 15s (${faltanObl.join(', ')}) -- posible sesion expirada o cambio de UI`);
+    throw new Error(`Sigma Terminal: faltan metricas OBLIGATORIAS tras 15s (${faltanObl.join(', ')}) -- etiquetas vistas: ${JSON.stringify(Object.keys(raw))}. Si alguna es la que falta pero con otro nombre, agregarla a los alias de LABEL_MAP.`);
   }
   if (faltanOpc.length) {
     // A stderr, no a stdout: hay scripts que consumen este modulo como JSON puro.
@@ -462,7 +468,7 @@ export async function readLevels({ exigirSPX = true } = {}) {
 
   const levels = {};
   for (const [key, d] of Object.entries(LABEL_MAP)) {
-    const v = buscar(raw, d.alias);
+    const v = buscar(raw, d);
     levels[key] = v === undefined ? null : parseMoney(v);
   }
   levels.regime = levels.netGex > 0 ? 'POSITIVO' : 'NEGATIVO';
