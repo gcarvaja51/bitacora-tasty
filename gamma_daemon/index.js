@@ -269,6 +269,7 @@ async function runCycle() {
           in_28: prev.netDex,
           in_29: levels.netVanna,
           in_30: prev.netVanna,
+          in_31: levels.maxPain ?? 0,
         });
         const anyPaneUpdated = tvWindows.some((w) => w.results?.some((r) => r.updated));
         if (!anyPaneUpdated) {

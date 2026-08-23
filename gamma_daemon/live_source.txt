@@ -187,8 +187,8 @@ mvs_G = input.float(0.0, "MVS", group=grpG)
 // a pedido del usuario: ahora se muestra el valor de GEX/DEX/Vanna actual y el de
 // hace ~6 min (3 ciclos de 2 min), no solo el signo. Vienen de Sigma Terminal (mismo
 // gamma_daemon que ya alimenta Call/Put Wall arriba), no del calculo interno del
-// servidor -- decision explicita del usuario. IDs posicionales: son los 6 ultimos
-// input.* del script (in_25..in_30) -- si se agrega un input.* nuevo en algun punto
+// servidor -- decision explicita del usuario. IDs posicionales: son estos 6
+// input.* (in_25..in_30), seguidos de Max Pain (in_31) al final del archivo --
 // ANTERIOR del archivo, hay que re-contar (mismo gotcha ya documentado arriba para
 // in_20-in_24).
 gex_now_G    = input.float(0.0, "GEX Actual", group=grpG)
@@ -197,6 +197,12 @@ dex_now_G    = input.float(0.0, "DEX Actual", group=grpG)
 dex_prev_G   = input.float(0.0, "DEX Hace ~6min", group=grpG)
 vanna_now_G  = input.float(0.0, "Vanna Actual", group=grpG)
 vanna_prev_G = input.float(0.0, "Vanna Hace ~6min", group=grpG)
+
+// Max Pain (2026-08-22) — VA AL FINAL de todos los input.* a proposito. Los IDs
+// son posicionales: aqui queda como in_31 y no corre in_20..in_30. Si se pusiera
+// junto a los otros niveles gamma (arriba), los muros se escribirian en el input
+// equivocado y el chart mostraria numeros cruzados.
+max_pain_G   = input.float(0.0, "Max Pain", group=grpG)
 
 // Solo dibujar en SPX — evita que estos niveles (escala ~7500) distorsionen
 // el chart al abrir otro activo de precio muy distinto (ej. UBER, SOFI): la
@@ -218,19 +224,23 @@ var line callWallLine_G = na
 var line putWallLine_G = na
 var line gammaFlipLine_G = na
 var line mvsLine_G = na
+var line maxPainLine_G = na
 var label callWallLbl_G = na
 var label putWallLbl_G = na
 var label gammaFlipLbl_G = na
 var label mvsLbl_G = na
+var label maxPainLbl_G = na
 if barstate.islast
     line.delete(callWallLine_G)
     line.delete(putWallLine_G)
     line.delete(gammaFlipLine_G)
     line.delete(mvsLine_G)
+    line.delete(maxPainLine_G)
     label.delete(callWallLbl_G)
     label.delete(putWallLbl_G)
     label.delete(gammaFlipLbl_G)
     label.delete(mvsLbl_G)
+    label.delete(maxPainLbl_G)
     if show_gamma_active_G and call_wall_G > 0
         callWallLine_G := line.new(x1_G, call_wall_G, bar_index, call_wall_G, extend=extend.both, color=color.new(color.green, 0), style=line.style_dashed, width=2)
         callWallLbl_G := label.new(bar_index, call_wall_G, "CALL WALL " + str.tostring(call_wall_G, "#.##"), style=label.style_label_left, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
@@ -244,6 +254,9 @@ if barstate.islast
     if show_gamma_active_G and mvs_G > 0
         mvsLine_G := line.new(x1_G, mvs_G, bar_index, mvs_G, extend=extend.both, color=color.new(color.orange, 0), style=line.style_dotted, width=2)
         mvsLbl_G := label.new(bar_index, mvs_G, "MVS " + str.tostring(mvs_G, "#.##"), style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)
+    if show_gamma_active_G and max_pain_G > 0
+        maxPainLine_G := line.new(x1_G, max_pain_G, bar_index, max_pain_G, extend=extend.both, color=color.new(color.blue, 0), style=line.style_dashed, width=2)
+        maxPainLbl_G := label.new(bar_index, max_pain_G, "MAX PAIN " + str.tostring(max_pain_G, "#.##"), style=label.style_label_left, color=color.new(color.blue, 0), textcolor=color.white, size=size.small)
 
 // ══════════════════════════════════════════════════════════════════
 // ── Tabla GEX/DEX/Vanna — actual vs hace ~6min (2026-07-30) ─────────

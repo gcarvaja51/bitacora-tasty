@@ -35,6 +35,7 @@ const inputs = {
   in_28: levels.netDex,
   in_29: levels.netVanna,
   in_30: levels.netVanna,
+  in_31: levels.maxPain ?? 0,
 };
 
 const targets = await listSpxTargets();

@@ -14,6 +14,7 @@ const tvInputs = {
   in_22: levels.putWall,
   in_23: levels.gammaFlip,
   in_24: levels.mvs,
+  in_31: levels.maxPain ?? 0,
 };
 const tvResult = await tv.pushGammaLevels(tvInputs);
 console.log('--- TradingView (valores reales) ---');
