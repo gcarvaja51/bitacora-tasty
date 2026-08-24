@@ -1,0 +1,44 @@
+[Mon 08/24/2026  9:45:02.04] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, BA, SOFI, ADBE, IBIT, JBLU, NFLX, NIO, NU, BE, GAP
+
+[SPX]
+   FALLO SPX: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[BA]
+   FALLO BA: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[SOFI]
+   FALLO SOFI: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[ADBE]
+   FALLO ADBE: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[IBIT]
+   FALLO IBIT: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[JBLU]
+   FALLO JBLU: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[NFLX]
+   FALLO NFLX: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[NIO]
+   FALLO NIO: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[NU]
+   FALLO NU: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[BE]
+   FALLO BE: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[GAP]
+   FALLO GAP: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+[captura] intento 1 de restaurar fallo: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+[captura] intento 2 de restaurar fallo: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+[captura] intento 3 de restaurar fallo: Attempted to use detached Frame '451EE7C8F8F1A02E1BDDFD56A9E7C73C'.
+
+[captura] *** NO SE PUDO RESTAURAR SIGMA A SPX ***
+[captura] El daemon fallara en cada ciclo hasta que se arregle a mano.
+[Mon 08/24/2026  9:46:07.69] Terminado con codigo 1 
+[Mon 08/24/2026  9:46:07.69] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 

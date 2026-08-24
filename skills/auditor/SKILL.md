@@ -1,6 +1,6 @@
 ---
 name: auditor
-description: Veredicto del Auditor (Bitácora Tasty) — corre cada propuesta del backlog contra el libro sombra ANTES de aplicarla y devuelve MEJORA, EMPEORA o MUESTRA INSUFICIENTE con su n. Nunca propone cambios. Se activa con "/auditor", "el veredicto de la semana", "¿esta propuesta sirve?", "valida esto antes de aplicarlo", o por Tarea Programada los viernes.
+description: Veredicto del Auditor (Bitácora Tasty) — corre cada propuesta del backlog contra el libro sombra ANTES de aplicarla y devuelve MEJORA, EMPEORA o MUESTRA INSUFICIENTE con su n. Audita además el PREMERCADO SPX, que hasta ahora se calificaba a sí mismo. Nunca propone cambios. Se activa con "/auditor", "el veredicto de la semana", "¿esta propuesta sirve?", "valida esto antes de aplicarlo", "¿el premercado acierta?", "¿está calibrado el premercado?", o por Tarea Programada los viernes.
 ---
 
 # Auditor — validación independiente
@@ -82,6 +82,64 @@ PENDIENTE DE DECISIÓN:
 
 **Ámbar** si el instrumento de medición está en duda. **Rojo** si un cambio ya aplicado está
 contradiciendo lo que la sombra prometió.
+
+## Paso 6 — el segundo dominio: el PREMERCADO SPX
+
+Auditas dos cosas que **no se mezclan**: la Bitácora Tasty (mide trades) y el premercado
+SPX (mide días). Sumarlas daría un n más grande y un número sin significado.
+
+El premercado llegó a este puesto el 2026-08-24 porque **se calificaba a sí mismo**: el
+Paso 6.2 del skill `premercado-spx` escribe `resultado.acierto` en el mismo log que produjo
+la predicción. Es el caso de manual de por qué existe la independencia.
+
+```bash
+python scripts/veredicto_premercado.py          # parte + JSON en veredictos/
+python scripts/veredicto_premercado.py --json   # solo el JSON
+```
+
+Deja `premercado_<fecha>.json` y `parte_premercado_<fecha>.txt` en `veredictos/`.
+Igual que en el dominio del robot, **tú no haces la aritmética**: lees la salida y
+dictaminas.
+
+Cuatro medidas, con los mismos tres veredictos:
+
+| ID | Pregunta | Vara |
+|---|---|---|
+| **PRE-1** | ¿El escenario favorito acierta más que el azar? | 33.3% |
+| **PRE-2** | ¿Las probabilidades están calibradas? | Brier vs 33/33/33 = 0.667 |
+| **PRE-3** | ¿Hay sesgo direccional? | Veces favorito vs veces validado |
+| **PRE-4** | ¿La nota propia coincide con los hechos? | La vara del Paso 6.2, desde fuera |
+
+**Una observación es UN DÍA de mercado, no un trade.** 30 observaciones son unas seis
+semanas. No bajes el corte porque el premercado produzca poco dato: sería fabricar
+significancia.
+
+**PRE-3 y PRE-4 no son veredictos** — van como señales en observación y como instrumento.
+PRE-3 en particular es el tipo de señal que hay que mirar semana tras semana: si un
+escenario se sobreasigna de forma sostenida mientras la muestra crece, eso es información
+aunque ninguna semana por separado concluya. **Y no propones el ajuste** — se lo pasas al
+Ingeniero de Datos.
+
+**Decisión registrada el 2026-08-24 (Guillermo):** `escenario_validado` se queda en texto
+libre y las 3 entradas de julio no se reprocesan. En consecuencia, leer por prefijo es
+conducta **aceptada**, no defecto: el motor declara cuántas leyó así y sigue en verde.
+**No lo vuelvas a poner en PENDIENTE DE DECISIÓN** — un aviso que no cambia nunca enseña a
+no leer el parte.
+
+⚠️ **Lo que sí levanta ámbar** es un valor que no arranque por ninguno de los tres
+escenarios: ese día **se cae de la muestra en silencio**. El motor lo lista aparte, y ahí
+sí preguntas si se corrige.
+
+Ojo con tres casos que el motor separa solo, y que no debes confundir entre sí:
+
+- **Días sin `resultado` escrito** (`pendientes`) — el premercado del último día hábil
+  todavía no se ha validado (lo valida el premercado siguiente), y los días no hábiles se
+  preparan pero no se resuelven. Salen listados en INSTRUMENTO, no restan.
+- **Días con texto ilegible** (`noInterpretables`) — esos sí son un agujero, y son otra
+  cosa que los pendientes. Confundirlos esconde el único fallo silencioso que queda.
+- **PRE-4 se juzga por rango, no en binario.** `si` = se validó el de mayor probabilidad,
+  `parcial` = uno que no era el favorito pero tampoco estaba castigado, `no` = el menos
+  probable. Tratarlo como binario acusaría de generosidad lo que es la definición escrita.
 
 ## La regla que no puedes saltarte
 

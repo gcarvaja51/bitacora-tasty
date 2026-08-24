@@ -4878,15 +4878,27 @@ function loadSPXConfig() {
     // Se elimina. El valor lo decide la config, no el arranque. Si en el futuro
     // hace falta otra migracion por valor, tiene que llevar un sello (una clave
     // tipo migradoEarlyExit_20260802) para no repetirse eternamente.
-    // Migra los pesos de smaReversion a v3 (2026-08-01): repesaje tras cruzar
-    // reglas de Luis Silva contra trades reales + renombre regimen_gex ->
-    // regimen_gex_dex (ahora incluye DEX). Se detecta por la ausencia de la
-    // clave nueva, mismo patron que las migraciones anteriores de weights.
-    if (saved?.trading?.smaReversion && saved.trading.smaReversion.weights?.regimen_gex_dex === undefined) {
-      console.log('[SPX] Migrando pesos de Alejamiento de SMA a v3 (regimen_gex -> regimen_gex_dex, repesaje)');
-      saved.trading.smaReversion.weights = SPX_CONFIG_DEFAULTS.trading.smaReversion.weights;
-      saveSPXConfig(saved);
-    }
+    // La migracion v3 vivia aca y SE ELIMINA (2026-08-24). Detectaba la AUSENCIA
+    // de regimen_gex_dex para repesar a v3; la v5 de mas abajo detecta su
+    // PRESENCIA para revertir. Son condiciones exactamente opuestas y entre las
+    // dos cubren TODO el espacio, asi que en cada carga disparaba una u otra y
+    // los pesos de la Reversion volvian a los defaults SIEMPRE.
+    //
+    // Fue invisible durante tres semanas porque las dos escriben los MISMOS
+    // defaults: el efecto solo se nota si alguien intenta cambiar un peso. Hoy
+    // se noto — POST /api/spx/config con weights devolvia 200 y los valores
+    // nuevos (el endpoint responde el objeto que acaba de armar en memoria), y
+    // la lectura siguiente los descartaba. Los pesos del score de la Reversion
+    // eran inmodificables por API desde el 2026-08-02 y nada lo decia.
+    //
+    // Es exactamente lo que advierte el comentario de doce lineas mas arriba,
+    // escrito el mismo dia para earlyExitPct: "si en el futuro hace falta otra
+    // migracion por valor, tiene que llevar un sello para no repetirse
+    // eternamente". La leccion se escribio y no se aplico a los weights.
+    //
+    // Quitarla es seguro: un volumen que todavia tenga el esquema v3/v4 (con
+    // regimen_gex_dex) lo sigue agarrando la v5. Un volumen ya migrado no
+    // necesita que nadie le toque los pesos.
     // Migra los pesos de smaReversion a v4 (2026-08-02): RSI reactivado en
     // 15%, tomado de patron_confirmacion y compas_medias_5m (ver nota v4 en
     // SPX_CONFIG_DEFAULTS). Se detecta por el valor viejo de patron_confirmacion

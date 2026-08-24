@@ -417,10 +417,47 @@ NO en las rutas estándar que busca `tv_launch` automáticamente. Gotchas conoci
    `9222` si no está seteado). El conflicto real era que **tastytrade** (otra app
    del usuario, corre un Chromium embebido de `jxbrowser`) también toma el 9222
    por defecto para su propio uso interno, y competía con TradingView por el mismo
-   puerto. Fix aplicado en `C:\Users\gcarv\.claude\.mcp.json`: el server
-   `tradingview` ahora arranca con `"env":{"CDP_PORT":"9223"}`, así que el MCP
+   puerto.
+
+   🚨 **REGRESIÓN — el fix se perdió y estuvo roto del 19 al 24-ago (2026-08-24).**
+   Existían **dos** configuraciones del mismo server, y la que mandaba no tenía el
+   puerto:
+
+   | Archivo | `CDP_PORT` | ¿Mandaba? |
+   |---|---|---|
+   | `~\.claude\.mcp.json` | `9223` | no |
+   | `~\.claude.json`, scope `user` | `env: {}` | **sí** |
+
+   Sin puerto → default `9222` → el chromium de tastytrade, que expone el puerto
+   pero con **cero targets** → `No TradingView chart target found` cuatro sesiones
+   seguidas. Reaplicado con el CLI (no editando el JSON a mano, que la app lo está
+   usando):
+   `claude mcp remove tradingview -s user` y
+   `claude mcp add tradingview -s user -e CDP_PORT=9223 -- node C:\Users\gcarv\tradingview-mcp\src\server.js`.
+
+   ✅ **Ya no hay duplicado.** El 2026-08-24 se borró `~\.claude\.mcp.json` (copia
+   en `.mcp.json.borrado_20260824.bak`, que **no** se carga) y quedó una sola
+   fuente: el scope `user` de `~\.claude.json`. Si el puerto vuelve a fallar, es
+   ahí y en ningún otro sitio. Y si alguien vuelve a crear un `.mcp.json`, el
+   duplicado ha vuelto — que es como se perdió el fix la primera vez.
+
+   Fix original (2026-07-17), entonces aplicado en `~\.claude\.mcp.json`: el server
+   `tradingview` arranca con `"env":{"CDP_PORT":"9223"}`, así que el MCP
    habla con TradingView por el 9223 mientras tastytrade se queda tranquilo en el
    9222 — **corren en paralelo, ya no hace falta cerrar tastytrade nunca más**.
+
+   🚨 **La ventana que elige el MCP (arreglado 2026-08-24).** Con varias ventanas
+   de TradingView abiertas, **todas tienen la misma URL y el mismo título**, así
+   que por URL no se distinguen. `findChartTarget()` en `src/connection.js` cogía
+   `targets.find(...)` — la primera de la lista. Ese día la primera era
+   **`VANTAGE:SP500`** (uno de los símbolos que NO valen para el SPX) y
+   `SPCFD:SPX` estaba en tercer lugar: el MCP conectaba "bien" y devolvía datos de
+   otro instrumento **sin avisar de nada**. Ahora `findChartTarget()` le pregunta
+   el símbolo a cada ventana y se queda con la de `TV_SYMBOL` (default
+   `SPCFD:SPX`); si no la encuentra, cae a la primera como antes. Una ventana que
+   no contesta en 4s se descarta sola. **No hace falta cerrar las otras ventanas**
+   — y sobre todo, no hay que cambiarle el símbolo a ninguna para "arreglarlo":
+   tocar la de `SPCFD:SPX` es lo que dispara el ciclo de `taskkill` del daemon.
    ⚠️ Este cambio requiere que Claude Code se haya reiniciado/recargado los MCP
    servers al menos una vez después del 2026-07-17 para tomar el nuevo
    `CDP_PORT` (Node lee el env var solo al arrancar el proceso). Si el health
@@ -1333,6 +1370,26 @@ que los demás. Anotar cualquier cambio de peso explícitamente en el skill cuan
 se decida, con la fecha y el razonamiento.
 
 ### 6.2 — Validación del día anterior (al INICIO de cada premercado nuevo)
+
+⚠️ **Esta nota que te pones a ti mismo ya NO es la última palabra** (desde el
+2026-08-24). El Auditor —el agente que del lado de la Bitácora Tasty valida lo que
+otros proponen— audita también este log, porque calificarse a uno mismo es
+exactamente lo que la independencia existe para impedir. Su motor
+(`scripts/veredicto_premercado.py`) **no lee `acierto` para dictaminar**:
+recalcula el resultado desde `probabilidades` + `escenario_validado` y después
+compara. Dos consecuencias prácticas para este paso:
+
+- **`escenario_validado` sigue siendo texto libre** — decisión de Guillermo del
+  2026-08-24, junto con no reprocesar las 3 entradas de julio que ya lo usan
+  (`alcista_parcial`, `alcista (intradia, revirtió...)`, `neutral (tras recorrido
+  violento...)`). El Auditor las lee por prefijo y no penaliza por eso.
+  **Lo único que importa: que el valor EMPIECE por `alcista`, `neutral` o
+  `bajista`.** El matiz va detrás, o mejor en `leccion_aprendida`. Un valor que no
+  arranque por uno de los tres no se puede leer y **ese día se cae de la muestra
+  del Auditor** — que es peor que anotarlo mal, porque desaparece sin ruido.
+- **No maquillar la nota.** El Auditor la recalcula igual y reporta la diferencia.
+  Al 2026-08-24 coinciden 19 de 23, y las 3 que no, este skill se las puso **más
+  duras** de lo que los hechos sostenían — que es el sesgo correcto a tener.
 
 Antes de calcular las probabilidades de hoy, revisar si hay una entrada del día
 hábil anterior en el log con `resultado: null`:
