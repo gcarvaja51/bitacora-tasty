@@ -493,7 +493,23 @@ export async function readLevels({ exigirSPX = true } = {}) {
 //
 // Es best-effort: si falla, devuelve null y el que llama sigue sin velas. NUNCA
 // debe tumbar el push de niveles, que es lo critico.
-export async function readCandles5m({ velas = 30, diasAtras = 5, minutos = 5 } = {}) {
+//
+// 2026-08-23: el default sube de 30 a 60. Polygon ya devuelve ~390 velas (5 dias
+// de 5m con limit=50000) y las tirabamos en el slice de abajo, dejando la serie
+// al ras. calcWeinstein (src/wheel_trading.js) exige 30 cierres y le llegaban
+// 25, asi que devolvia {fase: null} SIEMPRE: 117 de 117 evaluaciones de
+// Reversion registraron "Fase 5m (—)" entre el 11 y el 21 de agosto. Son 10 de
+// los 55 puntos del score en cero fijo, sin error ni aviso.
+//
+// Es la MISMA limitacion autoimpuesta que sacamos el 9-ago al dejar de
+// reconstruir la serie desde el spot: el historico esta, solo habia que no
+// recortarlo. La de 2m ya se baja con 120 y la de 15m con 80 — la de 5m era la
+// unica sin aire, y es justo la que decide la Reversion ("5 minutos decide").
+//
+// 60 y no 120 a proposito: velas5mDeSigma rechaza la serie ENTERA si encuentra
+// un hueco dentro de una sesion, asi que cada vela de mas es superficie extra
+// para caerse al respaldo. 60 cubre los 30 de Weinstein con el doble de margen.
+export async function readCandles5m({ velas = 60, diasAtras = 5, minutos = 5 } = {}) {
   const p = await ensurePage();
   if (!apiToken) return null;              // todavia no se capturo; el proximo ciclo lo tendra
 

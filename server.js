@@ -10410,8 +10410,20 @@ async function checkAlejamientoSMA() {
     // 25 salen casi siempre (el daemon manda 30), y eso devuelve historia
     // suficiente para el RSI. La reconstruccion desde el spot rara vez llega a 25
     // —de ahi el segundo intento—, pero 9 bastan para la SMA8, que es la puerta.
+    //
+    // 2026-08-23: se antepone un intento de 40. El escalon de 25 dejaba a
+    // calcWeinstein —que exige 30 cierres— devolviendo {fase: null} en el 100%
+    // de las evaluaciones (117 de 117, "Fase 5m (—)", 11 al 21 de agosto), o sea
+    // 10 de los 55 puntos del score muertos sin que nada lo dijera. El dato
+    // sobraba: Polygon manda ~390 velas y el daemon ahora reparte 60.
+    //
+    // Los escalones viejos se CONSERVAN debajo: si la serie de 40 se cae por un
+    // hueco, el comportamiento es identico al de hoy. En el peor caso no se
+    // gana nada; nunca se pierde cobertura. Consumidores de esta serie y lo que
+    // necesita cada uno: SMA8 9 · RSI ~15 · compas de medias 25 · Weinstein 30.
     const maxEdadSerie = cfg.maxEdadVela5Seg ?? 420;
-    const serieSigma = serie5mDesdeSigma({ minVelas: 25, maxEdadSeg: maxEdadSerie })
+    const serieSigma = serie5mDesdeSigma({ minVelas: 40, maxEdadSeg: maxEdadSerie })
+                    || serie5mDesdeSigma({ minVelas: 25, maxEdadSeg: maxEdadSerie })
                     || serie5mDesdeSigma({ minVelas: 9,  maxEdadSeg: maxEdadSerie });
     if (serieSigma) {
       closes5 = serieSigma.closes;
@@ -10618,7 +10630,20 @@ async function checkAlejamientoSMA() {
           ...(cfg.alejamientoEsPuerta   ? ['ALEJAMIENTO'] : []),
           ...(cfg.requiereGammaPositivo ? ['GAMMA'] : []),
         ],
-        snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, edadVela5Seg, desfaseVsSigma, fuenteSerie }),
+        // fase5m y velas5m (2026-08-23). La fase de 5m se calcula unas lineas
+        // mas arriba pero nunca se registraba: solo aparecia dentro de
+        // scoreResult.checks, y ahi llegan apenas las evaluaciones que pasan
+        // las puertas (117 de 1.725 en diez dias). Con esto queda en TODAS, que
+        // es lo que hace falta para contestar con datos si el marco de 5m
+        // favorece o no a la reversion — la pregunta que quedo abierta al
+        // moverlo de 15m a 5m el 1-ago y que hoy no se puede responder porque
+        // el numero no existe en ningun lado.
+        //
+        // velas5m es el largo real de la serie con la que se decidio. Es el dato
+        // que habria delatado este bug en un dia en vez de en dos semanas: 25
+        // velas contra las 30 que pide calcWeinstein.
+        snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, edadVela5Seg, desfaseVsSigma, fuenteSerie,
+                                               fase5m: weinstein5m?.fase ?? null, velas5m: closes5.length }),
       });
 
       // Libro sombra en dolares (2026-08-17). Abre el trade que NO se tomo, con
@@ -10646,7 +10671,7 @@ async function checkAlejamientoSMA() {
     if (!scoreResult.passed) {
       const reason = `Score insuficiente: ${scoreResult.score}% (mínimo ${scoreResult.minScore}%)`;
       console.log(`[SPX-REV] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, pattern: patronReversion.pattern, score: scoreResult.score, minScore: scoreResult.minScore, checks: scoreResult.checks }) });
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, pattern: patronReversion.pattern, score: scoreResult.score, minScore: scoreResult.minScore, checks: scoreResult.checks, fase5m: weinstein5m?.fase ?? null, velas5m: closes5.length }) });
       return;
     }
 
@@ -10926,7 +10951,12 @@ async function checkAlejamientoSMA() {
     saveSPXSignals(signals.slice(0, 50));
     const successReason = `Señal generada: ${strategy} ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike} (${patronReversion.pattern}, score ${scoreResult.score}%)`;
     console.log(`[SPX-REV] ✅ ${successReason}`);
-    logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, score: scoreResult.score, strategy, pattern: patronReversion.pattern }) });
+    // ext8/rsi/checks/fase5m/velas5m se suman aca el 2026-08-23: SIGNAL_BUILT era
+    // la UNICA etapa que no guardaba con que alejamiento ni con que checks se
+    // habia disparado, justo en las evaluaciones que terminan en trade. Al
+    // analizar los 3 trades del 21-ago hubo que deducir el alejamiento de las
+    // evaluaciones vecinas porque el de la señal no estaba en ningun lado.
+    logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, ext8, rsi, score: scoreResult.score, minScore: scoreResult.minScore, strategy, pattern: patronReversion.pattern, checks: scoreResult.checks, fase5m: weinstein5m?.fase ?? null, velas5m: closes5.length }) });
   } catch(e) {
     console.error('[SPX-REV] Error:', e.message);
   }
