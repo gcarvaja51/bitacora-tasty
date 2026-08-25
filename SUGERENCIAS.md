@@ -124,7 +124,64 @@ evaluaciones).
 
 ---
 
+## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
+
+### 2026-08-24 · corrida diaria, 425 evaluaciones
+
+**a) Evidencia EN CONTRA de la sugerencia 2 (banda de alejamiento).** Hoy `SIN_ALEJAMIENTO`
+mató **162 de 192** evaluaciones de REVERSION (84%), pero los tres motivos más repetidos son
+**−0.02% (18), −0.04% (12) y −0.05% (12)** contra un piso de **0.10%**. Eso ya **no es "por
+centésimas"**: están a 2–5x de distancia del piso. La banda ya bajó de 0.13 a 0.10 en
+`075945c` y la puerta sigue matando la misma proporción (88% en la semana del 16–22, 84% hoy).
+Bajarla otra vez no rescataría a estos salvo llevándola casi a cero. **Antes de volver a
+tocar la banda el jueves, esta anotación pide releer la sugerencia 2 — el diagnóstico que la
+originó (2026-08-13, todo entre −0.09% y −0.12%) ya no describe lo que pasa.**
+
+**b) `VETO_MURO_SOMBRA` descarta cerca de la mitad de lo que llega al final — TENDENCIA.**
+Hoy **7 `SIGNAL_BUILT` contra 7 `VETO_MURO_SOMBRA`**; en la semana del 16–22, **50 contra 50**.
+Las etapas son terminales y mutuamente excluyentes (los conteos suman exacto las evaluaciones:
+198+192+35 = 425), así que no es la misma señal contada dos veces: de cada dos señales que
+llegan a esa altura, **una muere en el veto del muro**. La proporción se sostiene en dos
+ventanas de tamaño muy distinto, o sea que es estructural, no ruido de un día.
+**No hay propuesta:** falta saber si las vetadas habrían ganado o perdido, y eso lo contesta
+la sombra, no el embudo.
+
+**c) El escalón de `minScore` a 90% tras un perdedor cierra el día por muy poco.** Los **12**
+`SCORE_FAIL` de TENDENCIA de hoy llevan todos el sufijo *«el trade anterior de hoy cerró en
+$-60 — se exige 90%»*. **3 de esos 12 marcaban 80%**, que es el mínimo normal declarado. Una
+pérdida de $60 subió la puerta y con eso se descartaron 3 señales que cumplían el estándar
+habitual. El mismo patrón está en la semana (9 rechazos a 75% tras un cierre de −$45) y en la
+anterior (22 rechazos a 85% tras uno de −$245). **Pregunta para el jueves, no propuesta:** el
+escalón, ¿está calibrado por tamaño de la pérdida o se dispara igual con $60 que con $245?
+
+**d) El `minScore` de REVERSION no citó 75 ni una sola vez hoy.** Los `SCORE_FAIL` citan
+**«mínimo 54.5%»** (9 veces) y **«mínimo 37.8%»** (2). El bloque `parametros-vigentes-reversion`
+de CLAUDE.md declara `minScore: 75`, y el 22-ago todavía aparecían 27 rechazos citando 75.
+Los umbrales observados son múltiplos de 1/11 (9.1%, 45.5%, 54.5%), o sea que el denominador
+de la normalización se mueve. Puede ser correcto —el diseño de puertas binarias saca pesos del
+total— pero **el manual declara un número que el robot no está citando**, y ese bloque existe
+justamente para que eso no pase.
+
+**e) Sospecha de bug de trazabilidad en `TIME_STOP`** — ver PENDIENTE DE DECISIÓN abajo.
+
+**Lo que mejoró y conviene no perder de vista:** el sangrado de sellos **paró**. `sinSello`
+quedó clavado en **127** mientras el denominador subió de 183 a 186 — los 3 cierres nuevos
+desde el sábado traen sello los 3. El 127 es **deuda histórica congelada, no una fuga activa**,
+y el parte no distingue una cosa de la otra.
+
+---
+
 ## Decisiones pendientes (no son sugerencias, son cosas sin responder)
+
+- **¿Un cierre por `TIME_STOP` está dejando de escribir la trazabilidad de su cotización?**
+  (anotado 2026-08-24). Aparece un motivo nuevo en `camposFaltantes`: `TIME_STOP` sin
+  `fuenteCotizacionTPSL` **ni** `edadCotizacionTPSLSeg`, en **1 de 1 (`todos: true`)**. No
+  estaba el 22-ago. Si el camino de código no escribe esos campos nunca, es un **bug** —es
+  justo la trazabilidad que faltaba el 2026-08-08, cuando el spot llegaba 16 min tarde y no
+  había cómo saberlo— y se corrige el mismo día. Con **n=1** no puedo separar «ese camino no
+  lo escribe» de «ese cierre puntual no lo tenía», y por eso no lo escalo como bug confirmado.
+  **Pregunta de sí o no: ¿se revisa el camino de `TIME_STOP` ahora, o se espera a un segundo
+  caso?**
 
 - **`smaReversion.earlyExitPct` está en 0.6** y el usuario lo había subido explícitamente a
   **0.9** el 2026-08-02. Apareció en 0.6 el 2026-08-13 junto con el `minScore` en 0, que sí se

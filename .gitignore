@@ -11,6 +11,11 @@ gamma_daemon/node_modules/
 gamma_daemon/status.json
 gamma_daemon/history.json
 gamma_daemon/sigma_profile/
+# Perfil propio de la captura de niveles (2026-08-25). Mismo motivo que el de
+# arriba: guarda la SESION de Sigma Terminal. Se creo el 24-ago para separar el
+# navegador de la captura del navegador del daemon y no se habia ignorado, asi
+# que el primer commit que lo tocara se llevaba 1936 archivos y las cookies.
+gamma_daemon/captura_profile/
 gamma_daemon/daemon_crash_log.txt
 
 # Cache de Python (scripts/ y skills/)

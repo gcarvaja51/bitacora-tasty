@@ -12,7 +12,22 @@ import fs from 'fs';
 import { execFileSync } from 'child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROFILE_DIR = path.join(__dirname, 'sigma_profile');
+// Perfil de Chromium. Por defecto el del daemon; SIGMA_PROFILE_DIR deja que otro
+// proceso use este modulo con un perfil PROPIO y no se peleen (2026-08-24).
+//
+// POR QUE. limpiarChromiumHuerfano() mata el Chromium que retiene el perfil antes de
+// lanzar. Con un solo perfil, la captura de la watchlist "arroz en bajo" y el daemon
+// se mataban mutuamente: el 24-ago a las 12:00 ET la captura murio con
+// "TargetCloseError: Protocol error (Page.navigate): Target closed" — el primer dia
+// que corrio en horario de mercado, cuando el daemon cicla cada 2 minutos.
+//
+// El daemon no pasa la variable, asi que su comportamiento no cambia en nada.
+//
+// AVISO: el filtro de limpiarChromiumHuerfano() compara por SUBCADENA contra el
+// ultimo segmento de la ruta. Un perfil llamado "sigma_profile_algo" lo mataria el
+// filtro del daemon ('*sigma_profile*'). Cualquier perfil alternativo debe tener un
+// nombre que NO contenga "sigma_profile" — el de la captura se llama "captura_profile".
+const PROFILE_DIR = process.env.SIGMA_PROFILE_DIR || path.join(__dirname, 'sigma_profile');
 const TERMINAL_URL = 'https://web.sigma.trade/terminal/?tab=greeks';
 
 // El panel de Greeks Exposure expone DOCE metricas; se leian ocho (2026-08-09).
