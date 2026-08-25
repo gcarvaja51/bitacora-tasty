@@ -8151,7 +8151,44 @@ function limiteDeAperturaVertical(strategy, premium, tradingCfg, esCreditoForzad
   // bug. El credito fuera de rango vuelve al 25 documentado; el debito respeta
   // lo configurado, que ahi si es sano.
   const TOL_DEFAULT = 25;
-  const tol = (esCredito && tolCruda >= 100) ? TOL_DEFAULT : tolCruda;
+
+  // ── EL SANDBOX NECESITA OTRA TOLERANCIA, Y NO POR CAPRICHO (2026-08-25) ────
+  //
+  // `prem` sale de la cadena REAL de TastyTrade (/api/option-chain/SPX), como
+  // manda la directriz del usuario. Pero la orden se ejecuta contra el libro de
+  // sandbox.tradier.com, que en el SPX cotiza con ~15 min de atraso — medido el
+  // 25-ago sobre las 34 muestras de sombra_cadenas: edadCotizacionSeg entre 901
+  // y 911 segundos, sin una sola excepcion.
+  //
+  // Cuando ese libro viejo muestra menos credito que el limite, la orden NO PUEDE
+  // llenarse y muere a los 5 min. Medido: la Reversion lleno 2 de 4 desde el
+  // 24-ago; las tres familias juntas, 5 de 8. Caso concreto de hoy — prima real
+  // 4.55 -> limite 3.41, contra un libro que mostraba 2.50.
+  //
+  // POR QUE AFLOJARLO NO CUESTA NADA *EN EL SANDBOX*: el fill de Tradier no entra
+  // en ninguna decision ni en ninguna medicion. El dinero sale de resultadoOficial
+  // (src/pnl_oficial.js, "EL DINERO SALE DE LA CADENA REAL DE TASTYTRADE, nunca de
+  // los fills de Tradier") y el circuito de drawdown de src/frenos.js usa esa
+  // misma puerta desde el 22-ago. El limite que se le manda al sandbox es un
+  // gatillo para que la orden entre, no un precio que alguien vaya a cobrar.
+  //
+  // POR QUE VA CONDICIONADO AL BROKER Y NO A LA CONFIG: esta misma funcion correria
+  // contra la cuenta REAL el dia que el SPX se mueva a Tastytrade, y ahi el 25% SI
+  // protege dolares de verdad. Dejarlo en un parametro obliga a acordarse de
+  // revertirlo, y eso es justo lo que no funciona. Atado al endpoint, la proteccion
+  // vuelve sola en cuanto el broker deja de ser el de pruebas.
+  //
+  // LO QUE NO ARREGLA: las cotizaciones basura. Hoy a las 9:52 Tradier daba -1.53
+  // por el mismo spread que Tasty cotizaba en 3.80. Contra eso no hay tolerancia
+  // que alcance y esas ordenes van a seguir muriendo.
+  const esSandbox = /sandbox\./i.test(String(tradier?.baseUrl || ''));
+  const TOL_SANDBOX_CREDITO = 60;
+
+  let tol;
+  if (!esCredito)                 tol = tolCruda;                                  // debito: prem*(1+tol) ya es amplio
+  else if (esSandbox)             tol = Math.max(tolCruda >= 100 ? 0 : tolCruda, TOL_SANDBOX_CREDITO);
+  else                            tol = tolCruda >= 100 ? TOL_DEFAULT : tolCruda;  // cuenta real: se protege
+
   const limite = esCredito ? prem * (1 - tol / 100) : prem * (1 + tol / 100);
   return +limite.toFixed(2);
 }

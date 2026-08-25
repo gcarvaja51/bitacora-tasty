@@ -81,7 +81,6 @@
           <option value="TENDENCIA">Direccional</option>
           <option value="REVERSION">Reversión</option>
           <option value="NEUTRAL">Neutral</option>
-          <option value="PREMERCADO">Premercado</option>
           <option value="RUEDA">La Rueda</option>
         </select>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:8px;" title="Trades marcados a mano (columna Error, en Historial) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
@@ -178,7 +177,6 @@
           <option value="TENDENCIA">Direccional</option>
           <option value="REVERSION">Reversión</option>
           <option value="NEUTRAL">Neutral</option>
-          <option value="PREMERCADO">Premercado</option>
           <option value="RUEDA">La Rueda</option>
         </select>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;margin-left:8px;" title="Trades marcados a mano (columna Error, en Historial) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
@@ -269,7 +267,6 @@
           <option value="TENDENCIA">Direccional</option>
           <option value="REVERSION">Reversión</option>
           <option value="NEUTRAL">Neutral</option>
-          <option value="PREMERCADO">Premercado</option>
           <option value="RUEDA">La Rueda</option>
         </select>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;" title="Trades marcados a mano (columna Error, en la tabla de abajo) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
@@ -317,7 +314,6 @@
           <option value="TENDENCIA">Direccional</option>
           <option value="REVERSION">Reversión</option>
           <option value="NEUTRAL">Neutral</option>
-          <option value="PREMERCADO">Premercado</option>
           <option value="RUEDA">La Rueda</option>
         </select>
         <button class="btn btn-primary" onclick="loadReportsTradier(true)">Aplicar</button>
@@ -1538,7 +1534,7 @@ async function togglePanic(next) {
 // se portaron a la tabla "Estrategias Cerradas" de Reportes, ver
 // ORIGEN_LABELS/CIERRE_LABELS/toggleTradeError/showChecksDetail mas
 // abajo y loadReportsTradier() (fetch de executions/signals/informes).
-const ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor', PREMERCADO: 'Premercado', RUEDA: 'La Rueda' };
+const ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor', RUEDA: 'La Rueda' };
 
 // Familia normalizada de una estrategia (2026-08-01, filtro Estrategia en
 // Historial/Reportes) — s.strategyFamily ya viene de metrics.strategies para
@@ -2930,7 +2926,7 @@ async function loadReportsTradier(forceRefresh) {
     // (TENDENCIA/REVERSION/NEUTRAL, ya vienen en s.strategyFamily) mas "RUEDA"
     // como cuarto segmento (s.stratType==='The Wheel', que no tiene
     // strategyFamily propio por no ser parte de la clasificacion SPX).
-    const FAMILIA_LABEL = { TENDENCIA:'📈 Direccional', REVERSION:'🔄 Reversión', NEUTRAL:'🦅 Neutral', PREMERCADO:'🌅 Premercado', RUEDA:'🎯 La Rueda' };
+    const FAMILIA_LABEL = { TENDENCIA:'📈 Direccional', REVERSION:'🔄 Reversión', NEUTRAL:'🦅 Neutral', RUEDA:'🎯 La Rueda' };
     for (const s of filteredStrats) {
       const un = s.underlying||'OTHER';
       if (!byUnd[un]) byUnd[un] = {pnl:0,trades:0,wins:0};
@@ -3070,7 +3066,7 @@ async function loadReportsTradier(forceRefresh) {
 
     // Familia (2026-07-28) — mismo orden que las tarjetas de Demo Tradier
     // (Tendencia/Neutral/Reversión) mas Rueda al final.
-    const famOrder = ['TENDENCIA','NEUTRAL','PREMERCADO','REVERSION','RUEDA'];
+    const famOrder = ['TENDENCIA','NEUTRAL','REVERSION','RUEDA'];
     const fams = famOrder.filter(f => m.byFamily?.[f]).map(f => [f, m.byFamily[f]]);
     $('strategy-family-tbody').innerHTML = fams.length ? fams.map(([fam,d])=>`<tr>
       <td class="td-bright">${FAMILIA_LABEL[fam]||fam}</td>
