@@ -70,3 +70,14 @@ gamma_daemon/watchdog.log
 gamma_daemon/watchdog_state.json
 gamma_daemon/daemon_stdout.log
 scripts/revision_reversion.log
+
+# Scratch de analisis de una sola vez (2026-08-25). Se acumularon 36 archivos
+# —_estudio_*, _mp_*, _analisis_*— de estudios puntuales que ya cumplieron y que
+# nadie referencia: verificado con una pasada por el repo, los skills y la carpeta
+# de estrategias, cero menciones. Quedan en el historial de git por si hicieran
+# falta. El prefijo _ marca "de usar y tirar"; que no vuelvan al arbol.
+_*.js
+_*.py
+_*.json
+_*.txt
+!_fix_symbol.mjs
