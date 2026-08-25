@@ -9542,44 +9542,47 @@ function baseDePrecio(ex) {
 // nuevo. Un feed congelado es exactamente el modo de falla que se quiere evitar
 // —Yahoo se quedo quieto 2h44min el 2026-07-24— y no se detecta sin mirar la edad.
 //
-// Nunca devuelve menos de lo que habia antes: si Tasty falla, cae a Tradier, que
-// es lo unico que se usaba hasta hoy. El campo `fuente` deja la decision auditable.
+// SOLO TASTY, SIN RESPALDO (2026-08-25, directriz explicita del usuario: "los
+// precios de entrada y de salida deben hacerse con la cadena de opciones reales,
+// no con tradier").
+//
+// Antes caia a tradier.getQuotes() cuando Tasty fallaba o venia frizado, y se
+// quedaba con el mas nuevo de los dos. Eso significaba que un hipo de Tasty movia
+// la decision de TP/SL al libro del sandbox, que en el SPX cotiza con ~15 min de
+// atraso — medido el 2026-08-25: edadCotizacionSeg ~901s en las 34 muestras del
+// dia, sin una sola excepcion. Un colchon de precio calculado sobre eso protege
+// de un mercado que ya no existe, que es exactamente el bug que se arreglo el
+// 16-ago para la fuente principal y que el respaldo dejaba entrar por la ventana.
+//
+// QUE CUESTA QUITARLO: nada medible. En las 200 ejecuciones del historial hay 18
+// con fuente registrada y las 18 son 'tasty', con edad MEDIANA DE 1 SEGUNDO y
+// maxima de 3. El respaldo nunca decidio un solo cierre. Se quita antes de que lo
+// haga, no despues.
+//
+// QUE PASA SI TASTY NO COTIZA: devuelve null, y cada monitor ya sabe que hacer —
+// la Direccional y el Iron Condor saltean el ciclo (la posicion queda abierta,
+// que es lo reversible) y la Reversion cierra a mercado sin colchon, que es su
+// decision documentada ("mejor salir sin colchon que no salir": cierra por
+// invalidacion de PRECIO del SPX, no por P&L del spread).
+//
+// Tradier sigue consultandose en otros lados, pero solo para OBSERVAR: la traza
+// de checkDirectionalTPSLImpl y capturarSombraCadena comparan vivo contra
+// diferido y no deciden nada. Esa distincion es la que hay que mantener.
 async function cotizarPatasFresco(simbolosTradier, tag) {
   let vivo = null;
   try {
     vivo = await cotizarPatasTasty(simbolosTradier);
   } catch (e) {
-    console.warn(`[${tag}] TastyTrade no cotizo las patas (${e.message.slice(0, 60)}), se intenta Tradier.`);
+    console.warn(`[${tag}] TastyTrade no cotizo las patas: ${e.message.slice(0, 60)}`);
   }
   if (vivo && vivo.edadSeg <= MAX_EDAD_COTIZACION_SEG) return vivo;
 
-  let diferido = null;
-  try {
-    const quotes = await tradier.getQuotes(simbolosTradier);
-    const m = {};
-    quotes.forEach(x => { m[x.symbol] = x; });
-    if (simbolosTradier.every(s => m[s]?.mark != null)) {
-      const q = {};
-      let edadMax = 0;
-      for (const s of simbolosTradier) {
-        q[s] = { bid: m[s].bid ?? null, ask: m[s].ask ?? null, mark: m[s].mark };
-        if (m[s].tradeDate) edadMax = Math.max(edadMax, Math.round((Date.now() - Number(m[s].tradeDate)) / 1000));
-      }
-      diferido = { q, fuente: 'tradier', edadSeg: edadMax };
-    }
-  } catch (e) {
-    console.warn(`[${tag}] Tradier tampoco cotizo las patas: ${e.message.slice(0, 60)}`);
-  }
-
-  const candidatos = [vivo, diferido].filter(Boolean);
-  if (!candidatos.length) return null;
-  candidatos.sort((a, b) => a.edadSeg - b.edadSeg);
-  const elegido = candidatos[0];
-  if (elegido.fuente !== 'tasty') {
-    console.warn(`[${tag}] ⚠️ Decidiendo con cotizacion ${elegido.fuente} de ${elegido.edadSeg}s ` +
-      `(Tasty ${vivo ? vivo.edadSeg + 's' : 'sin dato'}). El TP/SL de este ciclo NO es en vivo.`);
-  }
-  return elegido;
+  // Ni frizada ni ausente se sustituyen por el sandbox. Se avisa con el motivo
+  // exacto para que un feed congelado se vea en el log en vez de deducirse.
+  console.warn(`[${tag}] ⚠️ Sin cotizacion EN VIVO de TastyTrade ` +
+    `(${vivo ? `frizada, ${vivo.edadSeg}s > ${MAX_EDAD_COTIZACION_SEG}s` : 'sin dato'}). ` +
+    `No se cae a Tradier: el precio se decide con la cadena real o no se decide.`);
+  return null;
 }
 
 // Devuelve cuanto vale el spread segun la cadena EN VIVO. Es la mitad "verdad"

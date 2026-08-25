@@ -1121,23 +1121,46 @@ tener identificados de antemano los momentos en que el precio se mueve por un da
 la estructura técnica. Hasta ese día el premercado no miraba el calendario económico en
 absoluto — un dato de alto impacto a media sesión llegaba como sorpresa.
 
-### Por qué el filtro NO es "solo nivel 3"
+### El filtro: SOLO alto impacto (3 toros) + discursos Fed
 
-El usuario lo pidió como "noticias de nivel 3", y el mismo día en que lo pidió quedó
-demostrado que ese filtro se pierde lo importante: **el 21-ago-2026 no hubo NINGÚN evento
-de 3 toros en EE.UU.**, y sin embargo los PMI flash — que Investing califica con **2
-toros** — salían a las 09:45 ET, **quince minutos después de la apertura**, justo encima
-del rango de apertura y dentro de un corsé de 26 puntos. Con un filtro de nivel 3 el
-informe habría dicho "hoy no hay noticias relevantes". Por eso el criterio es:
+⚠️ **Cambiado el 2026-08-25 por decisión explícita de Guillermo** — reemplaza el criterio
+más amplio que rigió del 21 al 25 de agosto. Motivo: la tabla se estaba llenando de
+eventos que él no usa para decidir nada. El caso que lo detonó fue el informe del
+25-ago, con **siete filas** de las cuales solo dos importaban (los dos datos de 3 toros
+de las 10:00); las otras cinco eran una subasta de T-Note, dos datos de 2 toros ya
+publicados antes de la apertura, y un Richmond de 2 toros. Ruido que compite por
+atención con lo que sí mueve el precio.
+
+El criterio vigente es:
 
 1. **Todo evento de 3 toros de EE.UU.**, sin excepción, esté donde esté en el día.
-2. **Los de 2 toros que caigan DENTRO de la ventana operativa** (04:00–16:00 ET). Un dato
-   de 2 toros a las 09:45 pesa más que uno de 3 toros a las 20:00.
-3. **Discursos y comparecencias sin calificación fija** — Presidente, miembros de la Fed,
+2. **Discursos y comparecencias sin calificación fija** — Presidente, miembros de la Fed,
    Tesoro. Investing no les pone toros porque el impacto depende de lo que digan, y son
-   precisamente los que producen los movimientos que no estaban en ningún plan.
-4. Ignorar el ruido de 1 toro (Baker Hughes, inventarios menores) salvo que sea el único
-   evento del día.
+   precisamente los que producen los movimientos que no estaban en ningún plan. Esta es
+   la única excepción a la regla de los 3 toros, y existe porque estos eventos **no
+   tienen toros por definición**, no porque tengan pocos.
+3. **Todo lo demás se descarta**: 2 toros (aunque caiga dentro de la ventana operativa),
+   1 toro, subastas de deuda, inventarios. No van a la tabla ni al log.
+
+**Si no hay ningún evento que pase el filtro, escribir "Sin catalizadores programados"** —
+es información, y es el resultado esperado en muchos días. No rellenar con eventos
+menores para que la tabla no quede vacía; una tabla vacía es exactamente la señal de que
+hoy manda la estructura técnica y no el calendario.
+
+#### El caso en contra, registrado a propósito
+
+Esta decisión tiene un costo conocido y conviene no olvidarlo. **El 21-ago-2026 no hubo
+NINGÚN evento de 3 toros en EE.UU.**, y sin embargo los PMI flash — que Investing
+califica con **2 toros** — salían a las 09:45 ET, quince minutos después de la apertura,
+justo encima del rango y dentro de un corsé de 26 puntos. Con el filtro vigente ese día
+el informe diría "sin catalizadores programados" y el PMI llegaría por sorpresa.
+
+Se le ofreció a Guillermo la variante que cubría ese caso (3 toros siempre, más los de 2
+toros solo dentro de 09:30–10:30) y **la descartó a favor del filtro estricto**. Es su
+decisión y está tomada con el contraejemplo delante — no reabrirla por iniciativa propia.
+Lo que sí corresponde: **si alguna vez un dato de 2 toros descoloca la sesión y el
+informe no lo había mencionado, anotarlo en el postmercado de ese día** y acumular esos
+casos. Si aparecen varios, ahí sí vale traerle la evidencia para que reconsidere.
 
 ### Cómo traerlo
 
@@ -1201,11 +1224,11 @@ En `premercado_hipotesis_log.json`, bloque `catalizadores` de esa fecha:
 
 ```json
 "catalizadores": [
-  {"hora_et": "09:45", "evento": "S&P Global PMI manufacturero flash (Ago)",
-   "toros": 2, "pronostico": 54.0, "previo": 53.9, "ventana": "09:30-10:30",
+  {"hora_et": "10:00", "evento": "Confianza del Consumidor CB (Ago)",
+   "toros": 3, "pronostico": 90.3, "previo": 90.8, "ventana": "09:30-10:30",
    "hora_confirmada": true},
-  {"hora_et": "09:45", "evento": "S&P Global PMI de servicios flash (Ago)",
-   "toros": 2, "pronostico": 53.9, "previo": 54.6, "ventana": "09:30-10:30",
+  {"hora_et": "10:00", "evento": "Ventas de viviendas nuevas (Jul)",
+   "toros": 3, "pronostico": 620, "previo": 628, "ventana": "09:30-10:30",
    "hora_confirmada": true},
   {"hora_et": "19:00", "evento": "Declaraciones de Trump", "toros": null,
    "pronostico": null, "previo": null, "ventana": "post-cierre",
@@ -1213,6 +1236,10 @@ En `premercado_hipotesis_log.json`, bloque `catalizadores` de esa fecha:
 ],
 "ajuste_neutral_por_catalizador": -4
 ```
+
+Los únicos `toros` que pueden aparecer en este bloque son **`3`** y **`null`** (los
+discursos). Un `2` en este campo significa que el filtro se aplicó mal — ver la sección
+del filtro más arriba.
 
 El `ajuste_neutral_por_catalizador` es el descuento en puntos porcentuales que se le aplicó
 al Neutral por el punto anterior. Guardarlo permite revisar más adelante si el descuento
