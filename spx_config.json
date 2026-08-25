@@ -81,7 +81,29 @@
     "ivRankFuente": "sigma",
     "ivRankCredito": 10,
     "ivRankCreditoTasty": 30,
-    "toleranciaDeslizamientoPct": 100
+    "toleranciaDeslizamientoPct": 100,
+    "premercado": {
+      "tradierAutoExecute": false,
+      "_nota": "Arranca APAGADO a proposito: la estrategia decide sola y todavia no tiene muestra. Encender solo cuando el registro en papel lo justifique.",
+      "ventanaInicioET": 10.0,
+      "ventanaFinET": 11.0,
+      "minVelas15mCerradas": 2,
+      "unTradePorDia": true,
+      "direccional": {
+        "anchoSpreadPts": 25,
+        "minDistanciaTargetPts": 12,
+        "tpPct": 50,
+        "slPct": 50
+      },
+      "neutral": {
+        "maxDistPinPts": 8,
+        "minCreditoAnchoPct": 35,
+        "requiereGammaPositivo": true,
+        "anchoAla": 25
+      },
+      "riskPctPerTrade": 1,
+      "bufferNivelPts": 3
+    }
   },
   "entryMode": "pullback",
   "minScoreTrasPerdida": 90

@@ -4979,6 +4979,11 @@ const KILL_SWITCH = {
   DIRECCIONAL: cfg => cfg.trading,
   NEUTRAL:     cfg => cfg.trading.ironCondor,      // cubre 0DTE y 1DTE (comparten motor)
   REVERSION:   cfg => cfg.trading.smaReversion,
+  // PREMERCADO (2026-08-25): interruptor propio a proposito. Decide una sola vez
+  // al dia, entre las 10 y las 11 ET, leyendo los escenarios que el premercado
+  // ya escribio esa manana -- no comparte motor con ninguna de las otras, asi
+  // que apagarla no debe apagar nada mas.
+  PREMERCADO:  cfg => cfg.trading.premercado,
 };
 app.get('/api/spx/strategies', (req, res) => {
   const cfg = loadSPXConfig();

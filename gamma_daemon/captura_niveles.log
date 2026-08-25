@@ -105,3 +105,47 @@ a capturar: SPX, BA, SOFI, ADBE, IBIT, JBLU, NFLX, NIO, NU, BE, GAP
 [captura] El daemon fallara en cada ciclo hasta que se arregle a mano.
 [Tue 08/25/2026  9:45:37.57] Terminado con codigo 1 
 [Tue 08/25/2026  9:45:37.58] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Tue 08/25/2026 15:40:00.84] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, IBIT, NFLX, BA, SOFI, ADBE, JBLU, NIO, NU, BE, GAP
+
+[SPX]
+   FALLO SPX: Sigma Terminal no devolvio el simbolo tras 10s -- la pagina no termino de cargar
+
+[IBIT]
+   FALLO IBIT: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NFLX]
+   FALLO NFLX: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[BA]
+   FALLO BA: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[SOFI]
+   FALLO SOFI: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[ADBE]
+   FALLO ADBE: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[JBLU]
+   FALLO JBLU: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NIO]
+   FALLO NIO: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NU]
+   FALLO NU: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[BE]
+   FALLO BE: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[GAP]
+   FALLO GAP: No element found for selector: [class*="greeks_tickerBtn__"]
+[captura] intento 1 de restaurar fallo: No element found for selector: [class*="greeks_tickerBtn__"]
+[captura] intento 2 de restaurar fallo: No element found for selector: [class*="greeks_tickerBtn__"]
+[captura] intento 3 de restaurar fallo: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[captura] *** NO SE PUDO RESTAURAR SIGMA A SPX ***
+[captura] El daemon fallara en cada ciclo hasta que se arregle a mano.
+[Tue 08/25/2026 15:40:45.06] Terminado con codigo 1 
+[Tue 08/25/2026 15:40:45.11] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 

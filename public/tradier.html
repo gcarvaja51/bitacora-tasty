@@ -4552,6 +4552,7 @@ const CMP_DEFS = [
   { id:'REVERSION',    label:'Reversión',     color:'#c084fc', sw:'REVERSION',   test: s => fam(s)==='REVERSION' },
   { id:'NEUTRAL_0DTE', label:'Neutral 0DTE',  color:'#13d68f', sw:'NEUTRAL',     test: s => fam(s)==='NEUTRAL' && s.expType!=='1DTE' },
   { id:'NEUTRAL_1DTE', label:'Neutral 1DTE',  color:'#f0a30a', sw:'NEUTRAL',     test: s => fam(s)==='NEUTRAL' && s.expType==='1DTE' },
+  { id:'PREMERCADO',   label:'Premercado',    color:'#ffb454', sw:'PREMERCADO',  test: s => fam(s)==='PREMERCADO' },
   { id:'RUEDA',        label:'La Rueda',      color:'#ff8fa3', sw:null,          test: s => fam(s)==='RUEDA' },
 ];
 function fam(s){ return getFamilia(s); }

@@ -427,8 +427,38 @@ export async function readLevels({ exigirSPX = true } = {}) {
   if (!symbol) {
     throw new Error('Sigma Terminal no devolvio el simbolo tras 10s -- la pagina no termino de cargar');
   }
+  // ── SE RECUPERA SOLO DEL SIMBOLO EQUIVOCADO (2026-08-25) ──────────────────
+  //
+  // Antes esto tiraba "cambiar a mano y reintentar" y se rendia. El 25-ago Sigma
+  // amanecio en ADBE y el daemon estuvo 5 HORAS fallando cada 2 minutos con ese
+  // mensaje —sin muros en TradingView y sin niveles para las tres estrategias—
+  // hasta que un humano lo miro. La funcion para arreglarlo (seleccionarSimbolo)
+  // ya estaba en este mismo archivo y la usa el capturador desde el 22-ago;
+  // simplemente nadie la habia conectado a este chequeo.
+  //
+  // Se intenta UNA vez y se verifica leyendo. Si no cede, se tira el error de
+  // siempre: la diferencia es que ahora dice que ya se intento, para que el log
+  // distinga "estaba mal y lo arregle" de "esta mal y no puedo".
+  //
+  // POR QUE NO ES INVASIVO: el daemon ya exige SPX para operar, asi que llevar el
+  // terminal a SPX es restaurar su propia precondicion, no imponerle nada al
+  // usuario. Y solo corre con exigirSPX (el capturador pasa false a proposito,
+  // porque su trabajo es justamente recorrer otros simbolos).
   if (exigirSPX && !/^SPX$/i.test(symbol)) {
-    throw new Error(`Sigma Terminal no esta en SPX (simbolo actual: "${symbol}") -- cambiar a mano y reintentar`);
+    console.error(`[sigma] Sigma esta en "${symbol}" y se necesita SPX — restaurando`);
+    try {
+      await seleccionarSimbolo(p, 'SPX');
+      symbol = await readSymbol(p);
+      if (/^SPX$/i.test(symbol || '')) {
+        console.error('[sigma] restaurado a SPX solo, sin intervencion');
+      }
+    } catch (e) {
+      console.error(`[sigma] no se pudo restaurar SPX: ${e.message.slice(0, 80)}`);
+    }
+  }
+  if (exigirSPX && !/^SPX$/i.test(symbol || '')) {
+    throw new Error(`Sigma Terminal no esta en SPX (simbolo actual: "${symbol}") -- ` +
+                    `se intento restaurar automaticamente y no cedio, hay que mirarlo a mano`);
   }
 
   await ensureMvsAbsolute(p);

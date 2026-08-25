@@ -38,6 +38,12 @@ const DEFAULTS = {
   // que evita comprar la finta de apertura.
   requiereCuerpo15m: true,
   minVelas15mCerradas: 2,
+  // COLCHON SOBRE EL NIVEL (anadido 2026-08-25 tras probar con el dia real).
+  // Sin esto, el 25-ago el bajista se activaba con un cierre de 7.661,93 contra
+  // un nivel de 7.662: SIETE CENTESIMAS. Quince minutos despues el precio ya
+  // habia vuelto dentro del corredor. Un roce no es una rotura; se exige que el
+  // cierre supere el nivel por este margen antes de contarlo como valido.
+  bufferNivelPts: 3,
   // Neutral: exigencias extra, por la medicion de prima citada arriba.
   neutral: {
     maxDistPinPts: 8,          // el precio tiene que estar pegado al pin
@@ -68,42 +74,65 @@ function conConfig(cfg = {}) {
  *   dentro_corredor   { min, max }
  *   cierre_15m_fuera  { min, max }
  */
-function evaluarCondicion(cond, velas15m, precio) {
+function evaluarCondicion(cond, velas15m, precio, buffer = 0) {
   if (!cond || !cond.tipo) return { ok: false, motivo: 'condicion ausente' };
   const cerradas = velas15m.filter(v => v.cerrada);
   const ult = cerradas[cerradas.length - 1];
+  const b = (n) => buffer ? ` [nivel+colchon ${n.toFixed(2)}]` : '';
 
   switch (cond.tipo) {
-    case 'cierre_15m_sobre':
+    case 'cierre_15m_sobre': {
       if (!ult) return { ok: false, motivo: 'sin velas cerradas' };
+      const umbral = cond.nivel + buffer;
       return {
-        ok: ult.close > cond.nivel,
-        motivo: `cierre 15m ${ult.close.toFixed(2)} vs ${cond.nivel} ` +
-                `(${ult.close > cond.nivel ? 'POR ENCIMA' : 'por debajo'})`,
+        ok: ult.close > umbral,
+        motivo: `cierre 15m ${ult.close.toFixed(2)} vs ${cond.nivel}${b(umbral)} ` +
+                `(${ult.close > umbral ? 'POR ENCIMA' : 'no supera'})`,
       };
-    case 'cierre_15m_bajo':
+    }
+    case 'cierre_15m_bajo': {
       if (!ult) return { ok: false, motivo: 'sin velas cerradas' };
+      const umbral = cond.nivel - buffer;
       return {
-        ok: ult.close < cond.nivel,
-        motivo: `cierre 15m ${ult.close.toFixed(2)} vs ${cond.nivel} ` +
-                `(${ult.close < cond.nivel ? 'POR DEBAJO' : 'por encima'})`,
+        ok: ult.close < umbral,
+        motivo: `cierre 15m ${ult.close.toFixed(2)} vs ${cond.nivel}${b(umbral)} ` +
+                `(${ult.close < umbral ? 'POR DEBAJO' : 'no rompe'})`,
       };
+    }
     case 'dentro_corredor': {
-      const dentro = cerradas.every(v => v.close >= cond.min && v.close <= cond.max);
-      const spotDentro = precio >= cond.min && precio <= cond.max;
+      // El corredor se ENSANCHA por el colchon, no se estrecha. Parece contra
+      // intuitivo, pero es lo que evita una zona muerta:
+      //   - `cierre_15m_fuera` (la invalidacion) exige superar el borde por
+      //     `buffer` para dar la rotura por buena.
+      //   - Si la activacion exigiera estar estrictamente dentro, una vela a 1
+      //     punto del borde NO invalidaria (no llega al colchon) pero SI
+      //     rompería la activacion: el escenario quedaria en un limbo donde ni
+      //     activa ni invalida, y la estrategia no operaria nunca.
+      // Con la misma tolerancia en ambas, las dos condiciones son
+      // complementarias y no queda hueco.
+      // Caso real que lo destapo (2026-08-25): una vela cerro en 7.661,93 con
+      // el corredor en 7.662-7.690 -- siete centesimas fuera-- y eso mataba el
+      // neutral de todo el dia.
+      const lo = cond.min - buffer, hi = cond.max + buffer;
+      const dentro = cerradas.every(v => v.close >= lo && v.close <= hi);
+      const spotDentro = precio >= lo && precio <= hi;
       return {
         ok: dentro && spotDentro,
         motivo: `${cerradas.length} velas ${dentro ? 'todas dentro' : 'alguna fuera'} ` +
-                `de ${cond.min}-${cond.max}; spot ${precio.toFixed(2)} ` +
-                `${spotDentro ? 'dentro' : 'FUERA'}`,
+                `de ${cond.min}-${cond.max}` + (buffer ? ` (+-${buffer} de tolerancia)` : '') +
+                `; spot ${precio.toFixed(2)} ${spotDentro ? 'dentro' : 'FUERA'}`,
       };
     }
-    case 'cierre_15m_fuera':
+    case 'cierre_15m_fuera': {
       if (!ult) return { ok: false, motivo: 'sin velas cerradas' };
+      const fuera = ult.close < cond.min - buffer || ult.close > cond.max + buffer;
       return {
-        ok: ult.close < cond.min || ult.close > cond.max,
-        motivo: `cierre 15m ${ult.close.toFixed(2)} vs corredor ${cond.min}-${cond.max}`,
+        ok: fuera,
+        motivo: `cierre 15m ${ult.close.toFixed(2)} vs corredor ${cond.min}-${cond.max}` +
+                (buffer ? ` (+-${buffer} de colchon)` : '') +
+                ` (${fuera ? 'FUERA' : 'dentro'})`,
       };
+    }
     default:
       return { ok: false, motivo: `tipo desconocido: ${cond.tipo}` };
   }
@@ -124,9 +153,10 @@ function evaluarEscenarios(premercado, mercado, cfg) {
 
   for (const [nombre, e] of Object.entries(esc)) {
     if (!e || !e.activa) continue;
-    const act = evaluarCondicion(e.activa, mercado.velas15m, mercado.precio);
+    const buf = cfg.bufferNivelPts || 0;
+    const act = evaluarCondicion(e.activa, mercado.velas15m, mercado.precio, buf);
     const inv = e.invalida
-      ? evaluarCondicion(e.invalida, mercado.velas15m, mercado.precio)
+      ? evaluarCondicion(e.invalida, mercado.velas15m, mercado.precio, buf)
       : { ok: false, motivo: 'sin invalidacion definida' };
 
     motivos.push(`${nombre}: activa=${act.ok ? 'SI' : 'no'} (${act.motivo}); ` +
@@ -149,6 +179,86 @@ function evaluarEscenarios(premercado, mercado, cfg) {
     escenario: { nombre: g.nombre, ...g.e },
     motivos,
   };
+}
+
+/**
+ * Valida el bloque `escenarios` de una entrada de premercado.
+ * Devuelve { ok, errores[], avisos[] }.
+ *
+ * Existe porque el bloque lo escribe el skill del premercado cada manana, y un
+ * error ahi no se nota hasta las 10:00 con el mercado abierto -- momento pesimo
+ * para descubrir que falta un nivel. Correr esto al terminar el premercado
+ * convierte un fallo silencioso en un aviso a las 9 de la manana.
+ */
+function validarEscenarios(premercado) {
+  const errores = [];
+  const avisos = [];
+  const esc = premercado && premercado.escenarios;
+
+  if (!esc || typeof esc !== 'object') {
+    return { ok: false, errores: ['falta el bloque `escenarios`'], avisos };
+  }
+
+  const esperados = ['alcista', 'bajista', 'neutral'];
+  for (const n of esperados) {
+    if (!esc[n]) errores.push(`falta el escenario "${n}"`);
+  }
+
+  const TIPOS = ['cierre_15m_sobre', 'cierre_15m_bajo', 'dentro_corredor', 'cierre_15m_fuera'];
+  const chequearCond = (nombre, campo, c) => {
+    if (!c) { errores.push(`${nombre}.${campo}: ausente`); return; }
+    if (!TIPOS.includes(c.tipo)) {
+      errores.push(`${nombre}.${campo}: tipo "${c.tipo}" no reconocido (validos: ${TIPOS.join(', ')})`);
+      return;
+    }
+    if (c.tipo === 'cierre_15m_sobre' || c.tipo === 'cierre_15m_bajo') {
+      if (typeof c.nivel !== 'number') errores.push(`${nombre}.${campo}: falta \`nivel\` numerico`);
+    } else {
+      if (typeof c.min !== 'number' || typeof c.max !== 'number') {
+        errores.push(`${nombre}.${campo}: faltan \`min\`/\`max\` numericos`);
+      } else if (c.min >= c.max) {
+        errores.push(`${nombre}.${campo}: min (${c.min}) >= max (${c.max})`);
+      }
+    }
+  };
+
+  let sumaProb = 0;
+  for (const [nombre, e] of Object.entries(esc)) {
+    if (!e || typeof e !== 'object') { errores.push(`${nombre}: no es un objeto`); continue; }
+    if (typeof e.prob !== 'number') errores.push(`${nombre}: falta \`prob\` numerico`);
+    else sumaProb += e.prob;
+    chequearCond(nombre, 'activa', e.activa);
+    chequearCond(nombre, 'invalida', e.invalida);
+
+    // Los targets solo se exigen a los direccionales: el neutral no compra
+    // recorrido, se queda en el corredor.
+    if (nombre !== 'neutral') {
+      const t = [e.t1, e.t2].flatMap(x => (Array.isArray(x) ? x : [x]))
+        .filter(v => typeof v === 'number');
+      if (!t.length) errores.push(`${nombre}: sin ningun objetivo (t1/t2) numerico`);
+    }
+  }
+
+  if (Object.keys(esc).length && Math.abs(sumaProb - 100) > 1) {
+    avisos.push(`las probabilidades suman ${sumaProb}, no 100`);
+  }
+
+  // Coherencia direccional: comprobar que activa/invalida apuntan al lado que
+  // corresponde. Un alcista que se activa cayendo es casi siempre un error de
+  // transcripcion, y el motor lo ejecutaria igual sin esto.
+  const a = esc.alcista, b = esc.bajista;
+  if (a?.activa?.tipo === 'cierre_15m_bajo') {
+    avisos.push('alcista se activa con un cierre POR DEBAJO: revisar, parece invertido');
+  }
+  if (b?.activa?.tipo === 'cierre_15m_sobre') {
+    avisos.push('bajista se activa con un cierre POR ENCIMA: revisar, parece invertido');
+  }
+  if (a?.activa?.nivel && b?.activa?.nivel && a.activa.nivel < b.activa.nivel) {
+    avisos.push(`el nivel del alcista (${a.activa.nivel}) esta por DEBAJO del bajista ` +
+                `(${b.activa.nivel}): revisar`);
+  }
+
+  return { ok: errores.length === 0, errores, avisos };
 }
 
 /** Gates duros previos a cualquier decision. Devuelve null si todo pasa. */
@@ -231,11 +341,33 @@ function decidir(premercado, mercado, cfgUsuario = {}) {
   }
 
   // Direccional: se compra debit spread en la direccion validada.
-  const t1 = Array.isArray(escenario.t1) ? escenario.t1[0] : escenario.t1;
-  const dist = t1 ? Math.abs(t1 - mercado.precio) : null;
-  if (dist !== null && dist < cfg.direccional.minDistanciaTargetPts) {
+  //
+  // OJO con como se elige el target (bug encontrado al probar con el dia real
+  // 2026-08-25): medir contra T1 y nada mas es incorrecto. Cuando un escenario
+  // ACABA de activarse, el precio esta pegado al nivel de activacion, que a su
+  // vez suele estar a pocos puntos de T1 -- asi que el gate saltaba siempre y
+  // la estrategia no habria operado ni un solo dia direccional.
+  // Lo correcto es quedarse con el objetivo mas LEJANO que siga por delante en
+  // el sentido del trade, y exigir la distancia minima contra ese.
+  const alcista = direccion === DIRECCIONES.ALCISTA;
+  const cand = [escenario.t1, escenario.t2]
+    .flatMap(t => (Array.isArray(t) ? t : [t]))
+    .filter(v => typeof v === 'number')
+    .filter(v => (alcista ? v > mercado.precio : v < mercado.precio));
+
+  if (!cand.length) {
+    return { ...base, stage: 'SIN_RECORRIDO', passed: false, operar: false,
+      reason: `El precio (${mercado.precio.toFixed(2)}) ya superó todos los objetivos ` +
+              `del escenario ${escenario.nombre}: no queda recorrido que comprar`,
+      direccion, escenario, motivos };
+  }
+  const objetivo = alcista ? Math.max(...cand) : Math.min(...cand);
+  const dist = Math.abs(objetivo - mercado.precio);
+  if (dist < cfg.direccional.minDistanciaTargetPts) {
     return { ...base, stage: 'TARGET_MUY_CERCA', passed: false, operar: false,
-      reason: `T1 a solo ${dist.toFixed(1)} pts; minimo ${cfg.direccional.minDistanciaTargetPts}`,
+      reason: `Objetivo mas lejano (${objetivo}) a solo ${dist.toFixed(1)} pts; ` +
+              `minimo ${cfg.direccional.minDistanciaTargetPts}. Recorrido insuficiente ` +
+              `para pagar un debit spread`,
       direccion, escenario, motivos };
   }
 
@@ -246,14 +378,14 @@ function decidir(premercado, mercado, cfgUsuario = {}) {
       tipo: 'DEBIT_VERTICAL',
       sentido: direccion === DIRECCIONES.ALCISTA ? 'CALL' : 'PUT',
       anchoPts: cfg.direccional.anchoSpreadPts,
-      objetivo: t1,
+      objetivo,
       invalidacion: escenario.invalida?.nivel ?? null,
     },
-    reason: `Escenario ${escenario.nombre} validado; debit spread hacia T1 ${t1}`,
+    reason: `Escenario ${escenario.nombre} validado; debit spread hacia ${objetivo} (${dist.toFixed(1)} pts de recorrido)`,
   };
 }
 
 module.exports = {
-  decidir, evaluarEscenarios, evaluarCondicion, gates, conConfig,
+  decidir, evaluarEscenarios, evaluarCondicion, gates, conConfig, validarEscenarios,
   DIRECCIONES, DEFAULTS,
 };

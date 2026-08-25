@@ -1279,6 +1279,83 @@ si se detecta una confluencia así (ej. el 13 de julio: W POC 7,504.58 + D POC
 7,509.82 + Daily Fast MA 7,497.62 formaron una zona de soporte apretada
 7,497-7,510 — vale la pena nombrar este tipo de agrupación cuando aparezca).
 
+## Paso 5ter — Bloque `escenarios` legible por máquina (2026-08-25, OBLIGATORIO)
+
+A partir del 2026-08-25 el premercado no termina hasta que la entrada del día en
+`premercado_hipotesis_log.json` lleva un bloque **`escenarios`** con los tres escenarios
+en forma de datos, no solo en la prosa del documento.
+
+**Por qué**: la **Estrategia Premercado** (`src/estrategia_premercado.js` en el repo
+`bitacora-tasty`, familia `PREMERCADO` en la bitácora de Tradier) corre entre las 10:00 y
+las 11:00 ET, compara el mercado en vivo contra estos tres escenarios y ejecuta el que
+valide. Si el bloque no está, el motor devuelve `SIN_PREMERCADO` y ese día no opera. La
+prosa del `.docx` no le sirve: necesita niveles.
+
+### Contrato
+
+```json
+"escenarios": {
+  "alcista": {
+    "prob": 36,
+    "activa":   {"tipo": "cierre_15m_sobre", "nivel": 7690},
+    "invalida": {"tipo": "cierre_15m_bajo",  "nivel": 7675},
+    "t1": [7696, 7700],
+    "t2": [7708, 7714],
+    "nota": "Call Wall 7690 + EMA10 diaria 7687,31."
+  },
+  "bajista": {
+    "prob": 34,
+    "activa":   {"tipo": "cierre_15m_bajo",  "nivel": 7662},
+    "invalida": {"tipo": "cierre_15m_sobre", "nivel": 7690},
+    "t1": [7657, 7662],
+    "t2": [7638, 7650]
+  },
+  "neutral": {
+    "prob": 30,
+    "activa":   {"tipo": "dentro_corredor",  "min": 7662, "max": 7690},
+    "invalida": {"tipo": "cierre_15m_fuera", "min": 7662, "max": 7690},
+    "corredor": [7662, 7690]
+  }
+}
+```
+
+Tipos de condición admitidos (son los únicos que el motor entiende):
+`cierre_15m_sobre` y `cierre_15m_bajo` llevan `nivel`; `dentro_corredor` y
+`cierre_15m_fuera` llevan `min` y `max`.
+
+Reglas:
+- Los tres escenarios son obligatorios, con los nombres exactos `alcista`, `bajista`,
+  `neutral`. Las `prob` deben sumar 100 y ser las MISMAS que van en la tabla del documento.
+- Los direccionales necesitan al menos un objetivo numérico en `t1`/`t2`. El neutral no:
+  no compra recorrido.
+- Los niveles tienen que ser los mismos que la prosa del documento. Si la tabla dice
+  "rompe 7.690" y el JSON dice 7.700, el motor opera algo que el informe no dijo.
+
+### Validar SIEMPRE antes de dar el premercado por terminado
+
+```bash
+cd C:/Users/gcarv/bitacora-tasty && node -e "
+const fs=require('fs'), {validarEscenarios}=require('./src/estrategia_premercado.js');
+const L='<ruta>/premercado_hipotesis_log.json';
+const e=JSON.parse(fs.readFileSync(L,'utf8')).find(x=>x.fecha==='<AAAA-MM-DD>');
+const v=validarEscenarios(e);
+console.log(v.ok?'escenarios OK':'ESCENARIOS INVALIDOS');
+v.errores.forEach(x=>console.log(' ERROR:',x)); v.avisos.forEach(x=>console.log(' aviso:',x));
+"
+```
+
+El validador atrapa lo que de verdad pasa al transcribir a mano: falta un escenario, un
+tipo mal escrito, probabilidades que no suman 100, un direccional sin objetivos, y el caso
+más traicionero — **un alcista que se activa cayendo** (o el nivel del alcista por debajo
+del bajista), que es un error de transcripción invisible a ojo y que el motor ejecutaría
+igual.
+
+⚠️ **El colchón lo aplica el motor, no el premercado.** Escribir el nivel limpio (7.662,
+no 7.659). El motor exige que el cierre lo supere por `bufferNivelPts` (3 por defecto)
+antes de dar la rotura por buena. Esto salió de probar el propio 25-ago: el bajista se
+activaba con un cierre de 7.661,93 contra un nivel de 7.662 —siete centésimas— y quince
+minutos después el precio ya había vuelto dentro del corredor.
+
 ## Paso 5bis — Diagrama visual de los 3 escenarios (2026-07-21, nuevo)
 
 A pedido explícito del usuario: además de la tabla de texto del Paso 5, el

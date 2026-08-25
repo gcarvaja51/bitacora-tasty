@@ -126,6 +126,62 @@ evaluaciones).
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
 
+### 2026-08-25 · corrida diaria, 742 evaluaciones
+
+**a) La frescura "mejoró" porque la fuente primaria se cayó.** El parte canta **mediana 5s
+(p90 26s)** contra los 21s de ayer y lo lee como verde. No lo es: la mediana bajó porque
+**Yahoo desplazó a Sigma**, y Yahoo es más rápido por construcción. El reparto se dio vuelta
+entero en un día — **ayer sigma 207 / yahoo 2, hoy yahoo 207 / sigma 104**. La causa está en
+`gamma_daemon/status.json`: `mode: "degraded"`, `consecutiveFailures: 6`, **`lastSuccessAt`
+10:57 ET** — o sea sin lectura buena durante la mayor parte de la sesión. **La métrica de
+calidad mejoró como consecuencia directa de una degradación.** Vale para el motor: una
+mediana de frescura sin el reparto por fuente al lado se puede leer al revés.
+
+**b) Lo que eso le hace a la señal (esto sí es del dato, no del proceso).** Cuando Sigma no
+está fresca, `effectiveGex` cae al `calcGEX` interno — que tiene **sesgo negativo medido**
+(ver `gamma_flip_discrepancy`, y el 05-ago el `gammaFlip` interno dio 7600 contra 7753 de
+Sigma, 153 pts con un buffer de gate de 10). Hoy `NEUTRAL|GATE_FAIL` pasó de **5 a 31** y los
+motivos visibles son *Gamma régimen NEGATIVO* y *precio a menos de 10pts del Gamma Flip*,
+mientras la última lectura buena de Sigma —congelada a las 10:57— decía **`regime: POSITIVO`,
+netGex +5.51B, gammaFlip 7660**. **Hipótesis, no veredicto:** el Iron Condor pasó el día
+bloqueado por el régimen de la fuente de respaldo, no por la primaria que se paga. Lo
+confirmaría registrar **qué fuente de GEX decidió cada bloqueo** — hoy el snapshot no lo trae,
+y sin eso esto no se puede cerrar. Mismo día en que los muros gobernaron `VETO_MURO_SOMBRA`
+(34) con el spot viniendo de otra fuente distinta a los muros.
+
+**c) `VETO_MURO_SOMBRA` sigue empatado con `SIGNAL_BUILT`, y el empate ya es exacto tres
+veces.** Hoy **34 y 34**; ayer 7 y 7; la semana del 16–22, 50 y 50. Verifiqué otra vez que
+las etapas son terminales y excluyentes (510+194+38 = **742**, cuadra exacto), así que no es
+doble conteo. Pero **un empate perfecto en tres ventanas de tamaño muy distinto (14, 100, 68)
+no es lo que hace una proporción libre**. O el acoplamiento es estructural —toda señal se
+evalúa contra el muro y justo la mitad cae— o los dos contadores se mueven juntos por
+construcción. **Antes de proponer nada sobre el veto del muro hay que resolver cuál de las
+dos es**, porque si es lo segundo, la mitad de la evidencia de la anotación de ayer (punto b)
+se cae.
+
+**d) `NO_STRIKES` con delta 0.3 apareció de la nada en TENDENCIA: 25 hoy, 0 ayer.** En la
+semana previa fueron 6. Veinticinco evaluaciones que llegaron hasta la cadena y no encontraron
+strike al delta objetivo. Puede ser cadena comprimida (día de vencimiento — `expiry` de Sigma
+es hoy mismo) o un problema de la cadena. **No alcanza para distinguirlo desde el embudo.**
+
+**e) El motor trunca los motivos a los 3 más repetidos, y eso está tapando la mayoría.** Es
+la limitación que más pesó hoy: `NEUTRAL|GATE_FAIL` muestra **6 de 31**, `TENDENCIA|
+NO_PULLBACK_2M` **93 de 410**, `REVERSION|SIN_ALEJAMIENTO` **80 de 165**. O sea que del mayor
+movimiento del embudo —el 6x de GATE_FAIL— **no se ve el motivo de 25 de los 31 bloqueos**.
+Sumado a que `embudoPrevio` viene `null` en modo diario (ya anotado ayer), el instrumento no
+está alcanzando para el paso 3 en los días movidos.
+
+**f) REVERSION marcó score **0%** nueve veces** (mínimo citado 37.8%). No es quedarse corto:
+es que no pasó **ningún** check. Sigue vigente lo anotado ayer sobre que el mínimo citado se
+mueve y nunca coincide con el **75** declarado en `parametros-vigentes-reversion`.
+
+**Lo que mejoró de verdad:** `POSITION_CHECK_MISMATCH` llegó a **0** (era 4 ayer, 511 en la
+semana) y **no hubo ninguna orden rechazada**. `paraLaTorre` quedó en 0/0 por primera vez. Y
+los sellos siguen sin sangrar: `sinSello` clavado en **127** con el denominador subiendo de
+186 a 188 — los cierres nuevos vienen sellados los dos.
+
+---
+
 ### 2026-08-24 · corrida diaria, 425 evaluaciones
 
 **a) Evidencia EN CONTRA de la sugerencia 2 (banda de alejamiento).** Hoy `SIN_ALEJAMIENTO`
@@ -182,6 +238,14 @@ y el parte no distingue una cosa de la otra.
   lo escribe» de «ese cierre puntual no lo tenía», y por eso no lo escalo como bug confirmado.
   **Pregunta de sí o no: ¿se revisa el camino de `TIME_STOP` ahora, o se espera a un segundo
   caso?**
+
+  > **Actualización 2026-08-25 — llegó el segundo caso, y la pregunta se contestó sola.**
+  > Ahora son **2 de 2, `todos: true`** en los dos campos. Dos cierres por `TIME_STOP` en dos
+  > días, ninguno con trazabilidad de su cotización: ya no se sostiene la lectura de «ese
+  > cierre puntual no lo tenía». **Esto pide tratarse como posible corrección (bug), no como
+  > ajuste** — no espera al viernes. Lo que falta es una sola cosa: confirmar en el código que
+  > la rama de `TIME_STOP` no pasa por donde se sellan esos dos campos. **No lo toqué**
+  > (implementar no es mío). Queda escalado.
 
 - **`smaReversion.earlyExitPct` está en 0.6** y el usuario lo había subido explícitamente a
   **0.9** el 2026-08-02. Apareció en 0.6 el 2026-08-13 junto con el `minScore` en 0, que sí se
