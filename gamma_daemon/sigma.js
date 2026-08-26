@@ -402,8 +402,21 @@ export async function seleccionarSimbolo(p, ticker) {
   throw new Error(`el panel no termino de cargar "${ticker}" en 90s (ticker actual: ${await readSymbol(p)})`);
 }
 
-export async function readLevels({ exigirSPX = true } = {}) {
-  const p = await ensurePage();
+// `pagina` (2026-08-26): LEER DE LA MISMA PESTANA EN LA QUE SE ESCRIBIO.
+//
+// Sin esto, readLevels sacaba la pagina de ensurePage() -- SIEMPRE la principal,
+// la del daemon-- aunque quien llamara estuviera trabajando en otra. El
+// capturador de niveles cambia de simbolo en la pestana AUXILIAR y despues leia
+// de la principal, que seguia en SPX: el 26-ago guardo los niveles del SPX
+// etiquetados como NFLX, BA, GAP, NIO, SOFI, ADBE, JBLU, NU, BE e IBIT -- una
+// fila falsa por simbolo, y ni un error en el log. seleccionarSimbolo() habia
+// hecho bien su trabajo en la pestana auxiliar; el que miraba a otro lado era
+// el lector.
+//
+// Fallo silencioso: peor que el ruidoso de antes, porque los datos entran al
+// historico y ahi ya nadie los distingue.
+export async function readLevels({ exigirSPX = true, pagina = null } = {}) {
+  const p = pagina || await ensurePage();
 
   // El simbolo tambien necesita paciencia en frio (2026-08-11). La espera activa
   // que se agrego ayer cubria las METRICAS, pero este chequeo va antes y no la
@@ -641,6 +654,37 @@ export async function readVix() {
     vix52High: vix52Cache?.high ?? null,
     vix52Low: vix52Cache?.low ?? null,
   };
+}
+
+/**
+ * Abre una pestaña APARTE para lecturas que no son del daemon.
+ *
+ * POR QUE (2026-08-25): la captura de niveles del OPEX rota Sigma por 11
+ * simbolos (SPX, BA, SOFI, ADBE...). Mientras lo hace, el daemon lee el simbolo
+ * equivocado o se salta el ciclo, y si la captura muere a mitad deja el
+ * terminal en otro ticker -- que fue justo lo que paso el 25-ago a las 15:40:
+ * el historico de muros se corto a las 10:57 y se perdio media sesion.
+ *
+ * Verificado ese mismo dia: Sigma mantiene el simbolo INDEPENDIENTE por
+ * pestaña. Se puso la pestaña 2 en ADBE y la pestaña 1 siguio en SPX sin
+ * contagiarse. Asi que la pestaña 0 queda reservada al daemon y todo lo demas
+ * debe pedir la suya con esta funcion.
+ *
+ * Es la MISMA instancia de Chrome (el userDataDir no admite dos), solo otra
+ * pestaña. Cerrarla siempre al terminar -- ver `cerrarAuxiliar`.
+ */
+export async function pestanaAuxiliar() {
+  const principal = await ensurePage();
+  const b = principal.browser();
+  const aux = await b.newPage();
+  await aux.goto(principal.url(), { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await new Promise(r => setTimeout(r, 8000));   // la SPA tarda en poblar
+  return aux;
+}
+
+/** Cierra la pestaña auxiliar. Nunca toca la del daemon. */
+export async function cerrarAuxiliar(aux) {
+  try { if (aux && !aux.isClosed()) await aux.close(); } catch (e) { /* ya cerrada */ }
 }
 
 export async function close() {

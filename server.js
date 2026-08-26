@@ -7454,6 +7454,46 @@ app.get('/api/spx/niveles-historicos', (req, res) => {
   });
 });
 
+// PURGA DIRIGIDA (2026-08-26). No es un borrado generico, y es a proposito.
+//
+// El 26-ago la captura guardo los niveles del SPX etiquetados como NFLX, BA,
+// GAP, NIO, SOFI, ADBE, JBLU, NU, BE e IBIT: readLevels leia de la pestana
+// PRINCIPAL mientras el cambio de simbolo ocurria en la AUXILIAR. Filas
+// plausibles y falsas -- el peor tipo de dato, porque despues no se distingue
+// del bueno y contamina cualquier comparacion entre activos.
+//
+// El criterio es el que vuelve la falsedad indiscutible: ninguno de esos
+// subyacentes cotiza por encima de 1000 y el SPX si, asi que un simbolo
+// distinto de SPX con spot > 1000 solo puede ser una lectura del panel
+// equivocado. No borra por fecha ni por simbolo a secas.
+//
+// Se exige el criterio POR NOMBRE. Este historial no tiene otra copia: un
+// endpoint de borrado libre aca es un accidente esperando fecha.
+app.delete('/api/spx/niveles-historicos', (req, res) => {
+  const { criterio, desde, hasta } = req.query;
+  if (criterio !== 'spot_de_spx_en_otro_simbolo') {
+    return res.status(400).json({ ok: false,
+      error: 'criterio no reconocido; el unico admitido es spot_de_spx_en_otro_simbolo' });
+  }
+  const hist = loadNivelesHistoricos();
+  const enRango = (e) => {
+    const t = e.capturadoEn || e.guardadoEn || '';
+    if (desde && t < desde) return false;
+    if (hasta && t > hasta + 'T23:59:59Z') return false;
+    return true;
+  };
+  const falsa = (e) => e.symbol !== 'SPX' && Number(e.spot) > 1000 && enRango(e);
+  const quitadas = hist.filter(falsa);
+  if (!quitadas.length) return res.json({ ok: true, quitadas: 0, quedan: hist.length, detalle: [] });
+  try {
+    fs.writeFileSync(NIVELES_HIST_FILE, JSON.stringify(hist.filter((e) => !falsa(e))), 'utf8');
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+  res.json({ ok: true, quitadas: quitadas.length, quedan: hist.length - quitadas.length,
+    detalle: quitadas.map((e) => ({ symbol: e.symbol, spot: e.spot, capturadoEn: e.capturadoEn })) });
+});
+
 app.get('/api/spx/sigma-levels', (req, res) => {
   const history = loadSigmaLevelsHistory();
   if (req.query.history === 'true') {

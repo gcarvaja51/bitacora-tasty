@@ -80,4 +80,10 @@ _*.js
 _*.py
 _*.json
 _*.txt
+_*.mjs
+_*.cmd
 !_fix_symbol.mjs
+!_fix_sigma_spx.mjs
+# _abrir_captura.cmd queda FUERA del arbol a proposito: lleva la ruta absoluta
+# del Chromium de puppeteer, que cambia con cada version. Se regenera cuando
+# haga falta re-loguear el perfil de la captura.

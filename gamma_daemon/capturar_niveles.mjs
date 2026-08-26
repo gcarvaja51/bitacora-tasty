@@ -15,7 +15,8 @@
 // va en un `finally`, se VERIFICA leyendo, y si no se logra el script grita y
 // sale con codigo distinto de cero.
 import { ensurePage, readLevels, readExpiryChips, seleccionarExpiry,
-         seleccionarSimbolo, readSymbol, close } from './sigma.js';
+         seleccionarSimbolo, readSymbol, close,
+         pestanaAuxiliar, cerrarAuxiliar } from './sigma.js';
 
 const PROD = process.env.PROD_BASE || 'https://web-production-23473.up.railway.app';
 const args = process.argv.slice(2);
@@ -66,6 +67,28 @@ async function guardar(symbol, levels, dte) {
   console.log(`   guardado  ${symbol.padEnd(6)} exp=${levels.expiry}  maxPain=${levels.maxPain}  MVS=${levels.mvs}  cw=${levels.callWall}  pw=${levels.putWall}`);
 }
 
+// Lee los niveles DE ESTA pestana y se niega a devolverlos si el panel no esta
+// mostrando el simbolo que se pidio.
+//
+// El 26-ago se guardaron nueve filas con los niveles del SPX bajo el nombre de
+// otros tickers: readLevels leia de la pestana PRINCIPAL mientras el cambio de
+// simbolo pasaba en la AUXILIAR. Ya esta arreglado de raiz (readLevels recibe la
+// pagina), pero la comprobacion se queda: el dia que algo vuelva a desalinear la
+// lectura, esto lo convierte en un fallo ruidoso en vez de en dato falso, que es
+// lo unico que no se puede detectar despues.
+async function nivelesVerificados(p, symbol) {
+  const antes = await readSymbol(p);
+  if (!antes || antes.toUpperCase() !== symbol.toUpperCase()) {
+    throw new Error(`el panel muestra "${antes}" y se pidio "${symbol}" -- no se guarda`);
+  }
+  const lv = await readLevels({ exigirSPX: false, pagina: p });
+  const despues = await readSymbol(p);
+  if (!despues || despues.toUpperCase() !== symbol.toUpperCase()) {
+    throw new Error(`el simbolo cambio a "${despues}" durante la lectura de "${symbol}" -- no se guarda`);
+  }
+  return lv;
+}
+
 async function capturarSimbolo(p, symbol) {
   console.log(`\n[${symbol}]`);
   if (symbol !== 'SPX') {
@@ -75,7 +98,7 @@ async function capturarSimbolo(p, symbol) {
   const activo = chips.find(c => c.activo);
 
   // 1. El vencimiento del dia (el que ya esta activo).
-  const hoy = await readLevels({ exigirSPX: false });
+  const hoy = await nivelesVerificados(p, symbol);
   await guardar(symbol, hoy, activo?.dte ?? null);
 
   // 2. El viernes siguiente.
@@ -86,13 +109,26 @@ async function capturarSimbolo(p, symbol) {
     console.log('   (el vencimiento del dia YA es el viernes: no se duplica)');
   } else {
     await seleccionarExpiry(p, vie.etiqueta);
-    const lv = await readLevels({ exigirSPX: false });
+    const lv = await nivelesVerificados(p, symbol);
     await guardar(symbol, lv, vie.dte);
     if (activo) await seleccionarExpiry(p, activo.etiqueta);   // volver al del dia
   }
 }
 
-const p = await ensurePage();
+// PESTAÑA PROPIA, NO la del daemon (2026-08-25).
+//
+// Antes esto corria sobre `ensurePage()` -- la misma pestaña que el daemon usa
+// para leer SPX cada 2 min. Rotar 11 simbolos ahi dejaba al daemon leyendo el
+// ticker equivocado o saltandose ciclos, y si la captura moria a mitad el
+// terminal se quedaba en otro simbolo hasta que alguien lo arreglara a mano.
+// Paso el 25-ago: la captura fallo a las 15:40 y el historico de muros se corto
+// a las 10:57 -- media sesion perdida.
+//
+// Sigma mantiene el simbolo independiente por pestaña (verificado ese dia), asi
+// que con una pestaña propia el daemon ni se entera. Y por eso la restauracion
+// de abajo ya no es critica: aunque falle, la pestaña se cierra y se la lleva
+// puesta.
+const p = await pestanaAuxiliar();
 try {
   const lista = SIMBOLOS_ARG.length ? SIMBOLOS_ARG
               : TODOS ? ['SPX', ...(await underlyingsAbiertos()).filter(s => s !== 'SPX')]
@@ -103,7 +139,7 @@ try {
     catch (e) { fallos++; console.error(`   FALLO ${s}: ${e.message}`); }
   }
 } finally {
-  // ── RESTAURACION, pase lo que pase ──────────────────────────────────────
+  // ── RESTAURACION (ya NO es critica: la pestaña es de usar y tirar) ──────
   let restaurado = false;
   for (let i = 1; i <= 3 && !restaurado; i++) {
     try {
@@ -122,11 +158,17 @@ try {
   if (restaurado) {
     console.log('\n[captura] Sigma restaurado a SPX + vencimiento del dia');
   } else {
-    console.error('\n[captura] *** NO SE PUDO RESTAURAR SIGMA A SPX ***');
-    console.error('[captura] El daemon fallara en cada ciclo hasta que se arregle a mano.');
-    fallos += 100;
+    // Ya NO es fatal. Antes esto dejaba la pestaña del DAEMON en otro simbolo y
+    // habia que arreglarlo a mano (paso el 25-ago: media sesion de muros
+    // perdida). Ahora la pestaña es de usar y tirar: como mucho se cierra sucia
+    // y no afecta a nadie. Se avisa, sin penalizar el codigo de salida.
+    console.warn('\n[captura] no se pudo devolver la pestaña auxiliar a SPX;');
+    console.warn('[captura] no importa: se cierra igual y el daemon no se entera.');
   }
-  await close();
+  // Cerrar SOLO la pestaña auxiliar. NUNCA close(), que cierra el navegador
+  // ENTERO y se llevaria por delante la pestaña del daemon -- dejandolo sin
+  // lecturas hasta el siguiente arranque.
+  await cerrarAuxiliar(p);
 }
 
 process.exit(fallos ? 1 : 0);
