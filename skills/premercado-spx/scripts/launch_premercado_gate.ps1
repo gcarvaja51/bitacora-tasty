@@ -84,12 +84,26 @@ if ($feriadosNYSE -contains $hoyStr) {
 #    con la conexion CDP en vez de hacer el analisis. Matarlos antes de
 #    lanzar claude.cmd garantiza que el server que arranque sea nuevo y
 #    lea el env var actual.
+$mcpMuertos = 0
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like "*tradingview-mcp*server.js*" } |
     ForEach-Object {
         Write-Log "Matando proceso MCP viejo de tradingview-mcp (PID $($_.ProcessId))"
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        $script:mcpMuertos++
     }
+
+# Dejar respirar a TradingView antes de que el colector le abra una conexion CDP nueva.
+# Incidente real 2026-08-27: los MCP se mataron a las 07:31:22 y el colector arranco a
+# las 07:31:29 -- siete segundos despues. connectToSpxWindow() se colgo hasta su techo
+# de 60s, cuando medida en frio la misma llamada tarda entre 0,4 y 1,3 segundos. Matar
+# de golpe procesos que tenian WebSockets CDP abiertos deja a TradingView limpiando esas
+# sesiones, y la conexion nueva entra justo en el medio. Solo se espera si de verdad se
+# mato alguno: en el caso normal no cuesta nada.
+if ($mcpMuertos -gt 0) {
+    Write-Log "Esperando 6s a que TradingView cierre las $mcpMuertos conexiones CDP del MCP antes de conectar el recolector."
+    Start-Sleep -Seconds 6
+}
 
 # 4.5) Recolector de datos (2026-08-01, nuevo) -- corre ANTES que claude.cmd para
 #      dejar ya en disco la captura del chart de 30min + valores de estudios de
@@ -277,7 +291,39 @@ if (Wait-ForDocx $docxEsperado 180 $runStart) {
     $nombreDocx = Split-Path $docxEsperado -Leaf
     $nota = if ($colgado) { " (se genero pese a que hubo que matar el proceso por timeout de $timeoutMin min -- revisar $outFile)" } else { "" }
     Write-Log "EXITO - documento generado$nota. Exit code reportado: $exitCode. Ver $outFile para el detalle."
-    Send-Ntfy "Documento guardado: $nombreDocx (carpeta 'documentos premercado').$nota" "Premercado SPX listo" "default"
+
+    # ── ESCENARIOS LEGIBLES POR MAQUINA (2026-08-25) ───────────────────────
+    # El .docx es el entregable para Guillermo, pero la ESTRATEGIA PREMERCADO
+    # (que decide entre 10 y 11 ET) no lee prosa: necesita el bloque
+    # `escenarios` en premercado_hipotesis_log.json. Nada en el codigo obliga a
+    # escribirlo -- lo redacta el modelo siguiendo el SKILL.md -- asi que si un
+    # dia se olvida, la estrategia se salta el dia en silencio y nadie se entera
+    # hasta que a las 10:30 no pasa nada.
+    # Se valida aqui, dos horas antes, para que de tiempo a arreglarlo.
+    $valida = "sin verificar"
+    try {
+        $chk = & node -e @"
+const fs=require('fs');
+const {validarEscenarios}=require('C:/Users/gcarv/bitacora-tasty/src/estrategia_premercado.js');
+const L='$(($logDir + '\premercado_hipotesis_log.json') -replace '\\','/')';
+const hoy='$(Get-Date -Format yyyy-MM-dd)';
+try{
+  const e=(JSON.parse(fs.readFileSync(L,'utf8'))||[]).find(x=>x.fecha===hoy);
+  if(!e){console.log('SIN_ENTRADA');process.exit(0);}
+  const v=validarEscenarios(e);
+  console.log(v.ok?'OK':('INVALIDO: '+v.errores.join(' | ')));
+}catch(err){console.log('ERROR: '+err.message);}
+"@ 2>&1 | Select-Object -Last 1
+        $valida = "$chk"
+    } catch { $valida = "no se pudo validar: $($_.Exception.Message)" }
+
+    if ($valida -like 'OK*') {
+        Write-Log "Escenarios estructurados: OK -- la Estrategia Premercado podra decidir hoy."
+        Send-Ntfy "Documento guardado: $nombreDocx.$nota" "Premercado SPX listo" "default"
+    } else {
+        Write-Log "AVISO - el documento existe pero los escenarios NO sirven para la estrategia: $valida"
+        Send-Ntfy "Documento OK ($nombreDocx) PERO el bloque `escenarios` falla: $valida. La Estrategia Premercado NO va a operar hoy salvo que se arregle antes de las 10:00 ET." "Premercado SPX: escenarios invalidos" "high"
+    }
     exit 0
 } else {
     $motivo = if ($colgado) { "se colgo mas de $timeoutMin min y se cancelo" } else { "termino (exit $exitCode)" }

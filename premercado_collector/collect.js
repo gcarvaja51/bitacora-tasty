@@ -25,6 +25,7 @@
 // falta ("el ultimo disponible") sin necesidad de tocar el navegador para nada.
 import { connectToSpxWindow } from '../gamma_daemon/tv.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -161,15 +162,43 @@ async function captureChartPng(client, paneIndex, outPath) {
   // capturo en 0,6s y las otras CUATRO se colgaron indefinidamente, la del SPX incluida.
   // Ese, y no "TradingView no responde", era el cuelgue que se comia 9-12 minutos del
   // premercado. Tambien explica por que esto funciono hasta el 12-ago y despues no: la
-  // ventana dejo de estar al frente, nada mas. Con bringToFront() la misma captura tarda
-  // 0,8s. Cuesta levantar la ventana del SPX un instante a las 7:30am, antes de la
-  // apertura -- es el precio de tener la captura, y es la unica forma de obtenerla.
+  // ventana dejo de estar al frente, nada mas.
+  //
+  // 🚨 EL ARREGLO DEL 21-AGO (bringToFront) ES UN NO-OP -- medido el 2026-08-27, cuarto
+  // dia consecutivo de fallo. TradingView Desktop NO usa pestanas de Chrome: cada chart
+  // es una ventana top-level propia que gestiona el shell de la app, y las que no estan
+  // activas quedan OCULTAS (EnumWindows las devuelve con IsWindowVisible=false, sin estar
+  // minimizadas). Sobre la ventana del SPX en ese estado, medido en vivo:
+  //   - getBoundingClientRect() del chart devuelve 0x0 (el layout de una pestana oculta
+  //     colapsa), asi que el `clip` sale en 0 y captureScreenshot rechaza con
+  //     "Cannot take screenshot with 0 width".
+  //   - Page.bringToFront() RESUELVE EN 4 ms y el chart SIGUE en 0x0. CDP activa el
+  //     target, pero no puede desocultar una ventana que administra el shell de la app.
+  //   - captureBeyondViewport:true y Emulation.setDeviceMetricsOverride tampoco sirven:
+  //     el clip sigue siendo 0.
+  // Y cuando `bounds` viene null (el pane ni siquiera tiene _mainDiv) no se pasaba clip,
+  // asi que captureScreenshot se quedaba esperando un frame que nunca llega: ESE es el
+  // "timeout de 30s en captureChartPng" de los dias 24, 25 y 26 de agosto.
+  //
+  // CONCLUSION: con la pestana del SPX de fondo, la captura por CDP es IMPOSIBLE, no
+  // lenta. Asi que se corta en seco en vez de quemar 30s de la ventana previa a la
+  // apertura, y el chart se dibuja despues con datos reales (ver chart30m.py). Volver a
+  // intentar la captura solo tiene sentido si la pestana del SPX es la ACTIVA de su
+  // ventana -- y forzarlo no es opcion: esa ventana es del gamma_daemon (ver CLAUDE.md).
+  if (!bounds || !(bounds.width > 0) || !(bounds.height > 0)) {
+    const medida = bounds ? `${bounds.width}x${bounds.height}` : 'sin _mainDiv';
+    throw new Error(
+      `el chart del pane ${paneIndex} mide ${medida}: la pestana del SPX esta de fondo en ` +
+      `TradingView Desktop y no compone frames. La captura por CDP no es posible en ese ` +
+      `estado; el chart se genera con datos reales (chart30m.py).`,
+    );
+  }
   await client.Page.enable();
   await client.Page.bringToFront();
   await new Promise((r) => setTimeout(r, 1200));   // que el compositor pinte al menos un frame
-  const params = { format: 'png' };
-  if (bounds) params.clip = { ...bounds, scale: 1 };
-  const { data } = await client.Page.captureScreenshot(params);
+  // NUNCA capturar sin `clip`: sin recorte, sobre una ventana que no compone, la llamada
+  // no vuelve nunca y no hay timeout de CDP que la rescate.
+  const { data } = await client.Page.captureScreenshot({ format: 'png', clip: { ...bounds, scale: 1 } });
   writeFileSync(outPath, Buffer.from(data, 'base64'));
 }
 
@@ -227,9 +256,24 @@ async function collectFromTradingView(outDir) {
     await withTimeout(focusPane(client, paneIndex), TV_STEP_MS, 'focusPane');
     await withTimeout(setResolution(client, '30'), TV_STEP_MS, 'setResolution 30');
     await withTimeout(setVisibleRangeDays(client, 3), TV_STEP_MS, 'setVisibleRangeDays');
-    await withTimeout(captureChartPng(client, paneIndex, path.join(outDir, 'chart_30m.png')), TV_STEP_MS * 1.5, 'captureChartPng');
+
+    // La captura NO es fatal (2026-08-27). Antes un fallo aca abortaba el bloque entero y
+    // se perdian tambien los studyValues -- por eso el bundle venia con `tradingview: null`
+    // los dias 24, 25 y 26 de agosto y el informe se quedaba sin POC ni EMAs ni MACD del
+    // chart, no solo sin imagen. Son dos datos independientes: que no se pueda fotografiar
+    // la ventana no impide leerle los numeros.
+    let chartPng = false;
+    let chartPngError = null;
+    try {
+      await withTimeout(captureChartPng(client, paneIndex, path.join(outDir, 'chart_30m.png')), TV_STEP_MS * 1.5, 'captureChartPng');
+      chartPng = true;
+    } catch (e) {
+      chartPngError = e.message;
+      log(`[tv] sin captura: ${e.message}`);
+    }
+
     const studyValues = await withTimeout(getStudyValues(client), TV_STEP_MS, 'getStudyValues');
-    return { success: true, paneIndex, studyValues };
+    return { success: true, paneIndex, studyValues, chartPng, chartPngError };
   } finally {
     // Devolver la resolucion original es cortesia, no requisito: si el socket ya murio
     // no se insiste. Esta linea era el primer sintoma visible del cuelgue.
@@ -242,6 +286,64 @@ async function collectFromTradingView(outDir) {
     }
     try { await withTimeout(client.close(), 10000, 'client.close'); } catch { /* noop */ }
   }
+}
+
+// Dibuja el chart de 30 minutos con datos reales de Yahoo y los muros que ya trajo Sigma.
+// Se apoya en chart30m.py (matplotlib) porque el resto del pipeline del premercado ya
+// dibuja con matplotlib y no vale la pena meter una segunda tecnologia de graficos.
+function generarChartDesdeDatos(outDir, sigma) {
+  const salida = path.join(outDir, 'chart_30m.png');
+  const specPath = path.join(outDir, 'chart30m_spec.json');
+
+  // Cada muro se rotula con su nombre: el color no puede ser el unico portador de la
+  // informacion (misma regla que ya sigue el diagrama de escenarios).
+  const niveles = [];
+  const agregar = (valor, etiqueta, color, trazo) => {
+    if (Number.isFinite(valor) && valor > 0) niveles.push({ valor, etiqueta, color, trazo });
+  };
+  if (sigma) {
+    const f = (n) => Number(n).toLocaleString('es-ES');
+    agregar(sigma.callWall, `Call Wall ${f(sigma.callWall)}`, 'verde', 'solido');
+    agregar(sigma.gammaFlip, `Gamma Flip ${f(sigma.gammaFlip)}`, 'violeta', 'guiones');
+    agregar(sigma.maxPain, `Max Pain ${f(sigma.maxPain)}`, 'ambar', 'mixto');
+    // Put Wall y MVS suelen coincidir: en ese caso una sola linea con las dos etiquetas,
+    // porque dos lineas superpuestas se leen como una sola mal rotulada.
+    if (Number.isFinite(sigma.mvs) && sigma.mvs === sigma.putWall) {
+      agregar(sigma.putWall, `Put Wall / MVS ${f(sigma.putWall)}`, 'rojo', 'solido');
+    } else {
+      agregar(sigma.putWall, `Put Wall ${f(sigma.putWall)}`, 'rojo', 'solido');
+      agregar(sigma.mvs, `MVS ${f(sigma.mvs)}`, 'gris', 'punteado');
+    }
+  }
+
+  const spec = {
+    titulo: `SPX - 30 minutos, ultimas 3 sesiones${sigma?.expiry ? ` (muros cadena ${sigma.expiry})` : ''}`,
+    symbol: '^GSPC',
+    sesiones: 3,
+    cierre_previo: Number.isFinite(sigma?.spxPrice) ? sigma.spxPrice : null,
+    niveles,
+  };
+  writeFileSync(specPath, JSON.stringify(spec, null, 2));
+
+  return new Promise((resolve, reject) => {
+    const py = spawn('python', [path.join(__dirname, 'chart30m.py'), salida, specPath], {
+      cwd: __dirname,
+      windowsHide: true,
+    });
+    let err = '';
+    let out = '';
+    py.stdout.on('data', (d) => { out += d.toString(); });
+    py.stderr.on('data', (d) => { err += d.toString(); });
+    // Techo propio: el resto del colector tiene el suyo y este paso no puede ser el que
+    // se coma la ventana previa a la apertura.
+    const t = setTimeout(() => { py.kill(); reject(new Error('chart30m.py supero 90s')); }, 90000);
+    py.on('error', (e) => { clearTimeout(t); reject(new Error(`no se pudo lanzar python: ${e.message}`)); });
+    py.on('close', (code) => {
+      clearTimeout(t);
+      if (code === 0) resolve({ archivo: salida, fuente: 'yahoo', detalle: out.trim(), niveles: niveles.length });
+      else reject(new Error(`chart30m.py salio con codigo ${code}: ${(err || out).trim().slice(0, 300)}`));
+    });
+  });
 }
 
 async function main() {
@@ -272,6 +374,19 @@ async function main() {
   } catch (e) {
     bundle.errors.push(`sigma: ${e.message}`);
     log(`[sigma] FALLO: ${e.message}`);
+  }
+
+  // El chart NO es opcional para el informe, asi que si la captura por CDP no salio se
+  // dibuja con datos reales. Antes esto se improvisaba a mano cada manana (once scripts
+  // .scratch_chart30m_*.py distintos desde el 4-ago); ahora sale del bundle, siempre.
+  if (!bundle.tradingview?.chartPng) {
+    try {
+      bundle.chart30m = await generarChartDesdeDatos(outDir, bundle.sigma);
+      log(`[chart] generado con datos reales: ${bundle.chart30m.archivo}`);
+    } catch (e) {
+      bundle.errors.push(`chart30m: ${e.message}`);
+      log(`[chart] FALLO: ${e.message}`);
+    }
   }
 
   writeFileSync(path.join(outDir, 'bundle.json'), JSON.stringify(bundle, null, 2));

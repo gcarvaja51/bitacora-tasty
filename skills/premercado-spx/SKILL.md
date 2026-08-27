@@ -401,6 +401,63 @@ procedimientos siguen vigentes como respaldo, no se eliminaron.
   `claude.cmd`, best-effort (si falla, no aborta el gate, el skill sigue con el fallback
   manual de siempre).
 
+### 🚨 La captura del chart por CDP es IMPOSIBLE con la pestaña del SPX de fondo (2026-08-27)
+
+Cuatro días seguidos de `tradingview: null` en el bundle (24, 25, 26 y 27 de agosto)
+tenían una sola causa, y no era lentitud.
+
+**TradingView Desktop no usa pestañas de Chrome.** Cada chart es una ventana top-level
+propia que gestiona el shell de la app, y las que no están activas quedan **ocultas** —
+`EnumWindows` las devuelve con `IsWindowVisible=false` sin estar minimizadas. Medido en
+vivo sobre la ventana real del SPX en ese estado:
+
+| Prueba | Resultado |
+|---|---|
+| `getBoundingClientRect()` del chart | **0×0** — el layout de una pestaña oculta colapsa |
+| `Page.bringToFront()` | Resuelve en **4 ms** y el chart **sigue en 0×0** |
+| `captureScreenshot` con `clip` de 0 | `Cannot take screenshot with 0 width` |
+| `captureScreenshot` **sin** `clip` | **No vuelve nunca** ← el "timeout de 30s" de los días 24-26 |
+| `captureBeyondViewport: true` | No sirve, el clip sigue en 0 |
+| `Emulation.setDeviceMetricsOverride` | No sirve, el clip sigue en 0 |
+
+**El arreglo del 21-ago (`bringToFront()` antes de capturar) es un no-op.** Aquella
+medición de "0,8s con bringToFront" se hizo cuando la pestaña del SPX era la activa;
+dejó de serlo y la línea nunca volvió a servir. CDP activa el *target*, pero no puede
+desocultar una ventana que administra el shell de la aplicación.
+
+Y forzarlo **no es opción**: esa ventana es del `gamma_daemon` (ver `CLAUDE.md` de
+`bitacora-tasty`). Tampoco tiene sentido pedirle a Guillermo que deje el SPX al frente:
+trabaja con el SP500 en pantalla, y esa es su decisión, no un descuido.
+
+**Qué se cambió, entonces:**
+
+1. **Guard rápido en `captureChartPng`.** Si el chart mide 0×0 (o el pane no tiene
+   `_mainDiv`), aborta en milisegundos con un mensaje que explica la causa, en vez de
+   quemar 30-60 s de la ventana previa a la apertura. Y **nunca** se llama a
+   `captureScreenshot` sin `clip`: sin recorte, sobre una ventana que no compone, la
+   llamada no vuelve y no hay timeout de CDP que la rescate.
+2. **La captura dejó de ser fatal.** Antes un fallo ahí abortaba el bloque entero y se
+   perdían también los `studyValues` — por eso el bundle venía con `tradingview: null`
+   y el informe se quedaba sin POC, EMAs ni MACD del chart, no solo sin imagen. Son dos
+   datos independientes: que no se pueda fotografiar la ventana no impide leerle los
+   números. Ahora el bundle trae `chartPng` (bool) y `chartPngError`.
+3. **`premercado_collector/chart30m.py`** — el chart de 30 minutos se dibuja con velas
+   reales de Yahoo y los muros de Sigma superpuestos, y el colector lo llama solo cuando
+   la captura no salió. Esto **ya se venía haciendo a mano cada mañana**: once scripts de
+   un solo uso equivalentes (`.scratch_chart30m_0821.py`, `_0825.py`, …) desde el 4 de
+   agosto. Ahora sale del bundle siempre y no depende de que alguien lo improvise.
+4. **Seis segundos de espera en el gate** tras matar los procesos MCP, antes de arrancar
+   el colector. El 27-ago se mataron a las 07:31:22 y el colector conectó a las 07:31:29:
+   `connectToSpxWindow()` se colgó hasta su techo de 60 s, cuando en frío la misma llamada
+   tarda entre 0,4 y 1,3 s. Matar de golpe procesos con WebSockets CDP abiertos deja a
+   TradingView limpiando esas sesiones y la conexión nueva entra en el medio. Solo espera
+   si de verdad mató alguno.
+
+**El guard NO desactiva la captura.** Verificado el mismo día: en horario de sesión el
+chart del SPX sí estaba compuesto (624×562) y el guard no disparó. Cuando la captura es
+posible se hace, y cuando no, se corta en seco y se dibuja. Si algún día la pestaña del
+SPX vuelve a ser la activa a las 7:30am, la captura real vuelve sola.
+
 ## Paso 0 — Conectar con TradingView (datos en vivo)
 
 TradingView Desktop en esta máquina está instalado como app empaquetada (MSIX/Store),
