@@ -18,6 +18,41 @@ import { ensurePage, readLevels, readExpiryChips, seleccionarExpiry,
          seleccionarSimbolo, readSymbol, close,
          pestanaAuxiliar, cerrarAuxiliar } from './sigma.js';
 
+// EL PANEL TIENE QUE ESTAR MONTADO ANTES DE EMPEZAR (portado de
+// 06_vencimiento de opciones/scripts/28_captura_sigma.mjs, 2026-08-26).
+//
+// Del 24 al 26-ago esta captura saco 0 de 11 en las SEIS corridas, y las seis
+// murieron en menos de un minuto con "No element found for selector:
+// [class*=greeks_tickerBtn__]". No era Sigma caido ni la UI rediseñada: es la
+// misma carrera de arranque en frio que mato a la captura de los 69.
+// `pestanaAuxiliar()` hace goto(domcontentloaded) y despues espera 8 SEGUNDOS
+// FIJOS; medido el 26-ago con el perfil caliente, el panel de greeks tarda 6,8s
+// en montarse, y en frio mas. Los 8s no son un margen, son una moneda al aire.
+//
+// Y como "No element found for selector" no lo reconocia nadie como "la pagina
+// todavia no esta", el bucle lo contaba como fallo DEL SIMBOLO: quemaba los 11
+// a toda velocidad y salia con codigo 1 sin haber leido nada.
+//
+// Se espera al panel de verdad, no a un reloj.
+const SEL_PANEL       = '[class*="greeks_tickerBtn__"]';
+const PANEL_SIN_MONTAR = /No element found for selector: \[class\*="greeks_(tickerBtn|expBtn)__"\]/i;
+const ESPERA_PANEL    = +(process.env.ESPERA_PANEL_MS || 60000);
+
+// Espera a que el panel de greeks exista de verdad. Si no monta, recarga la
+// pestaña una vez y vuelve a esperar; si tampoco, se propaga (sin panel no hay
+// nada que capturar y es mejor decirlo que devolver 11 fallos de simbolo).
+async function esperarPanel(p) {
+  try {
+    await p.waitForSelector(SEL_PANEL, { timeout: ESPERA_PANEL });
+    return;
+  } catch (e) {
+    console.error(`[captura] el panel de greeks no monto en ${ESPERA_PANEL / 1000}s (${e.message.slice(0, 60)}) -- recargando`);
+  }
+  await p.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+  await p.waitForSelector(SEL_PANEL, { timeout: ESPERA_PANEL });
+  console.log('[captura] el panel monto tras recargar');
+}
+
 const PROD = process.env.PROD_BASE || 'https://web-production-23473.up.railway.app';
 const args = process.argv.slice(2);
 const TODOS = args.includes('--todos');
@@ -130,13 +165,33 @@ async function capturarSimbolo(p, symbol) {
 // puesta.
 const p = await pestanaAuxiliar();
 try {
+  // Antes de tocar nada: que el panel exista. Los 8s fijos de pestanaAuxiliar()
+  // no alcanzan en frio, y arrancar sin panel es lo que producia los 0 de 11.
+  await esperarPanel(p);
   const lista = SIMBOLOS_ARG.length ? SIMBOLOS_ARG
               : TODOS ? ['SPX', ...(await underlyingsAbiertos()).filter(s => s !== 'SPX')]
               : ['SPX'];
   console.log('a capturar:', lista.join(', '));
   for (const s of lista) {
     try { await capturarSimbolo(p, s); }
-    catch (e) { fallos++; console.error(`   FALLO ${s}: ${e.message}`); }
+    catch (e) {
+      // "selector no encontrado" sobre los elementos ESTRUCTURALES del panel no
+      // es "este simbolo no existe", es "la pagina todavia no esta". Se espera al
+      // panel y se reintenta UNA vez antes de darlo por perdido; asi un arranque
+      // lento cuesta un reintento y no la lista entera.
+      if (PANEL_SIN_MONTAR.test(e.message)) {
+        console.error(`   ${s}: el panel no estaba montado -- esperandolo y reintentando`);
+        try {
+          await esperarPanel(p);
+          await capturarSimbolo(p, s);
+          continue;
+        } catch (e2) {
+          fallos++; console.error(`   FALLO ${s}: ${e2.message}`);
+          continue;
+        }
+      }
+      fallos++; console.error(`   FALLO ${s}: ${e.message}`);
+    }
   }
 } finally {
   // ── RESTAURACION (ya NO es critica: la pestaña es de usar y tirar) ──────
