@@ -149,6 +149,89 @@ chequear('con el cierre ya mandado hace rato, deja de bloquear',
 chequear('con el cierre recien mandado sigue bloqueando (gracia de 90s)',
   bloquea({ status: 'filled', strategyFamily: 'TENDENCIA', closeOrderSentAt: reciente }) === true);
 
+// ── 2c. El conteo de impulsos de 15m ───────────────────────────────────────
+seccion('El conteo de impulsos (src/impulsos.js)');
+
+const { contarImpulsos, evaluarImpulso, tpPctPorImpulso, MIN_SCORE_IMPULSO_TARDIO } = require('../src/impulsos');
+
+// Velas sinteticas, no una serie real: se prueba la REGLA. Cada vela es {h,l,c}
+// y el umbral del dia sale de la mediana de (h-l), que aca vale 2 -> piso de 4.
+const v = (h, l) => ({ h, l, c: (h + l) / 2 });
+
+// Tres tramos al alza separados por retrocesos de mas de 4 puntos.
+const tresImpulsos = [
+  v(7600, 7598), v(7612, 7610), v(7604, 7602),   // impulso 1, retroceso
+  v(7620, 7618), v(7612, 7610),                  // impulso 2, retroceso
+  v(7628, 7626),                                 // impulso 3, en curso
+];
+chequear('tres tramos al alza cuentan como impulso 3',
+  contarImpulsos({ velas: tresImpulsos, direction: 'BULLISH' }).impulso === 3);
+
+// Un tramo limpio sin retroceso que llegue al umbral sigue siendo el impulso 1,
+// por larga que sea la subida: lo que abre un impulso nuevo es el retroceso.
+const unSoloTramo = [v(7600, 7598), v(7606, 7604), v(7612, 7610), v(7640, 7638)];
+chequear('una subida sin retroceso sigue siendo impulso 1',
+  contarImpulsos({ velas: unSoloTramo, direction: 'BULLISH' }).impulso === 1);
+
+// El origen es el extremo del dia, no la primera vela: si el precio primero cae
+// y despues sube, los impulsos se cuentan desde el minimo.
+const cayoYSubio = [
+  v(7620, 7618), v(7606, 7590), v(7600, 7598),   // el minimo real es 7590
+  v(7612, 7610), v(7604, 7602),                  // impulso 1 desde el minimo, retroceso
+  v(7622, 7620),                                 // impulso 2
+];
+const cys = contarImpulsos({ velas: cayoYSubio, direction: 'BULLISH' });
+chequear('el origen es el minimo del dia, no la primera vela', cys.origenPrecio === 7590);
+chequear('tras caer y rebotar dos tramos, va el impulso 2', cys.impulso === 2);
+
+// Sin velas suficientes NO se inventa un numero: aplica=false.
+chequear('con menos de 4 velas no aplica',
+  contarImpulsos({ velas: [v(7600, 7598)], direction: 'BULLISH' }).aplica === false);
+chequear('sin direccion valida no aplica',
+  contarImpulsos({ velas: tresImpulsos, direction: 'LATERAL' }).aplica === false);
+
+// La asimetria es el punto delicado de esta regla y por eso se prueba: el
+// backtest del 27-ago dice que en BAJISTA el impulso 3+ es el que GANA (8/10),
+// asi que encarecer la entrada ahi romperia la mitad bajista del sistema.
+chequear('en alcista, el impulso 3 exige score alto',
+  evaluarImpulso({ velas: tresImpulsos, direction: 'BULLISH' }).impulsoTardio === true);
+chequear('en bajista NUNCA exige score alto, por mas impulsos que lleve',
+  evaluarImpulso({ velas: tresImpulsos, direction: 'BEARISH' }).impulsoTardio === false);
+chequear('en alcista, los impulsos 1-2 no exigen score alto',
+  evaluarImpulso({ velas: unSoloTramo, direction: 'BULLISH' }).impulsoTardio === false);
+
+// El liston exacto. Si alguien lo mueve, que sea a proposito y actualizando esto.
+chequear('el impulso tardio pide exactamente 90',
+  evaluarImpulso({ velas: tresImpulsos, direction: 'BULLISH' }).minScoreExigido === 90
+  && MIN_SCORE_IMPULSO_TARDIO === 90);
+chequear('sin impulso tardio no se pide nada extra',
+  evaluarImpulso({ velas: unSoloTramo, direction: 'BULLISH' }).minScoreExigido === null);
+
+// FALLA ABIERTA: sin velas suficientes NO se encarece la entrada. Una entrada de
+// los primeros 45 min es impulso 1 o 2 por definicion, que es lo que hay que
+// dejar pasar barato; subir el liston "por las dudas" castigaria el tramo bueno.
+chequear('sin velas suficientes NO se sube el liston',
+  evaluarImpulso({ velas: [v(7600, 7598)], direction: 'BULLISH' }).minScoreExigido === null);
+
+// ── La escalera de TP (35 / config / 15) ──
+// Son los tres numeros que decidio Guillermo. Quedan clavados aca a proposito:
+// mover cualquiera obliga a tocar esta prueba, que es justo lo que se quiere.
+chequear('impulso 1 alcista cobra al 35%', tpPctPorImpulso('BULLISH', 1) === 35);
+chequear('impulso 2 alcista deja el TP de config', tpPctPorImpulso('BULLISH', 2) === null);
+chequear('impulso 3 alcista cobra al 15%', tpPctPorImpulso('BULLISH', 3) === 15);
+chequear('impulso 4+ tambien cobra al 15% (el 3 es piso, no igualdad)',
+  tpPctPorImpulso('BULLISH', 4) === 15 && tpPctPorImpulso('BULLISH', 9) === 15);
+chequear('en bajista el TP NUNCA se toca, en ningun impulso',
+  [1, 2, 3, 4, 9].every(i => tpPctPorImpulso('BEARISH', i) === null));
+
+// Y que la escalera llegue de verdad a la lectura que consume el server.
+chequear('la lectura de un impulso 1 alcista trae tpPctExigido 35',
+  evaluarImpulso({ velas: unSoloTramo, direction: 'BULLISH' }).tpPctExigido === 35);
+chequear('la lectura de un impulso 3 alcista trae tpPctExigido 15',
+  evaluarImpulso({ velas: tresImpulsos, direction: 'BULLISH' }).tpPctExigido === 15);
+chequear('sin velas suficientes no se toca el TP',
+  evaluarImpulso({ velas: [v(7600, 7598)], direction: 'BULLISH' }).tpPctExigido === null);
+
 // ── 3. Humo: que TODOS los endpoints respondan ──────────────────────────────
 //
 // Excluidos a proposito, con su razon. Un GET no deberia tener efectos, pero

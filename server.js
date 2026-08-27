@@ -4475,6 +4475,7 @@ const { calcCaminoA, calcATR } = require('./src/camino_a');
 const { calcCaminoB, calcPullbackEntry } = require('./src/camino_b');
 const { sellarVersion } = require('./src/algo_version');
 const { evaluarSalidasAlternativas } = require('./src/salidas_alternativas');
+const { evaluarImpulso } = require('./src/impulsos');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
@@ -6403,14 +6404,49 @@ async function processDirectionalEntry(direction, meta = {}) {
       fractal15m:  ctx.indicators?.fractal15m || {},
     }, spxConfig);
 
+    // Impulso de 15m (src/impulsos.js). Se calcula ACA, antes del gate de score,
+    // porque desde el 27-ago tiene poder sobre el umbral: un impulso alcista
+    // tardio (3ro o mas) exige 90 en vez de 80. Ver la cabecera del modulo para
+    // la evidencia y para por que NO se aplica en bajista.
+    const s15Impulso = velas15mSesionOHLC({ maxEdadSeg: 1800 });
+    const lecturaImpulso = s15Impulso
+      ? {
+          ...evaluarImpulso({
+            velas:      s15Impulso.velas,
+            direction,
+            callWall:   effectiveGex.callWall,
+            putWall:    effectiveGex.putWall,
+            spxPrice:   ctx.spxPrice,
+          }),
+          // La edad de las velas va guardada por el mismo motivo que la del muro:
+          // si el conteo se hizo con velas viejas, el registro mide el atraso y no
+          // la regla, y al revisar hay que poder separarlos.
+          velasEdadSeg: s15Impulso.edadSeg,
+        }
+      : { aplica: false, impulsoTardio: false, minScoreExigido: null,
+          motivo: 'sin velas de 15m de la sesion en curso' };
+
     // Umbral escalado tras una perdida del mismo dia (ver
     // minScoreEfectivoDireccional). Se recalcula 'passed' con el umbral
     // efectivo en vez de tocar calcPlaybookScore, que se usa desde otros lados.
+    //
+    // Desde el 27-ago hay DOS motivos que pueden elevarlo (perdida previa e
+    // impulso tardio) y manda el mas alto, no el ultimo evaluado: son razones
+    // independientes y la mas exigente es la que corresponde. Como hoy los dos
+    // valen 90 el maximo no cambia nada, pero deja el motivo bien atribuido en el
+    // log y no se rompe si manana se separan.
     const umbral = minScoreEfectivoDireccional(spxConfig);
-    if (umbral.valor > playbookResult.minScore) {
-      playbookResult.minScore = umbral.valor;
-      playbookResult.passed = playbookResult.score >= umbral.valor;
-      playbookResult.umbralElevadoPor = umbral.motivo;
+    const candidatos = [
+      { valor: umbral.valor, motivo: umbral.motivo },
+      lecturaImpulso.minScoreExigido
+        ? { valor: lecturaImpulso.minScoreExigido, motivo: lecturaImpulso.nota }
+        : null,
+    ].filter(Boolean);
+    const elegido = candidatos.reduce((a, b) => (b.valor > a.valor ? b : a));
+    if (elegido.valor > playbookResult.minScore) {
+      playbookResult.minScore = elegido.valor;
+      playbookResult.passed = playbookResult.score >= elegido.valor;
+      playbookResult.umbralElevadoPor = elegido.motivo;
     }
 
     if (!playbookResult.passed) {
@@ -6470,7 +6506,12 @@ async function processDirectionalEntry(direction, meta = {}) {
     // Parámetros de trading desde config
     const tradingCfg = spxConfig.trading || SPX_CONFIG_DEFAULTS.trading;
     const targetDelta = tradingCfg.targetDelta || 0.40;
-    const tpPct       = (tradingCfg.tpPct || 50) / 100;
+    // TP acortado en impulso alcista tardio (ver src/impulsos.js). Se aplica ACA,
+    // sobre el tpPct que despues viaja a signal.trading y al registro, para que la
+    // UI, el tpTarget mostrado y el umbral que de verdad ejecuta el monitor digan
+    // todos lo mismo. Si se aplicara solo al grabar la ejecucion, la señal
+    // anunciaria un TP de 30% y el monitor cerraria en 15%.
+    const tpPct       = (lecturaImpulso.tpPctExigido ?? (tradingCfg.tpPct || 50)) / 100;
     const slMult      = tradingCfg.slMult || 1.0;
     const spreadWidth = tradingCfg.spreadWidth || 10;
 
@@ -6618,7 +6659,11 @@ async function processDirectionalEntry(direction, meta = {}) {
       putWall:     effectiveGex.putWall,
       strikes,
       primaPts,
-      tpPctDebito: (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct,
+      // El TP efectivo, no el de config: si el impulso lo acorto a 15%, la cuenta
+      // de "puntos que hay que recorrer hasta el TP" cambia con el, y si no la
+      // sombra del muro mediria un TP que ya no es el que se va a ejecutar.
+      tpPctDebito: lecturaImpulso.tpPctExigido
+                   ?? (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct,
       isCredit:    !!signal.isCredit,
       muroFuente:  effectiveGex.source,
       muroEdadSeg: sigmaLevelsWebhook?.updatedAt
@@ -6630,6 +6675,28 @@ async function processDirectionalEntry(direction, meta = {}) {
     if (signal.vetoMuroSombra?.vetaria) {
       console.log(`[SOMBRA-MURO] ${signal.strategy}: habría vetado — ${signal.vetoMuroSombra.nota}`);
     }
+
+    // Impulso de 15m — se cuelga de la senal la MISMA lectura que ya se uso para
+    // el umbral de score arriba, no una nueva: recalcularla aca la haria sobre
+    // velas potencialmente distintas y el registro dejaria de explicar la
+    // decision que de verdad se tomo.
+    //
+    // Si la senal llego hasta aca con `impulsoTardio`, es que pasó el liston de
+    // 90 — o sea que el registro guarda tanto los casos que la regla encarecio y
+    // aun asi entraron como, via el stage SCORE_FAIL, los que freno.
+    signal.impulso = { ...lecturaImpulso, margenMuro: signal.vetoMuroSombra?.margen ?? null };
+    if (signal.impulso?.impulsoTardio) {
+      console.log(`[IMPULSO] ${signal.strategy}: entrada en impulso tardío que superó el 90 — ${signal.impulso.nota}`);
+    }
+    logStrategyEvent({
+      strategyFamily: 'TENDENCIA', stage: 'IMPULSO',
+      passed: true,   // si el impulso hubiera frenado la senal, murio en SCORE_FAIL
+      reason: signal.impulso?.nota || signal.impulso?.motivo || 'sin evaluar',
+      snapshot: buildStrategySnapshot(ctx, {
+        direction, gex: effectiveGex, strategy: signal.strategy,
+        score: playbookResult.score, impulso: signal.impulso,
+      }),
+    });
     logStrategyEvent({
       strategyFamily: 'TENDENCIA', stage: 'VETO_MURO_SOMBRA',
       passed: !signal.vetoMuroSombra?.vetaria,
@@ -6770,8 +6837,12 @@ async function processDirectionalEntry(direction, meta = {}) {
               creditReceived: null,
               tpPct:         signal.trading?.tpPct ?? tpPct * 100,
               slMult:        signal.trading?.slMult ?? slMult,
-              // Solo se usan si isCredit=false — % de la prima pagada, no un multiplicador
-              debitTpPct:    (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct,
+              // Solo se usan si isCredit=false — % de la prima pagada, no un multiplicador.
+              // El TP se acorta en impulso alcista tardio; el SL NO se toca: el pedido
+              // fue cobrar antes, no arriesgar menos, y mover las dos puntas a la vez
+              // dejaria sin saber cual de los dos cambios hizo el efecto.
+              debitTpPct:    lecturaImpulso.tpPctExigido
+                             ?? (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct,
               debitSlPct:    (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).slPct,
               // Niveles tecnicos de invalidacion (playbook Alejandro) — congelados al
               // momento de entrar, igual que entryCandleLow/High en la reversion.
@@ -6796,6 +6867,7 @@ async function processDirectionalEntry(direction, meta = {}) {
               // sesiones). Es el que permite cruzar el veredicto contra el pnl
               // real dentro de unas semanas, que es el punto del ejercicio.
               vetoMuroSombra: signal.vetoMuroSombra ?? null,
+              impulso:        signal.impulso ?? null,
               // Libro paper propio (2026-08-16). `paperEntry.neto` es el precio
               // cruzando el spread segun la cadena EN VIVO de TastyTrade en el
               // instante del envio. Es la base contra la que se miden TP/SL
@@ -7105,6 +7177,40 @@ function velas15mDeSigma({ minVelas = 25, maxEdadSeg = 1800 } = {}) {
   if (ult.some(v => v.c == null)) return null;
 
   return { closes: ult.map(v => v.c), edadSeg, velas: ult.length };
+}
+
+// Velas de 15m de la SESION EN CURSO con OHLC completo, para el conteo de
+// impulsos (src/impulsos.js). velas15mDeSigma() de arriba devuelve solo `closes`
+// porque a sus consumidores les alcanza; el zigzag necesita high/low de verdad —
+// un impulso se define por hasta donde llego la mecha, no por donde cerro.
+//
+// Se recorta a la sesion regular a proposito: el impulso se cuenta desde el
+// extremo del DIA, y arrastrar las velas de ayer haria que el "origen" cayera en
+// otra sesion y el conteo no significara nada.
+function velas15mSesionOHLC({ maxEdadSeg = 1800 } = {}) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(SIGMA_VELAS15M_FILE, 'utf8')); }
+  catch { return null; }
+  const velas = doc?.velas;
+  if (!Array.isArray(velas) || !velas.length) return null;
+
+  const fmt = (t, opts) => new Date(t).toLocaleString('en-US', { timeZone: 'America/New_York', ...opts });
+  const diaET = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const hoy = diaET(Date.now());
+
+  const delDia = velas.filter((v) => {
+    if (v?.t == null || v.h == null || v.l == null) return false;
+    if (diaET(v.t) !== hoy) return false;
+    const hhmm = fmt(v.t, { hour: '2-digit', minute: '2-digit', hour12: false });
+    const [hh, mm] = hhmm.split(':').map(Number);
+    return hh * 60 + mm >= 9 * 60 + 30;
+  });
+  if (!delDia.length) return null;
+
+  const edadSeg = edadDesdeCierre(delDia[delDia.length - 1], 15 * 60 * 1000);
+  if (edadSeg > maxEdadSeg) return null;
+
+  return { velas: delDia, edadSeg };
 }
 
 // Velas de 5m del SPX tal como las sirve Sigma (I:SPX via su proxy de Polygon),

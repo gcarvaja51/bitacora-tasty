@@ -2339,6 +2339,94 @@ guard de re-adopción recorre **todos** los registros, no solo los vivos.
 sigue siendo mirar si `ex.leg` apunta a un contrato que no está en la cuenta** — pero ahora
 también: **preguntarle el P&L al `/gainloss` antes de dar por bueno el crédito acumulado.**
 
+## Impulsos de 15m — escalera de TP y listón de score (`src/impulsos.js`, 2026-08-27)
+
+Pedido de Guillermo sobre una sesión que el bot cerró en **+$400** pero donde el dinero
+estaba todo al principio: *"necesitamos que el bot entre en el primer o segundo impulso;
+cuando se entra en el tercero, con un call wall cerca o por encima de mi objetivo, la
+probabilidad de que el precio se devuelva es muy alta"*.
+
+**La mitad de la hipótesis ya estaba medida y era falsa.** El backtest del veto de muro
+(16-ago) probó "Call Wall cerca → no comprar" y en alcista no predijo nada: brecha de
+3,6 pp, y los 4 trades abiertos con el precio ya pasado el Call Wall ganaron los 4. Por
+eso `evaluarVetoMuroSombra` solo marca en BEARISH. Lo nuevo es el **conteo de impulsos**.
+
+**Backtest 2026-08-27** — 53 ejecuciones cerradas de TENDENCIA con timestamp y spot de
+entrada, 16 sesiones del 4 al 27 de agosto, impulsos contados con un zigzag por retroceso
+sobre las velas de 15m y umbral atado a la mediana del rango del día:
+
+| BULLISH (n=26) | n | aciertos | P&L | | BEARISH (n=27) | n | aciertos | P&L |
+|---|---|---|---|---|---|---|---|---|
+| impulso 1 | 9 | 67% | +435 | | impulsos 1-2 | 17 | 53% | −45 |
+| impulso 2 | 11 | 73% | +500 | | **impulso 3+** | 10 | **80%** | **+540** |
+| **impulso 3+** | 6 | **17%** | **−225** | | | | | |
+
+**La regla es ALCISTA y no se puede espejar.** En bajista los datos dicen lo contrario y
+con más casos (n=10 contra n=6). Aplicarla a las dos direcciones porque "suena razonable"
+rompería la mitad bajista — el mismo error que el veto de muro evitó al no aplicarse en
+alcista. Las dos asimetrías son opuestas y cada una está sostenida por su propio backtest.
+
+**Robustez**: quitando cualquier día completo, la brecha alcista queda entre **+46,7 y
++66,7 pp**, y los 6 casos del bucket 3+ vienen de **cuatro sesiones distintas** (7, 10 y
+11 de agosto, más tres del 27).
+
+**Qué poder tiene** (decisiones de Guillermo, 27-ago). **No veta** — con 6 casos negar
+entradas sería sobreajuste. Actúa por dos vías:
+
+| | |
+|---|---|
+| **Listón de score** | Impulso alcista 3+ exige `minScore` **90** en vez de 80. Cuando hay dos motivos para elevarlo (pérdida previa e impulso tardío) manda **el más alto**, no el último evaluado |
+| **Escalera de TP** | Impulso 1 → **35%** · impulso 2 → el de config (**30%**) · impulso 3+ → **15%** |
+
+⚠️ **Por qué apareció la escalera: el listón de score casi no muerde.** Los scores de
+TENDENCIA se apilan arriba — sobre 361 eventos, mediana **90** y 146 valen **exactamente
+100**. Las 3 entradas de impulso 3+ del 27-ago que se pudieron cruzar contra el log
+puntuaron **100** las tres: el día que motivó el cambio, el listón no habría cambiado nada.
+Subir de 90 a 95 tampoco serviría, porque no hay masa entre 90 y 100. Por eso se movió la
+palanca de la ENTRADA a la SALIDA, que es donde el problema realmente ocurre.
+
+**La lógica de la escalera**: cuanto más maduro el movimiento, menos recorrido le queda y
+antes hay que cobrar. El impulso 2 no se toca porque es el bucket que mejor anda (73%,
++500) y no hay nada que arreglarle. **Solo alcista**, igual que todo el módulo.
+
+**El efecto del impulso 1 hay que asumirlo y está sin medir**: subir el TP de 30 a 35 va a
+bajar algo el porcentaje de aciertos a cambio de que los aciertos sean más grandes. Con 9
+casos en ese bucket no hay forma de saber todavía si suma o resta. `tpPctExigido` viaja
+congelado en cada ejecución justamente para que el Auditor lo dictamine con muestra.
+
+**El SL no se toca.** El pedido fue cobrar antes, no arriesgar menos; mover las dos puntas
+a la vez dejaría sin saber cuál de los dos cambios hizo el efecto.
+
+El TP efectivo se aplica en un solo punto (donde se calcula `tpPct`, antes de construir
+`signal.trading`) para que la UI, el `tpTarget` mostrado, el `tpPctDebito` de la sombra del
+muro y el umbral que de verdad ejecuta el monitor digan todos lo mismo. Si se aplicara solo
+al grabar la ejecución, la señal anunciaría 30% y el monitor cerraría en 15%.
+
+**Falla abierta a propósito**: si no hay velas suficientes (`aplica:false`, típico en los
+primeros 45 min) **no se sube nada**. Una entrada tan temprana es impulso 1 ó 2 por
+definición, que es justo lo que no hay que encarecer.
+
+La lectura se calcula **una sola vez**, antes del gate de score, y esa misma se cuelga de la
+señal (`signal.impulso`), se loguea como stage `IMPULSO` y se congela en el registro de
+ejecución. Recalcularla después la haría sobre velas potencialmente distintas y el registro
+dejaría de explicar la decisión que de verdad se tomó.
+
+**Cómo se cuenta**: `contarImpulsos({velas, direction})` sobre las velas de 15m de la
+sesión en curso (`velas15mSesionOHLC()` en server.js — recortadas al día ET a propósito:
+el impulso se cuenta desde el extremo del DÍA, arrastrar las de ayer haría que el origen
+cayera en otra sesión). Zigzag por retroceso, no pivotes de N barras: un fractal de N
+barras se come los impulsos cortos y sólo confirma N barras tarde, justo cuando ya no
+sirve para decidir una entrada. El umbral es `max(4 pts, 1,2 × mediana del rango de las
+velas del día)` — 5 puntos son mucho en una sesión comprimida y poco en una de 70 de rango.
+
+**Límite conocido**: con menos de 4 velas de la sesión no devuelve número (`aplica:false`).
+Eso deja sin lectura las entradas de los primeros 45 minutos — aceptable, porque una
+entrada tan temprana es por definición impulso 1 ó 2, que es justo lo que no se vetaría.
+
+Cubierto por la batería (`scripts/pruebas.js`, bloque *El conteo de impulsos*), incluida
+una prueba explícita de que **en bajista nunca encarece la entrada** y otra que fija el
+listón en 90 exacto, para que moverlo obligue a actualizar la prueba.
+
 ## Notificaciones
 
 - Servicio: **ntfy.sh**, topic configurado en `.env`
