@@ -4570,6 +4570,36 @@ const SPX_CONFIG_DEFAULTS = {
     // observado — protege contra el tipo de deslizamiento extremo que motivo el fix
     // sin ser tan ajustado que el cierre de un stop no llegue a llenarse nunca.
     closeSlippageBufferPts: 1.0,
+    // ── Cierre a MERCADO en vez de limite (2026-08-28, decision de Guillermo) ──
+    //
+    // El colchon de arriba supone que el limite se manda al MISMO libro donde se
+    // midio el valor. En Tradier eso no se cumple: el sandbox cotiza ~15-16 min
+    // atrasado (medido el 2026-08-08 sobre 267 snapshots) mientras el valor sale
+    // de la cadena fresca via cotizarPatasFresco. Son dos libros distintos, y 1.0
+    // pt de colchon no cubre la brecha entre ellos.
+    //
+    // Caso que lo motivo (28-ago, TENDENCIA 7735/7745): cuatro limites seguidos
+    // —5.40, 5.65, 5.95, 6.65— cancelados sin llenar en diez minutos, contra un
+    // libro de Tradier que daba 5.30. Y como el limite se recotiza en cada intento
+    // sobre la cadena fresca, que iba subiendo, cada reintento se ALEJABA del fill
+    // en vez de acercarse: cuanto mas ganaba el trade, menos se podia salir.
+    // Termino cerrandose por intervencion manual.
+    //
+    // La decision es aceptar que en sandbox el fill es ficcion: se DECIDE con la
+    // cadena fresca (que es lo que dice si la estrategia sirve) y se EJECUTA a
+    // mercado, sin pretender controlar un precio en un libro que no se ve. Es el
+    // mismo criterio que ya aplica la Reversion cuando no logra cotizar ("mejor
+    // salir sin colchon que no salir") y el que usa el Iron Condor por las dos
+    // verticales — el camino con mejor registro de llenado del sistema.
+    //
+    // Lo que se PIERDE y hay que vigilar: sin limite no hay piso de precio, asi
+    // que un libro atrasado puede llenar peor de lo visto. Se mide con la sombra
+    // de cadena que ya se graba al cerrar (valorRealAlCerrar). Si el deslizamiento
+    // medido resulta peor que los ~2.4 pts de brecha entre libros que motivaron
+    // esto, poner en false y volver al limite con un buffer mas grande.
+    //
+    // NO afecta a la cuenta real de TastyTrade: este camino es solo de Tradier.
+    cierreAMercado: true,
     // Debitos direccionales (Bull Call/Bear Put) — parametros propios, separados de los
     // de credito de arriba. El TP/SL de credito (tpPct% del credito, slMult x credito) no
     // aplica conceptualmente a un debito: el riesgo maximo de un debito ya es el 100% de

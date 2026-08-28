@@ -872,7 +872,22 @@ input[type="date"]:focus, select:focus { border-color: var(--blue); }
   
   /* Cards full width */
   .card { width: 100% !important; box-sizing: border-box !important; }
-  
+
+  /* ── Cabeceras de tarjeta: que bajen de línea (2026-08-28) ────────────────
+     Sintoma: en el movil, el total del mes del Calendario no aparecia, aunque
+     los dias de la cuadricula si. En el PC salia bien.
+     Causa: .card-header es flex SIN flex-wrap, o sea nowrap. La cabecera del
+     calendario mete tres bloques en una linea (navegacion de mes + selector de
+     estrategia + los totales "Mes / Dias + / Dias -"). En un telefono no caben,
+     y como .card tiene overflow:hidden, lo que se sale queda RECORTADO en vez
+     de generar scroll. Los totales van los ultimos, asi que son los que
+     desaparecen. No estaban ocultos: estaban fuera del recuadro.
+     El mismo patron afecta a cualquier cabecera con varios bloques, por eso va
+     sobre la clase y no sobre el calendario. Ya habia un parche puntual con
+     flex-wrap en linea en una cabecera del Dashboard (index.html:159) — esto lo
+     generaliza. Solo dentro del breakpoint: en escritorio no cambia nada. */
+  .card-header { flex-wrap: wrap !important; gap: 8px 12px !important; }
+
   /* Tablas — scroll horizontal */
   table { display: block !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; }
   

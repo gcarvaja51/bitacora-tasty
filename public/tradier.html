@@ -171,6 +171,15 @@
     </div>
     <!-- ══ CALENDARIO ══════════════════════ -->
     <div id="panel-calendar" class="panel">
+      <!-- Rotulo de fuente (2026-08-28). Ver la nota larga junto al KPI de
+           "Cuenta Tradier" en loadRendimiento(): estas cifras salen del libro de
+           cadena real, no de los llenados del sandbox, y las dos series pueden
+           tener SIGNOS OPUESTOS en la misma semana. -->
+      <div style="font-size:11px;color:var(--muted);border-left:2px solid var(--muted);padding:6px 10px;margin-bottom:10px;line-height:1.5;">
+        Cifras <b>contra la cadena real</b> (cotización viva de TastyTrade), no los llenados de Tradier.
+        El sandbox cotiza ~15 min atrasado y llena peor, así que <b>el saldo del bróker difiere</b> —
+        para el dinero de la cuenta, mirar <i>Posiciones</i>.
+      </div>
       <div class="filters">
         <span class="filter-label">Estrategia</span>
         <select id="cal-familia" onchange="renderCalendarTradier()">
@@ -258,6 +267,15 @@
     </div>
     <!-- ══ HISTORIAL ═══════════════════════ -->
     <div id="panel-history" class="panel">
+      <!-- Rotulo de fuente (2026-08-28) — mismo criterio que Calendario. Ojo con
+           la columna % del capital: se calcula sobre openValue (precio de la
+           cadena), no sobre entryFill (el llenado real). El 28-ago un spread que
+           el broker liquido en +2% aparecia aqui como +74%. -->
+      <div style="font-size:11px;color:var(--muted);border-left:2px solid var(--muted);padding:6px 10px;margin-bottom:10px;line-height:1.5;">
+        Cifras <b>contra la cadena real</b> (cotización viva de TastyTrade), no los llenados de Tradier.
+        El <b>% del capital</b> se mide sobre el precio de la cadena al abrir, así que puede quedar
+        muy por encima del rendimiento que liquidó el bróker.
+      </div>
       <div class="filters">
         <span class="filter-label">Desde</span>
         <input type="date" id="hist-from">
@@ -701,7 +719,11 @@
 
       <div class="card" style="margin-bottom:14px;">
         <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>Cuenta Tradier</span>
+          <!-- 2026-08-28: se llamaba "Cuenta Tradier" y NO dibuja la cuenta. Desde
+               el 2026-08-20 esta curva es capital inicial + P&L contra la cadena
+               real (ver el comentario en loadRendimiento). El saldo del sandbox va
+               aparte, a la derecha, para que la brecha se vea en vez de sorprender. -->
+          <span>Capital <span style="color:var(--muted);font-weight:400;">— cadena real, no el saldo del bróker</span></span>
           <span id="rend-cuenta-kpi" style="font-size:11px;" class="td-mono"></span>
         </div>
         <div class="card-body chart-wrap" style="height:210px;min-height:210px;">
@@ -3288,23 +3310,39 @@ function renderCalendarTradier() {
   // que en Reportes) — siempre se recalculan aca desde m.strategies (misma
   // logica que buildMetricsTradier, src/metrics_tradier.js) para que el
   // checkbox de errores tenga efecto incluso sin filtro de familia.
-  const cal = {}, opens = {};
+  // ── Mezcla de fuentes en el total del dia (2026-08-28) ────────────────────
+  // El Historial ya marca fila por fila si el P&L salio de la cadena real o de
+  // los fills diferidos de Tradier (el sufijo "°", desde el 2026-08-20). El
+  // calendario no: sumaba s.pnl a ciegas, asi que un dia que mezcla registros
+  // viejos del broker con registros del libro propio daba un total que no es de
+  // ninguna de las dos mediciones. `mezcla` marca esos dias para que el numero
+  // se lea con la reserva que merece — no se cambia ninguna suma.
+  const cal = {}, opens = {}, mezcla = {};
   (m?.strategies || [])
     .filter(s => incluirErrores || !s.flaggedError)
     .filter(s => !familia || getFamilia(s) === familia)
     .forEach(s => {
       if (s.openDate && s.openValue > 0) opens[s.openDate] = (opens[s.openDate] || 0) + s.openValue;
-      if (s.closeDate) cal[s.closeDate] = (cal[s.closeDate] || 0) + s.pnl;
+      if (s.closeDate) {
+        cal[s.closeDate] = (cal[s.closeDate] || 0) + s.pnl;
+        if (s.pnlFuente !== 'cadena_real') mezcla[s.closeDate] = (mezcla[s.closeDate] || 0) + 1;
+      }
     });
 
   const y=S.calYear, mo=S.calMonth;
   const monthName = new Date(y,mo,1).toLocaleDateString('es-CO',{month:'long',year:'numeric'});
   $('cal-label').textContent = monthName.charAt(0).toUpperCase()+monthName.slice(1);
 
-  let moTotal=0, moPos=0, moNeg=0;
+  let moTotal=0, moPos=0, moNeg=0, moMezcla=0;
   const prefix = `${y}-${String(mo+1).padStart(2,'0')}`;
   Object.entries(cal).forEach(([d,v])=>{ if(d.startsWith(prefix)){moTotal+=v;if(v>0)moPos++;else if(v<0)moNeg++;} });
-  $('cal-month-pnl').textContent = f$(moTotal);
+  Object.entries(mezcla).forEach(([d,n])=>{ if(d.startsWith(prefix)) moMezcla+=n; });
+  // Mismo criterio que las celdas: si el mes contiene trades que no salen de la
+  // cadena real, el total del mes tampoco es homogeneo y hay que decirlo.
+  $('cal-month-pnl').textContent = f$(moTotal) + (moMezcla ? '°' : '');
+  $('cal-month-pnl').title = moMezcla
+    ? `${moMezcla} trade(s) de este mes no salen de la cadena real: el total mezcla el libro propio con los fills diferidos de Tradier.`
+    : 'Todos los trades del mes medidos contra la cadena real.';
   $('cal-month-pnl').className   = cc(moTotal);
   $('cal-pos-days').textContent  = moPos;
   $('cal-neg-days').textContent  = moNeg;
@@ -3326,7 +3364,16 @@ function renderCalendarTradier() {
     if(pnl!==undefined && pnl>0)  cls+=' pos-day';
     else if(pnl!==undefined && pnl<0) cls+=' neg-day';
     if(dateStr===todayStr) cls+=' today';
-    const pnlHtml  = pnl!==undefined ? `<div class="cal-pnl ${cc(pnl)}">${f$(pnl)}</div>` : '';
+    // El "°" es el MISMO simbolo que usa el Historial fila por fila desde el
+    // 2026-08-20 para "este numero no sale de la cadena real". Aqui marca el
+    // total del dia cuando alguna de las filas que lo componen no lo es.
+    const nMezcla  = mezcla[dateStr] || 0;
+    const gradoTip = nMezcla
+      ? ` title="${nMezcla} ${nMezcla===1?'trade de este día no sale':'trades de este día no salen'} de la cadena real (registros previos al libro propio, con los fills diferidos de Tradier): el total mezcla dos mediciones distintas."`
+      : '';
+    const pnlHtml  = pnl!==undefined
+      ? `<div class="cal-pnl ${cc(pnl)}"${gradoTip}>${f$(pnl)}${nMezcla?'°':''}</div>`
+      : '';
     const openAmt  = opens[dateStr];
     const openHtml = openAmt ? `<div class="cal-open" title="Prima cobrada (posición abierta)">+${openAmt.toFixed(0)}</div>` : '';
     html+=`<div class="${cls}" onclick="calDayClickTradier('${dateStr}',${pnl||0})">
@@ -3472,7 +3519,20 @@ async function loadTodayTradier() {
     const todayLegs  = legs.filter(s => s.closeDate === today && (incluirErrores || !s.flaggedError));
     const strategies = consolidateStrategies(todayLegs);
     strategies.forEach(s => {
-      s.capPct = s.openValue ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null;
+      // ── % del capital: solo cuando numerador y denominador son de la MISMA
+      // fuente (2026-08-28) ──────────────────────────────────────────────────
+      // openValue es SIEMPRE la prima de entrada del libro propio (entryPremium
+      // en metrics_tradier.js). El pnl, en cambio, sale de la cadena real solo
+      // cuando hay libro; si no, cae al numero del broker (ex.pnl). Dividir uno
+      // por otro mezcla dos mediciones y da un porcentaje que no describe nada.
+      //
+      // Caso que lo motivo: el 28-ago un BULL_CALL_SPREAD 7735/7745 aparecia con
+      // +74% de capital. El broker lo liquido en +2%. La cifra de papel no estaba
+      // "mal" —es correcta contra la cadena— pero es la que se mira para decidir
+      // si una estrategia pasa a la cuenta real, y ahi la diferencia importa.
+      const mismaFuente = s.pnlFuente === 'cadena_real';
+      s.capPct = (mismaFuente && s.openValue) ? Math.round(s.pnl / Math.abs(s.openValue) * 100) : null;
+      s.capPctNota = mismaFuente ? null : (s.pnlFuente || 'sin fuente');
       s.closeTime = s.closeExecAt ? new Date(s.closeExecAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '—';
     });
     // 2026-08-20: los KPI sumaban TODAS las filas del dia, incluidas las que
@@ -4094,18 +4154,64 @@ async function loadRendimiento(){
     // terminaba en un numero que no salia de ninguna de las curvas de abajo.
     const cl = curva.curve?.labels || [], cv = curva.curve?.values || [];
     const ini = cv.length? cv[0] : 0, fin = cv.length? cv[cv.length-1] : 0;
+    // 2026-08-28: junto al capital de papel se imprime el NLV que reporta Tradier
+    // y la brecha entre ambos. El dato ya viaja en /api/curve-tradier (nlvTradier),
+    // no cuesta una llamada extra. Existe porque el 28-ago la curva marcaba 100.895
+    // y la cuenta 100.533,76: la diferencia no se veia en ninguna pantalla, y
+    // semana a semana las dos series llegan a tener signos opuestos.
+    const nlvBroker = curva.nlvTradier;
+    const brecha = (cv.length && nlvBroker != null) ? (fin - nlvBroker) : null;
     $('rend-cuenta-kpi').innerHTML = cv.length
       ? `${f$(ini)} <span class="dim">→</span> <b class="${cc(fin-ini)}">${f$(fin)}</b>
-         <span class="${cc(fin-ini)}">(${f$(fin-ini)})</span>`
+         <span class="${cc(fin-ini)}">(${f$(fin-ini)})</span>` +
+        (nlvBroker != null
+          ? ` <span class="dim">· bróker ${f$(nlvBroker)}</span>` +
+            (Math.abs(brecha) >= 1 ? ` <span class="${cc(-Math.abs(brecha))}">(brecha ${f$(brecha)})</span>` : '')
+          : '')
       : '<span class="dim">sin datos</span>';
+    // ── Las DOS series, superpuestas (2026-08-28) ─────────────────────────────
+    //
+    // Verde continua = capital contra la cadena real (la medicion oficial, ver
+    // src/pnl_oficial.js). Gris punteada = el NLV que reporta Tradier.
+    //
+    // Por que las dos: hasta hoy solo se dibujaba la verde, bajo un titulo que
+    // decia "Cuenta Tradier". La brecha entre ambas no aparecia en ninguna
+    // pantalla — el 28-ago eran 361 dolares, y hay semanas en que las dos series
+    // llevan SIGNOS OPUESTOS (W31: +1.025 de papel contra -1.322 de cuenta).
+    // Verlas juntas convierte esa brecha en un dato observable, que es
+    // exactamente lo que mide cuanto cuesta el atraso de 15 min del sandbox.
+    //
+    // La gris arranca mas tarde a proposito: los snapshots de NLV empiezan el
+    // 2026-07-24 y la curva de papel el 07-07. Los huecos van como null y
+    // spanGaps:false los deja sin dibujar, en vez de inventar una linea recta
+    // sobre un periodo del que no hay dato.
+    //
+    // Punteada ademas de gris: las dos series tienen que distinguirse sin
+    // depender del color.
+    const nlvPorFecha = Object.fromEntries(curva.nlvSnapshots || []);
+    const nlvSerie    = cl.map(d => nlvPorFecha[d] ?? null);
+    const hayNlv      = nlvSerie.some(v => v != null);
     const ctxC = $('rendCuenta').getContext('2d');
     if(S.charts.rendCuenta) S.charts.rendCuenta.destroy();
     S.charts.rendCuenta = new Chart(ctxC,{ type:'line',
-      data:{ labels: cl.map(d=>d.slice(5)), datasets:[{
-        data: cv, borderColor:'#13d68f', borderWidth:2, pointRadius:0, pointHoverRadius:4,
-        tension:.15, fill:true, backgroundColor:'rgba(19,214,143,.10)' }]},
+      data:{ labels: cl.map(d=>d.slice(5)), datasets:[
+        { label:'Cadena real', data: cv, borderColor:'#13d68f', borderWidth:2, pointRadius:0, pointHoverRadius:4,
+          tension:.15, fill:true, backgroundColor:'rgba(19,214,143,.10)' },
+        ...(hayNlv ? [{ label:'Saldo Tradier', data: nlvSerie, borderColor:'#7c8798', borderWidth:1.5,
+          borderDash:[4,3], pointRadius:0, pointHoverRadius:4, tension:.15, fill:false, spanGaps:false }] : [])
+      ]},
       options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',callbacks:{label:c=>' '+f$(c.parsed.y)}}},
+        plugins:{legend:{display:hayNlv,position:'bottom',labels:{color:'#8b96a8',boxWidth:18,boxHeight:2,font:{family:'JetBrains Mono',size:9},padding:10}},
+          tooltip:{mode:'index',intersect:false,backgroundColor:'#13161e',borderColor:'#1f2433',borderWidth:1,bodyColor:'#c9d3e0',
+            callbacks:{label:c=>` ${c.dataset.label}: ${f$(c.parsed.y)}`,
+              // La brecha se calcula en el tooltip y no como tercera serie: es una
+              // resta de las dos de arriba, no un dato independiente que merezca eje.
+              afterBody:(items)=>{
+                if(items.length<2) return '';
+                const a=items.find(i=>i.dataset.label==='Cadena real')?.parsed.y;
+                const b=items.find(i=>i.dataset.label==='Saldo Tradier')?.parsed.y;
+                return (a!=null&&b!=null) ? `\nbrecha ${f$(+(a-b).toFixed(2))}` : '';
+              }}}},
         scales:{x:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:12},grid:{display:false}},
           y:{ticks:{color:'#4e5a70',font:{family:'JetBrains Mono',size:9},maxTicksLimit:6,callback:v=>'$'+Math.round(v).toLocaleString('en-US')},grid:{color:'rgba(31,36,51,.5)'}}}}});
 
