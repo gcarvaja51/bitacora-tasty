@@ -4360,9 +4360,90 @@ async function loadWheel() {
     // Un dividendo llega en dos filas: el credito y la retencion de impuesto
     // (Debit). Distinguirlas en el timeline para que la negativa no se lea como
     // "dividendo en contra".
+    // Un vertical consolidado (lleva `longStrike`) NO es una put/call suelta: el riesgo
+    // esta acotado y no hay asignacion de 100 acciones por contrato. Antes se etiquetaba
+    // igual que una desnuda y el strike de la pata larga no salia en ningun lado — el
+    // bull put GAP 19/18 se leia como "Put vendida $19", es decir $1.900 comprometidos
+    // cuando el riesgo real eran $100. `hedge`/`isSpread` no lo tapan: se calculan sobre
+    // posiciones ABIERTAS, asi que un spread ya cerrado quedaba indistinguible.
+    const evSpreadName = (e) => {
+      const esPut = /_PUT$/.test(e.type || '');
+      const estructura = esPut
+        ? (e.longStrike < e.strike ? 'Bull put'  : 'Spread put')
+        : (e.longStrike > e.strike ? 'Bear call' : 'Spread call');
+      return `${estructura} ${/^(STO|BTO)_/.test(e.type || '') ? 'abierto' : 'cerrado'}`;
+    };
+
     const evLabelFor = (e) => e.type === 'DIVIDENDO' && (e.amount || 0) < 0
       ? 'Retención dividendo'
+      : e.longStrike != null ? evSpreadName(e)
       : (evLabel[e.type] || e.type);
+
+    // Strikes de la operacion: "$19/$18" en un vertical, "$19" en una pata suelta.
+    const evStrikes = (e) => (e.strike == null ? '' :
+      ` $${e.strike}${e.longStrike != null ? '/$' + e.longStrike : ''}`);
+
+    // ── Resultado del trade en el evento de cierre ──────────────────
+    // Un BTC/STC por si solo muestra lo que costo CERRAR, no lo que dio el trade, y
+    // se lee como una perdida: el bull put GAP 19/18 cerrado el 2026-08-31 salia como
+    // "-$2.25" cuando la operacion dio +$19.50 netos (+$22 brutos). Se empareja cada
+    // cierre con su apertura por strike|expiry — la MISMA regla que ya usa
+    // Primas/Semana, para que las dos vistas no puedan contradecirse — y se muestra
+    // el resultado al lado del flujo de caja, sin tocar la columna VALOR (que sigue
+    // siendo caja pura: la suma de la columna tiene que dar el flujo del subyacente).
+    //
+    // La clave de emparejamiento DEBE llevar el tipo de opcion. Con `strike|expiry`
+    // a secas, una Put $12 06-18 y una Covered Call $12 06-18 colisionan: el cierre
+    // del bull put NU 12/11 del 2026-05-20 se emparejaba contra la Call vendida el
+    // 2026-06-10 — tres semanas DESPUES de haberlo cerrado — y daba -$10.65 en vez
+    // de +$16.96. Y como el indice guardaba una sola apertura por clave, la ultima
+    // pisaba a la anterior: una expiry que se vende, se cierra y se vuelve a vender
+    // perdia el primer round-trip.
+    const claveOpt = (e) => `${/_PUT$/.test(e.type || '') ? 'P' : 'C'}|${e.strike}|${e.expiry}`;
+
+    // Aperturas por clave, en orden de fecha. Un cierre consume la ultima apertura
+    // ANTERIOR que siga libre.
+    const indiceAperturas = (events, re) => {
+      const idx = new Map();
+      for (const ev of (events || [])) {
+        if (!re.test(ev.type || '') || ev.strike == null || !ev.expiry) continue;
+        const k = claveOpt(ev);
+        if (!idx.has(k)) idx.set(k, []);
+        idx.get(k).push({ ev, used: false });
+      }
+      return idx;
+    };
+    const tomarApertura = (idx, cierre) => {
+      const lista = idx.get(claveOpt(cierre));
+      if (!lista) return null;
+      for (let i = lista.length - 1; i >= 0; i--) {
+        if (!lista[i].used && lista[i].ev.date <= cierre.date) { lista[i].used = true; return lista[i].ev; }
+      }
+      return null;
+    };
+
+    const resultadosDeCierre = (w) => {
+      const idxSto = indiceAperturas(w.events, /^STO_/);
+      const idxBto = indiceAperturas(w.events, /^BTO_/);
+      const res = new Map();
+      for (const ev of (w.events || [])) {
+        const esBtc = /^BTC_/.test(ev.type || '');
+        const esStc = /^STC_/.test(ev.type || '');
+        if (!esBtc && !esStc) continue;
+        const ap = tomarApertura(esBtc ? idxSto : idxBto, ev);
+        if (!ap) continue;
+        res.set(ev, {
+          neto:  +(((ap.amount || 0) + (ev.amount || 0))).toFixed(2),
+          bruto: (ap.gross != null && ev.gross != null)
+                   ? +(((ap.gross) + (ev.gross))).toFixed(2) : null,
+          desde: ap.date,
+        });
+      }
+      return res;
+    };
+    const fmtMonto = (v) => (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
+    const resultadoTxt = (r) => !r ? '' :
+      ` · trade ${fmtMonto(r.neto)} neto${r.bruto != null ? ` (${fmtMonto(r.bruto)} bruto)` : ''} desde ${r.desde}`;
 
     // ── VISTA TABLA ──────────────────────────────────────────────
     const tablaHtml = (() => {
@@ -4414,15 +4495,16 @@ async function loadWheel() {
             <th class="wheel-event-th" style="text-align:left;">DESCRIPCIÓN</th>
             <th class="wheel-event-th" style="text-align:right;">VALOR</th>
           </tr></thead>
-          <tbody>${w.events.map(e => {
+          <tbody>${(() => { const resDe = resultadosDeCierre(w); return w.events.map(e => {
           const isRoll = e.type === 'ROLL';
           const tipo = evIconFor(e);
+          const res  = resDe.get(e);
           const desc = isRoll ? `Roll $${e.fromStrike}→$${e.toStrike} · ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
             : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
             : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
             : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
             : e.type === 'DIVIDENDO' && e.retencion ? `Bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
-            : `${evLabelFor(e)}${e.strike?' $'+e.strike:''}${e.expiry?' '+e.expiry.slice(5):''}`;
+            : `${evLabelFor(e)}${evStrikes(e)}${e.expiry?' '+e.expiry.slice(5):''}${resultadoTxt(res)}`;
           const amt = e.amount||0;
           const amtCls = amt>=0?'pos':'neg';
           const amtStr = (amt>=0?'+$':'-$')+Math.abs(amt).toFixed(2);
@@ -4432,7 +4514,7 @@ async function loadWheel() {
             <td style="color:var(--muted2);">${desc}</td>
             <td style="text-align:right;" class="${amtCls}">${amtStr}</td>
           </tr>`;
-        }).join('')}</tbody></table>`;
+        }).join(''); })()}</tbody></table>`;
 
         const id = 'wr-'+w.underlying;
         return `<div class="wheel-row" id="${id}">
@@ -4504,14 +4586,16 @@ async function loadWheel() {
           </div>
         </div>` : '';
 
+      const resDeCard = resultadosDeCierre(w);
       const timelineHtml = w.events.map(e => {
         const isRoll = e.type === 'ROLL';
+        const res    = resDeCard.get(e);
         const desc   = isRoll ? `Roll: $${e.fromStrike}→$${e.toStrike} | ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
           : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
           : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'DIVIDENDO' && e.retencion ? `Dividendo: bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
-          : `${evLabelFor(e)}${e.strike?` $${e.strike}`:''}${e.expiry?` ${e.expiry.slice(5)}` :''}`;
+          : `${evLabelFor(e)}${evStrikes(e)}${e.expiry?` ${e.expiry.slice(5)}` :''}${resultadoTxt(res)}`;
         const amt = e.amount||0;
         return `<div class="wheel-event">
           <div class="wheel-event-icon">${evIconFor(e)}</div>
@@ -4738,24 +4822,18 @@ async function loadWheel() {
       for (const w of wheels) {
         if (!tickerMap[w.underlying]) tickerMap[w.underlying] = {};
 
-        // Indexar todos los STOs por strike|expiry para vincularlos con su BTC
-        const stoIndex = new Map(); // 'strike|expiry' → { amount, date, used }
-        for (const ev of w.events) {
-          if ((ev.type === 'STO_PUT' || ev.type === 'STO_CALL') && ev.strike != null && ev.expiry) {
-            stoIndex.set(`${ev.strike}|${ev.expiry}`, { amount: ev.amount || 0, date: ev.date, used: false });
-          }
-        }
-
-        // Mismo indice para las patas LARGAS (BTO → STC). Simetrico al de arriba:
-        // el debito de abrir la pata larga se muestra neteado en la semana en que
-        // se cierra, no en la de apertura, para que un spread no aparezca como una
-        // perdida en una semana y una ganancia en otra.
-        const btoIndex = new Map();
-        for (const ev of w.events) {
-          if ((ev.type === 'BTO_PUT' || ev.type === 'BTO_CALL') && ev.strike != null && ev.expiry) {
-            btoIndex.set(`${ev.strike}|${ev.expiry}`, { amount: ev.amount || 0, date: ev.date, used: false });
-          }
-        }
+        // Aperturas cortas (STO → BTC) y largas (BTO → STC). El debito de abrir la
+        // pata larga se muestra neteado en la semana en que se cierra, no en la de
+        // apertura, para que un spread no aparezca como una perdida en una semana y
+        // una ganancia en otra.
+        //
+        // AJUSTE 2026-08-31: los dos indices se construyen con `indiceAperturas`, que
+        // mete el tipo de opcion en la clave y guarda TODAS las aperturas de esa clave
+        // en orden. Con la clave vieja (`strike|expiry`) una Put $12 06-18 y una
+        // Covered Call $12 06-18 colisionaban, y la ultima apertura pisaba a la
+        // anterior — el mismo defecto que corregia mal el timeline de NU.
+        const stoIndex = indiceAperturas(w.events, /^STO_/);
+        const btoIndex = indiceAperturas(w.events, /^BTO_/);
 
         const addAmt = (date, amt) => {
           const wk = mondayOf(date);
@@ -4770,45 +4848,27 @@ async function loadWheel() {
 
           } else if (ev.type === 'BTC_PUT' || ev.type === 'BTC_CALL') {
             // BTC: buscar el STO que lo originó y mostrar el neto en la semana del cierre
-            const key = `${ev.strike}|${ev.expiry}`;
-            const sto = stoIndex.get(key);
-            if (sto) {
-              sto.used = true;
-              addAmt(ev.date, sto.amount + (ev.amount || 0)); // neto en semana del BTC
-            }
+            const sto = tomarApertura(stoIndex, ev);
             // Si no hay STO matching (caso raro), mostrar el BTC solo
-            else { addAmt(ev.date, ev.amount || 0); }
+            addAmt(ev.date, (sto ? (sto.amount || 0) : 0) + (ev.amount || 0));
 
           } else if (ev.type === 'STC_PUT' || ev.type === 'STC_CALL') {
             // Cierre de pata larga: netear contra su BTO, misma logica que arriba
-            const key = `${ev.strike}|${ev.expiry}`;
-            const bto = btoIndex.get(key);
-            if (bto) {
-              bto.used = true;
-              addAmt(ev.date, bto.amount + (ev.amount || 0));
-            }
-            else { addAmt(ev.date, ev.amount || 0); }
+            const bto = tomarApertura(btoIndex, ev);
+            addAmt(ev.date, (bto ? (bto.amount || 0) : 0) + (ev.amount || 0));
 
           }
           // STO_*/BTO_*: se procesan al llegar su cierre o al expirar (ver abajo)
         }
 
-        // STOs que expiraron sin BTC → mostrar prima en la semana de su expiry
-        for (const [key, sto] of stoIndex) {
-          if (!sto.used) {
-            const expiry = key.split('|')[1];
-            if (expiry && expiry < today) {
-              addAmt(expiry, sto.amount); // semana de la expiry
-            }
-          }
-        }
-
-        // BTOs que expiraron sin venderse → la prima pagada se pierde entera
-        for (const [key, bto] of btoIndex) {
-          if (!bto.used) {
-            const expiry = key.split('|')[1];
-            if (expiry && expiry < today) {
-              addAmt(expiry, bto.amount); // amount ya viene negativo
+        // Aperturas que expiraron sin cierre → van a la semana de su expiry. Los STO
+        // dejan la prima cobrada; los BTO, el debito perdido entero (ya viene negativo).
+        for (const idx of [stoIndex, btoIndex]) {
+          for (const lista of idx.values()) {
+            for (const it of lista) {
+              if (it.used) continue;
+              const expiry = it.ev.expiry;
+              if (expiry && expiry < today) addAmt(expiry, it.ev.amount || 0);
             }
           }
         }
