@@ -87,3 +87,17 @@ _*.cmd
 # _abrir_captura.cmd queda FUERA del arbol a proposito: lleva la ruta absoluta
 # del Chromium de puppeteer, que cambia con cada version. Se regenera cuando
 # haga falta re-loguear el perfil de la captura.
+
+# Volcados de una sesion de diagnostico (2026-08-31). `*_tmp.json` son respuestas
+# crudas de produccion guardadas para mirarlas con jq; los `.log`/`_salida.txt`/
+# `_stderr.txt` del collector y los PNG de escenarios son salida generada, no
+# fuente. 1,4 MB que no aportan nada al historial y ensucian cada `git status`.
+*_tmp.json
+premercado_collector/*.log
+premercado_collector/*_salida.txt
+premercado_collector/*_stderr.txt
+escenarios_*.png
+spx_30m_*.png
+# Copia de seguridad de un cambio en curso. Misma razon que `*.bak_20*`: la buena
+# es la que esta versionada.
+*.bak_rueda_*

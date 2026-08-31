@@ -149,3 +149,416 @@ a capturar: SPX, IBIT, NFLX, BA, SOFI, ADBE, JBLU, NIO, NU, BE, GAP
 [captura] El daemon fallara en cada ciclo hasta que se arregle a mano.
 [Tue 08/25/2026 15:40:45.06] Terminado con codigo 1 
 [Tue 08/25/2026 15:40:45.11] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Wed 08/26/2026  9:45:01.69] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, IBIT, NFLX, BA, SOFI, ADBE, JBLU, NIO, NU, BE, GAP
+
+[SPX]
+   FALLO SPX: Sigma Terminal no devolvio el simbolo tras 10s -- la pagina no termino de cargar
+
+[IBIT]
+   FALLO IBIT: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NFLX]
+   FALLO NFLX: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[BA]
+   FALLO BA: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[SOFI]
+   FALLO SOFI: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[ADBE]
+   FALLO ADBE: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[JBLU]
+   FALLO JBLU: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NIO]
+   FALLO NIO: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NU]
+   FALLO NU: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[BE]
+   FALLO BE: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[GAP]
+   FALLO GAP: No element found for selector: [class*="greeks_tickerBtn__"]
+[captura] intento 1 de restaurar fallo: No element found for selector: [class*="greeks_tickerBtn__"]
+[captura] intento 2 de restaurar fallo: No element found for selector: [class*="greeks_tickerBtn__"]
+[captura] intento 3 de restaurar fallo: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[captura] no se pudo devolver la pestaña auxiliar a SPX;
+[captura] no importa: se cierra igual y el daemon no se entera.
+[Wed 08/26/2026  9:47:02.91] Terminado con codigo 1 
+[Wed 08/26/2026  9:47:03.23] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Wed 08/26/2026 15:40:00.92] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, IBIT, NFLX, BA, SOFI, ADBE, JBLU, NIO, NU, BE, GAP
+
+[SPX]
+   FALLO SPX: el panel muestra "null" y se pidio "SPX" -- no se guarda
+
+[IBIT]
+   FALLO IBIT: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NFLX]
+   FALLO NFLX: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[BA]
+   FALLO BA: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[SOFI]
+   FALLO SOFI: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[ADBE]
+   FALLO ADBE: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[JBLU]
+   FALLO JBLU: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NIO]
+   FALLO NIO: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[NU]
+   FALLO NU: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[BE]
+   FALLO BE: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[GAP]
+   FALLO GAP: No element found for selector: [class*="greeks_tickerBtn__"]
+[captura] intento 1 de restaurar fallo: No element found for selector: [class*="greeks_tickerBtn__"]
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+ERROR: The process with PID 40352 (child process of PID 32520) could not be terminated.
+Reason: There is no running instance of the task.
+[Wed 08/26/2026 15:41:24.22] Terminado con codigo 1 
+[Wed 08/26/2026 15:41:24.25] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Thu 08/27/2026  9:45:01.04] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, ADBE, IBIT, NFLX, BA, SOFI, JBLU, NIO, NU, BE, GAP
+
+[SPX]
+   guardado  SPX    exp=2026-08-27  maxPain=7685  MVS=7725  cw=7725  pw=7700
+   guardado  SPX    exp=2026-08-28  maxPain=7685  MVS=7725  cw=7725  pw=7700
+
+[ADBE]
+   guardado  ADBE   exp=2026-08-28  maxPain=272.5  MVS=280  cw=300  pw=275
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[IBIT]
+   guardado  IBIT   exp=2026-08-28  maxPain=43  MVS=45  cw=46  pw=45
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-08-28  maxPain=80  MVS=80  cw=80  pw=79
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BA]
+   guardado  BA     exp=2026-08-28  maxPain=212.5  MVS=210  cw=215  pw=205
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SOFI]
+   guardado  SOFI   exp=2026-08-28  maxPain=18.5  MVS=19.5  cw=19.5  pw=19
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-08-28  maxPain=5  MVS=5  cw=5.5  pw=5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-08-28  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-08-28  maxPain=15  MVS=15  cw=15  pw=14.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-08-28  maxPain=210  MVS=215  cw=225  pw=210
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-08-28  maxPain=20.5  MVS=19  cw=23  pw=19
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+ERROR: The process with PID 26072 (child process of PID 21528) could not be terminated.
+Reason: The operation attempted is not supported.
+[Thu 08/27/2026  9:49:55.30] Terminado con codigo 0 
+[Thu 08/27/2026 15:40:01.21] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, ADBE, IBIT, NFLX, BA, SOFI, JBLU, NIO, NU, BE
+
+[SPX]
+   guardado  SPX    exp=2026-08-27  maxPain=7685  MVS=7730  cw=7735  pw=7725
+   guardado  SPX    exp=2026-08-28  maxPain=7675  MVS=7700  cw=7750  pw=7700
+
+[GAP]
+   guardado  GAP    exp=2026-08-28  maxPain=21  MVS=23  cw=23.5  pw=22
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ADBE]
+   guardado  ADBE   exp=2026-08-28  maxPain=272.5  MVS=285  cw=290  pw=275
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[IBIT]
+   guardado  IBIT   exp=2026-08-28  maxPain=43  MVS=45  cw=46  pw=45
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-08-28  maxPain=80  MVS=80  cw=81  pw=80
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BA]
+   guardado  BA     exp=2026-08-28  maxPain=212.5  MVS=210  cw=212.5  pw=210
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SOFI]
+   guardado  SOFI   exp=2026-08-28  maxPain=18.5  MVS=19  cw=19.5  pw=19
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-08-28  maxPain=5  MVS=5  cw=5  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-08-28  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-08-28  maxPain=15  MVS=15  cw=15  pw=14.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-08-28  maxPain=210  MVS=215  cw=225  pw=210
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Thu 08/27/2026 15:42:15.06] Terminado con codigo 0 
+[Fri 08/28/2026  9:45:01.82] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, ADBE, IBIT, NFLX, BA, SOFI, JBLU, NIO, NU, BE
+
+[SPX]
+   FALLO SPX: el panel muestra "NFLX" y se pidio "SPX" -- no se guarda
+
+[GAP]
+   guardado  GAP    exp=2026-08-28  maxPain=21.5  MVS=24  cw=24  pw=22
+   guardado  GAP    exp=2026-09-04  maxPain=21.5  MVS=22.5  cw=24  pw=21.5
+
+[ADBE]
+   guardado  ADBE   exp=2026-08-28  maxPain=275  MVS=290  cw=300  pw=292.5
+   guardado  ADBE   exp=2026-09-04  maxPain=277.5  MVS=280  cw=305  pw=270
+
+[IBIT]
+   guardado  IBIT   exp=2026-08-28  maxPain=43  MVS=45  cw=45  pw=44.5
+   guardado  IBIT   exp=2026-09-04  maxPain=43  MVS=44  cw=45  pw=44.5
+
+[NFLX]
+   guardado  NFLX   exp=2026-08-28  maxPain=80  MVS=82  cw=82  pw=81
+   guardado  NFLX   exp=2026-09-04  maxPain=78  MVS=81  cw=83  pw=80
+
+[BA]
+   guardado  BA     exp=2026-08-28  maxPain=212.5  MVS=210  cw=210  pw=207.5
+   guardado  BA     exp=2026-09-04  maxPain=212.5  MVS=210  cw=215  pw=205
+
+[SOFI]
+   guardado  SOFI   exp=2026-08-28  maxPain=18.5  MVS=19  cw=19  pw=18.5
+   guardado  SOFI   exp=2026-09-04  maxPain=18.5  MVS=18.5  cw=20  pw=18.5
+
+[JBLU]
+   guardado  JBLU   exp=2026-08-28  maxPain=5  MVS=5  cw=5  pw=4.5
+   guardado  JBLU   exp=2026-09-04  maxPain=5  MVS=5  cw=5  pw=4.5
+
+[NIO]
+   guardado  NIO    exp=2026-08-28  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   guardado  NIO    exp=2026-09-04  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+
+[NU]
+   guardado  NU     exp=2026-08-28  maxPain=15  MVS=14.5  cw=14.5  pw=14
+   guardado  NU     exp=2026-09-04  maxPain=14.5  MVS=14.5  cw=15  pw=14
+
+[BE]
+   guardado  BE     exp=2026-08-28  maxPain=215  MVS=215  cw=225  pw=220
+   guardado  BE     exp=2026-09-04  maxPain=220  MVS=235  cw=235  pw=200
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Fri 08/28/2026  9:47:21.97] Terminado con codigo 1 
+[Fri 08/28/2026  9:47:21.98] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Fri 08/28/2026 15:40:01.52] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, PG, VIX, WMT, GAP, ADBE, NFLX, BA, SOFI, JBLU, NIO, NU, BE
+
+[SPX]
+   guardado  SPX    exp=2026-08-28  maxPain=7690  MVS=7710  cw=7715  pw=7710
+   guardado  SPX    exp=2026-09-04  maxPain=7700  MVS=7750  cw=7750  pw=7650
+
+[PG]
+   guardado  PG     exp=2026-08-28  maxPain=144  MVS=144  cw=144  pw=143
+   guardado  PG     exp=2026-09-04  maxPain=144  MVS=144  cw=144  pw=143
+
+[VIX]
+   guardado  VIX    exp=2026-09-02  maxPain=15  MVS=14.5  cw=15  pw=14
+   (sin chip de viernes disponible)
+
+[WMT]
+   guardado  WMT    exp=2026-08-28  maxPain=103  MVS=103  cw=104  pw=103
+   guardado  WMT    exp=2026-09-04  maxPain=103  MVS=103  cw=104  pw=100
+
+[GAP]
+   guardado  GAP    exp=2026-08-28  maxPain=21.5  MVS=23.5  cw=23.5  pw=22
+   guardado  GAP    exp=2026-09-04  maxPain=21.5  MVS=22.5  cw=24  pw=21.5
+
+[ADBE]
+   guardado  ADBE   exp=2026-08-28  maxPain=275  MVS=290  cw=292.5  pw=290
+   guardado  ADBE   exp=2026-09-04  maxPain=277.5  MVS=280  cw=305  pw=275
+
+[NFLX]
+   guardado  NFLX   exp=2026-08-28  maxPain=80  MVS=82  cw=82  pw=81
+   guardado  NFLX   exp=2026-09-04  maxPain=78  MVS=80  cw=82  pw=80
+
+[BA]
+   guardado  BA     exp=2026-08-28  maxPain=212.5  MVS=210  cw=210  pw=207.5
+   guardado  BA     exp=2026-09-04  maxPain=212.5  MVS=210  cw=215  pw=205
+
+[SOFI]
+   guardado  SOFI   exp=2026-08-28  maxPain=18.5  MVS=18  cw=19  pw=18
+   guardado  SOFI   exp=2026-09-04  maxPain=18.5  MVS=18.5  cw=18.5  pw=18
+
+[JBLU]
+   guardado  JBLU   exp=2026-08-28  maxPain=5  MVS=5  cw=5  pw=4.5
+   guardado  JBLU   exp=2026-09-04  maxPain=5  MVS=5  cw=5  pw=4.5
+
+[NIO]
+   guardado  NIO    exp=2026-08-28  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   guardado  NIO    exp=2026-09-04  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+
+[NU]
+   guardado  NU     exp=2026-08-28  maxPain=15  MVS=14.5  cw=14.5  pw=14
+   guardado  NU     exp=2026-09-04  maxPain=14.5  MVS=14.5  cw=15  pw=14
+
+[BE]
+   guardado  BE     exp=2026-08-28  maxPain=207.5  MVS=210  cw=215  pw=210
+   guardado  BE     exp=2026-09-04  maxPain=212.5  MVS=200  cw=230  pw=200
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Fri 08/28/2026 15:43:13.17] Terminado con codigo 0 
+[Mon 08/31/2026  9:45:01.95] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, PG, VIX, WMT, GAP, ADBE, NFLX, BA, SOFI, JBLU, NIO, NU, BE
+
+[SPX]
+   FALLO SPX: el panel muestra "NIO" y se pidio "SPX" -- no se guarda
+
+[PG]
+   guardado  PG     exp=2026-09-04  maxPain=144  MVS=144  cw=147  pw=142
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-02  maxPain=16  MVS=15  cw=16  pw=15
+   (sin chip de viernes disponible)
+
+[WMT]
+   guardado  WMT    exp=2026-09-04  maxPain=103  MVS=105  cw=105  pw=103
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-09-04  maxPain=22.5  MVS=21  cw=24  pw=21
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ADBE]
+   guardado  ADBE   exp=2026-09-04  maxPain=280  MVS=280  cw=305  pw=275
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-04  maxPain=79  MVS=80  cw=81  pw=80
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BA]
+   guardado  BA     exp=2026-09-04  maxPain=212.5  MVS=210  cw=212.5  pw=205
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SOFI]
+   guardado  SOFI   exp=2026-09-04  maxPain=18.5  MVS=18.5  cw=18.5  pw=17.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-04  maxPain=5  MVS=5  cw=5  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-04  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-04  maxPain=14.5  MVS=14.5  cw=14.5  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-09-04  maxPain=215  MVS=200  cw=220  pw=200
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Mon 08/31/2026  9:47:02.03] Terminado con codigo 1 
+[Mon 08/31/2026  9:47:02.04] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Mon 08/31/2026 15:40:01.72] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, ADBE, PG, VIX, WMT, GAP, NFLX, BA, SOFI, JBLU, NIO, NU, BE
+
+[SPX]
+   guardado  SPX    exp=2026-08-31  maxPain=7660  MVS=7685  cw=7700  pw=7685
+   guardado  SPX    exp=2026-09-04  maxPain=7700  MVS=7700  cw=7750  pw=7650
+
+[ADBE]
+   guardado  ADBE   exp=2026-09-04  maxPain=280  MVS=280  cw=305  pw=285
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[PG]
+   guardado  PG     exp=2026-09-04  maxPain=144  MVS=144  cw=147  pw=144
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-02  maxPain=16  MVS=15  cw=15  pw=14.5
+   (sin chip de viernes disponible)
+
+[WMT]
+   guardado  WMT    exp=2026-09-04  maxPain=103  MVS=105  cw=105  pw=103
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-09-04  maxPain=22.5  MVS=21  cw=22.5  pw=21
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-04  maxPain=79  MVS=80  cw=83  pw=80
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BA]
+   guardado  BA     exp=2026-09-04  maxPain=212.5  MVS=210  cw=212.5  pw=207.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SOFI]
+   guardado  SOFI   exp=2026-09-04  maxPain=18.5  MVS=18.5  cw=18.5  pw=17.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-04  maxPain=5  MVS=5  cw=5  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-04  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-04  maxPain=14.5  MVS=14.5  cw=15  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-09-04  maxPain=215  MVS=200  cw=220  pw=200
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Mon 08/31/2026 15:42:11.84] Terminado con codigo 0 

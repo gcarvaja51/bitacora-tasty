@@ -330,11 +330,22 @@ function decidir(premercado, mercado, cfgUsuario = {}) {
         reason: `Precio a ${Math.abs(mercado.precio - pin).toFixed(1)} pts del pin ${pin}; ` +
                 `maximo ${n.maxDistPinPts}`, motivos };
     }
+    // GATE DE MERCADO HORIZONTAL (2026-08-25). Ver `senales_horizontal.js` para
+    // la medicion: no da ventaja por si solo, pero evita el peor grupo de dias
+    // (MACD con pendiente + EMAs abiertas), que tiene EV -7,13 pts contra los
+    // -1,94 del grupo que si pasa. Es un filtro de exclusion, no una señal.
+    const sh = mercado.senalesHorizontal;
+    if (n.requiereMercadoHorizontal !== false && sh && !sh.ok) {
+      return { ...base, stage: 'NEUTRAL_NO_HORIZONTAL', passed: false, operar: false,
+        reason: `El mercado no luce horizontal: ${sh.motivo}`, motivos,
+        senales: { macdHist: sh.macdHist, dispEmas: sh.dispEmas } };
+    }
     return {
       ...base, stage: 'DECISION', passed: true, operar: true,
       direccion, escenario, motivos,
-      estructura: { tipo: 'NEUTRAL', pin, anchoAla: cfg.direccional.anchoSpreadPts,
+      estructura: { tipo: 'NEUTRAL', pin, anchoAla: n.anchoAla || cfg.direccional.anchoSpreadPts,
                     minCreditoAnchoPct: n.minCreditoAnchoPct },
+      senales: sh ? { macdHist: sh.macdHist, dispEmas: sh.dispEmas } : null,
       reason: `Neutral validado con gamma positivo y precio a ` +
               `${Math.abs(mercado.precio - pin).toFixed(1)} pts del pin`,
     };

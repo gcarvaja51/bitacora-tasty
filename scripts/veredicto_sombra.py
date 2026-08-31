@@ -129,6 +129,25 @@ PROPUESTAS = [
         "instrumento": "sombra_direccion",
     },
     {
+        "id": "DIR-2", "familia": "DIRECCIONAL", "nivel": "alto",
+        "titulo": "El tope del pullback (maxATR 0.8) mata 1 de cada 4 retrocesos",
+        "pregunta": "¿Un retroceso mas holgado (0.8 -> 1.0 x ATR) entra igual de bien?",
+        # SIN INSTRUMENTO A PROPOSITO, y no es un olvido: no se puede construir
+        # hacia atras. El lado rechazado (NO_PULLBACK_2M) guarda distMinima/atr
+        # solo DENTRO de la frase del reason; el lado aceptado (SIGNAL_BUILT), que
+        # es el unico con resultado real, no guarda NADA del pullback. Sin eso no
+        # hay forma de partir los trades reales por que tan ajustado fue su
+        # retroceso, que es exactamente la pregunta.
+        #
+        # Prerequisito, y es la mitad de la propuesta: estampar distMinima,
+        # distActual, atr y la razon |distMinima|/tope en el snapshot de
+        # SIGNAL_BUILT y en el registro de la ejecucion — igual que macd15m para
+        # DIR-1 y que algoVersion — para que la muestra crezca sin depender de las
+        # 5000 filas del log. Recien ahi se parte por banda, como
+        # reversion-sombra.porBandaAlejamiento, y recien ahi se mueve el 0.8.
+        "instrumento": None,
+    },
+    {
         "id": "NEU-2", "familia": "NEUTRAL", "nivel": "medio",
         "titulo": "El piso de credito y el limite de precio son la misma perilla",
         "pregunta": "¿El desacople aplicado el 13-ago esta cumpliendo?",

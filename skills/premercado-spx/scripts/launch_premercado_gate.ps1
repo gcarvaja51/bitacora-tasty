@@ -182,6 +182,40 @@ try {
     Pop-Location
 }
 
+# 4.6) Base SP500 vs SPX (2026-08-31, nuevo) -- mide el desfase entre el CFD que
+#      Guillermo tiene en pantalla (VANTAGE:SP500) y el SPX de contado sobre el que
+#      esta escrito TODO el informe. Sin esto, cada nivel que publica el premercado
+#      esta ~7,5 puntos por debajo de donde el lo ve, y los disparadores de 15m no
+#      coinciden con su chart.
+#
+#      Corre DESPUES del colector a proposito: es solo lectura por CDP y no compite
+#      por la conexion. Best-effort y con techo corto -- si falla, el skill sigue con
+#      la ultima base guardada en base_sp500_vs_spx.json, que es un dato que envejece
+#      despacio (deriva medida: -0,07 pts por sesion).
+Push-Location "C:\Users\gcarv\bitacora-tasty\premercado_collector"
+try {
+    $baseOut = Join-Path $logDir "premercado_base_sp500_salida.txt"
+    $bproc = Start-Process -FilePath "node" -ArgumentList 'base_sp500.js' `
+        -RedirectStandardOutput $baseOut `
+        -RedirectStandardError (Join-Path $logDir "premercado_base_sp500_stderr.txt") `
+        -NoNewWindow -PassThru
+    $null = $bproc.Handle
+    if (-not $bproc.WaitForExit(2 * 60 * 1000)) {
+        Stop-Process -Id $bproc.Id -Force -ErrorAction SilentlyContinue
+        Write-Log "Base SP500: TIMEOUT (>2 min). Se usa la ultima base guardada."
+    } elseif ($bproc.ExitCode -ne 0) {
+        Write-Log "Base SP500: FALLO (exit $($bproc.ExitCode)). Se usa la ultima base guardada."
+    } else {
+        $lineaBase = @(Get-Content $baseOut -ErrorAction SilentlyContinue | Where-Object { $_ -match '\[base\] VIGENTE' })
+        if ($lineaBase.Count -gt 0) { Write-Log "Base SP500: $($lineaBase[0])" }
+        else { Write-Log "Base SP500: OK (sin linea VIGENTE en la salida)." }
+    }
+} catch {
+    Write-Log "Base SP500 fallo por completo (excepcion): $($_.Exception.Message)"
+} finally {
+    Pop-Location
+}
+
 # 5) Todo OK -- lanzar el skill en modo headless, sin intervencion humana.
 #    --permission-mode bypassPermissions: no hay usuario presente para
 #    aprobar nada: el allowlist de .claude/settings.json ya cubre las

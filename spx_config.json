@@ -83,8 +83,8 @@
     "ivRankCreditoTasty": 30,
     "toleranciaDeslizamientoPct": 100,
     "premercado": {
-      "tradierAutoExecute": false,
-      "_nota": "Arranca APAGADO a proposito: la estrategia decide sola y todavia no tiene muestra. Encender solo cuando el registro en papel lo justifique.",
+      "tradierAutoExecute": true,
+      "_nota": "ENCENDIDA 2026-08-25 a pedido de Guillermo para acumular muestra. Tradier es SANDBOX/DEMO: no hay dinero real en juego. 1 contrato por trade a proposito -- el objetivo es generar observaciones para analizar, no rentabilidad. Revisar la muestra a las 20-30 operaciones antes de tocar el tamano.",
       "ventanaInicioET": 10.0,
       "ventanaFinET": 11.0,
       "minVelas15mCerradas": 2,
@@ -92,17 +92,44 @@
       "direccional": {
         "anchoSpreadPts": 25,
         "minDistanciaTargetPts": 12,
-        "tpPct": 50,
-        "slPct": 50
+        "slPct": 50,
+        "_tp": "La toma de ganancia NO es un % : es el nivel mas lejano que declaro el premercado (nivelProfit). El SL si es % de lo pagado, igual que trading.debit.slPct."
       },
       "neutral": {
         "maxDistPinPts": 8,
         "minCreditoAnchoPct": 35,
         "requiereGammaPositivo": true,
-        "anchoAla": 25
+        "anchoAla": 25,
+        "tpPct": 30,
+        "slMult": 1.5,
+        "_sl": "slMult aplica al COSTO DE CERRAR, no al P&L neto -- misma convencion que ironCondor.slMult (ver el comentario del bug en server.js ~9133).",
+        "estructura": "IRON_BUTTERFLY",
+        "_estructura": "Decision de Guillermo 2026-08-25: los neutrales SIEMPRE son iron butterfly, nunca condor. Motivo medido: un condor en los bordes del corredor rinde 8-15% del ala y jamas alcanzaba el minCreditoAnchoPct de 35% (que salio de medir un butterfly). La rama neutral no habria disparado nunca. El butterfly centrado en el pin rinde 45-53%.",
+        "requiereMercadoHorizontal": true,
+        "maxAbsMacdHist15m": 4.02,
+        "maxDispEmas15mPts": 20.6,
+        "_senales": "Umbrales en el p60 de 58 sesiones (jun-ago 2026), señal a las 10:30 ET. DELIBERADAMENTE FLOJOS. Antes estaban en p50/p40 (3.4/16.4) presentados como \"el corte de mejor EV\" -- eso era SOBREAJUSTE: un barrido 2D de 7x7 cortes mostro que TODAS las celdas dan EV negativo (-2.26 a -6.04) y que celdas vecinas saltan mas que cualquier tendencia. Es ruido de muestra pequeña, y p50xp40 era justo el maximo del ruido. Lo unico que los datos sostienen es el efecto GRUESO: dias tranquilos mueven 21,5 pts y dias agitados 36,9. Asi que el filtro solo debe quitar el 40% claramente agitado (que tenia EV -7,13), no fingir que sabe donde esta la frontera. NO reafinar estos numeros sin muestra nueva: bajarlos otra vez seria repetir el error."
       },
-      "riskPctPerTrade": 1,
-      "bufferNivelPts": 3
+      "bufferNivelPts": 3,
+      "contratos": 1,
+      "monitorIntervaloSeg": 60,
+      "cierreForzadoET": null,
+      "_cierre": "cierreForzadoET en null = se deja vencer. SPX liquida en efectivo, no hay riesgo de asignacion, y dejarlo vencer es exactamente lo que modela el registro en papel.",
+      "_tamano": "Se usa  (1 fijo), NO un % de riesgo. Se quito riskPctPerTrade a proposito: estaba en la config sin que ningun codigo lo leyera, que es la misma trampa ya documentada en src/frenos.js para la reversion. Si algun dia se dimensiona por riesgo, implementarlo ANTES de volver a poner la clave.",
+      "vigilanteGex": {
+        "autoExecute": false,
+        "_nota": "APAGADO hasta que haya muestra. La regla NO esta validada: el historico de muros del daemon guarda el strike pero no la magnitud, asi que la condicion del 2x nunca se pudo backtestear. gex_perfil.cjs empezo a guardarla el 2026-08-25.",
+        "intervaloMin": 5,
+        "desdeET": 10.0,
+        "hastaET": 15.0,
+        "persistenciaMin": 30,
+        "dominanciaMin": 2.0,
+        "dominanciaCercana": 1.8,
+        "corredorMaxPts": 45,
+        "ladoRequerido": "cualquiera",
+        "ala": 25,
+        "minCreditoAnchoPct": 35
+      }
     }
   },
   "entryMode": "pullback",

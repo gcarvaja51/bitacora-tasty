@@ -458,6 +458,113 @@ chart del SPX sí estaba compuesto (624×562) y el guard no disparó. Cuando la 
 posible se hace, y cuando no, se corta en seco y se dibuja. Si algún día la pestaña del
 SPX vuelve a ser la activa a las 7:30am, la captura real vuelve sola.
 
+## La base SP500 ↔ SPX — el informe y su pantalla no hablan el mismo idioma (2026-08-31)
+
+Guillermo lo planteó así: *"el precio que muestra el activo SP500 que revisamos no es igual
+al precio que muestra el SPX, la diferencia es como de 8 puntos"*. Tiene razón, y el efecto
+no es cosmético: **todo este skill está escrito en SPX de contado** — las velas de Yahoo
+(`^GSPC`), los estudios que se leen del pane `SPCFD:SPX`, los muros, los disparadores de
+15m — mientras él trabaja con **`VANTAGE:SP500`** al frente. Cuando el informe dice "cierre
+de 15m bajo 7.671", en su pantalla ese nivel está ~7,5 puntos más arriba. Cada disparador
+del día está desplazado, en la misma dirección y sin avisar.
+
+**Se mide, no se asume**: `premercado_collector/base_sp500.js` (repo `bitacora-tasty`), que
+el gate corre en el bloque 4.6, después del colector. Lee por CDP las barras de las dos
+ventanas, las empareja por timestamp, filtra a horario regular y guarda la serie en
+`control premercado\base_sp500_vs_spx.json`.
+
+⚠️ **Es SOLO LECTURA y tiene que seguir siéndolo.** No cambia símbolo, no cambia
+resolución, no llama `bringToFront` ni roba foco. Es el mismo patrón que
+`connectToSpxWindow()` del daemon ya ejecuta en cada ciclo. Cambiarle el símbolo a la
+ventana de `SPCFD:SPX` es lo que dispara el `taskkill` del daemon (ver `CLAUDE.md`).
+
+**El archivo hace MERGE, no overwrite.** El chart solo retiene ~300 barras — con
+resolución de 30m son unas 6 sesiones — así que cada corrida ve una ventana que se
+desplaza. Si se reescribiera, la serie nunca pasaría de 6 días y el histórico se perdería
+en silencio. Un día ya guardado solo se reemplaza si la lectura nueva trae al menos tantas
+barras como la vieja.
+
+### Los números al 2026-08-31 (primera medición, 7 sesiones)
+
+| | |
+|---|---|
+| Base vigente | **+7,45** (mediana de las 5 sesiones completas 25-31 ago) |
+| Medianas diarias | 6,31 · 8,06 · 7,20 · 7,47 · 7,55 · 6,04 · 7,45 |
+| Banda por barra | 4,15 a 9,32 |
+| Deriva | **−0,01 pts por sesión** (o sea: plana) |
+
+`base_vigente` es la mediana de las últimas 5 sesiones COMPLETAS, no la del último día: el
+día a día se mueve ±1 punto y quedarse con el último es tomar ruido por señal.
+
+### 🚨 Las dos series tienen que estar en la MISMA resolución
+
+Bug real, encontrado y arreglado el mismo día que se montó esto. La primera versión cogía
+la primera serie de cada símbolo **sin mirar la resolución**. Por la mañana las dos
+ventanas estaban en 30m y salió bien. Por la tarde Guillermo había pasado la del SPX a 15m
+y la del CFD seguía en 30m, y el script emparejó igual — **y emparejó "exacto"**, porque
+todo timestamp de 30m existe también en la serie de 15m. Estaba restando el cierre de una
+vela de 30 minutos contra el de una de 15 que termina quince minutos antes.
+
+Lo que delató el fallo fue la **banda por barra**, que saltó de 4,15-9,32 a **−11 a +21**:
+eso no es la base, es el recorrido del precio en ese cuarto de hora. **La mediana apenas se
+movió** (+7,47 → +7,37), y eso es justo lo que hacía peligroso el bug: el número principal
+parecía sano mientras el dato estaba roto. Si alguna vez la banda se abre de golpe y la
+mediana no, sospechar del emparejado antes que del mercado.
+
+Consecuencias, ya en el código:
+- Se eligen las dos series con **resolución común** que más barras de RTH dejen pareadas.
+  Si no comparten ninguna, **falla en vez de medir** — un número que parece sano y no lo es
+  es peor que no tener número.
+- Cada fila del registro guarda su `resolucion`, y el merge **no pisa** una fila medida en
+  otra resolución. Sin eso, la corrida rota (mismo `n=13`) machacó seis días de datos
+  buenos sin que nada lo notara; hubo que restaurarlos a mano desde la corrida verificada.
+- Las medianas son robustas al cambio de resolución (el 31-ago medido en 2m dio +7,45, en
+  línea con los días de 30m), pero **la banda por barra no lo es** — a más resolución, más
+  ruido. Comparar bandas solo entre filas de la misma resolución.
+
+### 🚨 NO usar la base del futuro para esto
+
+Es el error que casi se comete el mismo día que se montó esto. La base **ES=F ↔ ^GSPC** se
+midió aparte sobre un mes (546 barras de 15m) y hace algo completamente distinto:
+
+| | 31-jul | 07-ago | 14-ago | 21-ago | 28-ago |
+|---|---|---|---|---|---|
+| Base ES vs contado | +28,18 | +23,74 | +20,65 | +16,68 | +11,14 |
+
+Cae **0,77 puntos por sesión hábil**: es la convergencia al vencimiento. Llega a ~0 el
+**18-sep** (quad witching) y al día siguiente **salta de vuelta a ~+28** cuando el contrato
+rueda a diciembre.
+
+**`VANTAGE:SP500` NO hace eso.** Es un CFD que sigue al contado con un spread de bróker
+prácticamente constante: su deriva medida es −0,07, cien veces menor. Confundir las dos
+bases metería hoy un error de 5 puntos y, después del roll de septiembre, de 20 — y en la
+dirección contraria a la intuición. Son dos números distintos con dos comportamientos
+distintos y hay que mantenerlos separados.
+
+La base del ES **sí sigue siendo la correcta** para la apertura implícita (el cálculo desde
+`ES=F` que el Paso 4bis ya usa y que el 28-ago acertó la apertura por 0,78 puntos). No
+tocar eso: son cálculos distintos sobre instrumentos distintos.
+
+### Qué tiene que hacer el informe con esto
+
+Leer `base_sp500_vs_spx.json` y publicar la conversión, en dos sitios:
+
+1. **En la portada gerencial**, una línea bajo el contexto: *"Los niveles de este informe
+   están en SPX de contado. En tu pantalla (VANTAGE:SP500) súmales 7,5: activación bajista
+   7.671 → 7.678,5. Base medida el 31-ago sobre 5 sesiones."*
+2. **En "Posibles trades"**, el nivel convertido entre paréntesis junto a cada disparador,
+   que es donde de verdad se usa.
+
+Y decir siempre **de qué fecha es la base**. Un número sin fecha en este sistema es el
+mismo problema que el desfase que vino a resolver.
+
+⚠️ **La conversión es una ayuda de lectura, no un instrumento de precisión.** Dentro de una
+misma sesión la base se mueve 2-3 puntos (ver la banda por barra), así que un nivel
+convertido es bueno a ±1,5. **Los niveles de registro siguen siendo los de SPX** — el log,
+los escenarios que lee la Estrategia Premercado y el postmercado NO se convierten nunca, o
+se rompe la comparabilidad de toda la serie histórica. Se convierte para mirar la pantalla,
+no para guardar.
+
 ## Paso 0 — Conectar con TradingView (datos en vivo)
 
 TradingView Desktop en esta máquina está instalado como app empaquetada (MSIX/Store),
@@ -830,9 +937,20 @@ de Sigma Terminal solo vale la pena refrescarlo desde **30 minutos antes de la
 apertura hasta 5 minutos después del cierre** — ventana **09:00-16:05 ET**,
 de lunes a viernes. Fuera de esa ventana (noche, fin de semana, feriado NYSE)
 **saltar el ciclo completo de inmediato, sin tocar ni Sigma Terminal ni
-TradingView** — no hay dato nuevo que valga la pena traer. Chequeo simple sin
-librería de feriados: `TZ=America/New_York date +"%u %H:%M"` vía Bash (`%u`:
-1=lunes...7=domingo) — día 6/7 o fuera de 09:00-16:05 → salir. Para feriados
+TradingView** — no hay dato nuevo que valga la pena traer.
+
+🚨 **NO usar `TZ=America/New_York date` en esta máquina (2026-08-31).** El Git Bash
+de aquí no trae base de datos de zonas horarias: **ignora el `TZ` en silencio** y
+devuelve UTC, etiquetado además como `GMT`. Comprobado en vivo — con las 13:54 ET
+reales, `TZ=America/New_York date` respondió `17:54 GMT`. Un guard de horario
+construido sobre eso está **cuatro o cinco horas corrido** (según la temporada) y
+daría "fuera de ventana" en plena sesión, o al revés. Es un fallo mudo: no hay
+error, solo la hora equivocada. Usar Python, que sí resuelve DST:
+```bash
+python -c "import datetime,zoneinfo; print(datetime.datetime.now(zoneinfo.ZoneInfo('America/New_York')).strftime('%u %H:%M %Z'))"
+```
+(en PowerShell, `[System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId`, que es lo
+que el gate ya usa correctamente). Día 6/7 o fuera de 09:00-16:05 → salir. Para feriados
 NYSE (que caen en día de semana pero sin mercado) no hay lista de fechas a
 mano en el loop — si Sigma Terminal muestra su propio indicador "Market
 closed" pese a que el chequeo de horario dio "dentro de ventana", tratarlo

@@ -51,6 +51,58 @@ const DEFAULTS = {
 
 const redondear = (x, inc) => Math.round(x / inc) * inc;
 
+/**
+ * Perfil de GEX por strike, calculado desde la cadena.
+ *
+ * GEX_strike = (gamma_call * OI_call + gamma_put * OI_put) * 100 * S^2 * 0.01
+ * o sea, dolares de exposicion gamma por cada 1% de movimiento del subyacente.
+ *
+ * Se calcula aqui y NO se lee de Sigma Terminal a proposito: la cadena que ya
+ * captura `capturar_cadena_0dte.cjs` trae gamma y open-interest por strike, asi
+ * que el perfil sale de datos propios, sin una dependencia externa que se cae.
+ */
+function perfilGEX(exp) {
+  const S = exp.spot;
+  if (!S) return [];
+  return exp.strikes.map(s => {
+    const c = s.call || {}, p = s.put || {};
+    const g = ((c.gamma || 0) * (c.oi || 0) + (p.gamma || 0) * (p.oi || 0))
+              * 100 * S * S * 0.01;
+    return { strike: Number(s.strike), gex: g, oiCall: c.oi || 0, oiPut: p.oi || 0 };
+  }).sort((a, b) => b.gex - a.gex);
+}
+
+/**
+ * Strike donde se concentra el GEX, con su medida de DOMINANCIA.
+ *
+ * Observacion de Guillermo (2026-08-25) que motiva esto: el criterio para
+ * centrar un butterfly no es donde ANDUVO el precio, sino donde esta el dinero.
+ * Ese dia el 7665 acumulo 5,63 B -- el maximo de la cadena, 1,27x el segundo y
+ * mas de 2x el strike tipico -- y ahi estaba la ventaja estadistica, aunque el
+ * precio pasara la tarde 5-12 puntos por encima.
+ *
+ * `dominanciaMediana` (pico / mediana de la cadena) es la que mide de verdad si
+ * el pico destaca; el ratio contra el segundo strike engana cuando los dos de
+ * arriba estan pegados y ninguno domina.
+ */
+function pinPorGEX(exp) {
+  const perfil = perfilGEX(exp);
+  if (perfil.length < 3) return null;
+  const vals = perfil.map(p => p.gex).sort((a, b) => a - b);
+  const mediana = vals[Math.floor(vals.length / 2)];
+  const pico = perfil[0], segundo = perfil[1];
+  return {
+    strike: pico.strike,
+    gex: pico.gex,
+    oiCall: pico.oiCall,
+    oiPut: pico.oiPut,
+    segundoStrike: segundo.strike,
+    dominanciaSegundo: segundo.gex > 0 ? pico.gex / segundo.gex : Infinity,
+    dominanciaMediana: mediana > 0 ? pico.gex / mediana : Infinity,
+    perfil: perfil.slice(0, 5),
+  };
+}
+
 /** Busca una fila de strike exacta en la cadena. */
 function fila(strikes, k) {
   return strikes.find(s => Number(s.strike) === Number(k)) || null;
@@ -147,6 +199,27 @@ function seleccionarDebitVertical(dec, exp, spot, cfgUsuario = {}) {
   }
 
   const maxGanancia = ancho - debito;
+
+  // NIVEL DE TOMA DE GANANCIA (2026-08-25, a pedido de Guillermo).
+  // Es el objetivo MAS LEJANO que el premercado declaro en el sentido del
+  // trade, y NO tiene por que coincidir con el strike corto: el ancho se limita
+  // a `anchoPts`, asi que cuando el objetivo queda mas lejos que ese tope, la
+  // corta se recorta y el nivel de profit se queda fuera de la estructura.
+  // Ejemplo real del 25-ago: T2 bajista en 7.638 a 37 pts del precio, corta
+  // recortada a 7.650. Guardar los dos por separado es lo que permite cerrar
+  // en el nivel que dijo el analisis y no donde cayo el strike.
+  const objetivosTodos = [dec.escenario?.t1, dec.escenario?.t2]
+    .flatMap(t => (Array.isArray(t) ? t : [t]))
+    .filter(v => typeof v === 'number')
+    .filter(v => (esCall ? v > spot : v < spot));
+  const nivelProfit = objetivosTodos.length
+    ? (esCall ? Math.max(...objetivosTodos) : Math.min(...objetivosTodos))
+    : kCorta;
+  // Si el objetivo cae por dentro de la corta, el maximo ya se alcanza en la
+  // corta: no tiene sentido esperar mas alla.
+  const nivelProfitEfectivo = esCall
+    ? Math.min(nivelProfit, kCorta) : Math.max(nivelProfit, kCorta);
+
   return {
     ok: true,
     tipo: 'DEBIT_VERTICAL',
@@ -154,6 +227,9 @@ function seleccionarDebitVertical(dec, exp, spot, cfgUsuario = {}) {
     expiry: exp.expiry,
     largaStrike: kLarga,
     cortaStrike: kCorta,
+    nivelProfit: nivelProfitEfectivo,
+    nivelProfitDeclarado: nivelProfit,
+    profitRecortado: nivelProfitEfectivo !== nivelProfit,
     ancho,
     debito: +debito.toFixed(2),
     limite: +debito.toFixed(2),
@@ -168,22 +244,42 @@ function seleccionarDebitVertical(dec, exp, spot, cfgUsuario = {}) {
 }
 
 /**
- * Iron Condor sobre el corredor declarado por el escenario neutral.
- * No usa delta: los cortos van en los bordes del corredor.
+ * IRON BUTTERFLY centrado en el pin.
+ *
+ * DECISION DE GUILLERMO (2026-08-25): "los neutrales siempre seran iron
+ * butterfly". Antes esta funcion armaba un CONDOR con los cortos en los bordes
+ * del corredor, y eso estaba roto de raiz: el umbral de credito
+ * (`minCreditoAnchoPct`, 35%) salio de medir un BUTTERFLY, y un condor en los
+ * bordes no se le acerca. Medido sobre la cadena real del 25-ago con alas de 25:
+ *
+ *     condor 7660/7690 -> credito  3,00  = 12,0% del ala   RECHAZADO
+ *     condor 7650/7690 -> credito  1,95  =  7,8% del ala   RECHAZADO
+ *     butterfly 7675   -> credito 11,40  = 45,6% del ala   pasa
+ *
+ * O sea: la rama neutral no habria disparado NUNCA. Se le habia puesto a una
+ * estructura el liston de otra.
+ *
+ * Un butterfly es un iron condor con los dos cortos en el mismo strike, asi que
+ * los nombres de los campos de salida se mantienen (putCortoStrike,
+ * callCortoStrike...) y el ejecutor y el monitor siguen sirviendo sin cambios.
  */
 function seleccionarNeutral(dec, exp, spot, cfgUsuario = {}) {
   const cfg = { ...DEFAULTS, ...cfgUsuario };
   const inc = cfg.incrementoStrike;
   const ala = dec.estructura.anchoAla || 25;
-  const corr = dec.escenario?.corredor
-    || (dec.escenario?.activa?.min != null
-        ? [dec.escenario.activa.min, dec.escenario.activa.max] : null);
-  if (!corr) return { ok: false, motivo: 'el escenario neutral no declara corredor' };
 
-  const kPutCorto = redondear(corr[0], inc);
-  const kCallCorto = redondear(corr[1], inc);
-  const kPutLargo = kPutCorto - ala;
-  const kCallLargo = kCallCorto + ala;
+  // El centro es el PIN que declaro el premercado (Max Pain / MVS). El motor ya
+  // exigio que el precio este a menos de `maxDistPinPts` de el, asi que centrar
+  // ahi es la tesis del dia, no una aproximacion al spot.
+  const pin = dec.estructura.pin;
+  if (typeof pin !== 'number') {
+    return { ok: false, motivo: 'el escenario neutral no declara pin (max_pain/mvs)' };
+  }
+  const kCentro = redondear(pin, inc);
+  const kPutCorto = kCentro;
+  const kCallCorto = kCentro;
+  const kPutLargo = kCentro - ala;
+  const kCallLargo = kCentro + ala;
 
   const legs = [
     ['put', kPutCorto, false, `put corto ${kPutCorto}`],
@@ -219,8 +315,9 @@ function seleccionarNeutral(dec, exp, spot, cfgUsuario = {}) {
 
   return {
     ok: true,
-    tipo: 'IRON_CONDOR',
+    tipo: 'IRON_BUTTERFLY',
     expiry: exp.expiry,
+    centroStrike: kCentro,
     putCortoStrike: kPutCorto, putLargoStrike: kPutLargo,
     callCortoStrike: kCallCorto, callLargoStrike: kCallLargo,
     ala,
@@ -229,10 +326,10 @@ function seleccionarNeutral(dec, exp, spot, cfgUsuario = {}) {
     maxGanancia: +neto.toFixed(2),
     maxPerdida: +(ala - neto).toFixed(2),
     rr: +(neto / (ala - neto)).toFixed(2),
-    breakevens: [+(kPutCorto - neto).toFixed(2), +(kCallCorto + neto).toFixed(2)],
+    breakevens: [+(kCentro - neto).toFixed(2), +(kCentro + neto).toFixed(2)],
     pctDelAla: +pct.toFixed(1),
-    razon: `Cortos en los bordes del corredor ${corr[0]}-${corr[1]} que declaro el ` +
-           `premercado; alas de ${ala}.`,
+    razon: `Butterfly centrado en el pin ${pin} (strike ${kCentro}) que declaro el ` +
+           `premercado; alas de ${ala}. Paga maximo si el precio cierra pegado al pin.`,
   };
 }
 

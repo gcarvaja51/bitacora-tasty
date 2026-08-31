@@ -27,6 +27,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { decidir, validarEscenarios } = require('../src/estrategia_premercado.js');
 const { seleccionarStrikes } = require('../src/premercado_strikes.js');
+const senalesH = require('../src/senales_horizontal.js');
 
 const BASE = path.join('C:', 'Users', 'gcarv', 'Documents', 'CARPETA PERSONAL',
   '01. guillermo carvajal', '01_Sigma', 'mentoria alejandro',
@@ -75,6 +76,30 @@ async function velas15m() {
   return { velas: out, precio: res?.meta?.regularMarketPrice ?? null };
 }
 
+/**
+ * Cierres de 15m de las ULTIMAS SESIONES, solo velas ya cerradas.
+ * Mismo motivo y misma construccion que en `estrategia_ejecutar.cjs`
+ * (2026-08-26): la señal de mercado horizontal pide 50 velas de 15m y con las
+ * de hoy solas nunca las alcanza, asi que bloqueaba la pata NEUTRAL todos los
+ * dias. Va aparte de velas15m() porque esa serie alimenta la evaluacion de los
+ * escenarios y no puede contener velas de sesiones anteriores.
+ */
+async function cierres15mHistorico() {
+  const r = await fetch(
+    'https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=15m&range=5d',
+    { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const j = await r.json();
+  const res = j.chart?.result?.[0];
+  const ts = res?.timestamp || [], q = res?.indicators?.quote?.[0] || {};
+  const ahora = Date.now() / 1000, out = [];
+  for (let i = 0; i < ts.length; i++) {
+    if (q.close[i] == null) continue;
+    if ((ahora - ts[i]) < 900) continue;      // vela en curso: no cuenta
+    out.push(q.close[i]);
+  }
+  return out;
+}
+
 /** Niveles de gamma del daemon (mismo archivo que usa el premercado). */
 function gammaVivo() {
   const st = leerJSON(path.join(__dirname, '..', 'gamma_daemon', 'status.json'), null);
@@ -113,8 +138,12 @@ function cadenaDeHoy(maxEdadMin = 10) {
 async function cmdDecidir() {
   const hoy = hoyET();
   const reg = leerJSON(REGISTRO, []);
-  if (reg.some(r => r.fecha === hoy)) {
-    console.log(`[skip] ya hay una entrada de papel para ${hoy}. Un trade por dia.`);
+  // Solo bloquea si ya hubo TRADE. Una entrada de "no opero" (fuera de ventana,
+  // ningun escenario) no debe impedir volver a evaluar mas tarde el mismo dia --
+  // antes lo hacia, y era incoherente con estrategia_ejecutar.cjs, que si
+  // permite reevaluar. La entrada vieja se reemplaza al guardar.
+  if (reg.some(r => r.fecha === hoy && r.operar)) {
+    console.log(`[skip] ya hay un trade de PREMERCADO hoy. Uno por dia.`);
     return;
   }
 
@@ -130,9 +159,10 @@ async function cmdDecidir() {
   const cfg = (leerJSON(CFG_PATH, {}).trading || {}).premercado || {};
   const { velas, precio } = await velas15m();
   const g = gammaVivo();
+  const sh = senalesH.evaluar(await cierres15mHistorico(), (cfg.neutral || {}));
   const mercado = {
     horaET: horaDecimalET(), precio,
-    velas15m: velas, gamma: g, yaOperadoHoy: false,
+    velas15m: velas, gamma: g, senalesHorizontal: sh, yaOperadoHoy: false,
   };
 
   console.log(`[estado] ${hoy} ${fmtET({ hour: '2-digit', minute: '2-digit' })} ET  ` +
@@ -170,7 +200,8 @@ async function cmdDecidir() {
     }
   }
 
-  reg.push(entrada);
+  const i = reg.findIndex(r => r.fecha === entrada.fecha);
+  if (i === -1) reg.push(entrada); else reg[i] = entrada;   // no duplicar el dia
   reg.sort((a, b) => a.fecha.localeCompare(b.fecha));
   guardar(REGISTRO, reg);
   console.log(`[papel] registrado en ${REGISTRO}`);
@@ -184,7 +215,11 @@ function liquidarEstructura(e, cierre) {
     const valor = intr(e.largaStrike) - intr(e.cortaStrike);
     return +(valor - e.debito).toFixed(2);
   }
-  if (e.tipo === 'IRON_CONDOR') {
+  // IRON_BUTTERFLY entra por aqui a proposito: es un condor con los dos cortos
+  // en el mismo strike, asi que la aritmetica de liquidacion es identica. Si se
+  // comprobara solo 'IRON_CONDOR', todo butterfly devolveria null y se quedaria
+  // sin liquidar en silencio.
+  if (e.tipo === 'IRON_CONDOR' || e.tipo === 'IRON_BUTTERFLY') {
     const p = (k) => Math.max(k - cierre, 0);
     const c = (k) => Math.max(cierre - k, 0);
     const valor = -p(e.putCortoStrike) + p(e.putLargoStrike)
@@ -246,7 +281,9 @@ function cmdResumen() {
     const e = r.estructura;
     const et = e.tipo === 'DEBIT_VERTICAL'
       ? `${e.sentido} ${e.largaStrike}/${e.cortaStrike}`
-      : `IC ${e.putCortoStrike}/${e.callCortoStrike}`;
+      : (e.tipo === 'IRON_BUTTERFLY'
+          ? `IB ${e.centroStrike}±${e.ala}`
+          : `IC ${e.putCortoStrike}/${e.callCortoStrike}`);
     console.log(`  ${r.fecha}  ${(r.direccion || '').padEnd(9)} ${et.padEnd(22)} ` +
                 `${r.resultado.pnl_pts > 0 ? '+' : ''}${r.resultado.pnl_pts}`);
   }
