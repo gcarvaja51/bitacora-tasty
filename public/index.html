@@ -1943,7 +1943,7 @@ function buildPosRow(g) {
   // Para credit spreads (premiumNet > 0): % capturado = P&L / premium cobrado
   // Para debit spreads (premiumNet < 0): % capturado = P&L / costo pagado (también positivo)
   const pct = absPrem > 0 ? (g.unrealizedPnL / absPrem * 100) : 0;
-  const osLink = osGetLinks()[g.underlying] ? '🔗' : '';
+  const osLink = osTieneLink(g.underlying) ? '🔗' : '';
 
   // ── Valor extrínseco ─────────────────────────────────────
   let extrinsicTotal = 0;
@@ -5961,57 +5961,118 @@ async function aleToggleGrabacion() {
 }
 
 // ── OptionStrat links ────────────────────────────────────────
-function osGetLinks() {
+//
+// Antes: un link por TICKER, escrito a mano, guardado en `localStorage`. Desde
+// el 2026-08-31 el servidor genera el link solo a partir de las posiciones
+// abiertas (`GET /api/optionstrat`) y la clave es `SUBYACENTE|VENCIMIENTO` —
+// GAP tiene dos figuras a la vez y una sola entrada por ticker no alcanzaba.
+//
+// Lo que se escribe a mano SIGUE MANDANDO: se guarda en el servidor y tapa al
+// automatico. Sirve sobre todo para pegar una estrategia guardada en la cuenta
+// de OptionStrat (`optionstrat.com/<code>`), que el automata no puede crear.
+let osGrupos = null;   // cache en memoria; null = todavia sin cargar
+
+// Los links viejos de `localStorage` se siguen leyendo SOLO para no perderlos de
+// vista mientras no se migren: si hay uno para el ticker y el grupo no tiene
+// manual propio, se ofrece para copiarlo. No se borra nada por nuestra cuenta.
+function osLegacy() {
   try { return JSON.parse(localStorage.getItem('os_links')||'{}'); } catch(e) { return {}; }
 }
-function osSetLink(sym, url) {
-  const links = osGetLinks();
-  if (url) links[sym] = url; else delete links[sym];
-  localStorage.setItem('os_links', JSON.stringify(links));
+
+async function osCargar(force) {
+  if (osGrupos && !force) return osGrupos;
+  try {
+    const r = await fetch('/api/optionstrat');
+    const d = await r.json();
+    osGrupos = d.grupos || [];
+  } catch(e) { osGrupos = []; }
+  return osGrupos;
 }
 
-function osShowPopup(sym, e) {
-  e && e.stopPropagation();
-  const existing = document.getElementById('os-popup');
-  if (existing) existing.remove();
+// El 🔗 de la tabla: se pinta con lo que ya haya en memoria. Si aun no cargo, no
+// muestra nada — se prefiere un icono ausente a uno que miente.
+function osTieneLink(sym) {
+  if (!osGrupos) return false;
+  return osGrupos.some(g => g.underlying === sym && g.url);
+}
 
-  const links  = osGetLinks();
-  const curUrl = links[sym] || '';
+async function osSetLink(clave, url) {
+  await fetch('/api/optionstrat/' + encodeURIComponent(clave),
+    { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ url }) });
+  await osCargar(true);
+}
+
+async function osShowPopup(sym, e) {
+  e && e.stopPropagation();
+  document.getElementById('os-popup')?.remove();
 
   const popup = document.createElement('div');
   popup.id = 'os-popup';
   popup.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;';
-  popup.innerHTML = `
-    <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:22px;max-width:420px;width:100%;position:relative;">
-      <button onclick="document.getElementById('os-popup').remove()" style="position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;">✕</button>
-      <div style="font-size:16px;font-weight:800;color:var(--bright);margin-bottom:4px;">📊 ${sym} — OptionStrat</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Guarda o edita el link de análisis para este ticker</div>
-
-      <input id="os-url-input" type="text" value="${curUrl}"
-        placeholder="https://optionstrat.com/..."
-        style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:9px 12px;color:var(--bright);font-size:12px;outline:none;box-sizing:border-box;margin-bottom:12px;"
-        onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border2)'">
-
-      <div style="display:flex;gap:8px;">
-        ${curUrl ? `<button onclick="window.open('${curUrl}','_blank');document.getElementById('os-popup').remove();"
-          style="flex:1;padding:9px;border-radius:8px;border:none;background:#13d68f;color:#0d1117;font-weight:700;cursor:pointer;font-size:13px;">
-          🚀 Abrir en OptionStrat
-        </button>` : ''}
-        <button onclick="osSetLink('${sym}',document.getElementById('os-url-input').value.trim());document.getElementById('os-popup').remove();"
-          style="flex:1;padding:9px;border-radius:8px;border:1px solid var(--green);background:rgba(19,214,143,.1);color:var(--green);font-weight:700;cursor:pointer;font-size:13px;">
-          💾 Guardar
-        </button>
-        ${curUrl ? `<button onclick="osSetLink('${sym}','');document.getElementById('os-popup').remove();"
-          style="padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:rgba(240,79,90,.1);color:#f04f5a;cursor:pointer;font-size:13px;">
-          🗑
-        </button>` : ''}
-      </div>
-    </div>
-  `;
+  popup.innerHTML = `<div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:22px;color:var(--muted);font-size:12px;">Leyendo posiciones…</div>`;
   document.body.appendChild(popup);
-  popup.addEventListener('click', e => { if (e.target===popup) popup.remove(); });
-  // Focus en el input
-  setTimeout(() => document.getElementById('os-url-input')?.focus(), 50);
+  popup.addEventListener('click', ev => { if (ev.target===popup) popup.remove(); });
+
+  const grupos = (await osCargar()).filter(g => g.underlying === sym);
+  osRenderPopup(sym, grupos);
+}
+
+function osRenderPopup(sym, grupos) {
+  const popup = document.getElementById('os-popup');
+  if (!popup) return;
+  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  const legacy = osLegacy()[sym];
+
+  const bloques = grupos.length ? grupos.map((g, i) => {
+    const url    = g.url || '';
+    const manual = !!g.urlManual;
+    const figura = g.slug ? g.slug.replace(/-/g,' ') : (g.motivoSinUrl || 'sin figura');
+    const aviso  = g.sinPataAcciones
+      ? `<div style="font-size:10px;color:#e0a83a;margin-bottom:6px;">⚠ El gráfico lleva solo la call vendida, sin las ${g.acciones} acciones — no es el P&amp;L de la posición completa.</div>`
+      : '';
+    return `
+      <div style="border-top:1px solid var(--border2);padding-top:12px;margin-top:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
+          <span style="font-size:13px;font-weight:700;color:var(--bright);">${g.expiry}</span>
+          <span style="font-size:10px;color:${manual?'#13d68f':'var(--muted)'};">${manual?'link tuyo':'generado'} · ${figura} · ${g.contratos}c</span>
+        </div>
+        ${aviso}
+        <input id="os-in-${i}" type="text" value="${esc(g.urlManual||'')}"
+          placeholder="pega aquí tu link de OptionStrat para reemplazar el generado"
+          style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:8px 11px;color:var(--bright);font-size:11px;outline:none;box-sizing:border-box;margin-bottom:8px;">
+        <div style="display:flex;gap:6px;">
+          ${url ? `<button onclick="window.open('${url}','_blank')"
+            style="flex:1;padding:8px;border-radius:8px;border:none;background:#13d68f;color:#0d1117;font-weight:700;cursor:pointer;font-size:12px;">🚀 Abrir</button>` : ''}
+          <button onclick="osGuardarDesde('${g.clave}','os-in-${i}','${sym}')"
+            style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--green);background:rgba(19,214,143,.1);color:var(--green);font-weight:700;cursor:pointer;font-size:12px;">💾 Guardar</button>
+          ${manual ? `<button onclick="osGuardarValor('${g.clave}','','${sym}')" title="volver al generado"
+            style="padding:8px 11px;border-radius:8px;border:1px solid var(--border);background:rgba(240,79,90,.1);color:#f04f5a;cursor:pointer;font-size:12px;">↩</button>` : ''}
+        </div>
+      </div>`;
+  }).join('') : `<div style="font-size:12px;color:var(--muted);padding:14px 0;">No hay posición abierta de ${sym} ahora mismo, así que no hay estrategia que generar.</div>`;
+
+  // El link viejo del navegador solo se ofrece; migrarlo es decisión del usuario.
+  const migrar = (legacy && grupos.length && !grupos.some(g => g.urlManual)) ? `
+    <div style="border-top:1px solid var(--border2);margin-top:12px;padding-top:10px;">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Tenías este link guardado en este navegador (esquema viejo, por ticker):</div>
+      <div style="font-size:10px;color:var(--bright);word-break:break-all;margin-bottom:6px;">${esc(legacy)}</div>
+    </div>` : '';
+
+  popup.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:22px;max-width:470px;width:100%;max-height:80vh;overflow-y:auto;position:relative;">
+      <button onclick="document.getElementById('os-popup').remove()" style="position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;">✕</button>
+      <div style="font-size:16px;font-weight:800;color:var(--bright);">📊 ${sym} — OptionStrat</div>
+      <div style="font-size:11px;color:var(--muted);">Un link por vencimiento, generado desde la posición real. Lo que pegues a mano manda.</div>
+      ${bloques}${migrar}
+    </div>`;
+}
+
+function osGuardarDesde(clave, inputId, sym) {
+  osGuardarValor(clave, document.getElementById(inputId)?.value.trim() || '', sym);
+}
+async function osGuardarValor(clave, url, sym) {
+  await osSetLink(clave, url);
+  osRenderPopup(sym, osGrupos.filter(g => g.underlying === sym));
 }
 
 function aleToggleEvol(uid) {
@@ -7270,6 +7331,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
+  // Precarga los links de OptionStrat para que el 🔗 de la tabla salga sin
+  // esperar a que se abra el popup. Si falla, el icono no aparece y ya.
+  osCargar();
 });
 
 

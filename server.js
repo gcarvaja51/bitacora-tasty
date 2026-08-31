@@ -6,6 +6,7 @@ const fs      = require('fs');
 const { TastytradeClient }                              = require('./src/tastytrade');
 const { TradierClient }                                 = require('./src/tradier');
 const { buildMetrics, buildEquityCurve, buildCalendar } = require('./src/metrics');
+const { agruparPosiciones }                             = require('./src/optionstrat');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -1293,6 +1294,58 @@ app.delete('/api/trade-notes/:key', (req, res) => {
   delete notes[decodeURIComponent(req.params.key)];
   saveNotes(notes);
   res.json({ ok:true });
+});
+
+/* ── OptionStrat: link por posicion abierta ───────────────────
+ *
+ * Hasta el 2026-08-31 esto era manual y vivia en el `localStorage` del
+ * navegador, con UNA entrada por ticker. Dos problemas que arregla esto:
+ *
+ *   - Un link por ticker no alcanza. GAP tiene hoy una covered call a 25-sep y
+ *     un bull put spread a 4-sep: son dos figuras distintas y el esquema viejo
+ *     solo podia guardar una. La clave pasa a ser `SUBYACENTE|VENCIMIENTO`.
+ *   - En `localStorage` no lo ve ni el servidor ni el celular, y se pierde al
+ *     limpiar los datos del sitio.
+ *
+ * El link AUTOMATICO se calcula al vuelo desde las posiciones reales y NO se
+ * guarda: asi no puede quedar desincronizado de la posicion. Lo unico que se
+ * persiste es lo que el usuario pone A MANO, que SIEMPRE gana — normalmente una
+ * estrategia guardada en su cuenta de OptionStrat (`optionstrat.com/<code>`),
+ * con su nombre y su descripcion, que el automata no puede crear sin
+ * credenciales.
+ */
+const OS_FILE = path.join(DATA_DIR, 'optionstrat_links.json');
+function loadOsLinks()  { try { return JSON.parse(fs.readFileSync(OS_FILE,'utf8')); } catch(e) { return {}; } }
+function saveOsLinks(d) { fs.writeFileSync(OS_FILE, JSON.stringify(d,null,2),'utf8'); }
+
+app.get('/api/optionstrat', async (req, res) => {
+  try {
+    const manual = loadOsLinks();
+    // Cache propia de 60s, la misma ventana que /api/overview: el popup se abre
+    // varias veces seguidas y no hay motivo para pegarle a TastyTrade cada vez.
+    const positions = await cached('os-positions', 60, () => tt.getPositions());
+    const grupos = agruparPosiciones(positions).map(g => ({
+      ...g,
+      urlAuto:   g.url,
+      urlManual: manual[g.clave]?.url || null,
+      // Lo que abre el boton: el de la mano si existe, si no el generado.
+      url:       manual[g.clave]?.url || g.url,
+      origen:    manual[g.clave]?.url ? 'manual' : (g.url ? 'auto' : 'ninguno'),
+    }));
+    res.json({ grupos, ts: new Date().toISOString() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Guardar/borrar el link manual de un grupo. Body: { url }. Cadena vacia =
+// borrar el manual y volver al automatico.
+app.post('/api/optionstrat/:clave', (req, res) => {
+  const links = loadOsLinks();
+  const clave = decodeURIComponent(req.params.clave);
+  const url   = String(req.body?.url || '').trim();
+  if (url) links[clave] = { url, updatedAt: new Date().toISOString() };
+  else delete links[clave];
+  saveOsLinks(links);
+  res.json({ ok: true, clave, url: url || null });
 });
 
 // ── TradingView Screenshot via CDP ────────────────────────────
