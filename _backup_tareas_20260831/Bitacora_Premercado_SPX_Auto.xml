@@ -1,0 +1,121 @@
+﻿<?xml version="1.0" encoding="UTF-16"?>
+
+<Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+
+  <RegistrationInfo>
+
+    <Description>Lanza el skill premercado-spx en modo headless 1h antes de la apertura NYSE (7:30am o 8:30am local segun EDT/EST -- launch_premercado_gate.ps1 decide cual corresponde). Requiere sesion de Windows iniciada (controla TradingView Desktop + Chrome).</Description>
+
+    <URI>\Bitacora_Premercado_SPX_Auto</URI>
+
+  </RegistrationInfo>
+
+  <Principals>
+
+    <Principal id="Author">
+
+      <UserId>S-1-5-21-2587860525-2719238250-4124744281-1001</UserId>
+
+      <LogonType>InteractiveToken</LogonType>
+
+    </Principal>
+
+  </Principals>
+
+  <Settings>
+
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+
+    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+
+    <StartWhenAvailable>true</StartWhenAvailable>
+
+    <IdleSettings>
+
+      <Duration>PT10M</Duration>
+
+      <WaitTimeout>PT1H</WaitTimeout>
+
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+
+      <RestartOnIdle>false</RestartOnIdle>
+
+    </IdleSettings>
+
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+
+  </Settings>
+
+  <Triggers>
+
+    <CalendarTrigger>
+
+      <StartBoundary>2026-07-29T07:30:00-05:00</StartBoundary>
+
+      <ScheduleByWeek>
+
+        <WeeksInterval>1</WeeksInterval>
+
+        <DaysOfWeek>
+
+          <Monday />
+
+          <Tuesday />
+
+          <Wednesday />
+
+          <Thursday />
+
+          <Friday />
+
+        </DaysOfWeek>
+
+      </ScheduleByWeek>
+
+    </CalendarTrigger>
+
+    <CalendarTrigger>
+
+      <StartBoundary>2026-07-29T08:30:00-05:00</StartBoundary>
+
+      <ScheduleByWeek>
+
+        <WeeksInterval>1</WeeksInterval>
+
+        <DaysOfWeek>
+
+          <Monday />
+
+          <Tuesday />
+
+          <Wednesday />
+
+          <Thursday />
+
+          <Friday />
+
+        </DaysOfWeek>
+
+      </ScheduleByWeek>
+
+    </CalendarTrigger>
+
+  </Triggers>
+
+  <Actions Context="Author">
+
+    <Exec>
+
+      <Command>wscript.exe</Command>
+
+      <Arguments>"C:\Users\gcarv\.claude\skills\premercado-spx\scripts\launch_premercado_gate.vbs"</Arguments>
+
+    </Exec>
+
+  </Actions>
+
+</Task>

@@ -1,0 +1,79 @@
+﻿<?xml version="1.0" encoding="UTF-16"?>
+
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+
+  <RegistrationInfo>
+
+    <Date>2026-08-19T08:06:21</Date>
+
+    <Author>GUILLERMO\gcarv</Author>
+
+    <URI>\GammaDaemon_Watchdog</URI>
+
+  </RegistrationInfo>
+
+  <Principals>
+
+    <Principal id="Author">
+
+      <UserId>S-1-5-21-2587860525-2719238250-4124744281-1001</UserId>
+
+      <LogonType>InteractiveToken</LogonType>
+
+    </Principal>
+
+  </Principals>
+
+  <Settings>
+
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+
+    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
+
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+
+    <IdleSettings>
+
+      <Duration>PT10M</Duration>
+
+      <WaitTimeout>PT1H</WaitTimeout>
+
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+
+      <RestartOnIdle>false</RestartOnIdle>
+
+    </IdleSettings>
+
+  </Settings>
+
+  <Triggers>
+
+    <TimeTrigger>
+
+      <StartBoundary>2026-08-19T08:06:00</StartBoundary>
+
+      <Repetition>
+
+        <Interval>PT10M</Interval>
+
+      </Repetition>
+
+    </TimeTrigger>
+
+  </Triggers>
+
+  <Actions Context="Author">
+
+    <Exec>
+
+      <Command>wscript.exe</Command>
+
+      <Arguments>C:\Users\gcarv\bitacora-tasty\gamma_daemon\watchdog.vbs</Arguments>
+
+    </Exec>
+
+  </Actions>
+
+</Task>
