@@ -1,0 +1,2966 @@
+# Historial técnico — Bitácora Tasty
+
+> **Qué es este archivo.** Hasta el 2026-08-28 todo esto vivía en `CLAUDE.md`, que se
+> carga entero en el contexto de cada sesión de Claude Code. Había llegado a 203.678
+> caracteres (tope recomendado: 150.000), y la mayor parte eran **autopsias de bugs ya
+> resueltos**: valiosas para entender por qué el sistema es como es, pero no reglas que
+> haya que tener presentes en cada conversación.
+>
+> Así que se separó: `CLAUDE.md` quedó con lo **vigente** (reglas, parámetros, gotchas
+> activos, normas del usuario) y este archivo conserva el registro completo, **verbatim y
+> sin recortar**. Los títulos de sección se mantuvieron idénticos para que los punteros
+> desde `CLAUDE.md` sigan resolviendo.
+>
+> **No se borró ni se resumió nada de lo que había.** Si algo de acá contradice a
+> `CLAUDE.md`, manda `CLAUDE.md`: este archivo describe el estado del sistema en la fecha
+> de cada sección, no necesariamente el de hoy.
+>
+> Al arreglar un bug nuevo, la autopsia va acá; la regla que queda viva va a `CLAUDE.md`.
+
+---
+
+
+Dashboard de trading personal conectado a TastyTrade. Node.js/Express + vanilla JS (sin framework frontend).
+
+## Deploy
+
+- **Producción**: Railway — `web-production-23473.up.railway.app`
+- **Repo**: `gcarvaja51/bitacora-tasty` (main → auto-deploy en Railway)
+- **Local**: `npm run dev` (nodemon en puerto 3000)
+- **Volumen Railway**: montado en `/data`, variable `RAILWAY_VOLUME_MOUNT_PATH`
+
+## Archivos clave
+
+| Archivo | Rol |
+|---|---|
+| `server.js` | Servidor Express, todos los endpoints `/api/*`, caché en memoria, lógica de notificaciones |
+| `src/wheel.js` | Lógica pura de La Rueda: `buildWheelData(items, positions, underlyings)` |
+| `src/tastytrade.js` | Cliente HTTP a la API de TastyTrade (auth, transacciones, posiciones, precios) |
+| `src/metrics.js` | Cálculo de P&L, equity curve, calendar |
+| `public/index.html` | SPA completa (~8000 líneas). Todo el frontend en un archivo |
+| `public/sw.js` | Service worker PWA (network-first, versión actual: `bitacora-v12`) |
+
+> ### ⚠️ El frontend que se sirve es `public/index.html` — el `index.html` de la raíz NO
+>
+> `server.js` monta `express.static(path.join(__dirname,'public'))` y el catch-all
+> `app.get('*')` responde con `public/index.html`. **Editar el `index.html` de la raíz no
+> tiene ningún efecto.** Se mantiene como copia por convención (ver commit `7f7e92f`
+> "sync: index.html raiz igual a public"), así que después de tocar el bueno hay que
+> hacer `cp public/index.html index.html`.
+>
+> El 2026-08-06 se perdió media sesión editando el de la raíz: cinco arreglos de la Rueda
+> que nunca llegaron a la pantalla y un commit inútil. **Antes de editar frontend,
+> comprobar cuál sirve el servidor.**
+>
+> Y al cambiar el frontend hay que **subir la versión de `public/sw.js`** (`CACHE = 'bitacora-vN'`),
+> o los clientes siguen con la copia cacheada y parece que el arreglo no funcionó.
+
+**Archivos sueltos sin usar (pendiente de revisar/limpiar):** `spx_backtester.html` en la
+raíz del repo y un `public/server.js` duplicado — no están documentados en este archivo ni
+referenciados por `server.js` (el real, en la raíz). Parecen prototipos previos al
+`Backtester SPX` actual dentro de `public/index.html`. No se tocaron esta sesión —
+confirmar antes de borrar si tienen algo de valor.
+
+## Persistencia de datos
+
+```js
+const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname;
+```
+
+Archivos que viven en `DATA_DIR` (no en `__dirname`):
+- `wheel_config.json` — lista de underlyings de La Rueda
+- `nlv_history.json` — snapshots históricos de Net Liq
+- `watchlist.json`, `trade_notes.json`, `playbooks.json`, etc.
+- `spx_config.json` — pesos del playbook SPX, TP/SL, `tradierAutoExecute` (ver sección
+  SPX 0DTE — un push a git **no** actualiza este archivo en Railway, hay que empujar el
+  cambio también vía `POST /api/spx/config`)
+- `spx_signals.json` — historial de señales SPX (últimas 50)
+
+Estos archivos están en `.gitignore` excepto `wheel_config.json` y `nlv_history.json` (sirven como seed inicial).
+
+## La Rueda (The Wheel)
+
+Estrategia de opciones: CSP → Asignación → Covered Call, ciclando.
+
+**Fases**: `CSP_ACTIVA` → `ACCIONES` → `CC_ACTIVA` → `IDLE`
+
+**Tipos de eventos** (generados por `wheel.js`):
+- `STO_PUT` / `BTC_PUT` — Sell/Buy to Close Put
+- `STO_CALL` / `BTC_CALL` — Sell/Buy to Close Call
+- `BTO_PUT` / `STC_PUT` / `BTO_CALL` / `STC_CALL` (agregados 2026-08-03) — patas **largas**
+  (compra para abrir / venta para cerrar), ver auditoría abajo
+- `ROLL` — BTC + STO mismo día (consolidado automáticamente, puts y calls). **Solo patas
+  cortas**: un BTO/STC del mismo día no es un roll y se deja como evento suelto.
+- `STOCK_BUY` / `STOCK_SELL` / `ASSIGNED`
+- `DIVIDENDO` (agregado 2026-07-09) — dividendos en efectivo, ver nota abajo
+
+**Underlyings activos**: JBLU, NU, GAP, SOFI (en `wheel_config.json`)
+
+### Auditoría 2026-08-03 — tres errores de contabilidad corregidos
+
+Disparada por una revisión manual de la card de GAP. Los tres afectaban `totalPremium` y/o
+`costBasis` de **todos** los activos. Verificado después del fix: `totalPremium` de las 4
+ruedas cuadra al centavo contra una suma independiente de los `net-value` crudos del feed.
+
+1. **Patas largas descartadas.** Había un `continue` que ignoraba todo `Buy to Open` /
+   `Sell to Close` en opciones, asumiendo que eran coberturas ajenas al ciclo. En la práctica
+   varias entradas fueron **spreads verticales de una sola orden** — confirmado por
+   `executed-at` idéntico al milisegundo, IDs consecutivos y el mismo `order-id` (p.ej. GAP
+   27/24 del 28-may, 20/19.5 ×3 del 25-jun, 19.5/20 ×6 del 29-jun; NU 12/11 ×2 del 15-may).
+   La pata larga es parte del mismo trade y su plata cuenta igual. No hay forma confiable de
+   distinguir "cobertura" de "pata de spread" en el feed de Tastytrade, y en ambos casos es
+   dinero real del subyacente — así que ahora **entran todas**.
+2. **Retención de impuesto contada como ingreso.** El dividendo llega como dos filas con el
+   mismo `transaction-sub-type: "Dividend"`: el crédito y la retención (Debit). Se hacía
+   `Math.abs()` sobre ambas, así que la retención **sumaba** en vez de restar. GAP 29-jul:
+   +17.50 y −5.25 se contaban como 22.75 cuando el neto real es 12.25. Ahora se usa el signo.
+3. **Costo base asimétrico entre puts y calls.** `costBasis` se ajustaba incrementalmente y
+   **solo** las calls y los dividendos lo tocaban. Cualquier put vendida *después* de tener
+   las acciones nunca llegaba a la base — en GAP eso escondió una pérdida de $138.75.
+   Reemplazado por un recálculo completo (`syncBasis()`) después de cada movimiento:
+   `costBasis = avgCost − totalPremium / shares`. Una sola fórmula, sin casos especiales.
+
+Bonus del mismo pase: `avgCost` ahora sale del `net-value` de la compra, no de `price × qty`,
+así incluye los `clearing-fees` de la asignación (GAP: $27.05 real vs $27.00 que mostraba).
+
+**Impacto en las cards** (antes → después):
+
+| | prima | costo base | avgCost |
+|---|---|---|---|
+| GAP | 315.98 → **372.99** | 22.4527 → **23.3201** | 27.00 → **27.05** |
+| NU | (n/d) → **282.37** | → **11.6132** | 13.00 → **13.025** |
+| JBLU | 95.96 → **95.96** | 4.8139 → **4.3211** | 5.2800 → **5.2808** |
+| SOFI | → **151.85** | → **14.9815** (proyectado) | — |
+
+JBLU no tenía patas largas ni dividendos: su base cambió solo por el error 3 (las puts
+vendidas con acciones en mano ahora sí reducen la base) — se movió **a favor**.
+
+`src/wheel_tradier_adapter.js` no tenía los errores 1-3 (solo opera patas cortas y no registra
+dividendos) — pero al buscarlos ahí aparecieron **dos suyos, del mismo tipo**, ver abajo.
+
+### Auditoría 2026-08-03 (bis) — las mismas clases de error en el lado Tradier
+
+A pedido del usuario ("busca los mismos errores y los resuelves"). Los siete de arriba no se
+repetían tal cual, pero la búsqueda destapó **un error de unidades en dos lugares**, de la
+misma familia (plata que no llega al costo base):
+
+**Unidades: precio por acción vs dólares totales.** El motor de la Rueda automatizada guarda
+todas las primas como **precio de la opción por acción** (`entryFillPrice` 1.27, `netCredit`,
+`quote.bid`), y las usa así de forma consistente — p.ej. `strike - totalCreditAccumulated` en
+server.js. Pero dos consumidores las trataban como si fueran dólares totales:
+
+1. **`src/wheel_tradier_adapter.js`** — acumulaba `totalPremium` en precio por acción y después
+   dividía por las acciones (`avgCost - totalPremium / shares`), o sea que la prima entraba al
+   costo base **dividida por 100 dos veces**. Con el único ciclo real (SOFI, Put 18 cobrada a
+   1.27) la base proyectada daba **17.9873** cuando la correcta es **16.73**, y la card mostraba
+   "Prima $1.27" en vez de $127.
+2. **`src/metrics_tradier.js` → `mapWheelExecution`** — `ex.pnl` viene de `gain_loss` de Tradier
+   (dólares totales), pero el fallback `totalCreditAccumulated ?? creditReceived` es por acción.
+   Un ciclo cerrado sin `pnl` resuelto reportaba **100× menos** por contrato: uno que cobró $127
+   de prima y expiró OTM figuraba como **$1.27** en Reportes, Historial, calendario y curva.
+
+Ambos convierten ahora con `precio * 100 * contratos`, igual que ya hacía `mapSpxExecution`
+(que tenía las unidades bien — por eso el error no se notaba en las estrategias de SPX).
+
+**Prima de la Covered Call inicial que no se contaba.** Era una "limitación conocida"
+documentada: `server.js` empujaba el evento `STO_CALL` sin monto (la prima solo iba a
+`ex.totalCreditAccumulated`), así que el adaptador lo reconstruía con `amount: 0` y **no lo
+sumaba a `totalPremium`**. Mismo efecto que el error 1 de la auditoría de Tasty: prima real que
+nunca llegaba al costo base. Ahora el evento guarda `credit: quote.bid` y el adaptador lo suma.
+Los registros anteriores a este cambio no lo traen y quedan en 0 — no hay de dónde
+reconstruirlo sin adivinar.
+
+**Lo que NO estaba en el lado Tradier** (verificado, no asumido): la tabla Desglose Mensual de
+`tradier.html` ya usaba `strategyByMonth` en las dos ramas del ternario, así que no tenía la
+mezcla realizado/NLV; el costo base del adaptador ya usaba la fórmula completa en un solo paso,
+sin el ajuste incremental asimétrico; y no hay dividendos ni patas largas en el modelo.
+
+### Esquemas alineados entre las dos Ruedas (2026-08-03)
+
+Los dos gaps que habían quedado (fees de asignación y dividendos) se cerraron agregando los
+campos que faltaban, a pedido del usuario: "que los esquemas queden similares".
+
+**Campos nuevos en el registro de ejecución** (`wheel_trading_executions.json`), que graba
+`checkWheelExpiryImpl` al detectar la asignación:
+
+| Campo | Qué es |
+|---|---|
+| `stockCostBasis` | Desembolso real por las acciones, en dólares totales. Sale de `cost_basis` de la posición de Tradier, que **ya incluye los fees de asignación** — el análogo exacto del `net-value` de Tastytrade. |
+| `shares` | Acciones realmente recibidas (no `contratos × 100` asumido). |
+| `assignedStrike` | Strike real del Put asignado. Hacía falta porque `ex.leg` se **sobreescribe** con la Covered Call en cuanto se vende, así que después de eso ya no se puede recuperar. |
+| `assignedAt` | Fecha de la asignación, para fechar el evento y acotar la búsqueda de dividendos. |
+| `dividends[]` | `{date, bruto, retencion, neto}` por pago. Lo llena `checkWheelDividends`. |
+
+**`checkWheelDividends` (server.js, cada 6h)** — un dividendo cobrado con las acciones en mano
+baja el costo base, igual que en Tasty. Lee `tradier.getAccountHistory()` (endpoint nuevo en
+`src/tradier.js`) y guarda el **neto por fecha**, no evento suelto: Tastytrade demostró que un
+pago puede llegar partido en bruto + retención, y así se netean solos. Solo mira ciclos en
+`ASIGNADO`/`CC_ACTIVA` — antes de asignar no hay acciones que cobren nada.
+
+⚠️ **El shape de los eventos de dividendo NO está verificado contra un caso real**: la cuenta es
+sandbox y `getAccountHistory` devuelve el historial vacío. `parseDividendEvent` acepta varias
+formas posibles (`amount` en la raíz o dentro de `dividend`, símbolo en `symbol` o embebido en
+la descripción) en vez de asumir una — mismo criterio tolerante que se usó para Tastytrade,
+donde el shape real resultó traer dos asientos por pago. Revisar en cuanto se acredite el
+primero en una cuenta real.
+
+**Esquema de eventos — ahora idéntico en las dos bitácoras:**
+
+| Evento | Campos |
+|---|---|
+| `STO_PUT` / `STO_CALL` | `date, type, strike, expiry, contracts, amount` |
+| `ROLL` | `date, type, fromStrike, fromExpiry, toStrike, toExpiry, amount` |
+| `ASSIGNED` | `date, type, qty, price, fees, costBasis, amount` |
+| `STOCK_SELL` | `date, type, qty, price, amount` |
+| `DIVIDENDO` | `date, type, amount, bruto, retencion, costBasis` |
+
+`amount` es **siempre dólares totales** en los dos lados. `costBasis` en `ASSIGNED`/`DIVIDENDO`
+es el costo base vigente en ese punto del timeline (`basisAhora()` en el adaptador de Tradier,
+`syncBasis()` en `wheel.js`). Los tipos que solo genera Tasty (`BTC_*`, `BTO_*`, `STC_*`,
+`STOCK_BUY`) no existen del lado Tradier porque la Rueda automatizada no compra patas largas y
+la asignación no llega como una compra de equity separada.
+
+**Compatibilidad con registros viejos**: los ciclos anteriores a este cambio no traen ninguno de
+los campos nuevos. El adaptador cae al comportamiento anterior (strike nominal × acciones, sin
+fees, sin dividendos, prima de la Call inicial en 0) en vez de romper o inventar — verificado
+con un registro legacy simulado.
+
+**Bug de display detectado por el usuario en el mismo pase:** el mapa `evIcon` marcaba la
+dirección de la *operación* (`BTC_*: '⬆️'`, porque comprás para cerrar), así que un cierre que
+costó dinero salía con flecha hacia arriba al lado de un monto negativo — *"Put cerrada
+$20 07-17 · −$267.36 ⬆️"*. Ahora hay un helper `evIconFor(e)` en ambos renderers que **deriva
+la flecha del signo del monto**, así no puede volver a contradecirlo; `ROLL` y los eventos de
+acciones/dividendo mantienen su ícono propio (el roll es un neto que puede dar para cualquier
+lado). Junto con eso, `evLabelFor(e)` etiqueta un `DIVIDENDO` negativo suelto como *"Retención
+dividendo"* para que no se lea como un dividendo en contra.
+
+**Dividendos: un pago = un evento (2026-08-03, reportado por el usuario "en GAP aparecen 2
+pagos de dividendo").** Tastytrade parte cada dividendo en **dos asientos** con el mismo
+`transaction-sub-type: "Dividend"` — el bruto (Credit) y la retención de impuesto (Debit, 30%
+para no residentes). Verificado contra los 31 `Money Movement` de la cuenta: hay un solo
+dividendo en toda la historia (GAP, 29-jul: +17.50 bruto = $0.175 × 100 acc., −5.25 retención
+= exactamente el 30%), y salía en dos renglones como si se hubiera cobrado dos veces. Ahora
+`buildWheelData` los consolida por fecha en un único evento con `amount` neto (12.25) más
+`bruto` y `retencion` como campos aparte para el detalle. `totalPremium` **no** cambia: ya se
+calculaba sumando el neto de cada asiento en el loop — esto es solo presentación.
+
+**Feature 2026-07-09 — dividendos ahora aparecen en la Rueda:** antes `buildWheelData`
+solo procesaba `transaction-type` `'Trade'`/`'Receive Deliver'` — un dividendo de Tastytrade
+(`'Money Movement'`) quedaba completamente afuera del pipeline, invisible en el timeline.
+Se agregó `'Money Movement'` al filtro inicial y un branch nuevo que detecta dividendos por
+`transaction-sub-type` o `description` conteniendo "dividend" (case-insensitive).
+**Confirmado contra un caso real el 2026-08-03** (GAP, acreditado el 29-jul): Tastytrade usa
+`transaction-sub-type: "Dividend"` e `instrument-type: "Equity"`, y manda **dos filas** — el
+crédito y la retención de impuesto por separado, ambas con el mismo sub-type. El matcheo
+tolerante funcionó; lo que falló fue el signo (ver error 2 de la auditoría arriba).
+**Ajuste 2026-07-09 (mismo día, a pedido explícito del usuario):** el dividendo **sí reduce
+el costo base**. Sigue siendo así, pero desde 2026-08-03 vía `syncBasis()` como todo lo demás,
+no con un ajuste incremental propio. Sigue sin sumarse a la tabla de "Primas/Semana" (que
+solo cuenta patas de opciones, no dividendos) — no se pidió ese cambio.
+
+## El spread cerrado que se leía como pérdida — GAP 19/18 (2026-08-31)
+
+**Reportado por el usuario:** *"hoy cerré un bull put spread en positivo con 22 dólares
+brutos pero en la bitácora me registra este trade de una manera errónea"*.
+
+**Lo que pasó de verdad.** Dos órdenes en GAP, ambas de dos patas:
+
+| Fecha | Orden | Patas | Bruto | Neto |
+|---|---|---|---|---|
+| 2026-08-27 | `500106299` | STO 19P @0.57 · BTO 18P @0.33 | +$24 | +$21.75 |
+| 2026-08-31 | `500905624` | BTC 19P @0.03 · STC 18P @0.01 | −$2 | −$2.25 |
+| | | **Resultado** | **+$22.00** | **+$19.50** |
+
+**Lo que mostraba la Rueda.** El timeline no tenía ningún número mal: tenía dos huecos.
+
+1. *La última línea decía `⬇️ Put cerrada $19 09-04 · -$2.25`.* Eso es el flujo de caja del
+   cierre, no el resultado del trade. El +$21.75 de la apertura estaba cuatro días más
+   arriba, y entre medio un roll de la Covered Call. El único sitio donde aparecía el
+   +$19.50 era Primas/Semana, agregado por semana y por ticker.
+2. *Ni rastro de que fuera un spread.* La consolidación por `order-id` (2026-08-06)
+   representa la orden con la pata **corta** y el importe neto — decisión correcta, el
+   problema es que descartaba la pata larga. `hedge`/`isSpread` no tapan el hueco porque
+   salen de las posiciones **abiertas**: mientras el spread vive se sabe que hay cobertura,
+   en cuanto se cierra queda indistinguible de una put desnuda. La bitácora afirmaba
+   "Put vendida $19" — $1.900 comprometidos y asignación de 100 acciones — cuando el riesgo
+   real eran $100.
+
+**El segundo defecto, encontrado al validar.** Emparejar cierre con apertura por
+`strike|expiry` **sin el tipo de opción** colisiona. Caso real en NU: el bull put 12/11 del
+2026-05-15 (+$55.48), cerrado el 2026-05-20 (−$38.52), se emparejaba contra la **Covered
+Call $12 06-18** vendida el 2026-06-10 — tres semanas *después* de haberlo cerrado. Daba
+−$10.65 en vez de +$16.96. Y como el índice guardaba una sola apertura por clave, la última
+pisaba a la anterior. **Primas/Semana tenía el mismo bug**: NU salía con $136.72 acumulados
+cuando sus flujos de opciones suman $192.20 — $55.48 perdidos, justo la prima del bull put.
+
+**Lo que se cambió.**
+
+- `src/wheel.js` — cada pata guarda `gross` (el `value` sin fees, el número de la
+  plataforma). El evento consolidado de un vertical guarda además `longStrike`,
+  `longExpiry` y `legs`, que es lo único que sobrevive al cierre.
+- `public/index.html` — `evSpreadName()` etiqueta *Bull put / Bear call abierto|cerrado* y
+  `evStrikes()` muestra `$19/$18`. `resultadosDeCierre()` empareja cada cierre con su
+  apertura y añade *"trade +$19.50 neto (+$22.00 bruto) desde 2026-08-27"* a la
+  descripción, en las dos vistas (tabla y cards). La columna VALOR **no se toca**: sigue
+  siendo caja pura para que su suma dé el flujo del subyacente.
+- `claveOpt()` / `indiceAperturas()` / `tomarApertura()` — clave con tipo de opción
+  (`P|19|2026-09-04`), lista de aperturas por clave y consumo de la última **anterior** que
+  siga libre. Lo usan el timeline **y** `semanalHtml`, para que no puedan divergir.
+
+**Verificación** (datos reales, 1.819 transacciones desde 2026-02-01):
+
+| Ticker | Primas/Semana antes | después | Suma de flujos de opciones |
+|---|---|---|---|
+| NU | $136.72 | **$192.20** | $192.20 ✅ |
+| GAP | $489.75 | $489.75 | $489.75 ✅ |
+| SOFI | $208.37 | $208.37 | $208.37 ✅ |
+| JBLU | $67.24 | $67.24 | $83.11 − $15.87 de la STO viva ✅ |
+
+`totalPremium` y `costBasis` de GAP no se movieron ($501.97 / $22.0303): el arreglo es de
+presentación y emparejamiento, no de contabilidad. Batería: 102 pruebas en verde
+(`--local`).
+
+**Lo que NO se tocó, y por qué.**
+
+- *La prima del spread especulativo sigue reduciendo el costo base de las 100 acciones de
+  GAP.* Es la regla vigente desde el 2026-08-03 ("todo lo que cobraste por ese subyacente")
+  y cambiarla es una decisión de contabilidad, no un bug.
+- *`phase` sigue saliendo de las posiciones abiertas con `if (openPut) → CSP_ACTIVA`.* Entre
+  el 27 y el 31 de agosto GAP tenía 100 acciones, una Covered Call y la put corta del
+  spread, y la tarjeta decía **CSP Activa** tapando las otras dos. Es un defecto real y
+  aparte; queda anotado, sin cambiar.
+
+## Tabla Primas/Semana (`semanalHtml` en index.html)
+
+Muestra solo P&L **realizados**. Lógica:
+- `ROLL` → siempre incluido (ya es neto)
+- `BTC` → busca su `STO` matching por `tipo|strike|expiry` (ver *El spread cerrado que se leía como pérdida*, 2026-08-31), muestra el **neto** en la semana del cierre
+- `STO` sin BTC y expirado (`expiry < today`) → muestra prima en la semana del **expiry**
+- `STO` aún abierto → **excluido silenciosamente**
+- `STC` → mismo criterio que `BTC` pero contra su `BTO` (índice `btoIndex`, agregado
+  2026-08-03): el débito de abrir la pata larga se netea en la semana en que se **cierra**,
+  para que un spread no aparezca como pérdida en una semana y ganancia en otra
+- `BTO` sin `STC` y expirado → la prima pagada se perdió entera, se muestra en el **expiry**
+
+## Tabla Desglose Mensual (pestaña Reportes, `loadReports` en index.html)
+
+**Realizado vs Δ NLV — no mezclar (corregido 2026-08-03).** La columna de P&L mostraba
+`nlvByMonth` cuando no había filtro de fechas y `strategyByMonth` cuando sí lo había: la misma
+columna significaba dos cosas distintas según si habías tocado el filtro. Son métricas
+diferentes de verdad:
+
+- **`strategyByMonth`** — suma del `pnl` de los round-trips **cerrados** en el mes. Es lo que
+  usa el resto de la pestaña (win rate, ganancia/pérdida promedio, tabla de round-trips).
+- **`nlvByMonth`** — cambio del valor liquidativo de la cuenta. Se calcula en `/api/curve`
+  contra el **NLV en vivo** (`[...entries, [today, currentNlv]]` en server.js), así que el mes
+  en curso **se mueve minuto a minuto** con las posiciones abiertas.
+
+Reportado por el usuario: agosto marcaba ~$5 a media rueda cuando las dos operaciones cerradas
+del mes (SPY +3.49 y SOFI +23.75) sumaban **$27.24** — y para el cierre esa misma celda ya iba
+por $608. Encima las columnas "Días +/−" de la misma fila siempre salieron de `stratByDay`
+(realizado), así que la fila se contradecía sola.
+
+Ahora la columna P&L es **siempre** `strategyByMonth`, y el delta de NLV tiene su propia
+columna. Como es dato de cuenta y no de estrategias, no se puede recortar por rango: con un
+filtro activo se muestra vacío (`—`) en vez de mentir.
+
+## Curva de Capital — snapshots de NLV (2026-08-04)
+
+Disparada por un reporte del usuario: *"el dato de dinero ganado o perdido en julio y agosto
+los veo raros"*. La curva mensual mostraba julio **+262.80** y agosto **+21.96** mientras el
+realizado de esos meses era **−19.80** y **+236.84** — los dos meses parecían intercambiados.
+
+El bucket mensual es `nlvByMonth` = último NLV del mes menos el último NLV anterior al mes.
+Es una métrica legítima (sus buckets suman el cambio real de la cuenta, `10644 + suma(meses)`
+= NLV actual con <1c de deriva) pero **depende de que los snapshots existan y estén bien
+fechados**, y ahí había cuatro fallas:
+
+1. **Fecha UTC contra guard ET.** Los snapshots se fechaban con `todayStr()` (UTC) pero el
+   guard de día hábil usa `isWeekdayET()`. Pasadas las 8pm ET (7pm en invierno) la fecha UTC
+   ya es la del día siguiente: un arranque o redeploy un viernes de noche pasaba el guard
+   (ET dice viernes) y escribía el snapshot bajo la fecha del **sábado**. Así apareció
+   `"2026-08-01"` en el historial de producción. Si cae en la última noche hábil de un mes,
+   **corre la frontera del mes**. Se agregó `todayStrET()`; todo lo que fecha un día de
+   mercado la usa. `todayStr()` (UTC) queda solo para rangos de consulta a la API.
+2. **Horario del snapshot clavado en UTC.** `scheduleDaily`/`scheduleDailyTradier` apuntaban a
+   `20:35 UTC` como "4:35 PM ET" — cierto solo en EDT; en EST (nov-mar) dispara a las
+   **3:35pm ET**, con el mercado abierto. Mismo error de offset fijo que ya se había corregido
+   en `getETHour()`. Ahora usan `msUntilET(16, 35)`.
+3. **El snapshot de arranque pisaba el del cierre.** Se guardaba el NLV al levantar el proceso,
+   a la hora que fuera. Por eso la misma fecha valía distinto según el server (`2026-07-28` =
+   8493.04 en local vs 8472.80 en producción). Ahora el arranque usa `{ overwrite: false }`:
+   solo rellena huecos, nunca pisa el valor de las 4:35pm.
+4. **Snapshots de fin de semana.** `loadNlvHistory`/`loadNlvHistoryTradier` los descartan al
+   **leer** (`dropWeekendSnapshots`), no al escribir — así también se limpia lo que ya quedó
+   guardado en el volumen de Railway, donde el archivo no se puede editar a mano. ⚠️ El saneo
+   se aplica solo a lo leído del archivo: `NLV_SEED` se vuelve a poner encima porque
+   **`2026-02-28` es sábado a propósito** (cierre de mes cargado a mano). Hay test.
+
+**Limitación que queda en pie:** si un mes se queda sin snapshot en sus últimos días de
+mercado, el resultado de esos días se le acredita al mes siguiente — no se pierde ni se
+duplica, pero se corre de mes. Es lo que pasaba en el historial local, sin `07-30` ni `07-31`:
+julio daba −322.64 y agosto +635.20. No hay forma de repartirlo sin el dato; lo que se ataca
+es la causa (1-3).
+
+**Vista "Realizado" en la Curva de Capital.** El desplegable Acumulado/Periodo pasó a
+Acumulado / **Δ Net Liq** / **Realizado**. Las dos primeras son valor de cuenta (incluyen lo
+que se mueven las posiciones abiertas); "Realizado" sale de `metrics.stratByDay`/
+`strategyByWeek`/`strategyByMonth`, **la misma fuente que Reportes**, así los dos lugares no
+pueden contradecirse. Es el mismo criterio que ya se había aplicado al Desglose Mensual arriba;
+faltaba en el Dashboard, que era el único lugar donde se leía Δ NLV como "lo que gané".
+
+## Cierres parciales — el FIFO ignoraba la cantidad (2026-08-05)
+
+Disparado por *"en el hoy hay un error en el trade de netflix"*. La fila mostraba un Bull Put
+Spread de NFLX cerrado con **−104.37**, y además las columnas Apertura/Cierre se leían como
+ganadoras (**+164.24 / −59.87**) contradiciendo ese P&L negativo.
+
+Lo que había pasado de verdad, en tres transacciones:
+
+| Fecha | Acción | Símbolo | Qty | Neto |
+|---|---|---|---|---|
+| 29-jul | Sell to Open | Put 70.00 | 2 | +257.74 crédito |
+| 29-jul | Buy to Open | Put 68.00 | 2 | −164.24 débito |
+| 05-ago | Sell to Close | Put 68.00 | **1** | +59.87 crédito |
+
+Se vendió **1 de las 2 patas largas**. El spread seguía vivo (2 puts 70 cortos + 1 put 68 largo,
+confirmado contra `/api/overview`). No era un trade cerrado.
+
+**Causa raíz — `src/metrics.js`, el matching FIFO no miraba cantidades.** El inventario guardaba
+una entrada por (orden, símbolo) con el valor total, y el cierre hacía `stack.splice(bestIdx, 1)`
+consumiendo **la entrada entera** sin importar cuántos contratos se cerraran. Cerrar 1 de 2
+borraba los 2 y restaba el costo de 2 contra el ingreso de 1: `−164.24 + 59.87 = −104.37`, cuando
+lo correcto es prorratear la mitad → `−82.12 + 59.87 = **−22.25**`.
+
+No era exclusivo de NFLX: **cualquier cierre parcial** del histórico estaba mal. El barrido
+encontró un segundo caso, SPY 0DTE del 25-jun (−88.77 → −55.02).
+
+Los cuatro arreglos:
+
+1. **Inventario con cantidad** (`legQty`). Cada entrada lleva `qty`; el cierre consume solo los
+   contratos que cierra, prorratea el valor de apertura, y deja el resto en el stack. Si el feed
+   no trae cantidad fiable (Receive Deliver antiguos, acciones) se conserva el comportamiento
+   previo de consumir la entrada entera.
+2. **La cantidad se acumula al agregar fills.** Al fusionar fills del mismo símbolo+acción solo
+   se sumaba el dinero; la pata quedaba con la cantidad del *primer* fill. Sin esto el prorrateo
+   del punto 1 consumiría una fracción equivocada.
+3. **`_legs` cuenta símbolos distintos, no pares.** Un cierre que tapa varias aperturas genera
+   varios pares del mismo contrato; contarlos como patas convertía un cierre simple en
+   "Iron Condor" (la regla `_legs === 4`).
+4. **Banderas `partialClose` y `positionOpen`.** La primera marca que el cierre dejó contratos
+   de esa apertura vivos; la segunda que el subyacente+vencimiento **todavía tiene posición**
+   (se exige vencimiento futuro, si no una opción vieja sin transacción de expiración queda
+   colgada en el inventario para siempre). Los `Roll` se excluyen de `positionOpen`: un roll
+   siempre deja posición abierta, marcarlo no aporta nada. En la pestaña **Hoy** salen como
+   badge ámbar "Parcial".
+
+**Verificación.** Para un vencimiento donde todo se abrió y cerró, la suma de P&L tiene que dar
+igual al flujo de caja crudo de esos contratos. Antes cuadraban **38 de 39** vencimientos (el que
+fallaba era SPY 260625: cash −66.61 vs P&L −100.36). Después cuadran los **39**. Ninguna fila
+apareció ni desapareció (99 antes y después) y ningún `stratType` cambió.
+
+**Bug de presentación, aparte del cálculo.** Las columnas Apertura/Cierre hacían `Math.abs()` y
+forzaban el signo (`'+'` verde a la apertura, `'-'` rojo al cierre). Vale para prima corta, pero
+en una pata larga la apertura es un **débito** y el cierre un **crédito**, así que la fila se leía
+al revés. Estaba repetido en Hoy, Historial, Reportes, Calendario, el modal del calendario y el
+journal — todos usan ahora el signo real (`f$` + `cc`). Los encabezados "Prima cobrada" /
+"Recibido" / "Costo cierre" pasaron a **"Apertura" / "Cierre"**, que es lo que la columna muestra
+de verdad ahora que puede ser negativa.
+
+## Bitácora Tradier — coherencia entre hojas (2026-08-04)
+
+Validado a pedido del usuario (*"cierres hoy, dashboard, etc deben coincidir siempre, debe ser
+la misma fuente"*). **Sí coinciden**: Dashboard, Historial, Reportes, Calendario y Hoy pasan
+todas por `fetchTxnsTradier()` → `/api/transactions-tradier` → `metrics.strategies`.
+
+Dos cosas a tener presentes al comparar:
+
+- **El checkbox de errores de implementación es el que separa los números.** Dashboard,
+  Reportes, Historial y Calendario lo traen **desmarcado** por defecto (excluyen los trades
+  marcados como bug) y por eso concuerdan entre sí. Los agregados del server
+  (`metrics.totalPnL`, `strategyByMonth`) **no** conocen ese filtro, así que siempre van a dar
+  otro número: julio da **+3,129** en las hojas y **−1,728** en el agregado crudo — la
+  diferencia son exactamente los 13 ciclos marcados (−4,857). No es un error, es el filtro.
+- **La hoja "Hoy" ya tiene el checkbox** (agregado 2026-08-04) — era la única sin él, así que
+  siempre incluía los marcados y podía no cuadrar con el Dashboard. Mismo id/texto/default que
+  las otras cuatro, y el filtro se aplica **antes** de `consolidateStrategies` (consolidar
+  primero mezclaría una pata marcada con una sana en la misma fila). Las filas marcadas llevan
+  ⚠️ con la nota del error en el tooltip, para que al activarlo se vea *cuál* trade entró y no
+  solo que el número cambió.
+- **Comparar siempre sobre UNA sola lectura.** `/api/transactions-tradier` tiene TTL de 60s y
+  trae P&L en vivo: dos consultas separadas por minutos en día de mercado dan números
+  distintos sin que haya ningún bug (agosto pasó de 1545 a 395 en una misma sesión).
+
+### Reconciliación con el broker — dos fuentes de trades duplicados (2026-08-04)
+
+Reportado como *"el reporte de historial de agosto 4 está raro, veo varios trades que
+desconocía"*. El día mostraba 10 filas por $196; las correctas eran **8 por $416**. Sobraban dos
+`SPXW Short Call` (−$220 y $0) sobre los strikes **7710 y 7720** — exactamente las dos patas del
+Bull Call Spread `tex-1785860138418` (+$230) que ya estaba contado. La misma plata, dos veces.
+
+`reconcileClosedPnl` (`src/tradier_closed_pnl_adapter.js`) descarta las filas del broker que ya
+cubre un registro nuestro. Fallaba por dos motivos distintos:
+
+**1. Deduplicaba por conteo, no por pertenencia.** Descontaba de a uno: si el broker traía 3
+filas de un symbol/día y teníamos 2 cierres registrados, la tercera sobrevivía y se dibujaba
+como operación propia. Y el sandbox de Tradier **sí duplica filas**: el 04-ago devolvió 3 filas
+del call 7710 — las tres con el mismo `proceeds` (320) y costos distintos (1940 / 1470 / 320) —
+y 2 del 7720, ambas con `proceeds` 690 y costos 1270 / 910. Es el mismo cierre repetido con
+costos inconsistentes. Ahora es pertenencia: si el symbol/día ya tiene cierre registrado, ninguna
+fila extra entra.
+
+**2. La clave de La Rueda usaba el VENCIMIENTO como fecha de cierre.** `trackedLegKeys` armaba
+`optionSymbol|leg.expiry`, pero el broker cierra en otra fecha: nuestro ciclo de PDD cierra el
+03-ago y Tradier reporta esa misma pata cerrada el **24-jul**; RIO/NBIS/IBIT/RKLB vencen el
+21-ago y el broker las cierra el **10-jul**. La clave no coincidía nunca, así que **cada ciclo de
+La Rueda se contaba dos veces**: una como ciclo nuestro (prima acumulada) y otra como "Short Put"
+reconciliado. Ahora la clave de La Rueda va sin fecha (`optionSymbol|*`): un symbol OCC ya
+identifica raíz + vencimiento + tipo + strike, así que si hay un ciclo CERRADO sobre ese
+contrato, cualquier fila del broker para el mismo contrato es esa misma posición.
+
+**Impacto medido sobre toda la historia:** las estrategias "solo del broker" pasan de **18 a 5**,
+y su aporte de −$411 pasa a **+$17**. El 04-ago pasa de $196 a **$416**.
+
+**Las 5 que siguen aflorando son legítimas** — la otra pata de un roll, que el broker reporta y
+nosotros nunca registramos: BAC `260821P55`, KO `260814P79`, JBLU `260814P5`, BE `260821P200`,
+HOOD `260821P100`. En cada caso nuestro registro guarda la pata *previa* al roll y el broker la
+*posterior*. Eso es exactamente para lo que se creó la reconciliación (2026-07-24: aflorar las 91
+patas cerradas que nunca pasaron por el tracking) y sigue funcionando.
+
+> ⚠️ **Esta conclusión resultó equivocada — las 5 eran duplicados (corregido 2026-08-07).** Al
+> cruzarlas una por una contra el `/gainloss` real, las 5 ya estaban contadas: en BE y HOOD el
+> dinero está dentro del cash flow reconstruido a mano del propio ciclo, y en KO/BAC/JBLU el
+> ciclo no tenía `pnl` y mostraba la prima entera, así que el broker parecía traer algo nuevo.
+> Ver la sección "La Rueda contaba dos veces…" abajo.
+
+⚠️ **Limitación aceptada, explícita:** si alguna vez se cierra dos veces el mismo contrato el
+mismo día y solo una queda registrada, la otra deja de aflorar. Es el precio de que Tradier no
+devuelva `order-id` en `gainloss` (ver cabecera del adaptador). Se prefiere no mostrar un trade
+real no trackeado antes que inventar uno que no existió: lo segundo corrompe el P&L del día y
+hace que las hojas se contradigan entre sí, que es el síntoma que se estaba corrigiendo.
+
+### Fecha de cierre de un ciclo de La Rueda — un ROLL no es un cierre
+
+> **Regla del usuario (2026-08-04), la que fija el criterio:** *"el resultado del calendario es
+> lo que cerré hoy, positivo o negativo. No importa si hice roll para septiembre o noviembre,
+> eso no tiene nada que ver."*
+
+Disparado por dos reportes del mismo día — *"aparece algo con fecha de septiembre"* y
+*"aparecen trades cerrados el 14 de agosto, hoy es 4 de agosto"*. `mapWheelExecution`
+(`src/metrics_tradier.js`) resolvía `closeDate` con `lastEventDate → reconciliado_manual_ →
+leg.expiry`, que viola las dos mitades de la regla: fechaba ciclos el día de un **roll** y
+fechaba ciclos en un **vencimiento** que ni siquiera había llegado. Encima **nunca leía
+`ex.closedAt`**, la marca explícita de cierre que `mapSpxExecution` sí usa.
+
+Casos reales verificados contra la cuenta (14 ciclos cerrados, 10 estaban mal fechados):
+
+| | antes | después | qué era la fecha vieja |
+|---|---|---|---|
+| JBLU | 2026-07-14 | **2026-08-04** | el día de su `ROLL_DEFENSIVO` — 3 semanas antes y en otro mes |
+| KO, BAC | 2026-08-03 | **2026-08-04** | el día de su `ROLL` |
+| PDD, MARA, NU | 2026-08-14 | **2026-08-03** | el vencimiento, en el futuro (`HUERFANO_SIN_POSICION`) |
+| ANET `wtex-1785796482836` | 2026-09-04 | **2026-08-04** | el vencimiento (`ENTRADA_NO_LLENO`, la orden nunca llenó) |
+| ANET `wtex-adopt-…` | 2026-08-14 | **2026-07-10** | el vencimiento; sin `closedAt`, cae a la apertura |
+| HOOD, BE | 2026-07-10 | **2026-07-11** | el día de su roll; ahora manda su `reconciliado_manual_` |
+
+**Orden nuevo, de más a menos confiable:** `ex.closedAt` → `reconciliado_manual_YYYY-MM-DD` →
+último evento (proxy, puede ser un roll) → vencimiento **solo si ya pasó** → apertura. Más un
+guard final: ningún proxy puede dejar la fecha en el futuro.
+
+Verificado que el total no se mueve: **$388 antes y después** — la plata solo se reubicó al día
+correcto, no se inventó ni se perdió. Fechas futuras: 5 antes, **0** después. Julio pasa de
+−359 a +163 y agosto de 747 a 225 (solo La Rueda).
+
+Es la segunda vez que esta función falla por la fecha (ver el fix 2026-07-28 arriba). Si vuelve
+a tocarse, los invariantes a sostener son: **`closeDate` nunca en el futuro**, **un roll no es
+un cierre**, y **un vencimiento nominal no es un cierre cuando existe una marca real**.
+
+## SPX 0DTE — CIARG_V1 + Signal Center
+
+Sistema de señales para SPX 0DTE/1DTE, con ejecución automática en Tradier (sandbox) para
+las estrategias direccionales de crédito.
+
+**Flujo completo:**
+1. **TradingView** (`CIARG_V1`, chart SPX 2m) corre el indicador base del mentor (Trend Magic
+   CCI+ATR, CM SlingShot EMA10/20+retroceso, MACD slope) + una capa nuestra encima: fase
+   Weinstein de 15m como marco maestro, y la señal final **solo por Camino B** (confluencia
+   recién formada — sin exigir retroceso, gap mínimo entre disparos para no repetir en cada
+   barra de una tendencia sostenida, configurable como input de Pine `gapMinutes_B` —
+   **10 min actualmente** (bajado de 20 el 2026-07-22, a pedido explícito del usuario: la
+   exclusividad de posición ya impide 2 trades simultáneos vía `hasOpenPosition`, así que el
+   gap solo necesita evitar spam entre barras de una misma confluencia, no suplir esa
+   exclusividad — el valor anterior de 20 venía de una baja previa desde 60, documentada y
+   confirmada leyendo el código fuente real el 2026-07-21. Edición hecha directo en el Pine
+   Script vía `pine_set_source`/`pine_save`, compilado sin errores nuevos — contar siempre con
+   `pine_get_source` como fuente de verdad para este valor, no esta nota, ya que Pine vive en
+   TradingView, fuera de este repo de git, y puede volver a cambiar sin que quede registrado
+   acá). El **Camino A** (retroceso clásico del
+   mentor) se desactivó en `sig_bull_B`/`sig_bear_B` tras el backtest del 2026-07-03: 48.8%
+   WR y P&L neto negativo en 41 señales sobre 58 días, vs 67.8% WR / +$975 del Camino B —
+   `longCondition`/`shortCondition` se siguen calculando y mostrando en la tabla de info,
+   solo ya no disparan la alerta. Solo dispara `alert()` para la entrada (BULLISH/BEARISH);
+   no manda contexto 15m ni stop técnico — el servidor calcula esas dos cosas por su cuenta.
+2. **`POST /api/spx/webhook`** recibe la alerta y **revalida todo de forma independiente**
+   (no confía en lo que diga Pine): confluencia Weinstein 2m+15m con su propio cálculo desde
+   Yahoo Finance, score del playbook (`calcPlaybookScore`, pesos en `SPX_CONFIG_DEFAULTS.weights`
+   de `server.js` — MACD pesa poco a propósito, es una confirmación rezagada, no un gate de
+   alto impacto), ventana horaria (`selectStrategy` en `src/spx.js`: 9:45am-3pm ET para 0DTE,
+   3:45-3:50pm para 1DTE — ojo, hay un hueco sin ventana operable entre 3pm y 3:45pm),
+   Iron Condor solo si son ≥10am y el rango de apertura 9:30-10:00 fue respetado.
+3. Si pasa todo, busca strikes reales en la cadena de opciones y arma la señal
+   (`buildSignalSummary`, `src/spx.js`) con stop técnico sugerido (Fractal 2m + Muro Gamma,
+   el más conservador de los dos — solo informativo, sin monitoreo en vivo) y nota de R:R
+   esperado según el tipo de vertical.
+4. Si la estrategia es `BULL_PUT_SPREAD` o `BEAR_CALL_SPREAD` y el kill-switch
+   `tradierAutoExecute` está activo (`spxConfig.trading`), se ejecuta automáticamente en
+   Tradier sandbox (`src/tradier.js`) — **sin confirmación manual**. Antes de mandar la orden,
+   `hasOpenPosition('SPXW')` revisa posiciones y órdenes en curso; si ya hay un trade abierto,
+   la señal se guarda como sugerencia pero no se ejecuta (evita apilar posiciones).
+5. Iron Condor (0DTE y 1DTE) tiene su propio pipeline paralelo, ver sección dedicada
+   abajo. Las verticales de débito (Bull Call/Bear Put) siguen llegando al Signal Center
+   como sugerencia manual — no están conectadas a Tradier.
+
+**Gotcha importante:** `spx_config.json` (pesos del playbook, TP/SL, `tradierAutoExecute`)
+vive en `DATA_DIR`, que en Railway es el **volumen persistente**, no el código desplegado.
+Cambiar los defaults en `server.js` y hacer push **no actualiza el archivo real que usa
+producción** si ya existe uno guardado ahí — hay que empujar el cambio también vía
+`POST /api/spx/config` contra la URL de producción.
+
+**Parámetros de trading actuales en producción** (`spxConfig.trading`, ajustados el
+2026-07-03 tras el backtest de 58 días): `targetDelta: 0.30`, `tpPct: 30`, `slMult: 1.5`.
+El default de `SPX_CONFIG_DEFAULTS.trading.targetDelta` en `server.js` sigue en `0.40` —
+no coincide con el valor real de producción a propósito (ver gotcha de arriba): si alguna
+vez se borra `spx_config.json` en el volumen, el sistema caería de vuelta al 0.40 sin avisar.
+
+**Bug corregido (2026-07-04):** `findStrikesByDelta` (`src/spx.js`) recibía `targetDelta`/
+`spreadWidth` como argumentos desde `server.js` pero no los declaraba en su firma — los
+ignoraba silenciosamente y usaba 0.10-0.14/20pts fijos para toda estrategia. Esto
+significaba que los cambios de delta/ancho en `spx_config.json` **nunca se aplicaban de
+verdad** a las señales en vivo. Ya está arreglado (parámetros con default = comportamiento
+viejo si no se pasan).
+
+**Bug corregido (2026-07-08):** el call site de `calcPlaybookScore` en `server.js`
+(`POST /api/spx/webhook`) tenía un bloque "Parche" que intentaba recalcular el score leyendo
+`playbookResult.criteria`/`.criterios` — campos que `calcPlaybookScore` nunca devolvió (devuelve
+`checks`, un array). Como resultado, cada vez que los checks legacy `precio_ema200`/
+`emas_alineadas_diario` daban `true`, el bloque sobreescribía el score real (bueno) con un
+score recalculado de máximo 10 puntos — muy por debajo del `minScore` de 75 — y la señal se
+descartaba en silencio (`return;`, sin registrar nada). Estuvo matando señales direccionales
+válidas quién sabe cuánto tiempo. Se eliminó por completo al reponderar el score (ver abajo).
+
+**Score del Playbook — modelo "Peso de la Evidencia" (2026-07-08):** `calcPlaybookScore`
+(`src/spx_indicators.js`) se reescribió para reflejar el Framework de los 3 Mundos del
+playbook de Alejandro, en vez de los 7 checks EMA-céntricos anteriores. `minScore` subió de
+75 a **80** (`SPX_CONFIG_DEFAULTS.minScore`) — regla de Alejandro: los 3 Mundos alineados
+tienen que dar más de 80/100 para disparar el trade. Pesos actuales en
+`SPX_CONFIG_DEFAULTS.weights`:
+- `fase_weinstein` (40%) — booleano todo-o-nada: fase 2m y 15m coinciden con la dirección
+  (2 alcista / 4 bajista). Nota: el gate obligatorio de confluencia ya exige esta misma
+  condición antes de llegar al score, así que en la práctica esta variable siempre vale 40
+  dentro del score de una señal que llega a evaluarse — es intencional, coherente con el
+  modelo (Dirección es necesaria pero no alcanza sola, los otros 60 puntos son los que
+  definen si se cruza el umbral).
+- `regimen_institucional` (10%) — misma lógica que el viejo `gex_compatible`, renombrado. El
+  framework de Alejandro pide GEX *y* DEX, pero DEX no se implementó todavía (los datos de
+  delta ya están disponibles en la cadena de opciones sin fetch adicional, pero falta validar
+  en qué dirección favorece cada régimen antes de sumarlo al score de un sistema que ejecuta
+  órdenes reales — queda como mejora futura).
+- `patrones_estructurales` (20%) — nuevo: Higher-Low (alcista) / Lower-High (bajista),
+  `calcSwingStructure()` en `src/spx_indicators.js`, usa el historial de los últimos 3
+  fractales de Williams 15m (`indicators.fractal15m.lowsHistory`/`.highsHistory`, antes solo
+  se guardaba el último fractal, ahora se acumula historial en `buildSPXContext()`).
+- `ema_10_20_alineadas` (10%) — fusión de los viejos `emas_alineadas_15m` + `precio_cerca_ema`.
+- `volumen_rompimiento` (10%) — igual que el viejo `volumen_spy`, renombrado.
+- `macd_cruce_pendiente` (10%, ajustado el 2026-07-08 desde 5% — ver nota abajo) — como el
+  viejo `macd_alineado_15m` pero ahora también exige pendiente a favor. **Fix 2026-07-08:**
+  la pendiente originalmente comparaba el histograma contra 1 sola vela atrás (`macd.slope`),
+  demasiado ruidoso — puede dar negativo en una vela suelta aunque la línea del MACD siga
+  claramente en ascenso (confirmado contra un caso real: usuario reportó "el MACD sí es
+  alcista" con captura de pantalla, el check daba `false` porque el histograma bajó 0.03 en
+  la última vela). Ahora compara la **línea** del MACD (más suave que el histograma) contra
+  **3 velas atrás** (`macd.linePrev3`, nuevo campo en `calcMACD` de `server.js`) en vez del
+  histograma vela-a-vela. `macd.slope` se mantiene en el objeto por compatibilidad pero ya no
+  lo usa este check. **Bug encontrado de paso (el otro, previo a este fix):** el `calcMACD` local de `server.js` (el que
+  realmente arma `indicators.daily/m15/m2.macd` en `buildSPXContext()`) devolvía solo
+  `{line, signal, hist}` — sin `bullish`/`bearish`/`slope`. El viejo check `macd_alineado_15m`
+  leía `macd.bullish`, que siempre fue `undefined`: ese check **nunca pasó una sola vez en
+  producción**. Se agregaron `bullish`/`bearish`/`histPrev`/`slope` al `calcMACD` de `server.js`
+  para que el check nuevo (y cualquier otro futuro) tenga datos reales.
+- `confirmacion_algoritmica` (0%, ajustado el 2026-07-08 desde 5% — ver nota abajo) — puerto
+  de "Camino A" (Trend Magic CCI+ATR + SlingShot EMA10/20 + pendiente MACD) a
+  `src/camino_a.js` (`calcCaminoA`), calculado en `buildSPXContext()` sobre velas 2m y
+  expuesto en `indicators.m2.caminoA`. El propio backtest de 58 días mostró que Camino A
+  solo, como gatillo, es perdedor neto (48.8% WR, -$130 en 41 señales) — por eso está
+  desactivado como disparador en Pine y ahora también en 0% en el score (el check se sigue
+  calculando y mostrando en la señal, solo no suma puntos).
+
+**Ajuste 2026-07-08 (mismo día del rework):** `confirmacion_algoritmica` bajó de 5% a 0% y
+`macd_cruce_pendiente` subió de 5% a 10% — decisión del usuario, sin cambiar el resto de la
+tabla. Suma sigue dando 100.
+
+**Ajuste 2026-07-21 — `volumen_rompimiento` retirado del score:** análisis de winrate del
+2026-07-16 re-cruzado con 6 trades nuevos mostró que `volumen_rompimiento` nunca pasó ni una
+sola vez en 44 señales — 10% de peso desperdiciado, castigaba a todas las señales por igual sin
+distinguir ganadoras de perdedoras. Mismo patrón que `confirmacion_algoritmica`: peso a 0%, el
+check se sigue calculando y mostrando, solo deja de puntuar. Los 10 puntos liberados se
+repartieron 5/5: `fase_weinstein` 40→**45** (el check de mayor peso, decisión explícita del
+usuario) y `macd_cruce_pendiente` 10→**15** (el único check "menor" con evidencia real de
+discriminar — 33% vs 62% win rate cuando falla junto con volumen, según el mismo análisis).
+Suma sigue dando 100. Migración no-destructiva en `loadSPXConfig()` igual que las anteriores.
+
+**Fix 2026-07-08 — `selectStrategy` no consideraba el régimen de gamma para crédito/débito:**
+`selectStrategy` (`src/spx.js`) decidía crédito vs. débito solo por IV Rank/VIX
+(`ivRank > 30 || vix > 20`). Si el IV Rank/VIX daba crédito pero el gamma resultaba NEGATIVO,
+el sistema igual vendía un crédito direccional (Bull Put/Bear Call) — exactamente la
+combinación que el playbook de Alejandro marca como más peligrosa (vender prima en un régimen
+"motor" de movimiento explosivo, donde el precio puede volar el SL antes de que el paso del
+tiempo compense algo). Ahora **Gamma NEGATIVO fuerza débito** (Bull Call/Bear Put) para
+direccionales, sin importar IV Rank/VIX — `gammaForcesDebit` en `selectStrategy`. Gamma
+POSITIVO sigue decidiéndose por IV Rank/VIX como antes (ahí sí conviene cobrar prima, el
+mercado tiene frenos). No afecta al Iron Condor (que ya exige GEX positivo por su propio gate).
+
+**Feature 2026-07-08 — auto-ejecución de débitos direccionales (Bull Call/Bear Put):**
+el fix de arriba (`gammaForcesDebit`) hace que el sistema elija débito en gamma negativo, pero
+hasta este mismo día **el sistema solo auto-ejecutaba crédito** — los débitos quedaban siempre
+como sugerencia manual en el Signal Center, nunca llegaban a Tradier. Se confirmó con un caso
+real: una señal `BULL_CALL_SPREAD` válida (score 80%) quedó en `PENDING` toda la sesión, justo
+un día de gamma negativo casi permanente. Ahora las 4 verticales direccionales auto-ejecutan:
+- **Bug encontrado de paso en `src/tradier.js`:** `placeSpreadOrder`/`closeSpreadOrder`
+  resolvían el tipo de opción con `strategy === 'BULL_PUT_SPREAD' ? 'P' : 'C'` — un ternario
+  que solo distinguía esa estrategia; `BEAR_PUT_SPREAD` (que necesita **puts**) caía al
+  default `'C'` e intentaba operar calls por error. Corregido a
+  `(strategy === 'BULL_PUT_SPREAD' || strategy === 'BEAR_PUT_SPREAD') ? 'P' : 'C'`.
+  El resto de la lógica (qué pata se compra/vende) ya era correcta para las 4 — `shortStrike`
+  siempre es la pata vendida, `longStrike` la comprada, consistente en las 4 estrategias según
+  `findStrikesByDelta` (`src/spx.js`).
+- `tradierEligible` (webhook, `server.js`) ahora incluye las 4 estrategias, no solo las 2 de
+  crédito.
+- El gate de Crédito/Riesgo mínimo 20% (`MIN_CREDITO_RIESGO_PCT`) se exime para débito — es
+  conceptualmente un chequeo de crédito, y además tenía un bug latente para débito
+  (`credito = signal.credit || signal.maxProfit || 0` caía a `maxProfit`, sin relación real,
+  dando un ratio sin sentido).
+- `checkDirectionalTPSLImpl` ahora bifurca la fórmula de P&L según `ex.isCredit` (nuevo campo,
+  persistido en `tradier_executions.json`; `undefined` en ejecuciones viejas se trata como
+  crédito, que es lo único que existía antes de este cambio). Crédito sigue igual (cierra por
+  % del crédito recibido). Débito es nuevo: valor actual = `q[longSym] - q[shortSym]` (mismo
+  par de cotizaciones que crédito, restado al revés), P&L = valor actual menos lo pagado, TP/SL
+  expresados como **% de la prima pagada** (`spxConfig.trading.debit.tpPct/slPct`, default
+  50%/50%) — no como un multiplicador como en crédito, porque el riesgo máximo de un débito ya
+  es 100% de lo pagado, un multiplicador no tiene el mismo sentido ahí.
+- Migración no-destructiva de `spx_config.json` igual que las anteriores (`trading.debit` se
+  agrega solo si no existe, sin tocar el resto).
+
+**Bug encontrado en un doble-check posterior (2026-07-08) — 1DTE elegía strikes de la cadena
+equivocada:** `findStrikesByDelta` (`src/spx.js`) resolvía la expiración buscando
+`e['expiration-date']`, un campo que **no existe** en la cadena tal como la devuelve
+`/api/option-chain/:symbol`/`enrichedExps` (ahí el campo se llama `expiry` — `expiration-date`
+es el nombre nativo de la API cruda de TastyTrade, no el de la cadena ya remapeada que
+realmente recibe esta función). Como la búsqueda siempre fallaba, caía al fallback
+(`expirations[0]`, la expiración más próxima). Para 0DTE esto "funcionaba por accidente"
+(hoy es justamente `expirations[0]`), pero para **1DTE** (Iron Condor 1DTE y direccional
+1DTE, ventana 3:45-3:50pm ET) elegía deltas/strikes mirando la cadena de **hoy** en vez de la
+de **mañana** — perfiles de riesgo completamente distintos, aunque el campo `expiry` del
+resultado final sí mostraba la fecha correcta (por el mismo `|| targetDate` de respaldo),
+ocultando el problema. Corregido a `e.expiry`/`exp.expiry` en las 5 ocurrencias de la función.
+Verificado: con esto, 1DTE ahora resuelve la cadena de mañana correctamente; 0DTE sin cambios
+de comportamiento (ya usaba la cadena correcta, por casualidad).
+
+`precio_ema200`/`emas_alineadas_diario` (los checks EMA200 diaria que el bug de arriba tocaba)
+se retiraron — la fase Weinstein real los reemplaza con una medida mucho más directa. Migración
+de `spx_config.json` es automática (`loadSPXConfig()` detecta `weights.fase_weinstein ===
+undefined` y reemplaza solo `weights`, preservando `trading` tal cual esté guardado en
+producción) pero conviene verificar con `GET /api/spx/config` después de cada deploy, por el
+gotcha de arriba (push no actualiza el volumen por sí solo).
+
+## Iron Condor (0DTE + 1DTE) — pipeline independiente
+
+A diferencia de las direccionales, el Iron Condor **no depende de una alerta de Pine** —
+CIARG_V1 nunca manda `direction: NEUTRAL`, y el gate obligatorio de confluencia Weinstein
+(fase 2/4) es incompatible con la tesis del IC (rango, sin tendencia). En vez de eso:
+
+1. `checkIronCondor()` en `server.js` corre cada 5 min via `setInterval`, evaluando el
+   contexto de mercado (`buildSPXContext()`, la misma función que usa
+   `GET /api/spx/context`) contra `evaluateIronCondorGate(ctx, dte)` en `src/spx.js` —
+   gate propio, playbook profesor Alejandro: GEX positivo + buffer de Gamma Flip
+   (compartido 0DTE/1DTE), más para 0DTE: setup por PIN (ver 2026-08-08) y corte de
+   apertura `noAbrirDespuesET`; para 1DTE: ventana **3:45-3:52pm ET**.
+   ⚠️ **Desde el 2026-08-09 el 1DTE corre en MODO CAPTURA y casi nada de esto lo
+   bloquea** — VIX, distancia al Gamma Flip y calendario económico se siguen
+   evaluando pero ya **no** rechazan la entrada. Ver la sección dedicada abajo antes
+   de razonar sobre por qué el 1DTE entró o no entró.
+2. Si pasa, arma la señal (4 patas: put corta/larga + call corta/larga, delta configurable
+   vía `spxConfig.trading.ironCondor`) y, si `ironCondor.tradierAutoExecute !== false`
+   (kill-switch **propio**, separado del de las direccionales), la ejecuta en Tradier vía
+   `tradier.placeIronCondorOrder()` (orden multi-leg de 4 patas).
+3. `checkIronCondorTPSL()` (cada 90s en horario de mercado) es el **primer cierre activo
+   de posiciones de todo el sistema** — todo lo demás (`checkTradierExecutions`, cada
+   5 min) es pasivo: solo detecta que una posición desapareció y registra el P&L después
+   del hecho, nunca coloca una orden de cierre. Este monitor sí lo hace: confirma el
+   fill (crédito neto real desde `avg_fill_price`), trae cotizaciones en vivo de las 4
+   patas (`tradier.getQuotes()`, contra el propio sandbox de Tradier — no TastyTrade,
+   la posición vive ahí), calcula cuánto costaría cerrar ahora, y cierra
+   (`tradier.closeIronCondorOrder()`) cuando el P&L cruza `tpPct` o `-slMult` del
+   crédito recibido.
+4. **Fuera de alcance a propósito:** el stop técnico (Fractal/Muro Gamma) sigue siendo
+   solo informativo, igual que en las direccionales; la defensa "lotería" (cerrar solo
+   la pata amenazada y dejar la otra como cobertura) no está automatizada.
+
+**Gotcha de limpieza:** las órdenes de prueba en el sandbox de Tradier a veces quedan en
+estado `pending` indefinidamente (no auto-fillean) — mientras existan, `hasOpenPosition`
+las cuenta como "trade en curso" y bloquea que se genere una señal real nueva. Si el
+sistema deja de generar señales sin motivo aparente, revisar `tradier.getOrders()` por
+huérfanas de pruebas anteriores.
+
+**Backtester SPX** (`public/index.html`, tab "Backtester SPX", función `runBT()`): corre la
+misma lógica de entrada de CIARG_V1 (Trend Magic + SlingShot + MACD + gate Weinstein 2m+15m
++ Camino B únicamente) contra 58 días reales de Yahoo Finance (límite de velas de 2m), con
+P&L simulado vía Black-Scholes (IV fija 17.5%, sin datos históricos de cadena de opciones
+reales — no existen en ningún proveedor). `BT_WEIGHTS`/`evalDir` (pesos del playbook dentro del
+backtester) es un **proxy legacy simplificado** — desde el rework a "Peso de la Evidencia"
+(2026-07-08) ya no se mantiene sincronizado clave por clave con `SPX_CONFIG_DEFAULTS.weights`
+de `server.js` (hardcodea `volumen_spy: true`/`gex_compatible: true` porque no tiene esos datos
+históricos client-side, y no calcula patrones HL/LH ni Camino A real como score). Solo importan
+el `minScore` y que la suma de pesos dé 100, no la paridad check-por-check con producción.
+
+**Símbolos de opciones:** el root correcto para las semanales/0DTE de SPX en Tradier es
+`SPXW` (no `SPX`, que es solo mensual) — confirmado contra su sandbox real.
+
+**Variables de entorno Tradier** (`.env`, prefijo `TRADIER_*` igual que `TT_*` para
+TastyTrade): `TRADIER_ACCESS_TOKEN`, `TRADIER_ACCOUNT_NUMBER`, `TRADIER_BASE_URL`
+(sandbox por defecto). No están en el volumen — hay que agregarlas también en las
+Variables del servicio en Railway (Settings → Variables), o el auto-deploy no las tiene.
+
+**Zona horaria:** `getETHour()` (`src/spx.js`) usa `America/New_York` real (vía
+`toLocaleString`), no un offset fijo — se ajusta solo con el horario de verano (EDT/EST).
+Antes tenía un bug de offset fijo UTC-5 que atrasaba 1 hora las ventanas en época de EDT.
+
+**Calendario económico automatizado para el 1DTE (2026-07-09):** a pedido del usuario —
+antes esto era una nota manual ("revisar antes de confirmar"), sin chequeo real. Ahora
+`checkHighImpactUSEventsTomorrow()` (server.js) consulta el **próximo día de mercado** (salta
+fin de semana — un IC 1DTE abierto un viernes expira el lunes, no el sábado) y detecta
+eventos de **alto impacto en EE.UU.** ("3 estrellas", a pedido explícito del usuario — no se
+filtran otros países ni impacto medio/bajo).
+
+> ⚠️ **Desde el 2026-08-09 este chequeo YA NO BLOQUEA** — el 1DTE está en modo captura y
+> entra igual. El resultado se sigue calculando y viaja al registro del trade
+> (`condiciones.calendarioVerificado` / `.eventosManana`), pero es informativo. Todo lo que
+> dice esta sección sobre "bloquear" describe el comportamiento **anterior**.
+> Verificado el 2026-08-12: el endpoint de Investing.com hoy devuelve **HTTP 403** (con las
+> cabeceras exactas del server), así que en la práctica `calendarioVerificado` viene en
+> `false` siempre. Bajo el modo captura eso es irrelevante para si el trade sale o no.
+- **Fuente**: no hay API oficial de Investing.com — se encontró inspeccionando las llamadas
+  de red de su propio calendario web: `endpoints.investing.com/pd-instruments/v1/calendars/
+  economic/events/occurrences?domain_id=1&start_date=...&end_date=...&country_ids=5`. Sin
+  auth, responde JSON limpio. `country_ids=5` = Estados Unidos (confirmado con datos reales).
+  Es un endpoint no documentado/no oficial — **puede cambiar sin aviso**, revisar si empieza
+  a fallar.
+- Respuesta trae dos arrays a unir por `event_id`: `events` (metadata: `importance`
+  `low`/`medium`/`high`, `event_translated`/`short_name`) y `occurrences` (`occurrence_time`
+  en UTC, valores actual/forecast/previous). Se filtra a `importance === 'high'`.
+- **Gate conservador ante fallos** (comportamiento **hasta el 2026-08-09**, hoy inactivo por
+  el modo captura): si la consulta fallaba, el 1DTE se **bloqueaba** — no se asumía "sin
+  eventos" solo porque no se pudo verificar. `null` = no se pudo verificar, `[]` = verificado
+  y sin eventos; esa distinción sigue viva en el código y en el registro del trade.
+- Solo se consulta cuando `dte === '1DTE'` dentro de `checkIronCondor()` — no en cada
+  chequeo de 0DTE, que no lo necesita.
+- **Validado con fechas de prueba reales** (no solo con la lógica): "CB Consumer Confidence"
+  salió correctamente marcado `high` para una fecha con evento real conocido, confirmando que
+  el filtro de importancia funciona — no solo que la llamada no tira error.
+
+### MODO CAPTURA del 1DTE (2026-08-09) — la única condición que bloquea es el GEX
+
+> **Decisión del usuario:** *"entremos sin condiciones… pongamos solo como restricción de
+> entrada estar en gamma positivo, solo eso"*, y *"nada debe bloquear el IC 1DTE"*
+> (2026-08-10). El 1DTE se genera **sí o sí** cuando hay gamma positivo y estamos en su
+> ventana.
+
+Vive en `spxConfig.trading.ironCondor.soloGammaPositivo1DTE: true`. Lo que **bloquea** y lo
+que **solo se registra**:
+
+| | |
+|---|---|
+| **Bloquea** | GEX POSITIVO, y estar dentro de la ventana **15:45–15:52 ET** |
+| Se evalúa pero **no** bloquea | distancia al Gamma Flip, VIX>24, calendario económico |
+| **No aplica** al 1DTE | el PIN, y el corte `noAbrirDespuesET` (14:30) — los dos son solo del 0DTE, el 1DTE retorna antes de llegar a ellos |
+| **No lo bloquea** | la exclusividad de posición: `checkIronCondor` se saltea ese bloque entero cuando `dte === '1DTE'` |
+
+Lo que sí sigue filtrando, **después** del gate y en `server.js` (ojo, no distingue dte —
+aplica a 0DTE y 1DTE por igual): `minShortDistPts` (25) y `minCreditoAnchoPct` (hoy 0).
+
+La ventana es de **7 minutos** a propósito: `checkIronCondor` corre cada 5 min con fase
+libre, así que 7 garantizan que caiga un tick adentro. ⚠️ **Consecuencia:** hay **1 o 2
+intentos por día, no más**. Si el sandbox de Tradier responde HTTP 500 en ese rato (pasó el
+2026-08-12: 22 órdenes rechazadas seguidas por *"An error occurred while communicating with
+the backend"*), **se pierde la entrada del día** y no hay reintento.
+
+Salida: `sinStop1DTE: true` — **no tiene stop**. Sale por TP 30% o por `cierre1DTE_ET`
+(10:30 ET del día siguiente). El riesgo queda acotado solo por el ancho: 1 contrato × 5 =
+**$500**.
+
+Validado en vivo el 2026-08-12 contra la cadena real: resuelve correctamente el vencimiento
+de **mañana** (el bug de `e.expiry` del 2026-07-08 sigue arreglado), y con delta 0.10 las
+cortas quedan a ~59 pts del spot — muy por encima del piso de 25 que sí mata al 0DTE en días
+comprimidos.
+
+## Config de producción a la deriva — cuatro correcciones en vivo (2026-08-12)
+
+Ninguna es un commit: son cambios sobre el **volumen de Railway**, así que
+`scripts/control_cambios.py` no los registra. Quedan acá.
+
+**1. El daemon de Gamma estaba muerto y nada lo iba a levantar.** Arrancó al login (6:20
+local) y murió a las 7:30:20 con `LastResult 0xC000013A` (STATUS_CONTROL_C_EXIT) — el mismo
+minuto en que arrancaron los procesos de TradingView, o sea que se le cerró la consola
+encima. La Tarea Programada `GammaDaemon` tiene **un solo trigger, `TaskLogonTrigger`**: sin
+repetición ni horario, nadie lo relanza si se cae a mitad del día. Relanzado a mano. **Sigue
+pendiente** agregarle un trigger de repetición, que necesita una terminal como Administrador.
+
+**2. `smaReversion.minScore` estaba en 0** (el default es 75) y `earlyExitPct` en 0.6 (el
+usuario lo había subido a 0.9). Confirmado con el usuario que **no lo cambió él**: config
+corrupta, no decisión. Ningún código escribe un 0 ahí — salió de un `POST /api/spx/config`
+contra el volumen, y la causa raíz no se identificó. Con `minScore: 0` la Reversión ejecuta
+**cualquier** señal: la del 2026-08-12 entró con score 0 y 3 de 6 checks fallando (incluido
+el compás de medias *en contra* de la reversión) y el corto en delta 0.518, casi ATM.
+Restaurado a 75. **`earlyExitPct` sigue en 0.6** — pendiente de decidir.
+
+⚠️ **Al escribir config**: `POST /api/spx/config` hace **merge superficial** sobre `trading`.
+Mandar `{trading:{smaReversion:{minScore:75}}}` **reemplaza el objeto entero** y borra pesos,
+kill-switch y todo lo demás. Hay que leer la config, modificar el campo sobre el objeto
+completo, y mandar ese objeto completo.
+
+**3. `gammaFlipBufferPts` seguía en 20 en producción.** El commit `79c49e4` (2026-08-11) lo
+bajó a 10 en el código, pero es el gotcha de siempre: **un push a git no actualiza el volumen**.
+O sea que el cambio del día anterior nunca existió en producción. Empujado a 10, y el efecto
+se ve en el log del mismo día: el IC pasó de morir en el primer gate (*"a menos de 20pts del
+Gamma Flip"*) a atravesar dos más y llegar a la selección de strikes, quedando a **1.7 pts**
+de disparar su primera señal.
+
+**4. Orden zombi que el sandbox no deja cancelar.** Una orden de Reversión (`36891616`) quedó
+`pending` con `exec_quantity: 0` durante horas. `cleanupStalePendingOrders` **sí la venía
+intentando cada 10 min**, pero Tradier responde `HTTP 400 "order not available to be
+canceled"` — y ese error se pierde en un `console.error` dentro del try/catch, sin ntfy ni
+estado. Mientras tanto `hasLocalOpenSPXWPosition()` cuenta `submitted` como abierta, así que
+la Reversión se auto-bloqueó **54 veces** en una mañana. Se marcó el registro `canceled` con
+`closeReason: 'SANDBOX_ORDEN_NO_CANCELABLE'` y `pnl: 0` (verificado contra las posiciones
+reales del broker: sus patas nunca existieron).
+
+⚠️ **Bug abierto:** que el broker rechace una cancelación debería avisar, no reintentarse en
+silencio para siempre. Es la misma familia que la "orden fantasma" del 2026-07-22.
+
+## Alejamiento de SMA — reversión a la media (2026-07-08)
+
+Tercer pipeline automático, **independiente y en paralelo** al direccional y al Iron Condor —
+playbook de Luis Silva (Sigma Trade): el precio se aleja de la SMA8 ("el imán técnico") pero
+no puede quedarse lejos, se opera el regreso. A diferencia del resto del sistema (todo EMA),
+este setup usa **SMA simples** (`calcSMA`/`calcSMAArray`, `src/spx_indicators.js`) — indicador
+explícitamente distinto, no reutiliza `calcEMA`.
+
+**Flujo:**
+1. `checkAlejamientoSMA()` (`server.js`, cada 60s) — gate horario propio
+   (`evaluateReversionGate`, `src/spx.js`: 9:45am-2pm ET, todo o nada, **standalone y sin
+   tocar `classifyWindow`** porque ese rango cruza varios buckets que ya usan el Iron
+   Condor/direccional). Circuito diario: si hoy ya hubo 2 cierres por SL o agotamiento
+   (`maxStopsPerDay`), no genera más señales el resto de la sesión.
+2. Usa `indicators.m2.bars` — velas 2m crudas `{high,low,close}` que `buildSPXContext()`
+   ya arma para `calcCaminoA` (variable local `bars2m`, ahora también expuesta en el
+   contexto devuelto). Calcula SMA8/SMA20, RSI (`calcRSI`, ya existía como función local
+   en `server.js` para el screener de acciones — reusada, no reescrita), y el patrón de
+   confirmación (`evaluateReversionPattern`, `src/sma_reversion.js`).
+3. **Score** (`calcReversionScore`, `src/spx_indicators.js`, umbral `minScore: 70` — el piso
+   de "Trade Válido" del propio material de Luis, no el 80 del direccional):
+   `alejamiento_sma8` 35%, `patron_confirmacion` 25%, `rsi` 15%, `fase_weinstein` 15%
+   (Fase 15m a favor de la reversión — 2 para compras, 4 para ventas), `regimen_gex` 10%
+   (GEX Positivo).
+4. Patrón de confirmación — basta con que UNO de los tres confirme (`src/sma_reversion.js`):
+   **Vela García** (SMA8 aplanándose y "enganchando" hacia un cruce con SMA20), **Vela
+   Tiburón** (rango > 1.8x ATR reciente, con rechazo a favor de la reversión), **Vela 9
+   Secuencial** (versión simplificada del conteo TD Sequential — 9 cierres consecutivos de
+   agotamiento contra el cierre 4 barras atrás).
+5. Ejecuta como credit spread — **mismo `strategy` literal que el direccional**
+   (`'BULL_PUT_SPREAD'`/`'BEAR_CALL_SPREAD'`, no un valor nuevo) para heredar gratis
+   `findStrikesByDelta`, `placeSpreadOrder`, la lista blanca de auto-ejecución, y
+   `checkTradierExecutions` (reconciliación pasiva) sin tocarlos. El origen se distingue
+   con un campo nuevo, `strategyFamily` (`'TENDENCIA'` / `'NEUTRAL'` / `'REVERSION'`),
+   agregado a las **tres** estrategias en `spx_signals.json`/`tradier_executions.json`.
+
+**Salida — por precio del SPX, no por % de crédito (decisión explícita del usuario, distinto
+del resto del sistema):**
+- `checkAlejamientoSMATPSL()` (cada 15-20s, más rápido que los 90s de las otras dos porque el
+  hold es de 2-10 min) cierra por **TP** cuando el precio toca/cruza la SMA8, por **SL** cuando
+  rompe la base/techo de la vela de entrada (`entryCandleLow`/`entryCandleHigh`, guardados al
+  entrar), o por **stop de tiempo** (`maxCandlesTimeStop`, tope 5 velas de 2m) si no avanzó.
+- **Simplificación conocida:** el objetivo de SMA8 (`ex.smaTarget`) se congela al momento de
+  entrar, no se recalcula en vivo cada 15-20s (evita reconstruir todo `buildSPXContext` en un
+  loop rápido) — con un hold de minutos la SMA8 no debería moverse mucho, pero si el curso con
+  Luis Silva aclara que hace falta más precisión, esto es lo primero a revisar.
+- Como esta estrategia cierra distinto a las otras dos, `checkDirectionalTPSL` la **excluye
+  explícitamente** (`e.strategyFamily !== 'REVERSION'`) para que no compitan dos monitores por
+  la misma posición.
+
+**Exclusividad de posición — a propósito distinta del resto:** NO usa
+`tradier.hasOpenPosition('SPXW')` (el chequeo compartido que sí usan Iron Condor y
+direccional) — tiene su propio slot, chequeando directamente si ya hay una ejecución con
+`strategyFamily === 'REVERSION'` abierta. Así puede dispararse aunque ya haya un Iron
+Condor o direccional abierto. **Limitación aceptada:** en la dirección contraria sí hay
+efecto — si esta estrategia tiene una posición abierta, el `hasOpenPosition('SPXW')` de las
+otras dos SÍ la va a ver (Tradier no distingue posiciones por estrategia) y se van a pausar
+solas mientras dure (2-10 min). Inevitable sin tracking de posición por estrategia a nivel
+del broker; el impacto es chico dado lo corto del hold.
+
+**Fuera de alcance a propósito:** el cierre de gap en apertura y la "regla de los segundos"
+(entrar en los últimos 15-30s de formación de la vela) del playbook original de Luis Silva
+**no son implementables** con la fuente de datos actual (polling de Yahoo Finance, no un feed
+en vivo) — se opera sobre la vela de 2m ya cerrada, igual que el resto del sistema. Tampoco se
+implementó un sistema de tiers "5 estrellas" (85-100/70-84/<70) — un solo umbral pass/fail,
+igual que las otras dos estrategias.
+
+**Nota de estabilidad:** el usuario va a tomar un curso con Luis Silva sobre este setup
+específico (semana del 2026-07-08, miércoles a viernes) — es esperable que los pesos, umbrales,
+o incluso la lógica de los patrones cambien poco después de este rework. Todo vive en
+`spxConfig.trading.smaReversion` (config, no hardcodeado) para poder iterar rápido.
+
+**Ajuste 2026-07-08 (mismo día, tras transcribir y revisar 2h de clase conceptual de Luis
+Silva) — 5 cambios concretos:**
+1. **Ventana horaria recortada** (`evaluateReversionGate`, `src/spx.js`): de 9:45am-2pm a
+   9:45am-**12pm** ET. El tramo 12pm-3pm es "la siesta institucional" (sin compás claro) según
+   el propio Luis — antes el gate lo incluía por completo.
+2. **Bandas graduadas de alejamiento** (`calcReversionScore`, check `alejamiento_sma8`): el
+   corte único (`MIN_EXT≈0.15%`) se reemplazó por 4 bandas con puntaje parcial — <0.10% ruido
+   (0%), 0.10-0.20% interés (60%), 0.20-0.35% tensión alta (85%), >0.35% extremo (100%).
+3. **Confluencia con Muro de Gamma** (check `regimen_gex`, ahora también lee `callWall`/
+   `putWall`/`spxPrice` desde `ctx.gex`): el "setup dorado" de Luis es estiramiento extremo +
+   GEX positivo + precio cerca del muro que frena el movimiento contrario (put wall para
+   reversión alcista, call wall para bajista) — antes el check solo miraba el signo del GEX.
+   Umbral de "cerca" configurable en `wallProximityPts` (default 15pts).
+4. **GEX positivo ahora es gate duro**, no solo el 10% del score (`checkAlejamientoSMA`,
+   server.js) — antes una señal podía llegar a 70/100 con GEX negativo compensando con el
+   resto de los checks; Luis es explícito en que fuera de gamma positivo la reversión "pierde
+   su hábitat" (los dealers amplifican en vez de estabilizar), no es un factor más a ponderar.
+5. **Circuito diario reescrito**: antes contaba stops totales del día
+   (`maxStopsPerDay`); ahora cuenta **pérdidas consecutivas** (una ganadora en el medio
+   resetea el contador) y agrega un tope de **drawdown diario** (`maxDailyDrawdownPct`,
+   default 3.5%, regla de Luis: 3-4% o 2 consecutivas, lo que llegue primero). Migración
+   no-destructiva de `spx_config.json` igual que las anteriores.
+
+**Ajuste 2026-07-08/09 — repesaje y minScore subido a 80:** a pedido explícito del usuario
+("el alejamiento debe ser un 50% de la estrategia, es lo más importante"), los pesos de
+`calcReversionScore` se repesaron: `alejamiento_sma8` 35→**50**, `patron_confirmacion` 25→**20**,
+`rsi` 15→**10**, `fase_weinstein` 15→**10**, `regimen_gex` 10→10 (sin cambio). Suma sigue en 100.
+`minScore` también subió de 70 a **80**, alineado al mínimo del direccional. Análisis
+combinatorio (64 combinaciones de checks) confirmó que con 80% el patrón de confirmación
+(García/Tiburón/Vela 9) se vuelve obligatorio en la práctica — sin él el máximo posible es 75,
+nunca alcanza el mínimo — y que con alejamiento en banda "ruido" (<0.10%) nunca se dispara.
+**Pendiente de decidir, no implementado todavía:** agregar confirmación de 5m (marco medio,
+"estructura" en el lenguaje de Luis) al check `fase_weinstein`, que hoy solo valida 15m —
+la "regla de oro" de Luis exige que 15m+5m+2m cuenten la misma historia, hoy solo se valida
+15m+2m (2m indirectamente, vía la dirección ya determinada por precio vs SMA8).
+
+**Ajuste 2026-07-09 — función de `alejamiento_sma8` pasó de banda creciente a escalón con
+meseta óptima, y `minScore` bajó de 80 a 75:** validando contra un caso real (8 de julio,
+rebote fuerte en V en SPX ~10:26am hora Colombia) se encontró que el estiramiento óptimo no es
+"cuanto más, mejor" — un estiramiento demasiado grande puede ser un día de tendencia feroz, no
+una reversión. Nueva función (`calcReversionScore`, `alejamiento_sma8`): <0.10% ruido (0%),
+0.10-0.12% (40%), 0.12-0.15% (80%), **0.15-0.20% meseta óptima (100%)**, 0.20-0.25% (80%),
+0.25-0.35% (40%), >0.35% extremo (0%) — simétrica hacia ambos lados de la meseta, a diferencia
+de la banda anterior que solo crecía con el estiramiento.
+
+**Caso de estudio real (8 de julio, ~10:26am hora Colombia / 11:26am ET):** rebote en V fuerte
+en SPX que un usuario identificó visualmente como "la entrada buena" — se reconstruyó con datos
+reales de Yahoo Finance (2m/5m/10m/15m) y se corrió `calcReversionScore` tal cual queda hoy.
+Resultado: alejamiento -0.13% (banda 0.12-0.15%, 40 de 50 pts), patrón Vela 9 confirmado (20/20),
+RSI 29.8 sobreventa (10/10), régimen GEX positivo sin muro cerca (5/10, supuesto — no se puede
+reconstruir el GEX histórico real, depende de la cadena de opciones en vivo de ese momento),
+**Fase Weinstein 15m en Fase 4 — no coincidía con la reversión alcista (0/10)**. Score final
+75%, justo el nuevo mínimo — con el mínimo anterior de 80% NO hubiera disparado.
+
+**Se investigó si el bloqueo por Fase Weinstein era arreglable por temporalidad — no lo es:**
+se escaneó cuándo cada temporalidad (2m, 5m, 10m resampleado, 15m) mostraba por primera vez
+Fase 2 ese mismo día: 2m a las 11:04, 5m a las 11:25, 10m a las 12:20, 15m a las 13:30 (todo
+hora Colombia) — ninguna alcanza a confirmar a tiempo para la ventana de la entrada real
+(~10:26). Incluso relajando la condición de Fase 2/4 (quitando la exigencia de que el EMA20
+esté con pendiente a favor, dejando solo posición de precio) el resultado en 15m no cambió
+(sigue sin confirmar hasta las 13:30) — el cuello de botella no es la fórmula de la fase, es que
+cualquier promedio de 15 minutos reacciona demasiado lento para un rebote en V. Se decidió NO
+tocar `calcWeinstein` ni bajar más el peso de `fase_weinstein` — es el costo esperado y aceptado
+de la "regla de oro" de Luis (si los marcos se contradicen, no hay trade); en cambio se ajustó
+`alejamiento_sma8` (arriba) y `minScore` para que casos como este, con el resto de los checks
+fuertes, puedan compensar la falta de esa única confluencia.
+
+**Nota de verificación 2026-07-08:** se revisó y confirmó que la dirección del check
+`fase_weinstein` (exigir que la fase 15m *coincida* con la dirección de la reversión — Fase 2
+para reversión alcista, Fase 4 para bajista — no que se *oponga*) es correcta según el material
+de Luis Silva ("comprar el descanso... dentro del compás alcista", "sin tensión direccional [a
+favor] el estiramiento pierde ventaja estadística") — no cambiar esto a un esquema de oposición
+sin releer ese contexto primero.
+
+**Pendiente, a propósito diferido:** el stop dinámico según tasa de acierto real que enseña
+Luis (`stop_máximo = objetivo / (1/WR - 1)` — con 70% WR el múltiplo de equilibrio es ~2.3x el
+objetivo, con 80% sube a 4x, con 90% a 9x) no se implementó — requiere un win rate *medido*
+sobre trades reales en vivo, y todavía no hay historial de demo suficiente para calibrarlo sin
+adivinar. El stop actual sigue siendo por precio (ruptura de la vela de entrada). Revisar esto
+una vez haya suficientes trades de Alejamiento de SMA en demo para medir el win rate real.
+
+**Ajuste 2026-07-09 — `alejamiento_sma8` pasó de función escalonada nueva (`calcReversionScore`,
+`src/spx_indicators.js`): meseta de máximo puntaje (100% del peso) entre 0.15%-0.20%, no un
+solo pico ni una banda creciente sin techo — 0.10-0.12%→40%, 0.12-0.15%→80%, 0.15-0.20%→100%,
+0.20-0.25%→80%, 0.25-0.35%→40%, fuera de 0.10%-0.35%→0%. `minScore` de la reversión bajó de 80
+a **75** (validado contra el caso real del 8 de julio, ver abajo).
+
+**Debito unificado con credito en Take Profit (2026-07-09):** `trading.debit.tpPct` bajó de 50
+a **30**, a pedido del usuario — mismo % que credito (`trading.tpPct`), sin importar si la
+posición es débito o crédito. Nota: este cambio no afecta retroactivamente posiciones ya
+abiertas — `debitTpPct` se congela en el registro de la ejecución al momento de crearla.
+
+**Fix 2026-07-09 — reconciliación pasiva (`checkTradierExecutionsImpl`) nunca marcaba
+`closeReason`:** cuando detecta que una posición "filled" ya no existe en Tradier (cerrada a
+mano o por vencimiento), marcaba `status: 'closed'` y el P&L, pero dejaba `closeReason` en
+`null` para siempre — un registro viejo (Iron Condor, 7 de julio) tenía `closeReason: 'MANUAL'`
+pero ese valor no lo pone ningún código actual, quedó de una edición manual. Corregido:
+ahora sí marca `closeReason: 'MANUAL'` (la etiqueta más honesta — el monitor pasivo no puede
+distinguir cierre manual de vencimiento natural, solo sabe que se cerró fuera de sus propios
+monitores activos). **Nuevo endpoint de mantenimiento:** `POST /api/tradier/executions/:id/patch`
+— mezcla superficialmente los campos dados en un registro existente por `id`, para corregir
+casos donde el `gain_loss` de Tradier no estaba asentado todavía en el momento exacto de la
+reconciliación (P&L queda en `pnlSource: 'pendiente_verificar'` hasta corregirlo a mano con
+este endpoint una vez la data esté disponible).
+
+**Feature 2026-07-09 — invalidación técnica activa (POC + Fractal 15m) para el direccional:**
+a pedido del usuario, con base en la metodología de Alejandro compartida ese día (stop
+económico 1.5x + invalidación técnica por POC/Fractal, "el resultado depende más de la salida
+que de la entrada"). Antes, `technicalStop`/`technicalStopSource` (Fractal 15m + Muro Gamma)
+solo se guardaban informativamente en la señal — nadie cerraba la posición si el precio los
+rompía. Ahora:
+- **POC (Point of Control) nuevo** (`calcPOC`, `src/spx_indicators.js`): perfil de volumen de
+  la sesión de HOY en velas de 15m, cubetas de $1 sobre el precio típico `(H+L+C)/3` de cada
+  vela, se queda con la cubeta de mayor volumen acumulado. Yahoo sí devuelve volumen para
+  `^GSPC` (agregado, no es volumen de futuros/opciones reales, pero es real y variable —
+  confirmado con fetch en vivo antes de construirlo). Sin datos de volumen devuelve `null`, no
+  un POC engañoso.
+- `signal.fractalLevel` (Fractal 15m del lado que invalida — `.low` si la reversión es alcista,
+  `.high` si es bajista) y `signal.pocLevel` (el POC de arriba) se calculan en el webhook y se
+  **congelan** en el registro de `tradier_executions.json` al momento de entrar — igual que
+  `entryCandleLow/High` en Alejamiento de SMA. No se recalculan en vivo cada ciclo.
+- `checkDirectionalTPSLImpl` (server.js) ahora trae el precio actual del SPX cada ciclo (mismo
+  fetch liviano que usa el monitor de reversión) y cierra con `closeReason: 'TECHNICAL_STOP'`
+  si el precio rompe el Fractal Low **o** el POC en contra de la dirección — **antes** de
+  evaluar el stop económico (%/multiplicador de crédito), no después. Cualquiera de los dos
+  niveles solo (no hace falta que rompan ambos) es suficiente para salir, siguiendo la lectura
+  literal del material ("si rompe el POC... debes salir, incluso si no tocaste el stop
+  económico"; confirmado también para Fractal solo en la conversación con el usuario).
+- Ejecuciones abiertas ANTES de este cambio no tienen `fractalLevel`/`pocLevel` (quedan en
+  `null`) — simplemente no tienen gatillo técnico disponible, siguen protegidas solo por el
+  stop económico existente, sin romper nada.
+
+**Bug encontrado y arreglado el mismo día (2026-07-09) al construir el POC:** el bloque nuevo
+usaba `highs15`/`lows15`, declaradas con `const` dentro del `{ }` propio del cálculo de Fractal
+15m — fuera de alcance en el bloque del POC, que es un `{ }` hermano, no anidado. La excepción
+resultante la absorbía el `catch` que envuelve toda la sección de indicadores de
+`buildSPXContext()`, salteando en silencio TODO lo que viene después en ese mismo bloque:
+`indicators.m2` (fase 2m), el rango de apertura (gate del Iron Condor), y el volumen de SPY —
+no solo el POC. Modo de falla seguro (el sistema se negó a operar con datos incompletos, no
+generó nada con datos corruptos), pero estuvo ~5-8 min degradado hasta el fix. Corregido leyendo
+`q15.high`/`q15.low` directo en vez de reusar las locales del otro bloque.
+
+**Monitor direccional bajado de 90s a 30s (2026-07-09):** a pedido del usuario, por ser
+operaciones de scalping 0DTE — un caso real mostró la posición cruzando el 30% de TP bastante
+antes de que el monitor llegara a cerrarla, y el usuario terminó cerrándola a mano primero.
+30s reduce (no elimina) esa carrera. Mismo ritmo que ya usa el monitor de Alejamiento de SMA
+(15s, todavía más rápido por ser holds de minutos).
+
+**Investigado y descartado — bracket/OTOCO nativo en Tradier para el spread completo:** Tradier
+sí soporta órdenes OTOCO (bracket: entrada → OCO de TP/SL), pero su restricción documentada
+exige que la segunda y tercera pata del OCO comparten el mismo `option_symbol` — está pensado
+para una sola opción, no para una vertical de 2 patas con símbolos distintos. Armar dos OTOCO
+independientes (uno por pata) introduce riesgo real de piernas descubiertas si se disparan en
+momentos distintos — peor que depender del monitor. Se descartó esa vía.
+
+**Watchdog del monitor direccional (2026-07-09), como mitigación en su lugar:** dado que la
+protección real sigue dependiendo de que el proceso esté vivo, `checkDirectionalMonitorHealth()`
+(cada 60s) revisa si `checkDirectionalTPSLImpl` lleva más de 3 minutos sin correr (debería
+correr cada 30s) **y** hay una posición direccional abierta en ese momento — si ambas cosas son
+ciertas, manda una alerta ntfy urgente una sola vez por caída (se resetea sola cuando el monitor
+vuelve a correr). No reemplaza la protección, solo evita descubrir tarde que el servidor se cayó
+con una posición desprotegida.
+
+**Bug real encontrado y arreglado (2026-07-09) — reconciliación pasiva mezclaba el P&L de
+trades distintos que reusaron los mismos strikes el mismo día:** en scalping 0DTE es normal
+que dos entradas distintas usen el mismo par de strikes (el precio vuelve a una zona). El
+filtro viejo de `checkTradierExecutionsImpl` (`legSymbols.includes(p.symbol)`) suma TODAS las
+entradas de `getClosedPnl` que matchean el símbolo, sin distinguir a cuál ejecución pertenece
+cada una — si el símbolo se repitió por dos trades, el segundo en reconciliarse se llevaba
+también el P&L del primero. Caso real: dos `BULL_CALL_SPREAD` con strikes 7530/7540 el mismo
+día — el primero cerró vía `checkDirectionalTPSLImpl` (cotizaciones en vivo, `pnlSource:
+'tp_sl_auto'`, correcto: $115) y el segundo cerró manual, reconciliado por este monitor pasivo,
+que le sumó $340 en vez de los ~$100 reales (se comió también las 2 patas del primer trade).
+Tradier no expone un ID que ate cada fila de `gain_loss` a una orden específica, así que el fix
+es una heurística por conteo, no una corrección exacta: las entradas de un símbolo llegan
+más-reciente-primero (confirmado empíricamente); se cuenta cuántas OTRAS ejecuciones ya
+**cerradas** (cualquier `pnlSource`, no solo `gainloss` — las entradas de Tradier existen igual
+aunque esa ejecución haya calculado su P&L por otro camino) comparten el mismo conjunto exacto
+de `legSymbols`, y se saltan esas tantas entradas (las más nuevas, ya "ocupadas") antes de tomar
+la que le corresponde a esta. Si no hay suficientes entradas distintas disponibles, cae a
+`pnlSource: 'pendiente_verificar'` en vez de inventar un número. El registro real del 2026-07-09
+ya corregido a mano vía `POST /api/tradier/executions/:id/patch` (de $340 a $100).
+
+**Feature 2026-07-09 — Long Put Condor (débito) como alternativa al Iron Condor con IV Rank
+bajo:** a pedido del usuario, basado en el playbook (vender prima con IV Rank bajo "es operar
+sin ventaja" — primas comprimidas obligan a pegar las alas al precio; la alternativa de
+débito tiene Vega positiva, se beneficia si la volatilidad se expande en vez de perder valor).
+- **Decisión (`checkIronCondor`, server.js)**: `useDebit = ctx.ivRank < icCfg.ivRankThreshold`
+  (default **25**, elegido por el usuario — coincide con el piso "25-30" que cita el playbook).
+  IV Rank ≥ 25 sigue siendo Iron Condor de crédito de siempre.
+- **Por qué Puts y no Calls** (decisión del usuario): el skew hace que los puts paguen mejor
+  prima — para un débito eso significa pagar menos neto por las alas.
+- **Construcción** (`findStrikesByDelta('DEBIT_PUT_CONDOR', ...)`, `src/spx.js`): 4 patas,
+  todas puts, de mayor a menor strike: `outerHighStrike` (comprada, cerca del precio) >
+  `innerHighStrike` (vendida, por delta) > `innerLowStrike` (vendida, `innerHigh - bodyWidth`)
+  > `outerLowStrike` (comprada, `innerLow - spreadWidth`). Débito neto = alas compradas menos
+  cuerpo vendido — **validado con datos reales** (SPX 1DTE, débito +$0.30, orden de strikes
+  correcto) antes de conectarlo. Nota: 0DTE muy cerca del cierre tiene la curva de delta casi
+  vertical y puede no encontrar ningún strike en el rango objetivo — es esperado, no es bug.
+- **Órdenes nuevas en `tradier.js`**: `placeDebitCondorOrder`/`closeDebitCondorOrder` — compra
+  las 2 alas externas, vende las 2 internas (y al revés para cerrar).
+- **TP/SL** (`checkIronCondorTPSLImpl`, ahora bifurca por `ex.strategy === 'DEBIT_PUT_CONDOR'`):
+  igual patrón que los débitos direccionales — % de la prima pagada (`debitCondor.tpPct/slPct`,
+  default 50/50), no un multiplicador (el riesgo máximo ya es el 100% del débito).
+- **Gate de crédito/ancho para el Iron Condor de crédito** (`minCreditoAnchoPct`, default
+  **25**, elegido por el usuario): distinto del gate de crédito/**riesgo** de las direccionales
+  — este es crédito/**ANCHO** directo, la "regla del tercio" del playbook pide ~33%, el usuario
+  eligió 25% como su propio piso. Si el crédito real no alcanza ese %, la señal se descarta
+  antes de armar la orden (no llega a Tradier).
+- Ambas variantes comparten `strategyFamily: 'NEUTRAL'` y el mismo dedup/exclusividad de
+  posición — no pueden dispararse las dos el mismo día para el mismo `dte`.
+
+**Fix 2026-07-09 (mismo día) — el gate de 25% se calculaba contra el crédito *estimado*, no
+contra el fill real:** un IC 1DTE real del mismo día lo probó: estimado 28.5% crédito/ancho
+(pasaba el gate), pero el fill real llegó a solo 16% (no hubiera pasado si se midiera contra
+eso). A pedido del usuario, la orden ya no se manda `type: market` — ahora usa **`type: credit`
+con `price` = el crédito mínimo exacto** (`placeIronCondorOrder`, `src/tradier.js`, parámetro
+`minCreditPrice`); si el mercado no da ese crédito, la orden simplemente **no llena**, en vez
+de ejecutar a mercado y después tener que cerrarla por no cumplir el gate — evita pagar
+comisión de apertura y cierre por una posición que nunca debió entrar. Mismo criterio para el
+Long Put Condor de débito (`placeDebitCondorOrder`, parámetro `maxDebitPrice` = el débito
+estimado al armar la señal, como techo). Las órdenes límite que no lleguen a llenarse ya se
+manejan solas — `cleanupStalePendingOrdersImpl` (existente, sin cambios) cancela cualquier
+orden pending de más de 10 min y marca el registro como `canceled`, sin necesitar lógica nueva.
+
+**Feature 2026-07-09 — P&L no realizado en vivo en el historial de ejecuciones:** antes,
+una posición abierta (no cerrada) mostraba "—" en la columna P&L hasta que cerraba. Nueva
+función compartida `calcLivePnl(ex, quotesMap)` (server.js, reusa las mismas fórmulas que ya
+usan `checkDirectionalTPSLImpl`/`checkIronCondorTPSLImpl`, de solo lectura) — `GET
+/api/tradier/executions` ahora trae cotizaciones reales para las posiciones abiertas y agrega
+`ex.livePnl` (separado de `ex.pnl`, que sigue en `null` hasta el cierre real, para no mezclar
+realizado con no realizado). El frontend lo muestra con un `~` adelante (`~$115`) para dejar
+claro que es no realizado, se actualiza cada vez que se recarga el dashboard.
+
+**Ajuste 2026-07-09 — tamaño de posición por score, no por % de capital, "mientras
+afinamos todo" (decisión temporal explícita del usuario):** el sizing por 2%/1% del
+capital real (que dio el caso real de 2 contratos analizado ese mismo día) se reemplaza por
+`sizeContractsByScore(score)` (server.js): **1 contrato en general, 2 si el score de la señal
+fue ≥90%** (muy alineada). Aplica a las dos estrategias que sí tienen un score 0-100 real:
+- **Direccional**: se sobreescribe `sel.contracts` justo después de `selectStrategy()`, usando
+  `playbookResult.score` (ya calculado antes en el webhook).
+- **Alejamiento de SMA**: usa `scoreResult.score` de `calcReversionScore()`.
+
+**Iron Condor y Long Put Condor de débito quedan fijos en 1 contrato** — no tienen un score
+0-100 real (son una serie de gates booleanos: GEX, Fase 1/3, MACD aplanado, VIX, calendario
+económico, etc.), así que la regla de "2 si ≥90%" no tiene un número al que aplicarse todavía.
+Si se quiere una regla equivalente para el IC/débito, haría falta construir antes algún tipo de
+score agregado a partir de sus checks — no implementado, señalado explícitamente al usuario.
+Esto es temporal y reversible — para volver al sizing por % de capital, revertir estos 4
+puntos a la fórmula `Math.max(1, Math.floor(capital*pct/(width*100)))` que usaban antes.
+
+**Alejamiento de SMA — v2 (2026-07-14), a pedido del usuario tras revisar un análisis del
+material de Luis Sigma:**
+- **Ventana horaria ampliada**: de 9:45am-12pm ET a **10am-2pm ET (9am-1pm hora Colombia)**
+  (`evaluateReversionGate`, `src/spx.js`). Ojo: esto invade ~2h de "la siesta institucional"
+  (12pm-3pm ET) que la ventana original excluía a propósito citando el mismo material de Luis
+  — decisión explícita del usuario, no un ajuste técnico. Si el score empieza a fallar más en
+  el tramo 12-2pm, este es el primer lugar a revisar.
+
+**Ajuste 2026-07-21 — ventana ampliada otra vez, ahora desde la apertura:** de 10am-2pm ET a
+**9:30am-1pm ET (8:30am-12pm Colombia)** — a pedido explícito del usuario, para ver si se
+ejecutan más trades cubriendo la primera media hora de mercado (antes excluida). Recorta el
+final de la ventana de 2pm a 1pm (menos exposición a "la siesta institucional" de la tarde,
+compensando la apertura más temprana). Sin cambios en el resto del gate (`evaluateReversionGate`
+sigue siendo todo-o-nada, sin lógica nueva).
+- **RSI eliminado del score** (10%→0%, `weights.rsi`): Luis es explícito en no usar
+  osciladores ("simple como las medias móviles"). El check se sigue calculando y mostrando
+  (mismo patrón que `confirmacion_algoritmica` en el playbook direccional), solo no puntúa.
+- **Nuevo check `compas_medias_5m` (15%)**: `calcCompasMedias5m` (`src/spx_indicators.js`,
+  nuevo) — exige que SMA8/SMA20 en marco de **5 minutos** (timeframe nuevo, antes el sistema
+  solo usaba 2m/15m/diario) NO estén "trenzadas" (≥2 cruces en las últimas 15 barras / 75 min)
+  y que el compás esté a favor de la dirección de la reversión. Fetch propio y autocontenido
+  dentro de `checkAlejamientoSMA()` (Yahoo `interval=5m`) — no se sumó a `buildSPXContext()`
+  porque hoy es el único consumidor de 5m en todo el sistema.
+- **Pesos v2 finales** (`SPX_CONFIG_DEFAULTS.trading.smaReversion.weights`, suma 100):
+  `alejamiento_sma8` 50→**45**, `patron_confirmacion` 20 (sin cambio), `rsi` 10→**0**,
+  `fase_weinstein` 10 (sin cambio), `regimen_gex` 10 (sin cambio), `compas_medias_5m`
+  **15 (nuevo)**. `minScore` sin cambio (75).
+- Migración no-destructiva en `loadSPXConfig()` (mismo patrón que las anteriores): si
+  `saved.trading.smaReversion.weights.compas_medias_5m` no existe, reemplaza solo `weights`
+  con los defaults nuevos — no toca el resto de `smaReversion` (ventana, `maxStopsPerDay`,
+  etc.) ni el resto de `trading`. Se aplica sola en el primer ciclo tras el deploy (no hace
+  falta el push manual vía `POST /api/spx/config` de otros gotchas documentados arriba, porque
+  la migración corre en cada `loadSPXConfig()`, y `checkAlejamientoSMA` la llama cada 60s).
+- **Confirmado, sin cambios de código**: un direccional o Iron Condor abiertos **no bloquean**
+  que dispare una Reversión — el chequeo de exclusividad de `checkAlejamientoSMA` (server.js)
+  solo mira otras ejecuciones `strategyFamily === 'REVERSION'`, nunca llama a
+  `tradier.hasOpenPosition('SPXW')` (eso sí lo usan el direccional y el IC, y por eso la
+  asimetría documentada arriba sigue siendo cierta: una Reversión abierta sí pausa a esos dos
+  mientras dure, 2-10 min).
+- **Validado con datos sintéticos** (no en vivo todavía): suma de pesos = 100, límites exactos
+  de la ventana horaria (9:59/10:00/13:59/14:00 ET), y `calcCompasMedias5m` con una serie
+  alcista limpia (sin cruces, alineado → `ok:true`) y una serie en contra de la dirección
+  (`ok:false`). **Pendiente**: validar contra un caso real de mercado en vivo, igual que se
+  hizo con los demás ajustes de este pipeline.
+
+**Ajuste 2026-07-14 (mismo día) — rama muerta eliminada del check `regimen_gex`:** el usuario
+preguntó por qué `regimen_gex` seguía valiendo 10% si GEX positivo/negativo ya es un interruptor
+duro aparte. Respuesta: no era redundante en el diseño (gradúa proximidad al muro, no el signo),
+pero sí tenía una rama de código que nunca podía ejecutarse — `calcReversionScore` solo tiene un
+caller (`checkAlejamientoSMA`), que ya corta antes si `ctx.gex?.regime !== 'POSITIVO'`, así que
+`!gexPositivo` dentro del check siempre era `false` en producción. Eliminada esa rama: ahora
+`fracRegimen` es directamente `cercaDelMuro ? 1.0 : 0.5` (nunca 0), `ok` es siempre `true`, y el
+label pasó de "Régimen Institucional (GEX + Muro de Gamma)" a **"Confluencia con Muro de
+Gamma"** para reflejar que ya no evalúa el signo del GEX, solo la calidad de la confluencia.
+
+**Fix real 2026-07-21 — el gate duro de GEX bloqueó los 4 días completos del 17-20 jul, cero
+señales:** analizando por qué el usuario no veía ninguna oportunidad de Reversión en varios
+días, `spx_strategy_log.json` mostró **240/240 chequeos bloqueados en `GEX_NOT_POSITIVE` cada
+uno de esos 4 días** — nunca llegó ni una sola vez a calcular el score. Causa: el gate duro de
+`checkAlejamientoSMA` (agregado 2026-07-14, ver arriba en la sección de ese día) exige régimen
+POSITIVO de **nuestro propio cálculo** (`calcGEX`, cadena de opciones de TastyTrade) — pero ese
+cálculo puede discrepar del régimen real que muestra Sigma Terminal (Polygon), discrepancia ya
+documentada el 2026-07-16 (memoria `gamma_flip_discrepancy`: mismo momento, nuestro sistema daba
+NEGATIVO y Sigma Terminal POSITIVO). El día que arrancó este bloqueo de 4 días es el mismo día
+de esa discrepancia — probable causa. A pedido explícito del usuario, dos cambios juntos:
+1. **Sigma Terminal ahora alimenta al servidor, no solo a TradingView**: `POST
+   /api/spx/sigma-levels` (nuevo, `server.js`) recibe `{netGex, regime, callWall, putWall,
+   gammaFlip, mvs, spxPrice}` — el MISMO loop de 2 minutos que ya empuja estos valores a
+   CIARG_V1 (`run_gamma_refresh.ps1`, Paso 3 del skill premercado-spx, vía `claude-in-chrome`)
+   ahora también los manda aquí. `getFreshSigmaLevels()` los usa solo si tienen menos de 5
+   minutos (margen sobre el ciclo de 2 min); si no hay dato fresco, `checkAlejamientoSMA` cae
+   a su propio cálculo (`ctx.gex`) sin romper nada — Sigma Terminal es la fuente preferida
+   cuando está disponible, no la única. `GET /api/spx/sigma-levels` para inspeccionar el
+   último valor guardado y su antigüedad.
+   **Ajuste el mismo día, más tarde**: al intentar responder "qué marcaba Sigma Terminal a
+   las 9:15am de hoy" para un análisis retroactivo, se descubrió que el archivo solo guardaba
+   el ÚLTIMO valor (sobreescrito en cada POST) — ni siquiera hacia adelante se podría haber
+   respondido esa pregunta para un incidente futuro. Cambiado a historial (array, más
+   reciente primero, cap 10000 ≈ 2 semanas a razón de 1 POST/2min) — mismo patrón que
+   `spx_strategy_log.json`. `GET /api/spx/sigma-levels?history=true` (opcional `&date=YYYY-MM-DD`)
+   devuelve el historial completo; sin ese query param, el comportamiento por defecto
+   (último valor + antigüedad) no cambió, sigue siendo compatible con lo que ya lo consumía.
+2. **El gate duro se quitó — el régimen vuelve a ser un factor de score, no un bloqueo**: se
+   eliminó el `if (ctx.gex?.regime !== 'POSITIVO') return;` de `checkAlejamientoSMA`, y el
+   check `regimen_gex` de `calcReversionScore` (`src/spx_indicators.js`) recuperó la
+   sensibilidad al signo que se había quitado el mismo 2026-07-14 (arriba): GEX NEGATIVO ahora
+   hace que ese check falle (`ok:false`, resta el 10% completo de su peso) pero **ya no anula
+   la entrada** — el resto del score (90% del peso) puede compensar si es lo bastante fuerte.
+   Decisión explícita del usuario: "que le baje puntos pero que no anule la entrada".
+Con ambos cambios juntos, un día con GEX negativo por nuestro cálculo pero positivo por Sigma
+Terminal ya no pierde la oportunidad dos veces (ni por gate duro, ni por dato equivocado) —
+y si de verdad ambas fuentes coinciden en negativo, la estrategia todavía puede dispararse con
+score suficiente si el resto de la evidencia es muy fuerte, en vez de quedar matemáticamente
+imposible como con el gate duro.
+
+**Extendido el mismo día al direccional (`POST /api/spx/webhook`, server.js):** analizando por
+qué un trade con lectura de precio "totalmente clara" (Weinstein, EMAs y MACD confirmando
+alcista) no se ejecutó entre las 9:07-9:38am ET, el log mostró el score pegado en 70/80 las 4
+veces, bloqueado por `regimen_institucional` (GEX NEGATIVO según nuestro cálculo) +
+`patrones_estructurales` sin confirmar — el mismo tipo de discrepancia de fuente que ya se
+había arreglado para Reversión, pero el webhook direccional todavía usaba `ctx.gex` (cálculo
+interno) directo, sin el fix. Ahora el webhook calcula `effectiveGex` (Sigma Terminal si está
+fresco, si no cae al cálculo propio) una sola vez al principio, y lo usa consistentemente en:
+el check `regimen_institucional` de `calcPlaybookScore`, la decisión crédito/débito de
+`selectStrategy` (`gammaForcesDebit`), los niveles de Call/Put Wall del stop técnico sugerido,
+y los niveles que se guardan en la señal final (`buildSignalSummary`). También se actualizaron
+los `snapshot` que se guardan en `spx_strategy_log.json` (`SCORE_FAIL`/`STRATEGY_INVALID`/
+`NO_STRIKES`/`SIGNAL_BUILT`) para reflejar el GEX efectivo usado, no el interno crudo — así un
+futuro análisis como este ve directamente cuál fuente decidió, sin tener que cruzar contra
+`/api/spx/sigma-levels` a mano.
+
+**Ajuste 2026-07-14 (mismo día) — sizing por riesgo real en dólares, método de Luis Sigma:**
+el usuario validó el TP (toca SMA8, sin cambios) y el SL (ruptura de la vela de entrada, sin
+cambios — coincide con el "nivel técnico de invalidez" del material de Luis; la nota de que
+Tradier no soporta stops nativos en verticales de 2 patas confirma por qué existe
+`checkAlejamientoSMATPSL()` en primer lugar), pero al revisar el método de 5 pasos de Luis
+("la configuración del trade se hace del riesgo hacia el tamaño, nunca al revés") se encontró
+que el sizing SÍ tenía un gap real: `sizeContractsByScore` (score-based, 1 o 2 contratos según
+si la señal dio ≥90%) no es la "división sagrada" de Luis (riesgo permitido ÷ riesgo real por
+contrato). Reemplazado **solo para esta estrategia** (el direccional sigue usando
+`sizeContractsByScore` sin cambios) por `sizeContractsByRisk(capital, riskPct, shortDelta,
+distancePts)` (server.js):
+- **Riesgo permitido** = capital de la cuenta (`tradier.getBalances()`, ya se traía para el
+  circuito de drawdown diario) × `riskPctPerTrade` (nuevo en config, default **1%** — decisión
+  explícita del usuario, el piso del rango 1-2% que menciona Luis).
+- **Pérdida estimada por contrato** = `shortDelta × distancia_en_puntos × 100` — a diferencia
+  del ejemplo mental de Luis (que asume un 30% fijo de la prima porque un trader discrecional
+  no tiene el delta a mano en el momento), acá se usa el delta real de la pata corta que ya
+  devuelve `findStrikesByDelta`, más preciso. La distancia en puntos ya se conoce *antes* de
+  entrar (la vela de entrada es la última vela de 2m ya cerrada, `entryBar.low`/`.high`, no
+  algo futuro que haya que estimar).
+- **Redondeo**: siempre hacia abajo ("división sagrada"). **Si ni 1 contrato cabe dentro del
+  riesgo permitido, se fuerza 1 de piso** (decisión explícita del usuario — nunca deja de
+  operar solo por esto, a diferencia de la lectura literal de Luis que implicaría saltar el
+  trade).
+- Migración no-destructiva de `spx_config.json` igual que las anteriores (`riskPctPerTrade` se
+  agrega solo si no existe).
+- **Validado con casos sintéticos**: spread angosto con stop lejos → cae al piso de 1; stop
+  cerca → 1 contrato calculado real; cuenta grande (\$50k) con stop cerca → 5 contratos; sin
+  datos de delta/distancia → piso de 1 (nunca rompe por falta de datos). **Pendiente**: validar
+  contra un caso real de mercado en vivo.
+
+## Rueda Automatizada (Tradier) — Fase 1: Screener + Señales (2026-07-10)
+
+Cuarto pipeline automático, **independiente** de los tres de SPX — proyecto multi-semana para
+automatizar el ciclo completo de La Rueda (CSP → asignación → Covered Call → reinicio)
+ejecutando en **Tradier** (no TastyTrade, donde vive la Rueda real de JBLU/NU/GAP/SOFI). El
+modelo completo (16 puntos: delta 0.15-0.30, DTE 30-45, cuenta margin, tope 2% por activo y 50%
+del buying power total, roll del Put al mismo strike hasta un costo base objetivo del 20% de
+descuento, selección de fecha por crédito/día, Covered Call condicional a la fase, etc.) se
+consolidó en varias sesiones de diseño con el usuario antes de escribir código. Esta es solo la
+**Fase 1**: el motor de sugerencias (screener), sin colocar ninguna orden real todavía — mismo
+patrón que el Signal Center de SPX existió antes de conectarse a Tradier.
+
+**Arquitectura:**
+- `src/wheel_trading.js` (nuevo, funciones puras, sin I/O): `calcWeinstein`/`calcFractals`
+  (extraídas del inline de `buildSPXContext` para reuso genérico), `calcEMA`/`calcMACD`
+  (estilo array-based de `spx_indicators.js`), `calcWheelEntryScore` (mismo contrato
+  `{score, passed, minScore, checks}` que `calcPlaybookScore`/`calcReversionScore`),
+  `findBestCSPStrike` (selección de strike+fecha por crédito/día, con liquidez ya filtrada).
+- `wheel_trading_config.json`/`wheel_trading_signals.json` en `DATA_DIR` — nombres deliberadamente
+  distintos de `wheel_config.json` (que ya existe para La Rueda pasiva/manual en TastyTrade,
+  ver sección arriba) para no colisionar.
+- **Universo de candidatos**: unión de dos fuentes (2026-07-10) — `cfg.screener.finvizScreenerId`
+  (default `'rueda'`, el screener de Finviz "🔄 La Rueda" ya existente en `SCREENERS`,
+  `server.js` ~1412 — mismo checklist que el usuario ya usaba a mano: cap_midover, div>1%,
+  P/E<28, beta<1.3, sobre SMA200; se resuelve vía self-fetch a `GET /api/screener/:id`, ya
+  genérico) **más** `cfg.screener.tickers` (lista manual, arrancó con `['SOFI','NU','JBLU']` a
+  pedido del usuario — necesario porque el watchlist general no incluye NU/JBLU, que solo viven
+  en `wheel_config.json` de la Rueda pasiva). Ambas se unen y deduplican; si las dos quedan
+  vacías, cae al `watchlist.json` general. Editable desde la UI (dos campos de texto en el
+  panel de configuración) o `POST /api/wheel-trading/config`. Migración no-destructiva en
+  `loadWheelTradingConfig()` (mismo patrón que `loadSPXConfig`) para ambas claves.
+- **Gate técnico "3 Mundos"** (`calcWheelEntryScore`), a diferencia de SPX que exige confluencia
+  2m+15m (scalping intradía), acá exige confluencia **diaria + semanal** (horizonte de semanas):
+  Fase Weinstein (40%, ambos timeframes en Fase 1 o 2), GEX positivo del subyacente (15%),
+  rebote en EMA10/20 diaria o fractal de soporte diario (25%), MACD diario con pendiente (20%).
+  `minScore` default 70.
+- **Screener de liquidez/volatilidad** (antes del gate técnico, en `checkWheelCandidates()`):
+  IV Rank real 30-60, delta del Put 0.15-0.30, DTE 30-45, bid/ask <5%, open interest >500.
+- `checkWheelCandidates()` corre **una vez al día** (horizonte de semanas, no minutos) vía
+  `setInterval`, más `POST /api/wheel-trading/scan` para disparar manualmente sin esperar
+  (usado para probar). Notifica por ntfy cuando aparece una señal nueva.
+- Cadena de opciones: reutiliza el endpoint genérico `GET /api/option-chain/:symbol` (ya
+  funciona para cualquier ticker, no solo SPX) vía self-fetch a `localhost` — mismo patrón que
+  ya usa `buildSPXContext()` para la cadena de SPX.
+- UI: nueva pestaña "🎯 Rueda Automatizada" en `public/index.html`, calcada del patrón de
+  config/tabla de SPX Signal Center (`renderSPXConfig`/`toggleSPXConfig` → `renderWheelTradingConfig`/
+  `toggleWheelTradingConfig`).
+
+**Bug real encontrado durante la validación (2026-07-10) — el endpoint de IV Rank de TastyTrade
+que ya usaba el sistema SPX estaba mal y nunca funcionó:** `buildSPXContext()` (y el patrón
+copiado inicialmente para este screener) llamaba `tt._req('/market-data/volatility?symbols[]=' +
+sym)` — ese endpoint **devuelve 404** (confirmado en vivo). El `try/catch` que lo envuelve caía
+siempre al fallback hardcodeado (`ivRank = 30` para SPX) sin loguear el error de forma
+distinguible, así que nadie lo notó: `GET /api/spx/context` lleva devolviendo exactamente
+`ivRank: 30` todo este tiempo, nunca un valor real. Esto afecta lógica real de producción del
+sistema SPX que depende de IV Rank:
+- `useDebit = ctx.ivRank < icCfg.ivRankThreshold` (Iron Condor, default `ivRankThreshold: 25`) —
+  con `ivRank` fijo en 30, `30 < 25` es SIEMPRE falso → el Long Put Condor de débito **nunca se
+  ha disparado por esta vía** en la práctica.
+- `isCredit = !gammaForcesDebit && (ivRank > 30 || vix > 20)` (direccionales) — con `ivRank`
+  fijo en 30, `ivRank > 30` es SIEMPRE falso → la decisión crédito/débito ha estado gobernada
+  **solo por VIX** todo este tiempo, nunca por el IV Rank real del SPX.
+- **Endpoint correcto confirmado**: `GET /market-metrics?symbols=SYMBOL` (coma, no
+  `symbols[]=`), campo `implied-volatility-index-rank` (decimal 0-1, multiplicar por 100). Ya
+  corregido en el código nuevo de este screener (`checkWheelCandidates`).
+
+  **RESUELTO el 2026-08-04** — a pedido explícito del usuario ("el iv rank es una variable
+  fundamental"), tras encontrarlo otra vez en vivo: ese día el sistema armó un **débito**
+  (Bull Call Spread) cuando el IV Rank real era **33.5%** y correspondía crédito. `buildSPXContext()`
+  usa ahora el endpoint correcto. Ante fallo queda en **`null`, no en 30**: el respaldo viejo
+  era exactamente el umbral de decisión (`ivRank > 30`), lo peor posible — no "neutral", sino
+  justo el borde. Los dos consumidores ya tratan `null` como "sin dato" (`useDebit` exige
+  `!= null`; `null > 30` es falso y la decisión cae al VIX, que es el comportamiento previo).
+  El `catch` mudo también se cambió por uno que loguea — ese silencio es la razón por la que
+  el bug pasó semanas sin que nadie lo notara.
+
+**Validado 2026-07-10** contra datos reales de mercado (29 tickers del watchlist): el pipeline
+completo corre sin errores end-to-end; en la corrida de validación ningún ticker pasó los 4
+checks a la vez (ej. SOFI pasó el filtro de IV Rank pero falló el gate técnico por falta de
+confluencia Fase Weinstein diaria/semanal) — resultado esperado de un gate selectivo, no un bug.
+
+**Fuera de alcance de la Fase 1 (resuelto parcialmente en la Fase 2 de abajo):** colocación real
+de órdenes en Tradier, el state machine de ciclo completo (fases CSP_ACTIVA→ASIGNADO→CC_ACTIVA→
+CERRADO, análogo a `tradier_executions.json` pero con transiciones de fase en vez de un solo
+trade), los monitores de roll/asignación/gestión de Covered Call, el switch de UI Tasty/Tradier,
+y el estimador de requisito de margin por posición. Contexto completo del diseño de las 16
+piezas del modelo en la memoria del proyecto (`wheel_automation_project.md`).
+
+## Rueda Automatizada — Fase 2: aprobar señal → colocar el CSP en Tradier (2026-07-10)
+
+El único checkpoint manual del ciclo completo (ver modelo de 16 puntos): aprobar una señal
+`PENDING` coloca la orden real de venta del Put en Tradier y la deja trackeada como un ciclo
+abierto. **No existe un precedente idéntico en SPX** — se revisó el único endpoint manual de
+SPX (`POST /api/spx/signals/:id/action`, server.js) esperando encontrar el patrón "aprobar →
+ejecutar de verdad", pero ese endpoint solo cambia `status`/`notes` de la señal, nunca coloca
+una orden (todo el auto-trading de SPX es 100% automático, sin aprobación manual). Se construyó
+combinando piezas sí existentes (colocación de órdenes, gate `IS_PRODUCTION`, confirmación de
+fill, registro de ejecución).
+
+**Arquitectura:**
+- `tradier.placeSingleLegOrder({underlyingRoot, optionSymbol, side, quantity, limitPrice})`
+  (nuevo, `src/tradier.js`) — contraparte de `closeSingleLeg` (que solo cierra); abre una pata
+  suelta (`sell_to_open`/`buy_to_open`). `limitPrice` opcional manda `type:limit,price:X` en vez
+  de `market` — mismo criterio de cautela que `minCreditPrice` del Iron Condor.
+- `wheel_trading_executions.json` (DATA_DIR) — **distinto** de `tradier_executions.json` (SPX)
+  porque el ciclo de la Rueda tiene fases que cambian en el tiempo sobre el MISMO registro
+  (`phase: CSP_ACTIVA` por ahora; `ASIGNADO`/`CC_ACTIVA`/`CERRADO` en Fase 3+), a diferencia de
+  un trade SPX que abre y cierra una vez. Registro: `{id, signalId, symbol, phase, entryPrice,
+  costBasisTarget, leg:{optionSymbol,strike,expiry,side,contracts}, orderId, status, entryFillPrice,
+  creditReceived, filledAt}`.
+- `POST /api/wheel-trading/signals/:id/approve` — 404 si no existe la señal, 400 si no está
+  `PENDING`. **Gate `IS_PRODUCTION`** (igual que los 3 pipelines de SPX): en local responde
+  `{ok:false, reason:'local'}` y no coloca nada — mismo sandbox de Tradier que producción, mismo
+  riesgo de doble-ejecución si local y Railway corrieran a la vez. Si es producción: cotiza el
+  Put en vivo (`tradier.getQuotes`), coloca la orden como limit al bid actual, fija
+  `entryPrice`/`costBasisTarget` (= `entryPrice × 0.80`, la regla del 20% de descuento ya
+  decidida) con el spot actual de Yahoo, crea el registro, marca la señal `APPROVED`.
+- `checkWheelExecutionFills()` (cada 30s en horario de mercado) — confirma el fill vía
+  `tradier.getOrder`+`verificarFillPorPata` (reutilizada sin cambios de SPX, ya soporta órdenes
+  de una sola pata en su rama `!legs.length`) → `status:'filled'`, `entryFillPrice`,
+  `creditReceived`.
+- `GET /api/wheel-trading/executions` + sección "Ciclos Activos" en la UI. Botón "✅ Aprobar e
+  iniciar ciclo" por señal `PENDING`, con `confirm()` nativo antes de llamar al endpoint (acción
+  real de dinero, aunque sea sandbox).
+- **Contratos fijos en 1** — mismo patrón ya usado para Iron Condor/Long Put Condor de débito en
+  SPX (sin estimador de requisito de margin todavía, un sizing real sería adivinar un número).
+
+**Validado 2026-07-10 (solo el gate local — la colocación real en Tradier solo se puede probar
+desplegando a Railway):** con una señal de prueba insertada a mano, `POST .../approve` respondió
+`{ok:false, reason:'local'}` sin crear ningún registro ni tocar `tradier.*`; 404/400 confirmados
+para señal inexistente / ya `APPROVED`. UI confirmada visualmente (botón "Aprobar", sección
+"Ciclos Activos" con estado vacío).
+
+**Fuera de alcance de la Fase 2 (Fase 3+):** roll del Put (mismo strike, por crédito/día, hasta
+el `costBasisTarget`), detección de asignación, fase Covered Call (condicional a la fase
+Weinstein), reinicio del ciclo, estimador real de requisito de margin, switch de UI
+Tasty/Tradier.
+
+## Rueda Automatizada — Fase 3: Fair Value + gestión activa del Put (2026-07-10)
+
+Traduce a código el modelo de "etapa de posicionamiento" diseñado con el usuario en varias
+sesiones (fair value real como ancla de asignación en vez del 20% fijo, caminar el strike hacia
+abajo, triggers de roll, excepción defensiva, siempre por crédito neto).
+
+- **Fair Value (DCF)**: `fetchFairValue(symbol, spotPrice)` (`server.js`) — mismo proxy FMP ya
+  usado en `/api/watchlist/:symbol/fundamentals`
+  (`https://jrcdslfwrasitrvjboho.supabase.co/functions/v1/proxy/fmp/discounted-cash-flow?symbol=X`
+  → `{dcf, "Stock Price"}`, sin auth nueva). Filtro de sanidad: descarta si el DCF es negativo o
+  se desvía más del **65%** del spot (confirmado con datos reales: SOFI válido $17.81 vs spot
+  $18.62; NU rechazado, DCF $64 = 4.7x el spot; JBLU rechazado, DCF negativo).
+- **Selección de strike anclada**: `wheelTrading.findAnchoredCSPStrike(expirations, spotPrice,
+  fairValue, screenerCfg)` (`src/wheel_trading.js`) — el strike más alto entre spot y fair value
+  que supere el piso de prima mínima (`minPremiumFor`, 2% mensual sobre el **nocional completo**
+  strike×100, no sobre el margin real — decisión explícita del usuario). Si el fair value no es
+  válido, cae a `findBestCSPStrike` (delta 0.15-0.30, Fase 1) sin romper el comportamiento
+  anterior — confirmado con CALM real (DCF rechazado por 72% de desviación, cayó correctamente
+  al método por delta).
+- **Selección de fecha al rolar**: `wheelTrading.findBestRollDate(expirations, targetStrike)` —
+  crédito/día **sin restringir a 30-45 DTE** (esa ventana es solo para la entrada; al rolar se
+  compara contra TODOS los vencimientos disponibles, decisión explícita del usuario con su
+  ejemplo de 1 semana vs 2 semanas vs 1 mes).
+- **`checkWheelPutManagementImpl()`** (cada 5 min, `isMarketHours()`) — para cada
+  `phase:'CSP_ACTIVA'`: evalúa 4 triggers (extrínseco ≤5% del crédito original — el usuario
+  rechazó explícitamente el piso absoluto de $5 de Alejandro porque se opera con acciones de
+  precios muy distintos; delta ≥0.35 hasta 0.50; DTE≤21; ganancia≥50-70%). Si dispara: (a) si
+  costo base real ≤ fair value → `readyForAssignment=true`, deja de defender; (b) si Fractal de
+  soporte roto y precio lejos de EMA20 (>4%) → roll defensivo al MISMO strike sin exigir el piso
+  de prima; (c) si no, camina el strike hacia el fair value mientras siga superando el piso;
+  (d) si ningún strike/fecha da crédito neto, no rola (ntfy de atención manual, nunca fuerza un
+  débito — el Jade Lizard subsidiado queda diferido a una fase futura, decisión del usuario).
+- **Bug real encontrado durante la implementación**: el fetch de la cadena de opciones para el
+  roll estaba filtrado a `?expiry=${ex.leg.expiry}` — solo la expiración actual — por lo que
+  `findBestRollDate` terminaba comparando el roll contra sí mismo (sin otras fechas
+  disponibles). Corregido quitando el filtro (la entrada sí necesita 30-45 DTE, pero el roll
+  necesita ver TODAS las expiraciones); confirmado con CALM real (4 vencimientos reales, el
+  monitor eligió correctamente entre ellos tras el fix).
+- **Ejecución del roll**: `tradier.closeSingleLeg` (pata vieja) → confirma fill →
+  `tradier.placeSingleLegOrder` (pata nueva, nuevo método, contraparte de `closeSingleLeg` que
+  solo cerraba) — gateado por `IS_PRODUCTION` igual que el resto del sistema; en local deja una
+  nota `[DRY-RUN]` informativa en vez de no hacer nada silenciosamente (necesario para poder
+  verificar la decisión sin ver la consola del proceso).
+- Mutex propio `withWheelExecutionsLock` (mismo patrón que SPX) — ahora hay 3 escritores
+  periódicos de `wheel_trading_executions.json` (fills, gestión, vencimiento pasivo
+  `checkWheelExpiryImpl`, cada 30 min).
+- **Universo de candidatos ampliado**: se conectó el screener de Finviz "🔄 La Rueda" ya
+  existente (`SCREENERS.rueda`, `server.js`) vía `GET /api/screener/:id`, unido con la lista
+  manual (`SOFI, NU, JBLU`) — validado con datos reales: 60+ tickers de Finviz produjeron una
+  señal real (CALM, score 75%, cayó a delta porque su DCF se desvía 72% del spot).
+- **Validado 2026-07-10**: filtro de sanidad del DCF, `findAnchoredCSPStrike` con fallback, y el
+  monitor de gestión completo con una ejecución sintética (CALM strike 85, delta real 0.44 —
+  disparó el trigger, evaluó la caminata sobre los 4 vencimientos reales, no encontró un strike
+  más bajo que superara el piso, cayó al strike actual — todo en modo dry-run, sin tocar
+  Tradier).
+- **Fuera de alcance (Fase 4+)**: detección real de asignación más allá del check pasivo mínimo
+  ya incluido (`checkWheelExpiryImpl`: revisa posiciones en Tradier el día de expiración, marca
+  `ASIGNADO`/`CERRADO`), venta de la Covered Call, reinicio del ciclo, estimador de margin
+  (contratos fijos en 1), switch de UI Tasty/Tradier.
+
+## Rueda Automatizada — Fase 4: Covered Call, gestión y reinicio del ciclo (2026-07-10)
+
+Cierra el ciclo completo: una vez asignadas las acciones de verdad, vende la Covered Call
+(segundo acto de la Rueda, playbook Alejandro), la gestiona mientras está abierta, y reinicia
+el ciclo automáticamente — sin ningún checkpoint manual nuevo (el único sigue siendo la
+aprobación inicial de la Fase 2).
+
+**Diferencia clave frente al Put**: ser asignado en una Call SIEMPRE es un resultado favorable
+(regla del break-even — nunca se vende por debajo del costo base), a diferencia del Put, donde
+la asignación es algo que se defiende hasta que conviene. Por eso el roll de la Call no tiene
+lógica de "defender" — si se puede rolar hacia arriba/adelante por crédito neto, se hace (para
+capturar más ganancia); si no, simplemente se deja expirar (asignación o vencimiento sin valor,
+ambos aceptables) — mismo "nunca pagar por rolar" del resto del sistema, sin excepción.
+
+- **`wheelTrading.findCoveredCallStrike(expirations, spotPrice, costBasis, weinsteinPhase,
+  screenerCfg)`** — filtra SIEMPRE `strike > costBasis` (regla sagrada, sin excepción). Fase
+  Weinstein **diaria** (decisión primaria, no exige confluencia semanal como el gate de entrada
+  — reacciona más rápido). Si Fase 4 (bajista): vencimientos semanales (5-10 DTE), delta
+  0.25-0.35 (prima agresiva, cerca del precio). Si no (1/2/3): vencimientos 30-45 DTE, delta
+  ~0.15 (bien OTM, deja correr la revalorización).
+- **`wheelTrading.findBestRollDate`** generalizado con un parámetro `optType` (antes
+  hardcodeado a Put) — mismo crédito/día sin restricción de ventana, ahora reutilizable para
+  Calls.
+- **Bug real encontrado al construir el fallback "relajado" de `findCoveredCallStrike`**: el
+  filtro de bid/ask (5%, mismo que usa la entrada del Put) rechaza casi cualquier call barata
+  y OTM (un spread de $0.70/$1.00 = 35%, normal en un contrato de menos de $1, no un problema
+  de liquidez real). El fallback original elegía "el strike más bajo disponible en CUALQUIER
+  vencimiento" sin exigir la ventana de DTE — con datos reales de CALM (spot $88, costBasis
+  $75) esto elegía un strike de **$80 a 7 DTE, delta 0.91** (¡profundamente ITM!) en vez de
+  algo razonable. Corregido: el fallback se queda en la MISMA ventana de DTE (según la fase) y
+  elige el strike más cercano al delta objetivo, solo relajando el filtro de bid/ask — con los
+  mismos datos reales ahora elige correctamente **$100 a 42 DTE, delta 0.16** (bien OTM, como
+  se esperaba).
+- **`checkWheelExpiryImpl`** (Fase 3) extendido con dos ramas nuevas: (B) `CC_ACTIVA` vencida →
+  `CERRADO` (acciones ya no están = ejercida, ciclo completo con ganancia) o `ASIGNADO` de
+  nuevo (acciones siguen = expiró sin valor, vender otra Call — **esta transición ES el
+  reinicio del ciclo**, no hace falta código aparte porque `checkWheelCandidates` ya vuelve a
+  considerar cualquier ticker sin filtrar por historial); (C) `ASIGNADO` sin Call activa →
+  calcula costo base real, trae Fase Weinstein, llama `findCoveredCallStrike`, vende la Call
+  (`placeSingleLegOrder`, mismo patrón de Fase 2-3) y transiciona a `CC_ACTIVA`.
+- **`checkWheelCallManagementImpl()`** (nuevo, cada 5 min) — mismos 4 triggers que el Put
+  (extrínseco ≤5%, delta ≥0.35 hasta 0.50, DTE≤21, ganancia≥50-70%), pero la decisión es
+  distinta: busca un strike MÁS ALTO que dé crédito neto ≥0 (nunca hacia abajo — violaría el
+  break-even más fácilmente); si lo encuentra, rola (mismo patrón de dos pasos —
+  `closeSingleLeg`+`placeSingleLegOrder` — que el Put); si no, no hace nada (sin nota, sin
+  ntfy — no es un problema, es el resultado esperado cuando ningún roll es económicamente
+  sensato).
+- **Segundo bug real, en el manejo del acumulado de primas** (`checkWheelExecutionFillsImpl`,
+  compartido por todas las fases): sobreescribía `ex.totalCreditAccumulated =
+  ex.creditReceived` en CADA fill confirmado — no solo en la entrada inicial — borrando el
+  acumulado que los rolls (Put y ahora Call) ya habían incrementado ellos mismos al decidir el
+  roll. Esto ya afectaba silenciosamente a la Fase 3 (los rolls de Put nunca acumulaban de
+  verdad más de un ciclo). Corregido: solo se inicializa si `totalCreditAccumulated` es `null`
+  (la primera vez); los rolls y la venta inicial de la Call ahora suman su propia prima
+  explícitamente (`ex.totalCreditAccumulated = (ex.totalCreditAccumulated||0) + premium`) antes
+  de volver a `status:'submitted'`.
+- **Validado 2026-07-10** con ejecuciones sintéticas en modo dry-run (sin tocar Tradier,
+  `IS_PRODUCTION` falso en local): transición `ASIGNADO`→`CC_ACTIVA` con datos reales de CALM
+  (encontró correctamente el strike $100 bien OTM); gestión de una Call profundamente ITM
+  (trigger de delta disparó, 8 strikes candidatos evaluados, ninguno dio crédito neto — se
+  dejó correctamente sin acción, comportamiento esperado).
+- **Fuera de alcance (Fase 5+)**: Jade Lizard/débito subsidiado (ya diferido), estimador de
+  margin (contratos fijos en 1), switch de UI Tasty/Tradier, afinar la regla de "rolls de 1
+  semana" en su forma específica para la gestión semanal de la Call en Fase 4 bajista.
+
+## Entrada forzada — demo del ciclo completo sobre la lista de Alejandro (2026-07-10)
+
+A pedido explícito del usuario ("vamos a entrar en cada uno de ellos, a manera forzada... y
+vamos a gestionarlos, como una especie de demo del proceso... algunos de estos activos puede
+que no pasen los filtros que tenemos, pero son los que mi mentor usa, así que vamos a entrar"):
+se agregó `POST /api/wheel-trading/force-entry` — igual al flujo de aprobación de la Fase 2,
+pero **sin exigir que pase el gate técnico/IV Rank/fair value**. Reutiliza la misma cascada de
+selección de strike del screener normal (fair value → delta → **nuevo tercer nivel**, sin
+exigir bid/ask%/OI/ventana de delta ideal, solo dentro de la ventana 30-45 DTE y con prima
+positiva — nunca se fuerza un strike a débito). Marca la ejecución con `forced: true` y una
+nota explícita, para distinguirla de las que sí pasaron el screener normal. Sigue respetando
+`IS_PRODUCTION` (nunca coloca una orden real desde local).
+
+**Lista de activos** (`activos para la rueda segun alejandro.jpeg`, agregada a
+`cfg.screener.tickers` junto a SOFI/NU/JBLU ya existentes): KO, MARA, IBIT, BE, RKLB, HOOD,
+NBIS, PDD, RIO, ANET, BAC.
+
+**Bug real encontrado al validar los 14 en dry-run**: IBIT (y potencialmente otros ETFs/tickers
+con muchos vencimientos semanales) no encontraba ningún strike en la ventana 30-45 DTE — el
+límite fijo de 6 expiraciones de `GET /api/option-chain/:symbol` (`expirations.slice(0,6)`)
+nunca llegaba tan lejos para un ticker con vencimientos casi diarios. Se agregó un parámetro
+`?limit=N` (tope 15, para no disparar demasiadas llamadas de `/market-data` en lotes de 50) —
+`force-entry` lo usa con `limit=12`. Confirmado con datos reales: IBIT pasó de "sin strike
+válido" a encontrar uno perfectamente razonable (strike 34, delta -0.29, 42 DTE, spread
+$0.91/$0.94) tras el fix.
+
+**Validado en dry-run local los 14 tickers** — 13 encontraron un strike razonable (la mayoría
+cayendo al tercer nivel de respaldo, esperado para nombres especulativos/volátiles con spreads
+%grandes en opciones baratas — mismo patrón de liquidez ya visto con SOFI en la Fase 1); ninguno
+tuvo que forzarse a una prima negativa/nula.
+
+## Bug real en los 3 monitores de TP/SL de SPX — P&L grabado con la cotización equivocada (2026-07-10)
+
+**Caso real que lo destapó**: un Iron Condor 1DTE cerró por SL con **-$1590** grabado en el
+sistema. Al reconstruir la operación con las órdenes reales de Tradier (fills de entrada, fills
+de cierre, y `tradier.getClosedPnl`, las 3 fuentes coincidiendo), el resultado real fue
+**-$10** — casi break-even. El usuario confirmó que Tradier mismo mostró brevemente un número
+similar al grabado (~$1490) que luego se corrigió solo, señal de que fue un valor transitorio
+(mercado recién abierto, poca liquidez) que nuestro sistema capturó y dejó grabado para
+siempre.
+
+**Causa raíz**: `checkIronCondorTPSLImpl` y `checkDirectionalTPSLImpl` calculan `pnlActual` con
+las cotizaciones vivas de **antes** de cerrar (necesario para decidir si el TP/SL debe
+disparar), pero luego usaban ese mismo número estimado como el P&L final grabado —
+`ex.pnl = pnlActual*100*contracts` — en vez de confirmar el precio de cierre real.
+
+**Segundo bug relacionado, en los 3 monitores**: al intentar arreglarlo copiando el patrón que
+ya usa `checkAlejamientoSMATPSLImpl` ("dejar el P&L pendiente para la reconciliación pasiva"),
+se descubrió que ese patrón **tampoco funcionaba**: `checkTradierExecutionsImpl` (la
+reconciliación pasiva que trae el P&L real vía `getClosedPnl`) solo procesa registros con
+`status==='filled'` — nunca `'closed'`. Los 3 monitores activos marcaban `status='closed'`
+inmediatamente al cerrar, así que ninguno de los tres quedaba disponible para que la
+reconciliación pasiva los completara — para Alejamiento de SMA esto significaba que el P&L de
+sus cierres automáticos (`pnlSource: 'precio_spx_auto'`) se quedaba en `null` **para siempre**,
+sin que nadie lo notara.
+
+**Fix aplicado a los 3 monitores** (`checkIronCondorTPSLImpl`, `checkDirectionalTPSLImpl`,
+`checkAlejamientoSMATPSLImpl`): al cerrar por TP/SL, ya NO se marca `status='closed'` ni se
+graba ningún `pnl` en el momento — se coloca la orden de cierre real, se guarda `closeReason`, y
+se deja el registro en `status='filled'` a propósito. `checkTradierExecutions` (corre cada 5
+min en horario de mercado) lo detecta como "posición que ya no está" en su siguiente ciclo y
+completa el P&L real desde `tradier.getClosedPnl` — mismo mecanismo ya usado y ya arreglado
+(fix de doble-conteo del 2026-07-09) para cierres manuales, reutilizado en vez de inventar una
+confirmación de fill propia con una convención de signos incierta de Tradier. Costo: hasta 5 min
+de retraso en ver el P&L final en el dashboard (antes aparecía al instante, pero podía estar
+gravemente mal).
+
+**Registro corregido a mano**: el Iron Condor de -$1590 se corrigió a -$10 vía
+`POST /api/tradier/executions/:id/patch` (mismo endpoint usado para el caso anterior de
+doble-conteo, $340→$100).
+
+## Cierre de spreads direccionales a mercado sin protección de precio — pérdida real por encima del ancho (2026-07-20)
+
+**Caso real que lo destapó**: un `BEAR_PUT_SPREAD` (7460/7470, 2 contratos, $860 de débito
+pagado — ancho de $10 × 2 contratos = $2,000 máximo teórico, pero el débito pagado acota la
+pérdida máxima de un débito a lo pagado) cerró por `TECHNICAL_STOP` con **-$1,640** grabado —
+por encima incluso del débito pagado, algo que en teoría no debería poder pasar en un spread de
+débito. Se reconstruyó pata por pata con el `gain_loss` real de Tradier
+(`/accounts/.../gainloss`, no vía la API de la app): la pata larga (7470P) se compró por $3,160
+y se vendió por solo $1,620 al cerrar (-$1,540); la pata corta (7460P) se vendió por $2,220 y se
+recompró por $2,320 (-$100). Total real: -$1,640 — **el número SÍ era correcto, no era un bug
+de reconciliación** (a diferencia de los casos previos de esta sección).
+
+**Causa raíz real**: `closeSpreadOrder` (`src/tradier.js`) manda la orden de cierre como
+`class: multileg` combinada (no dos órdenes separadas — eso ya estaba bien), pero con
+`type: 'market'`, **sin ningún piso/techo de precio neto**. El límite teórico de "la pérdida
+máxima de un débito es lo pagado" solo aplica al **valor intrínseco en un precio neto limpio**
+(mid-market) — no protege contra que una orden a mercado, en un movimiento rápido de 0DTE, cruce
+el bid/ask de cada pata por separado (vender la larga cerca del bid, recomprar la corta cerca
+del ask) y termine costando más que el ancho teórico del spread. El Iron Condor sí tiene esta
+protección desde el 2026-07-09 (`minCreditPrice`/`maxDebitPrice`, `type: credit`/`debit`) pero
+solo en la **apertura** — ni el Iron Condor ni las direccionales la tenían en el **cierre**.
+
+**Fix aplicado (2026-07-20)**: `closeSpreadOrder` acepta un nuevo parámetro `worstNetPrice`
+(convención: positivo = crédito mínimo aceptado al cerrar, negativo = -1 × débito máximo
+aceptado) — si se pasa, la orden va como `type: 'credit'`/`'debit'` con ese precio como
+piso/techo en vez de `market`; sin el parámetro se comporta igual que antes (compatible hacia
+atrás). Los dos call sites que cierran spreads direccionales (`checkDirectionalTPSLImpl` y
+`checkAlejamientoSMATPSLImpl`) ahora calculan el valor neto observado justo antes de cerrar
+(`q[longSym] - q[shortSym]`, misma convención que ya usaban `costoDeCerrar`/`valorActual` para
+decidir TP/SL) y le restan un colchón (`spxConfig.trading.closeSlippageBufferPts`, default
+**1.0** punto = hasta $100/contrato peor que lo observado) antes de mandarlo como
+`worstNetPrice`. `checkAlejamientoSMATPSLImpl` no traía cotizaciones de las patas hasta este fix
+(solo el precio del SPX, para decidir por nivel) — ahora las pide justo antes de cerrar; si la
+cotización falla, cierra a mercado sin protección en vez de demorar la salida (este monitor
+cierra por invalidación de nivel, no conviene arriesgar quedarse abierto esperando una
+cotización que no llega).
+
+**Trade-off consciente, sin resolver del todo**: un colchón muy angosto puede hacer que la
+orden de cierre de un stop no llegue a llenarse en un movimiento realmente rápido (el mismo
+riesgo que ya se acepta en la apertura del Iron Condor) — 1.0 punto es un punto de partida, no
+un valor validado en producción todavía. Revisar/ajustar si empiezan a verse cierres que no
+llenan a tiempo.
+
+## Orden fantasma del sandbox de Tradier — "Verificar manual" que nunca se resuelve (2026-07-22)
+
+**Caso real**: un `BULL_CALL_SPREAD` (orden 35725048, 2 contratos, strikes 7525/7515) mostró
+las dos patas con `status: "filled"` y precios de fill reales (avg_fill_price 3 y 7), pero la
+orden **padre** se quedó permanentemente en `status: "open"` y la posición **nunca apareció**
+en `/accounts/.../positions` — verificado 3 veces en más de 3 horas. Tampoco existe ninguna
+orden de cierre en el historial de la cuenta. El usuario confirmó explícitamente que no cerró
+nada manualmente ese día.
+
+**Causa raíz**: inconsistencia del lado del **sandbox de Tradier** (no de nuestro código) — la
+orden multi-pata quedó en un limbo donde reporta fills reales por pata pero nunca termina de
+asentar la posición resultante ni de cerrar el ciclo de vida de la orden padre. Mismo tipo de
+categoría que el gotcha ya documentado de órdenes `pending` que no auto-fillean en sandbox, solo
+que esta vez el síntoma es distinto (fills fantasma en vez de fill nunca confirmado).
+
+**Por qué el sistema no se dio cuenta solo**: `checkTradierExecutionsImpl` hizo exactamente lo
+que debía con la información disponible — consultó `getPositions()`, no encontró la posición,
+la marcó `closed`/`MANUAL` (la etiqueta más honesta que tiene para "desapareció fuera de mis
+monitores activos"). El problema es el reintento automático de P&L (`reintentarPnlPendientes`,
+2026-07-14): asume que Tradier **eventualmente** va a asentar el `gain_loss` real y reintenta
+por 2 días — pero si la posición nunca fue real para Tradier, ese `gain_loss` **jamás** va a
+aparecer, y el registro se queda en `pnlSource: 'pendiente_verificar'` (dashboard: "⚠️ Verificar
+manual") indefinidamente en vez de por unos minutos.
+
+**Corregido a mano** vía `POST /api/tradier/executions/:id/patch`: `pnl: 0` (sin evidencia de
+impacto económico real, no se inventa un número), `pnlSource: 'sandbox_orden_fantasma'`,
+`closeReason: 'SANDBOX_GLITCH_SIN_POSICION'` (se muestra tal cual en el dashboard, no está en
+`CIERRE_LABELS` de `index.html` pero cae al fallback de texto crudo, no al genérico "❓ Sin
+dato" — suficientemente descriptivo sin tocar el frontend).
+
+**No implementado a propósito**: una detección automática de este patrón (ej. "si la orden
+padre lleva horas en `open` con legs `filled` y sin posición, autopatchear a pnl 0") — es un
+caso raro (primera vez visto) y la corrección manual vía el endpoint de patch ya existente fue
+suficiente. Si se repite con frecuencia, ahí sí conviene automatizarlo.
+
+## Piso de distancia mínima (1.5x ATR15m) para el stop técnico direccional (2026-07-23)
+
+**Caso real que lo originó**: 5 trades de TENDENCIA el mismo día (23 jul, ~13:06-13:56 ET),
+todos cerrados por `TECHNICAL_STOP` con el Fractal 15m como gatillo, resultado real:
+-$640/-$640/-$640/-$40 (4 de 5 perdedores). Se validó con dos análisis independientes:
+- **ADX(14) real** (velas de 15m, calculado con datos de Yahoo Finance): durante toda la
+  ventana del cluster el ADX estuvo en 51-53 — tendencia muy fuerte según el estándar, no un
+  mercado lateral. Descarta la hipótesis inicial ("el sistema no detectó que el mercado se
+  volvió rango") — el ADX confirma que la tendencia bajista seguía siendo fuerte.
+- **Distancia Fractal-vs-ATR**: la distancia real entrada→Fractal 15m en los 5 trades fue de
+  **0.65x a 1.14x ATR(14) de 15m** (~15-16 puntos ese día) — dentro del ruido normal de una
+  sola vela de 15m, no una señal de invalidación real de la tendencia.
+- **Simulación con Black-Scholes** (precio real del SPX minuto a minuto tras cada entrada, IV
+  ~19% aproximada): **las 5 trades habrían tocado el TP económico (30% del débito) antes que
+  cualquier SL**, si el stop técnico no hubiera cerrado la posición primero. Diferencia real
+  vs. hipotético solo-económico: -$1,960 vs. +$732, ~$2,700 en un solo cluster.
+
+**Fix aplicado**: `buildSPXContext()` ahora calcula `indicators.atr15m` (ATR de 14 periodos
+sobre las velas de 15m de la sesión de HOY, mismo array `bars15hoy` ya usado para el POC —
+`calcATR`, `src/camino_a.js`, reusada sin cambios). En el webhook (`POST /api/spx/webhook`),
+antes de congelar `signal.fractalLevel`/`signal.pocLevel` en la ejecución, se exige que cada
+nivel esté a un mínimo de **1.5x ATR15m** de la entrada — si está más cerca, ese nivel
+específico se pone en `null` (no se usa como gatillo de `TECHNICAL_STOP` esa vez), quedando
+solo el stop económico como respaldo (que ya existía, sin cambios). Los dos niveles se evalúan
+de forma independiente — puede quedar activo el POC pero no el Fractal, o viceversa.
+
+**Fallo seguro si no hay ATR calculable todavía** (pocas velas de sesión, primeros minutos
+tras la apertura): el nivel se deja activo tal cual, igual que antes de este cambio — la falla
+segura es hacia NO relajar la protección cuando falta el dato, no hacia relajarla de más.
+
+**No implementado a propósito**: ensanchar el Fractal/POC hacia 1.5x ATR en vez de anularlo
+(por ejemplo, mover el nivel a `entrada ± 1.5xATR` en vez de descartarlo) — se prefirió la
+opción más simple (nivel activo o inactivo, sin inventar un nivel nuevo que no viene de un
+fractal/POC real) hasta validar cómo se comporta esto en producción.
+
+## Camino B autónomo — de throttle por tiempo a gate por posición real (2026-07-27/28)
+
+Desde el 2026-07-27, `checkDirectionalAutonomous()` (`server.js`, cada 30s en horario
+9:45am-2:30pm ET) calcula Camino B (`calcCaminoB`, `src/camino_b.js`) por su cuenta con velas
+de Tradier — ya no depende de que TradingView mande el webhook de alerta (aunque el webhook
+sigue existiendo y simplemente dispara el mismo chequeo compartido).
+
+**Bug real #1 (2026-07-28) — el throttle de 10 min se consumía en un intento rechazado por
+score:** `calcCaminoB` traía un throttle propio (`gapMinutes`, puerto fiel del input de Pine)
+que marcaba el timestamp de disparo apenas detectaba alineación, sin importar si el score
+después rechazaba la señal. Caso real: Camino B disparó a las 11:29am, el score dio 75%
+(insuficiente, `SCORE_FAIL`, ningún trade) — pero el timestamp ya había quedado marcado, así
+que el reintento legítimo (que 10 min después sí llegó a 80% y se ejecutó) quedó esperando
+esos 10 minutos de más sin ninguna posición abierta que lo justificara. Primer fix: se movió
+la responsabilidad de marcar el throttle del interior de `calcCaminoB()` al caller
+(`markCaminoBFired()`, llamado solo cuando `processDirectionalEntry` llegaba a `SIGNAL_BUILT`).
+
+**Bug real #2 (mismo día, encontrado al revisar el fix anterior con el usuario) — "señal
+construida" seguía sin ser lo mismo que "posición realmente abierta":** `SIGNAL_BUILT` (y por
+lo tanto el throttle) se disparaba también cuando: (a) ya había una posición abierta y la señal
+quedaba como simple sugerencia sin mandarse a Tradier, (b) el envío a Tradier tiraba una
+excepción, o (c) la orden se mandaba pero nunca llegaba a llenarse (sandbox, ver "Orden
+fantasma" arriba) — en los 3 casos no se abrió ninguna posición real, y el throttle igual
+bloqueaba 10 minutos. El usuario lo resumió así: *"la única activación para el siguiente trade
+sería cuando el trade abierto se cierre"*.
+
+**Fix final: se eliminó el throttle de tiempo por completo.** `calcCaminoB` ya no recibe
+`state`/`gapMinutes`/`nowMs` — solo calcula `coreAlignBull`/`coreAlignBear` y los devuelve
+directo como `bull`/`bear`, sin ninguna lógica de repetición. En su lugar,
+`checkDirectionalAutonomous()` corre un gate de posición real **antes** de evaluar Camino B
+siquiera: la misma doble capa que ya usaba `processDirectionalEntry` justo antes de mandar la
+orden (`tradier.hasOpenPosition('SPXW')` + `hasLocalOpenSPXWPosition()`, gana el más
+conservador; esta última ya trataba `status: 'submitted'` como abierto, no solo `'filled'`,
+así que ya cubre la ventana entre "orden enviada" y "fill confirmado"). Si hay una posición
+SPXW abierta/en curso, no se evalúa nada ese ciclo — si no la hay, se evalúa fresco cada 30s,
+sin ningún timer artificial de por medio. Una orden que se manda y nunca llena se autolibera
+sola vía `cleanupStalePendingOrdersImpl` (cancela pending >10 min y marca el registro local
+`canceled`, liberando el gate) — no hace falta lógica nueva para ese caso.
+
+`markCaminoBFired`/`caminoBState` se eliminaron del todo (ya no tienen función). El chequeo de
+posición que sigue existiendo dentro de `processDirectionalEntry`, justo antes de mandar la
+orden, se dejó sin cambios — sigue siendo la última red de seguridad contra una condición de
+carrera en los segundos entre el gate temprano y el envío real de la orden.
+
+## gamma_daemon — refresco de Gamma sin agente (2026-07-30)
+
+**Nombre para el usuario: "Daemon Muros y Gamma"** — así se refiere el usuario a
+esto en conversación (ej. "revisa el Daemon Muros y Gamma"). El nombre técnico de
+la carpeta/proceso sigue siendo `gamma_daemon` (no renombrado a propósito — la
+Tarea Programada de Windows y `start.bat` referencian esa ruta literal).
+
+Reemplaza al mecanismo viejo (un agente de Claude invocado desde cero cada 2 min vía
+Tarea Programada + `run_gamma_refresh.ps1`, documentado como historial en el skill
+`premercado-spx`, Paso 3) por un **proceso de Node de vida larga, 100% código
+determinista, sin LLM en el loop caliente**. Vive en `gamma_daemon/` (subcarpeta del
+repo, con su propio `package.json` — Railway solo instala el `package.json` raíz, así
+que esto nunca se despliega a producción; es una herramienta local, corre en la
+máquina Windows del usuario, igual que el mecanismo que reemplaza).
+
+**Por qué el cambio**: invocar un agente de IA cada 2 minutos durante horas para una
+tarea repetitiva y mayormente determinista (leer un valor, empujarlo) generaba
+fallas silenciosas de horas (el agente no tenía memoria entre ciclos, no sabía que
+ya venía fallando) y costo/latencia innecesarios. El daemon mantiene su propio
+estado entre ciclos (contador de fallos, modo degradado) y solo usa el LLM (esta
+conversación) para trabajo puntual de calibración/edición, nunca en el ciclo en sí.
+
+**Arquitectura** (`gamma_daemon/index.js`, loop cada 2 min en horario 9:00-16:05 ET):
+- `sigma.js` — Puppeteer con perfil Chromium **dedicado y persistente**
+  (`sigma_profile/`, login manual una sola vez, gitignored) para Sigma Terminal
+  (`web.sigma.trade`) — separado del Chrome normal del usuario. Selectores CSS por
+  prefijo (`[class*="greeks_metricCard__"]` etc., no el hash completo) para
+  sobrevivir a un rebuild de Sigma Terminal. Extrae Spot, Net GEX, Net DEX, **Net
+  Vanna** (agregado 2026-07-30), Gamma Flip, Put Wall, Call Wall, MVS.
+- `tv.js` — CDP crudo (`chrome-remote-interface`) directo contra TradingView
+  Desktop, sin pasar por el servidor MCP `tradingview-mcp` (que sí sigue existiendo
+  para uso interactivo de Claude, pero es un proceso separado). La lógica de
+  `evaluate()` está calcada de ese mismo proyecto (`window.TradingViewApi`,
+  `study.getInputValues()/setInputValues()`), pero la selección de ventana es
+  propia: **prueba cada ventana candidata hasta encontrar una con SPX cargado de
+  verdad**, en vez de conectar a la primera que matchee (esa era la causa raíz del
+  bug histórico de deriva SPY/SPX). `pushGammaLevelsToAllWindows()` empuja a
+  **todas** las ventanas SPX abiertas, no solo una — necesario porque el usuario
+  puede tener 2 ventanas SPX simultáneas (su plan permite 2 "pantallas") y **no
+  están sincronizadas entre sí**: confirmado en vivo que pueden quedar en
+  versiones de script distintas del mismo indicador tras una edición manual.
+- Watchdog: si el push a TradingView falla, relanza TradingView (`tv.launch()`,
+  vía `Get-AppxPackage` para resolver la ruta del `.exe` — instalado por Microsoft
+  Store, la ruta versionada cambia con cada actualización) y reintenta una vez.
+  Tras 3 fallos seguidos manda un ntfy de alerta (mismo topic que el resto del
+  sistema) y baja el ritmo a cada 5 min ("modo degradado") hasta recuperarse.
+- `status.json`/`history.json` (gitignored) — estado del último ciclo y un
+  historial corto (cap 20 lecturas) para calcular "hace ~6 min" (3 ciclos atrás,
+  posicional, no por timestamp real) en la tabla de GEX/DEX/Vanna del indicador.
+- Arranque persistente: Tarea Programada de Windows **`GammaDaemon`** (trigger "al
+  iniciar sesión", `ExecutionTimeLimit` en `PT0S` — sin límite, el default de
+  Windows es 72h y mataría el proceso a mitad de semana si no se corrige a mano
+  tras crear la tarea) + `start.bat` (wrapper que relanza `node index.js` si
+  crashea). La tarea vieja `BitacoraGammaRefresh` (agente por ciclo) quedó
+  **deshabilitada, no borrada** — reversible si hiciera falta.
+
+**Bug real en `start.bat` (2026-08-05):** el wrapper esperaba con `timeout /t 5
+/nobreak`, que **sin consola interactiva falla al instante** ("Input redirection is
+not supported") en vez de esperar — y sin consola es exactamente el caso cuando lo
+lanza la Tarea Programada. El bucle de reinicio quedaba en caliente: ese día dejó
+**128 reinicios en un solo segundo** (`daemon_crash_log.txt`). Cambiado por
+`ping -n 16 127.0.0.1 >nul`, que no depende de stdin. No usar `timeout` acá.
+
+⚠️ **El daemon se muere si se cierra la consola que lo lanzó.** El 2026-08-05 apareció
+caído desde las 9:25am ET con `LastTaskResult 3221225786` (= `0xC000013A`,
+STATUS_CONTROL_C_EXIT) y `/api/spx/sigma-levels` congelado ~50 min **en pleno horario
+de mercado**, con los tres pipelines cayendo al cálculo interno de GEX sin que nadie
+se enterara. El síntoma se detecta en un segundo: `GET /api/spx/sigma-levels` →
+`fresh: false`. Para relanzarlo sin la Tarea Programada (que solo dispara "al iniciar
+sesión"), desde PowerShell:
+`Start-Process cmd.exe -ArgumentList "/c","<repo>\gamma_daemon\start.bat" -WorkingDirectory "<repo>\gamma_daemon" -WindowStyle Hidden`
+— queda colgado de un `cmd.exe` propio, independiente de la sesión que lo lanzó.
+**No hay alerta automática de esto**: el watchdog de ntfy que existe vigila el monitor
+direccional (`checkDirectionalMonitorHealth`), no la frescura de Sigma.
+
+**Límite real, sin resolver**: crear/modificar Tareas Programadas de Windows y usar
+`Set-ScheduledTask` requiere permisos que ni la sesión de Claude Code ni el usuario
+tienen vía la terminal embebida del chat — hace falta una terminal abierta como
+Administrador directo en Windows para esos dos comandos puntuales (una sola vez,
+no algo recurrente).
+
+**Editar el código Pine de CIARG_V1 sigue siendo manual** — no se automatizó (y se
+intentó bastante): abrir el editor de Pine, pegar el código, y click en el ícono
+de sincronizar ("Update on chart") son 3 pasos que requieren que el usuario los
+haga a mano en TradingView. Automatizarlos por CDP resultó frágil (coordenadas de
+click dependen de `devicePixelRatio`, "Update on chart" no siempre aplica el
+cambio a la instancia real aunque el clic se registre, "Add to chart" agrega una
+instancia NUEVA en vez de actualizar — choca con el límite de 5 indicadores del
+plan "Essential" del usuario). Además: **al aplicar un cambio de código, TradingView
+resetea todos los inputs a sus valores por defecto** (los muros quedan en 0 hasta
+el próximo push) — conviene forzar un ciclo manual (`gamma_daemon/push_gdv_now.js`,
+o simplemente esperar al siguiente ciclo del daemon) justo después de aplicar una
+edición al script.
+
+**MVS = Absoluto, no Neto (ajuste 2026-07-31):** Sigma Terminal tiene un toggle
+("MVS Neto" / "MVS Abs", sección del gráfico "Net GEX por strike") que **también
+controla la tarjeta principal "MVS"** de arriba — confirmado en vivo alternando
+ambos: Neto dio 7400, Absoluto dio 7450, mismo momento exacto. A pedido explícito
+del usuario, `sigma.js` (`ensureMvsAbsolute()`) fuerza un clic en "MVS Abs" en
+cada lectura si no está ya activo — no se confía en que el toggle quede así solo
+(puede resetear en un reload de la página, o si el usuario lo cambia a mano
+mirando el gráfico).
+
+**Convención de versión del script**: el editor de Pine de TradingView puede abrir
+por default una **versión histórica** (no la última guardada) sin avisar de forma
+obvia más que un banner chico ("This is a historical version...") — confirmado en
+vivo el 2026-07-30, causó horas de confusión porque el código leído no coincidía
+con los inputs reales del estudio corriendo (`pineVersion` distinto). Antes de
+editar, verificar `Version history…` (menú del título del script) y confirmar que
+se está parado en la versión más reciente si hay dudas.
+
+## Reversión — el stop se valida en 5m, no en 2m (2026-08-05)
+
+A pedido explícito del usuario, que lo encuadró como *"un error de fondo que teníamos validado
+la semana pasada"*: la regla del sistema es **"5 minutos DECIDE, 2 minutos AFINA"** y el propio
+comentario del código dice que el 2m *"nunca decide el setup, solo afina"* — pero el stop salía
+del extremo de la vela de **2m**, y decidir cuándo la tesis quedó invalidada **es** una decisión
+de setup, la más importante después de la entrada. Por eso entró como corrección, fuera de la
+cadencia viernes/sábado de [[cambios-solo-viernes-sabado]].
+
+**El stop estaba exactamente en el nivel del ruido** (medido sobre 30 días de velas reales):
+
+| | |
+|---|---|
+| Rango mediano de una vela de 2m (= distancia del stop) | **4,58 pts** |
+| Excursión adversa mediana durante el hold de 10 min | **4,70 / 4,38 pts** |
+
+Son el mismo número: el stop se tocaba por el movimiento normal del precio, no por invalidación.
+Eso explica el **77% de cierres por `PRECIO_INVALIDACION` contra 22% por objetivo** — un perfil
+de tendencia, invertido respecto de la tesis de reversión, que debería ganar seguido y poco (el
+win rate real era 25%, con ganancia media $113 y pérdida media $39, o sea esperanza ≈ **−$1 por
+trade**: los +$45 acumulados en 69 operaciones eran ruido, no ventaja).
+
+**Réplica de los 69 trades reales** con las reglas de salida exactas (objetivo con
+`earlyExitPct` 0.9, time stop de 5 velas, y resolviendo a favor del stop cuando ambos caen en
+la misma vela — supuesto pesimista):
+
+| | stop 2m | stop 5m |
+|---|---|---|
+| Objetivo | 14 (20%) | **25 (36%)** |
+| Stop | 54 (78%) | **41 (59%)** |
+| Time stop | 1 | 3 |
+
+La réplica **reproduce la realidad** con el stop actual (20%/78% simulado vs 22%/77% real), que
+es lo que da crédito al contraste.
+
+⚠️ **Lo que NO está demostrado, y es lo que hay que vigilar**: que mejore la plata. Un stop
+1,66x más ancho produce pérdidas más grandes; si la pérdida media creciera en la misma
+proporción, la mejora del win rate se **cancela exacto** (0,36 × 113 − 0,64 × 65 ≈ −$1, igual
+que antes). Se espera que crezca menos —el delta neto del spread amortigua, no escala lineal con
+los puntos del índice— pero eso solo se mide con trades reales. **La variable a seguir es la
+pérdida media, hoy en $39.**
+
+Detalles de implementación:
+- `closes5` (el "Juez": alejamiento/RSI/dirección/compás) **queda intacto** con su filtro
+  original — este cambio no puede alterar ninguna decisión de **entrada**. El stop usa un array
+  aparte, `bars5`, que además trae `high`/`low`.
+- Sin velas de 5m utilizables cae al comportamiento anterior (2m) en vez de quedarse sin stop.
+- **`stopTimeframe`** se graba en cada ejecución (`'5m'` / `'2m'`). Es lo que permite separar
+  las muestras después: `algoVersion` saca su huella de la **config**, y esto es un cambio de
+  **código**, así que la huella no se mueve sola.
+- Los nombres `entryCandleLow`/`entryCandleHigh` se conservan (los usa
+  `checkAlejamientoSMATPSL` y los registros ya abiertos), aunque desde acá el ancla ya no sea
+  la vela de entrada de 2m.
+
+## Cierre manual de un ciclo de La Rueda: sin fecha y con la prima entera como resultado (2026-08-05)
+
+Reportado por el usuario: *"el activo ANET envié un cierre manual, se cerró, pero no veo el
+resultado en la bitácora de tradier"*. El cierre en el broker estaba perfecto (orden
+`36525398`, `buy_to_close ANET260904P00160000`, llenada a **2.81**). El problema era nuestro
+registro.
+
+La rama de La Rueda de `closeAnyPosition` (`server.js`) marcaba `phase`/`status`/`notes` pero
+**no escribía `closedAt`, `closeReason` ni el P&L** — la rama de SPX, diez líneas más arriba,
+sí guarda `closeOrderId`/`closeReason`. Dos consecuencias:
+
+1. **Fecha.** Sin `closedAt`, `mapWheelExecution` cae en cascada hasta `openDate` y archiva el
+   ciclo en su fecha de **apertura**: ANET cerrado el 05-ago aparecía bajo el **03-ago**. Por
+   eso "no se veía" — estaba, dos días atrás, donde nadie lo busca.
+2. **P&L.** Sin `pnl`, `mapWheelExecution` toma `totalCreditAccumulated` entero, o sea **la
+   prima completa como si el put hubiera expirado sin valor**. ANET figuraba con **$495**
+   cuando lo real es (4.95 − 2.81) × 100 = **$214**.
+
+El cierre manual va a mercado y casi nunca está lleno en el instante en que el botón responde,
+así que el costo real no se puede leer ahí: se guarda `closeOrderId` y
+`checkWheelExecutionFills` (cada 30s) resuelve el P&L cuando la orden llena
+(`pnlSource: 'cierre_manual_orden_real'`). Esa función salía temprano si no había nada en
+`submitted` — ahora también corre si hay cierres sin P&L por resolver.
+
+⚠️ **Debilidad de fondo, no resuelta**: `mapWheelExecution` **siempre** cae a la prima entera
+cuando falta `pnl`, y eso es optimista por construcción — el error va siempre a favor, que es
+la dirección peligrosa. De los 15 ciclos cerrados, **8 no tienen `pnl` explícito**. Los otros 7
+son `HUERFANO_SIN_POSICION` / `ROLL_REAPERTURA_NO_LLENO` de montos chicos ($68, $49, $60, −$12,
+$17, $43) donde "me quedé la prima" **puede** ser correcto (el put expiró sin valor) pero no
+está verificado contra el broker. Al tocar esto, no asumir que esos 7 están bien: están
+*sin confirmar*.
+
+**Corregido a mano** el mismo día, además del de arriba: `wtex-adopt-1785784440067-ANET`
+reportaba **$510** cuando su propia nota decía que había cerrado la pata vieja pagando $3.10 →
+real **$200**.
+
+## El filtro de dirección de 15m va horas atrasado — DIAGNOSTICADO, sin cambiar (2026-08-05)
+
+Reportado por el usuario con captura de TradingView: *"hoy todo el día ha sido bajista en 15
+minutos"*. Tenía razón, y el sistema decía lo contrario.
+
+En `entryMode: 'pullback'` (el modo activo en producción) **la dirección la fija una sola
+línea** de `calcPullbackEntry` (`src/camino_b.js`):
+
+```js
+const fase15 = calcFase15mSimple(closes15m);
+const dir = fase15.bull ? 1 : -1;     // el marco de 15m decide, y solo él
+```
+
+El marco de 2m no aporta dirección — solo el *timing* (cruce o roce de la EMA10), siempre a
+favor de lo que diga el 15m. Mientras el 15m esté en Fase 2, **el direccional solo puede
+proponer trades alcistas**.
+
+**Reconstrucción con datos reales de 15m de ese día** (Yahoo `^GSPC`, barra por barra,
+corriendo `calcFase15mSimple` sobre la serie hasta cada punto):
+
+| hora ET | cierre | filtro 15m |
+|---|---|---|
+| 09:30 | 7789.76 | **BULL (Fase 2)** |
+| 10:00 | 7786.19 | **BULL** |
+| 10:30 | 7764.93 | **BULL** |
+| 11:00 | 7754.67 | **BULL** |
+| 11:15 | 7741.37 | ninguna |
+| 12:00 | 7727.79 | ninguna |
+| 13:21 | 7737.57 | **BEAR (Fase 4)** |
+
+La sesión abrió en 7789 y cayó sin pausa. El filtro sostuvo "tendencia alcista" durante la
+primera hora y media, y marcó bajista recién a las 13:21 — **después de 52 puntos de caída**.
+
+**Causa**: la condición es `precio > EMA20 && EMA10 > EMA20 && EMA20 subiendo`. La EMA20 de 15m
+arrastra **5 horas de memoria** (20 barras × 15 min) e incluye el rally de los días previos.
+Mientras esa EMA siguiera subiendo por inercia, las tres condiciones se cumplían aunque el
+precio cayera 50 puntos.
+
+**La coincidencia temporal cierra el caso**: las 27 señales de ese día se generaron entre las
+9:55 y las 11:10 ET — exactamente la ventana en que el filtro decía BULL. En cuanto pasó a
+"ninguna" a las 11:15, dejaron de aparecer.
+
+⚠️ **Lo incómodo, y la razón de dejar esto anotado**: el sistema generó 27 entradas **alcistas
+contra un mercado que caía**, justo en el techo. Con el gate de Crédito/Riesgo ya corregido (ver
+sección siguiente), **8 se habrían ejecutado, las 8 en contra**. O sea que ese día el bug de
+unidades fue lo único que evitó una tanda de trades malos — el gate roto estaba **tapando** este
+problema, y arreglarlo lo dejó expuesto.
+
+Nota adicional: el **MACD de 15m sí estaba bajista** (hist −3.44) al mismo tiempo que el filtro
+decía alcista. El sistema tenía la contradicción a la vista y aun así llegó a score ≥80, porque
+`fase_weinstein` pesa 45 y `macd_cruce_pendiente` solo 15.
+
+**Decisión del usuario: solo diagnosticar, no cambiar el criterio todavía** (coherente con
+`congelar-cambios-para-medir`). Las tres opciones que quedaron sobre la mesa, para cuando se
+retome: (a) que el MACD 15m pueda **vetar** cuando contradice a la fase — el cambio más chico,
+usa datos ya calculados y ese día habría bloqueado las 27; (b) exigir que la **sesión** acompañe
+(precio contra la apertura del día o VWAP), que ataca la causa directa —la memoria de 5h
+arrastrada del día anterior—; (c) acortar el período de la EMA20, lo más simple pero mete ruido
+y hay que recalibrar. **No implementar ninguna sin que el usuario lo pida.**
+
+## El gate de Crédito/Riesgo rechazaba el 100% de los direccionales de crédito (2026-08-05)
+
+Reportado por el usuario (*"hoy no hubo trades direccionales a pesar de tener un esquema
+bajista… vi 2 posibles entradas y no se dieron"*). No faltaron señales: ese día se generaron
+**27 señales direccionales válidas** y **las 27 murieron en el mismo gate, con el mismo número
+imposible — "Crédito/Riesgo 0%"**.
+
+**Bug de unidades.** `buildSignalSummary` (`src/spx.js`) devuelve `credit` en **dólares
+totales** (`premium * 100 * contratos`), pero el gate lo trataba como **puntos por acción**:
+
+```
+riesgoPorContrato = (spreadWidth - credito) * 100 = (15 - 200) * 100 = -18.500   ← negativo
+creditoRiesgoPct  = riesgoPorContrato > 0 ? ... : 0                              → 0, siempre
+```
+
+Con el ratio clavado en 0 y el mínimo en 20%, **ningún spread de crédito direccional podía
+pasar nunca**. Los débitos no lo notaron porque están exentos del gate (`!signal.isCredit`,
+exención agregada el 2026-07-08).
+
+**Evidencia de que no era teórico**: de **64 ejecuciones direccionales históricas, las 64 son
+de DÉBITO** (38 Bull Call + 26 Bear Put). **Cero de crédito, nunca.** El sesgo del sistema
+hacia el débito que se veía en los datos no era una lectura de mercado — era este bug.
+
+Con la fórmula corregida, 8 de las 27 señales de ese día superaban el 20% y habrían entrado
+(p.ej. crédito $290 contra riesgo $1.210 = 24%); las otras 19 se siguen rechazando, pero por
+un motivo real (14-19%) y no por un 0% inventado.
+
+**El fix usa `signal.maxRisk`**, que la misma `buildSignalSummary` ya calcula bien en dólares y
+contemplando los contratos, en vez de re-derivar el riesgo en el call site — que es
+exactamente cómo las dos fórmulas se separaron.
+
+**Mismo error de unidades en los 3 valores que se muestran en la UI**, corregidos en el mismo
+pase: `tpTarget`/`slTarget` multiplicaban por 100 una prima que ya venía en dólares (mostraban
+**$8.700** de objetivo para un spread cuyo máximo son $290), y `breakeven` le restaba
+**dólares** a un strike (7750 − 200 = **7550**, en vez de 7747.10).
+
+⚠️ **Al tocar cualquier cosa en el bloque `signal.trading` del webhook, tener presente que
+`credit`/`debit`/`maxRisk`/`maxProfit` vienen en DÓLARES TOTALES (ya con los contratos
+adentro) y `spreadWidth`/`strikes` en PUNTOS.** Es la misma familia de error que la auditoría
+de la Rueda Tradier del 2026-08-03 ("precio por acción vs dólares totales") — el sistema la ha
+cometido ya tres veces en tres archivos distintos.
+
+## Rueda Automatizada — el loop de re-adopción: 21 órdenes reales por UNA posición (2026-08-05)
+
+Reportado por el usuario (*"en la bitácora aparece una cantidad grande de trades repetidos
+cerrados hoy"*). Eran **21 ciclos "The Wheel" de SOFI cerrados el mismo día**, 18 con P&L
+idéntico de $127 y 3 de $142 — **$2.712 de ganancia fantasma salidos de una sola posición de
+$127**. Y no era un problema de display: el sistema mandó **21 órdenes reales a Tradier**, una
+cada 5 minutos entre las 11:02 y las 12:44 ET, y seguía corriendo cuando se detectó.
+
+La cuenta tenía —y sigue teniendo— **una sola** put de SOFI: `SOFI260821P00018000`, −1
+contrato, abierta el 10-jul. El bucle:
+
+```
+adoptar → rolar → la reapertura se rechaza → cerrar en falso → re-adoptar → …
+```
+
+**Cómo arrancó:** el registro original `wtex-1783697266006` roló a las 14:57Z hacia
+`SOFI260828P00018000`. La orden nunca llenó, pero `ex.leg` **ya había sido sobreescrito** con
+la pata nueva. A partir de ahí el registro apuntaba a un contrato que no existe, y la posición
+real quedó sin ningún registro que la reclamara — o sea, huérfana. Cinco minutos después
+empezó la adopción, y de ahí no paró.
+
+**Tres defectos independientes lo sostenían.** Hacen falta los tres para que gire, y los tres
+se corrigieron:
+
+1. **`checkWheelExecutionFillsImpl` declaraba la posición "flat" mirando solo la pata nueva.**
+   Un roll son dos órdenes; si la reapertura se rechaza, preguntar por `ex.leg.optionSymbol`
+   da "no está en la cuenta" y se concluye que el ciclo quedó flat — **sin preguntar nunca si
+   la pata vieja sigue abierta**. Acá el cierre tampoco había llenado: `SOFI260821P00018000`
+   estuvo en la cuenta sin interrupción mientras el sistema cerraba su registro 21 veces
+   diciendo que estaba flat. Ahora se reconstruye la pata vieja desde el último evento `ROLL`
+   (`fromStrike`/`fromExpiry` vía `buildOccSymbol`, probando `P` y `C` porque el evento no
+   guarda el tipo) y, si sigue en la cuenta, **el registro vuelve a esa pata y queda vivo**.
+2. **`detectarPutsHuerfanas` no tenía memoria.** Filtraba solo contra registros `CSP_ACTIVA`,
+   así que una posición adoptada cuyo registro después se cierra vuelve a contar como huérfana
+   al ciclo siguiente. `leg` **no sirve** para recordarlo porque el roll lo sobreescribe — por
+   eso se agregó `adoptedSymbol`, inmutable, escrito al adoptar. Ningún symbol ya adoptado se
+   vuelve a adoptar, sin importar en qué fase quedó su registro.
+3. **Nada frenaba el reintento del roll.** El roll atómico (`placeRollOrder`) protege la
+   *posición* cuando se rechaza — no protege a la *cuenta* de que se lo pidan 21 veces. Ahora:
+   30 min de enfriamiento entre intentos, y se abandona tras **3 fallos consecutivos** con un
+   ntfy una sola vez (un roll que falló 3 veces no se arregla reintentando). Un fill real
+   reinicia el contador.
+
+**Bug aparte, encontrado en el mismo pase — la adopción se llevaba patas que no son suyas.**
+`detectarPutsHuerfanas` aceptaba **cualquier** put corta de la cuenta: ese día adoptó
+`SPXW260805P07730000` —una pata 0DTE del pipeline direccional— la registró como ciclo de La
+Rueda y la cerró al instante, inventando **$700** (crédito 7 × 100). Lo contable es lo de
+menos: el riesgo real es que `checkWheelPutManagementImpl` intente **rolar una posición que
+`checkDirectionalTPSL` está gestionando en paralelo**, dos monitores peleando por la misma
+pata. Se agregaron dos cortes independientes a propósito: por **root** (SPX/SPXW nunca son de
+La Rueda, que opera acciones — no depende de leer ningún archivo) y por **registro** (cualquier
+symbol que figure en `tradier_executions.json`).
+
+**Bug de contabilidad, mismo incidente:** `totalCreditAccumulated` se incrementa al **mandar**
+la orden de roll, no al confirmarla — si no llena, ese crédito queda sumado para siempre e
+infla el costo base y el P&L del ciclo. SOFI acumulaba 1.43 con 1.27 realmente cobrado. Al
+revertir un roll fallido ahora se descuenta su `netCredit` y el evento queda marcado
+`fallido: true` (no se borra: el intento existió y sirve para auditar).
+
+**Datos corregidos a mano** vía `POST /api/wheel-trading/executions/:id/patch`: los 21
+registros de SOFI y el de SPXW pasaron a `phase: 'ANULADO'` (`mapWheelExecution` solo mapea
+`CERRADO`, así que salen de la bitácora sin borrarse), y el registro raíz volvió a
+`SOFI260821P00018000` con el crédito en 1.27. La bitácora pasó de **24 operaciones cerradas
+hoy a 5**.
+
+⚠️ **Si vuelve a aparecer un `HUERFANO_SIN_POSICION` o `ROLL_REAPERTURA_NO_LLENO` repetido
+para el mismo símbolo, mirar primero si `ex.leg` apunta a un contrato que no está en la
+cuenta** — ese es el síntoma raíz, todo lo demás es consecuencia.
+
+## Validación de los 3 automatismos de Tradier (2026-08-05)
+
+A pedido del usuario (*"validame que los automatismos sobre tradier, reversión a la
+media, direccional y neutral estén funcionando bien"*). El pipeline funciona de punta
+a punta — durante la misma sesión la Reversión abrió y cerró un trade real
+(`tex-1785941840221`, Bull Put Spread, `PRECIO_OBJETIVO`, −$20 ya reconciliado, sin
+intervención) — y la contabilidad está limpia: 131 ejecuciones, **0 abiertas, 0 en
+`pendiente_verificar`**. Salieron tres problemas.
+
+**1. Los tres corrían sábados y domingos.** Ninguna de las tres funciones de entrada
+(`checkDirectionalAutonomous`, `checkIronCondor`, `checkAlejamientoSMA`) miraba el
+**día**, solo la hora ET. El fin de semana del 1-2 ago quedaron 1.134 evaluaciones de
+TENDENCIA, 414 de REVERSION y 73 de NEUTRAL contra un mercado cerrado. Además de
+gastar llamadas a Tradier/TastyTrade/Yahoo, **inunda `spx_strategy_log.json`** (topado
+en 5.000 entradas): un solo fin de semana se come un tercio del buffer y desaloja el
+diagnóstico de los días reales — por eso el log solo llegaba hasta el 28-jul. Se
+agregó `isMarketHours()` (ya valida fin de semana **y** feriados NYSE) a las tres.
+Verificado que las cuatro ventanas — Reversión 9:30-12:59, IC 0DTE 10:00-12:59, IC
+1DTE 15:40-15:49, Direccional 9:45-13:59 — caen **enteras** dentro de 9:30-16:00, así
+que el guard no recorta nada operable. Si alguna ventana se corre fuera de ese rango,
+revisar esto primero.
+
+**2. El Iron Condor era el único que no veía a Sigma Terminal.** Reversión y
+Direccional recibieron el fallback el 2026-07-21 y a esta se le pasó por alto — justo
+la que más depende del régimen. En 8 días: **295 evaluaciones, 0 señales**, y el
+bloqueo #1 fue "Gamma régimen NEGATIVO" (66 veces), con el cálculo interno que tiene
+un sesgo negativo ya medido. El `gammaFlip` también diverge fuerte: ese día el interno
+daba **7600** contra **7753** de Sigma — 153 puntos, con un buffer de gate de 20.
+`checkIronCondor` arma ahora `effectiveGex` (Sigma si está fresco <5 min, si no el
+interno) y lo escribe de vuelta en `ctx.gex` para que el log registre el que realmente
+decidió. `maxPain` se mantiene del cálculo interno porque Sigma no lo empuja
+(`POST /api/spx/sigma-levels` no recibe ese campo). Confirmado en vivo: sus entradas
+pasaron de `flip=7600` a 7753/7743 apenas aterrizó el deploy.
+
+**3. El daemon de Gamma estaba caído** — ver la sección `gamma_daemon` arriba.
+
+> ⚠️ **Esto no era "la apertura": era todo el día, y ya está corregido (2026-08-08).** No es un
+> congelamiento sino un **atraso de ~16 min** del sandbox de Tradier; a las 9:31 ese feed muestra
+> premercado, que por definición no se mueve, y de ahí la lectura equivocada. Ver la sección
+> "El precio spot llegaba 16 minutos tarde" abajo.
+
+**Limitación conocida, NO corregida — el precio del SPX puede llegar congelado en la
+apertura.** De 9:31 a 9:41 ET, `tradier.getQuotes(['SPX']).last` devolvió exactamente
+**7736.52** en 12 llamadas independientes (el valor premercado de las 9:25), mientras
+el rango de apertura real de esa sesión fue 7771.62-7793.68. Verificado que se mueve
+normal el resto del día (6 valores distintos en 2 min a las 10:13). Es el **mismo modo
+de falla que Yahoo** demostró el 2026-07-24 y por el que se cambió a Tradier — o sea
+que la fuente nueva no es inmune, solo falla en otra ventana. Impacto mientras dura:
+`openingRangeRespected` da `false` sin serlo (es un gate del IC), la selección de
+strikes y el piso de 1.5×ATR trabajan con un precio ~50pts corrido, y `entrySpx`
+quedaría mal congelado en cualquier trade abierto ahí. **No se tocó a propósito**:
+arreglarlo cambia la selección de strikes de las tres estrategias, y eso ya no es
+corrección de bug sino cambio de alto impacto — congelado hasta juntar trades (ver
+memoria `congelar-cambios-para-medir`).
+
+**Cosmético, sin arreglar:** el snapshot de REVERSION en el log sigue registrando el
+`gammaFlip` **interno**, porque su `effectiveGex` nunca incluyó ese campo y no se
+escribe de vuelta en `ctx.gex` como sí hace ahora el IC. La estrategia no usa
+`gammaFlip` en su lógica (solo régimen y muros, que sí vienen de Sigma) — el log
+engaña, la decisión no.
+
+**Rendimiento medido** (contexto, no falla — muestra todavía chica, ver
+`congelar-cambios-para-medir`):
+
+| | cerradas | WR | avg gana | avg pierde | neto |
+|---|---|---|---|---|---|
+| TENDENCIA | 64 | 61% | $199 | −$353 | −$355 |
+| REVERSION | 65 | 26% | $113 | −$40 | +$45 |
+| NEUTRAL | 1 | 0% | — | −$10 | −$10 |
+
+Reversión está en break-even matemático: el mecanismo hace lo que debe (corta pérdidas
+cortas, deja correr ganadoras), el edge todavía no aparece. El neto negativo del
+Direccional lo carga el clúster del 23-jul; sus últimos 10 dan +$1.745.
+
+## La Rueda contaba dos veces, o se anotaba la prima entera como ganancia (2026-08-07)
+
+A pedido del usuario (*"valida vs Tradier las posiciones cerradas de agosto… ayer y hoy vi cosas
+raras"*). Se cruzaron **los 38 cierres de agosto** contra el broker.
+
+**El SPX está bien: 28 de 28 exactas.** 21 verificadas leyendo la orden de cierre por ID; las
+otras 7 tenían la `closeOrderId` guardada en `rejected` y su orden real ya no es alcanzable
+(`/orders` de Tradier **ignora `start`/`end` y solo devuelve las de HOY**; `/history` viene
+vacío). Se verificaron al revés: buscando qué par de precios *de los que Tradier reporta para
+esas patas* reproduce el P&L grabado. En las 7 hay **una sola** combinación posible y es la que
+está. Ninguna viola el invariante del ancho del spread. `buscarOrdenDeCierreReal` funciona.
+
+**Los 6 errores estaban todos en La Rueda, y son dos bugs distintos:**
+
+**1. Sin `pnl` explícito, `mapWheelExecution` anotaba `totalCreditAccumulated`** — o sea "me
+quedé la prima entera", que solo es cierto si el put expiró sin valor. La prueba de que era
+eso: el `proceeds` de Tradier es *exactamente* el crédito acumulado de la bitácora. El error
+va **siempre a favor**.
+
+| | bitácora | Tradier | |
+|---|---|---|---|
+| PDD | +$68 el 03-ago | **−$88** el **24-jul** | −156, y otro mes |
+| MARA | +$49 el 03-ago | **−$85** el **17-jul** | −134, y otro mes |
+| NU | +$17 el 03-ago | **−$58** el **24-jul** | −75, y otro mes |
+
+La nota de esos registros decía *"P&L no verificable desde acá"*. **Era falso**: `getClosedPnl`
+lo tenía, con match exacto de symbol y sin la ambigüedad de los SPXW (que repiten strikes el
+mismo día). Corregido: sin `pnl` ya no se inventa un número, el ciclo sale con `pnlPending:true`
+— visible en Historial como pendiente, fuera de totales/curva/calendario/win rate. Excepción:
+`ENTRADA_NO_LLENO`, donde no hubo posición y el $0 sí es un dato.
+
+**2. `trackedLegKeys` solo tapaba `ex.leg.optionSymbol`, que el roll sobreescribe.** Un ciclo
+pasa por varios contratos; al tapar solo el último, las patas anteriores afloraban otra vez como
+"operación del broker" con plata ya contada. BE valía −225 (tres round-trips reconstruidos a
+mano) y encima salía `broker-BE −30`, que es el primero de esos tres; HOOD −50 (dos) más
+`broker-HOOD −25`. Corregido emitiendo también las claves derivadas de los eventos de ROLL
+(`fromStrike/fromExpiry`, `toStrike/toExpiry`, probando P y C porque el evento no guarda el
+tipo). Las filas broker-only de La Rueda pasaron de 5 a **0**, sin perder ninguna operación real.
+
+**Efecto en los totales** (agosto ya cuadra al centavo con el broker: 465 SPX + 502 Rueda):
+
+| | antes | después |
+|---|---|---|
+| Julio | −$1.168 | **−$1.544** |
+| Agosto | +$992 | **+$967** |
+
+Queda una diferencia de −$195 contra la suma cruda del `gainloss`, y es correcta: son los dos
+round-trips de BE que Tradier **no reporta** (`−2040+1925` y `−2090+2010`), ya contados dentro
+del −225 del ciclo. **El `gainloss` no es un inventario completo** — no asumir que lo es.
+
+## Un roll a débito igual sobreescribía `ex.leg` — la tercera vuelta del loop de re-adopción (2026-08-07)
+
+Encontrado en el mismo cruce. El 07-ago a las 14:06 SOFI roló de `260821` a **`260814`** — hacia
+**atrás** en el tiempo — con **crédito neto 0** (orden `36637660`). No llenó, pero `ex.leg` ya se
+había sobreescrito, así que la posición real volvió a quedar huérfana y se creó un segundo
+registro vivo (`wtex-adopt-1786111894686-SOFI`) para la **misma** posición, los dos con
+`credAcc 1.27`. Dos defectos independientes, los dos en el lado del **Put**:
+
+1. **El gate miraba la prima de la pata nueva, no el crédito neto.** `if (!rollDate ||
+   rollDate.premium <= 0)` dejaba pasar un roll a débito; más abajo `netCreditMin =
+   Math.max(0, premium - costoCerrar)` lo **aplanaba a 0** y la orden salía igual. La orden hace
+   lo correcto y no llena (nunca se paga por rolar), pero el registro ya quedó apuntando a un
+   contrato inexistente — que es justo el síntoma raíz del loop de re-adopción del 05-ago.
+2. **El filtro "nunca hacia un vencimiento más cercano" existía solo en la rama `porNorma`**
+   (agregado el 03-ago por el BAC que roló del 21-ago al 14-ago). Las ramas **defensiva** y de
+   **respaldo** seguían mirando todos los vencimientos. Ahora se filtra una sola vez para las tres.
+
+El lado de la **Call** ya tenía las dos cosas casi bien; se alineó (`> 0` en vez de `>= 0`, y el
+filtro en su rama de respaldo). Esa rama **nunca corrió en producción** — no hubo ningún ciclo en
+`CC_ACTIVA` todavía — así que el cambio no está validado contra un caso real.
+
+**Los frenos del 05-ago funcionaron**: se creó **un** registro en vez de 21 y los reintentos
+pararon solos a los 3 (14:11 / 14:46 / 15:21). El daño quedó acotado a un duplicado.
+
+Los dos registros de SOFI se consolidaron en uno: se conservó el raíz (`wtex-1783697266006`,
+tiene la historia desde el 10-jul), devuelto a `SOFI260821P00018000` y con `adoptedSymbol`
+fijado para blindarlo; el de hoy pasó a `ANULADO` conservando su `adoptedSymbol`, porque el
+guard de re-adopción recorre **todos** los registros, no solo los vivos.
+
+⚠️ **Al revisar un `HUERFANO_SIN_POSICION` o un `ROLL_REAPERTURA_NO_LLENO`, el primer reflejo
+sigue siendo mirar si `ex.leg` apunta a un contrato que no está en la cuenta** — pero ahora
+también: **preguntarle el P&L al `/gainloss` antes de dar por bueno el crédito acumulado.**
+
+## Impulsos de 15m — escalera de TP y listón de score (`src/impulsos.js`, 2026-08-27)
+
+Pedido de Guillermo sobre una sesión que el bot cerró en **+$400** pero donde el dinero
+estaba todo al principio: *"necesitamos que el bot entre en el primer o segundo impulso;
+cuando se entra en el tercero, con un call wall cerca o por encima de mi objetivo, la
+probabilidad de que el precio se devuelva es muy alta"*.
+
+**La mitad de la hipótesis ya estaba medida y era falsa.** El backtest del veto de muro
+(16-ago) probó "Call Wall cerca → no comprar" y en alcista no predijo nada: brecha de
+3,6 pp, y los 4 trades abiertos con el precio ya pasado el Call Wall ganaron los 4. Por
+eso `evaluarVetoMuroSombra` solo marca en BEARISH. Lo nuevo es el **conteo de impulsos**.
+
+**Backtest 2026-08-27** — 53 ejecuciones cerradas de TENDENCIA con timestamp y spot de
+entrada, 16 sesiones del 4 al 27 de agosto, impulsos contados con un zigzag por retroceso
+sobre las velas de 15m y umbral atado a la mediana del rango del día:
+
+| BULLISH (n=26) | n | aciertos | P&L | | BEARISH (n=27) | n | aciertos | P&L |
+|---|---|---|---|---|---|---|---|---|
+| impulso 1 | 9 | 67% | +435 | | impulsos 1-2 | 17 | 53% | −45 |
+| impulso 2 | 11 | 73% | +500 | | **impulso 3+** | 10 | **80%** | **+540** |
+| **impulso 3+** | 6 | **17%** | **−225** | | | | | |
+
+**La regla es ALCISTA y no se puede espejar.** En bajista los datos dicen lo contrario y
+con más casos (n=10 contra n=6). Aplicarla a las dos direcciones porque "suena razonable"
+rompería la mitad bajista — el mismo error que el veto de muro evitó al no aplicarse en
+alcista. Las dos asimetrías son opuestas y cada una está sostenida por su propio backtest.
+
+**Robustez**: quitando cualquier día completo, la brecha alcista queda entre **+46,7 y
++66,7 pp**, y los 6 casos del bucket 3+ vienen de **cuatro sesiones distintas** (7, 10 y
+11 de agosto, más tres del 27).
+
+**Qué poder tiene** (decisiones de Guillermo, 27-ago). **No veta** — con 6 casos negar
+entradas sería sobreajuste. Actúa por dos vías:
+
+| | |
+|---|---|
+| **Listón de score** | Impulso alcista 3+ exige `minScore` **90** en vez de 80. Cuando hay dos motivos para elevarlo (pérdida previa e impulso tardío) manda **el más alto**, no el último evaluado |
+| **Escalera de TP** | Impulso 1 → **35%** · impulso 2 → el de config (**30%**) · impulso 3+ → **15%** |
+
+⚠️ **Por qué apareció la escalera: el listón de score casi no muerde.** Los scores de
+TENDENCIA se apilan arriba — sobre 361 eventos, mediana **90** y 146 valen **exactamente
+100**. Las 3 entradas de impulso 3+ del 27-ago que se pudieron cruzar contra el log
+puntuaron **100** las tres: el día que motivó el cambio, el listón no habría cambiado nada.
+Subir de 90 a 95 tampoco serviría, porque no hay masa entre 90 y 100. Por eso se movió la
+palanca de la ENTRADA a la SALIDA, que es donde el problema realmente ocurre.
+
+**La lógica de la escalera**: cuanto más maduro el movimiento, menos recorrido le queda y
+antes hay que cobrar. El impulso 2 no se toca porque es el bucket que mejor anda (73%,
++500) y no hay nada que arreglarle. **Solo alcista**, igual que todo el módulo.
+
+**El efecto del impulso 1 hay que asumirlo y está sin medir**: subir el TP de 30 a 35 va a
+bajar algo el porcentaje de aciertos a cambio de que los aciertos sean más grandes. Con 9
+casos en ese bucket no hay forma de saber todavía si suma o resta. `tpPctExigido` viaja
+congelado en cada ejecución justamente para que el Auditor lo dictamine con muestra.
+
+**El SL no se toca.** El pedido fue cobrar antes, no arriesgar menos; mover las dos puntas
+a la vez dejaría sin saber cuál de los dos cambios hizo el efecto.
+
+El TP efectivo se aplica en un solo punto (donde se calcula `tpPct`, antes de construir
+`signal.trading`) para que la UI, el `tpTarget` mostrado, el `tpPctDebito` de la sombra del
+muro y el umbral que de verdad ejecuta el monitor digan todos lo mismo. Si se aplicara solo
+al grabar la ejecución, la señal anunciaría 30% y el monitor cerraría en 15%.
+
+**Falla abierta a propósito**: si no hay velas suficientes (`aplica:false`, típico en los
+primeros 45 min) **no se sube nada**. Una entrada tan temprana es impulso 1 ó 2 por
+definición, que es justo lo que no hay que encarecer.
+
+La lectura se calcula **una sola vez**, antes del gate de score, y esa misma se cuelga de la
+señal (`signal.impulso`), se loguea como stage `IMPULSO` y se congela en el registro de
+ejecución. Recalcularla después la haría sobre velas potencialmente distintas y el registro
+dejaría de explicar la decisión que de verdad se tomó.
+
+**Cómo se cuenta**: `contarImpulsos({velas, direction})` sobre las velas de 15m de la
+sesión en curso (`velas15mSesionOHLC()` en server.js — recortadas al día ET a propósito:
+el impulso se cuenta desde el extremo del DÍA, arrastrar las de ayer haría que el origen
+cayera en otra sesión). Zigzag por retroceso, no pivotes de N barras: un fractal de N
+barras se come los impulsos cortos y sólo confirma N barras tarde, justo cuando ya no
+sirve para decidir una entrada. El umbral es `max(4 pts, 1,2 × mediana del rango de las
+velas del día)` — 5 puntos son mucho en una sesión comprimida y poco en una de 70 de rango.
+
+**Límite conocido**: con menos de 4 velas de la sesión no devuelve número (`aplica:false`).
+Eso deja sin lectura las entradas de los primeros 45 minutos — aceptable, porque una
+entrada tan temprana es por definición impulso 1 ó 2, que es justo lo que no se vetaría.
+
+Cubierto por la batería (`scripts/pruebas.js`, bloque *El conteo de impulsos*), incluida
+una prueba explícita de que **en bajista nunca encarece la entrada** y otra que fija el
+listón en 90 exacto, para que moverlo obligue a actualizar la prueba.
+
+## Notificaciones
+
+- Servicio: **ntfy.sh**, topic configurado en `.env`
+- Alerta de extrínseco: se dispara cuando el valor extrínseco de una posición cae ≤ 5% del crédito original
+- Guard importante: saltar grupos donde `uPrice = 0` o `mark-price = 0` (evita falsas alertas)
+
+## Variables de entorno (.env)
+
+```
+TASTYTRADE_USERNAME=
+TASTYTRADE_PASSWORD=
+TASTYTRADE_ACCOUNT=
+NTFY_TOPIC=
+RAILWAY_VOLUME_MOUNT_PATH=   # solo en Railway
+
+# Tradier (sandbox) — ver sección SPX 0DTE
+TRADIER_ACCESS_TOKEN=
+TRADIER_ACCOUNT_NUMBER=
+TRADIER_BASE_URL=https://sandbox.tradier.com/v1
+```
+
+## buildMetrics (`src/metrics.js`)
+
+- **Rolls**: órdenes con "to Close" + "to Open" del mismo tipo (C o P) se detectan como ROLL (`detectRoll`). El leg de cierre consume el inventario viejo pero NO crea par negativo — se registra como evento único con `stratType: 'Roll'`, `pnl = order.netValue` (crédito neto del roll) y duración "Intradía". Sin esto, el FIFO emparejaba el cierre contra la apertura original (de semanas atrás) mostrando una pérdida falsa.
+- **P&L neto vs bruto**: usa `net-value` de la API de TastyTrade que ya incluye fees regulatorios. TastyTrade muestra P&L bruto (sin fees), la bitácora muestra neto real. Diferencia típica: $1-2.50 por leg.
+- **FIFO**: empareja cierres con la apertura más cercana en fecha. Multi-leg se consolida por `closeOrderId + underlying + closeDate`.
+
+## Impuestos — hoja de trabajo fiscal (`src/impuestos.js`, 2026-08-14)
+
+Pestaña **LEGAL → Impuestos**. Convierte el P&L realizado en la información que
+exige la DIAN para renta de persona natural residente. El marco normativo completo
+(8 documentos + plantillas) vive **fuera del repo**, en
+`01_Sigma/reporte impuestos financiero legal/`.
+
+> ### ⚠️ Decisión del usuario (2026-08-14): **NO desplegar a Railway**
+>
+> La hoja se queda en **local**. Los datos que guarda —otros ingresos, dependientes,
+> deducciones, gastos, pérdidas compensables— son personales y la URL de producción
+> es pública. No pushear esta funcionalidad sin volver a preguntar.
+
+**Endpoints** (`server.js`): `/api/impuestos?year=`, `/api/impuestos/years`,
+y CRUD de `/gastos`, `/perdidas`, `/config`.
+
+**Archivos en `DATA_DIR`, todos en `.gitignore`**: `impuestos_gastos.json`,
+`impuestos_config.json`, `impuestos_perdidas.json`, `trm_cache.json`.
+
+**Reglas fiscales implementadas** (todas en `src/impuestos.js`, ninguna en el frontend
+— si viven en dos lados terminan divergiendo):
+- Art. 300 ET: tenencia ≥ 730 días → ganancia ocasional 15%; menos → renta ordinaria.
+  Para opciones sobre índices esto **nunca** se cumple, así que todo va a la tabla del 241.
+- Art. 241 ET: tabla marginal 0%–39%. Ojo — la norma trae los acumulados redondeados a
+  UVT enteras, así que hay una discontinuidad real de 0,1 UVT en los quiebres. El código
+  replica el texto legal, no la fórmula "limpia".
+- Art. 336 ET: el límite 40% / 1.340 UVT aplica solo a rentas exentas y deducciones
+  especiales. Los **costos y gastos del art. 107 no tienen tope** — es la distinción que
+  más plata mueve y la que más se confunde.
+- Arts. 147 y 330: pérdidas compensables 12 años, solo contra la misma cédula.
+- Art. 254: descuento por retención en el exterior, topado al impuesto colombiano.
+
+**TRM**: serie diaria de `datos.gov.co/resource/32sa-8pi3` (Superfinanciera), cacheada
+por año en disco. Cada operación se convierte con la TRM de **su propia fecha de cierre**,
+no con un promedio: la TRM se movió de ~3.650 a ~3.130 entre febrero y agosto de 2026, así
+que una sola tasa para todo el año deforma el total de forma notoria.
+
+**Gotcha — no restar comisiones dos veces.** El `net-value` de Tastytrade ya viene neto de
+comisiones y fees (ver sección `buildMetrics`), así que el `pnl` de cada estrategia los
+tiene descontados. `sumarComisiones()` existe solo para mostrar el dato y soportarlo ante
+la DIAN. Restarlo otra vez del P&L sería deducir el mismo costo dos veces.
+
+**Gotcha — `buildMetrics` recorta a 200.** La hoja llama `buildMetrics(items, { limit: 0 })`.
+Con el default, un año gravable con más de 200 round-trips declara de menos y el error es
+silencioso. El año 2026 ya va en 224.
+
+## BP Dashboard (`/api/bp-dashboard`)
+
+Panel dedicado al seguimiento de Buying Power con metas 50/25/25 (Rueda/Especulación/Libre).
+
+**Lógica de cálculo:**
+- Agrupa opciones por `(underlying, expiry, optType)` para detectar spreads
+- Si el grupo tiene Short + Long → **spread**: `ancho × 100 × qty` (GAP $19.5/$20 = $150)
+- Si el grupo tiene solo Short → **naked**: `strike × 100 × qty` (JBLU CSP $5 = $500)
+- Short calls con underlying en stock → **CC cubierta = $0**
+- Stocks → `avgPrice × qty` (equity BP pool separado, mostrado aparte)
+
+**Base del pie chart** = `ruedaOptBP + specOptBP + derivAvail` (suma los tres segmentos = 100%)
+- No coincide con ningún valor único de TastyTrade (es usado + disponible)
+- `derivative-buying-power` de TastyTrade = solo el disponible (Libre en el pie)
+- `equity-buying-power` de TastyTrade = BP para acciones (pool separado, mostrado en header)
+
+**TastyTrade API:**
+- `quantity-direction: "Short"/"Long"` determina si es posición corta o larga
+- `cost-effect` está **invertido**: Short put = "Debit", Long put = "Credit" → no usar para dirección
+- `/accounts/{account}/margin-requirements` → 404, no existe
+
+## Caché del servidor
+
+El servidor mantiene caché en memoria con TTL de 120 segundos para llamadas a TastyTrade. Se invalida con `POST /api/refresh`.
+
+## Service Worker
+
+Cache actual: `bitacora-v5`. Para forzar actualización en todos los clientes, bumpar la versión en `public/sw.js`. El fetch handler solo intercepta esquemas `http`/`https` (esquemas como `chrome-extension://` rompían `cache.put()`). Si un cliente tiene cache viejo, ejecutar en consola del browser:
+```js
+navigator.serviceWorker.getRegistrations().then(r=>Promise.all(r.map(x=>x.unregister()))).then(()=>caches.keys()).then(k=>Promise.all(k.map(x=>caches.delete(x)))).then(()=>location.reload())
+```
+
+## iOS PWA — notch/status bar (safe-area-inset)
+
+`apple-mobile-web-app-status-bar-style: black-translucent` (en el `<head>`) hace que el
+contenido de la app corra por debajo de la barra de estado de iOS (reloj/batería) en vez
+de dejarle espacio — en modo standalone (agregado a pantalla de inicio) esto tapaba la
+parte de arriba de `.mobile-navbar` en iPhones con notch. Fix: `viewport-fit=cover` en el
+meta viewport (necesario para que `env(safe-area-inset-top)` resuelva a un valor real) +
+`padding-top: env(safe-area-inset-top)` en `.mobile-navbar` (altura `calc(48px + env(...))`)
+y en el padding-top de `.content`/`.panel`/`.header` (compensando la altura extra del
+navbar). En dispositivos sin notch, `env(safe-area-inset-top)` es `0px` — no hay efecto.
+
+**Gotcha encontrado después:** el fix de arriba no se veía reflejado (incluso en Safari
+normal, sin standalone) porque había **3 reglas `.panel { padding-top: ... }` duplicadas**
+en distintos bloques `@media (max-width: 1024px)` — las últimas dos no tenían el ajuste
+de safe-area, y una de ellas usaba `padding: 12px 10px` (shorthand, resetea las 4
+esquinas) que pisaba el padding-top a 12px, muy por debajo de la altura real del
+`.mobile-navbar` (48px + safe-area). Esto tapaba cualquier contenido al tope de cada
+panel (ej. la fila de filtros Desde/Hasta/Filtrar en Historial) detrás del navbar fijo.
+Al tocar `.panel`/`.content`/`.sidebar` en mobile, evitar `padding`/`margin` shorthand —
+usar propiedades explícitas (`padding-top`, etc.) para no resetear el ajuste de safe-area.
+
+## El precio spot llegaba 16 minutos tarde — y con eso se elegían los strikes (2026-08-08)
+
+El 2026-08-04 (`ad57e17`) se arregló el atraso de las **velas**, y quedó la impresión de que el
+problema estaba cerrado. **Estaba cerrado a medias.** Las velas sí quedaron a ~2 min
+(`fetchBarsSPXFrescas`: historial liquidado de Tradier + la cola de Yahoo, descartando la vela en
+curso). Pero el **precio spot** (`ctx.spxPrice`) seguía saliendo de `tradier.getQuotes(['SPX']).last`
+a ciegas, y ese es el que elige los strikes.
+
+**Medición** (267 snapshots del 2026-08-07 contra las velas de 1m reales de Yahoo, buscando qué
+desfase minimiza el error):
+
+| desfase supuesto | error mediano |
+|---|---|
+| 0 min | 5,10 pts |
+| 10 min | 2,96 pts |
+| **16 min** | **0,72 pts** ← mínimo limpio |
+| 20 min | 2,64 pts |
+
+Error contra el precio real del mismo instante: mediana **5,1 pts**, p90 **18,9**, máximo **36,1**
+— con strikes de SPX cada 5 puntos. A las 09:31 ET el sistema decidía con **7709,96** mientras el
+índice estaba en **7737,15**.
+
+**Qué decidía con ese precio:** selección de strikes de las tres estrategias
+(`findStrikesByDelta`), `openingRangeRespected` (gate del Iron Condor), el piso de 1,5×ATR del
+stop técnico, `entrySpx` congelado en cada ejecución y el `calcGEX` interno. Los monitores de
+salida no: esos ya usaban Yahoo en vivo. O sea que **se entraba mirando un precio de hace 16
+minutos y se salía mirando el de ahora.**
+
+**El arreglo no es "usar Yahoo en vez de Tradier"** — esa es la trampa en la que ya se cayó al
+revés el 2026-07-24, cuando Yahoo sirvió 7411.02 congelado 2h44min y por eso se pasó a Tradier.
+Las dos fuentes mintieron, cada una a su manera. Lo que faltaba era **mirar el sello de tiempo que
+las dos ya mandaban y nadie leía**: `regularMarketTime` en Yahoo, `trade_date` en Tradier.
+
+`precioSPXFresco()` mide la antigüedad de cada fuente y elige. Cualquiera de los modos de falla se
+delata solo.
+
+### Orden de preferencia: Sigma Terminal primero (2026-08-08)
+
+> **Decisión del usuario:** *"sigma terminal debe traer por obligación la señal real, yo en sigma
+> terminal estoy pagando… tomemos el precio de Sigma Terminal como precio default y los demás como
+> plan B o plan C."*
+
+| | plan | atraso medido (07-ago) | error mediano |
+|---|---|---|---|
+| **Sigma Terminal** | **A** | **1 min** | **0,33 pts** |
+| Yahoo | B | segundos | (referencia) |
+| Tradier sandbox | C | 16 min | 5,10 pts |
+
+Dos ventajas de Sigma que no son obvias: **no cuesta ninguna llamada de red** (el dato ya está en
+el servidor, lo empuja el daemon) y el precio queda **coherente con los muros** — `callWall`/
+`putWall`/`gammaFlip` salen de Sigma, así que tomar el spot de otra fuente hacía que "distancia al
+muro" mezclara dos mediciones distintas.
+
+⚠️ **Su límite es la cadencia, no la exactitud.** El daemon empuja cada 2 min (medido: mediana
+**123s** entre lecturas, máximo **317s**), así que entre push y push el valor envejece — la edad
+típica ronda los 60s, contra los segundos de Yahoo. Por eso `MAX_EDAD_SIGMA_SPOT_SEG = 180`: cubre
+el ciclo normal y descarta los huecos, donde Yahoo pasa a ser mejor. **Si se quiere el spot más
+fresco posible, la palanca es bajar ese umbral o acortar el ciclo del daemon**, no cambiar el
+orden.
+
+**La caída del daemon ahora sí avisa.** Antes no había alerta —el 2026-08-05 estuvo ~50 min muerto
+en pleno mercado y se descubrió de casualidad— y con Sigma como fuente por defecto eso pasó a ser
+load-bearing: el sistema sigue operando con Yahoo, pero los muros de gamma se congelan al mismo
+tiempo. A los 6 min (3 ciclos) sin dato fresco sale un ntfy, una sola vez por episodio, y se avisa
+también cuando vuelve. Solo en horario de mercado: fuera de él el daemon no corre y no es falla.
+
+Verificado contra los seis escenarios: daemon al día → Sigma sin tocar la red; hueco de 317s →
+Yahoo; daemon caído → Yahoo; daemon caído + Yahoo congelado → Tradier, marcado **no usable**;
+todo caído menos Tradier → igual; nada → sin precio.
+
+- **`getQuotes` tiraba el `trade_date`.** El remapeo a forma fija lo descartaba, así que Tradier
+  no podía ni entrar en la comparación — se agregó `tradeDate` al objeto. Sin eso el arreglo
+  habría elegido Yahoo siempre, por la razón equivocada y sin cruce.
+- **El respaldo `5530` se cambió por `0`.** 5530 parece un nivel de índice legítimo y se colaba
+  entero hasta la selección de strikes; con 0 se dispara el rescate por `underlyingPrice` de la
+  cadena y, si tampoco está, no hay strike posible y la señal muere sola.
+- **`spotFuente`/`spotEdadSeg` quedan en el contexto y en el snapshot del strategy log.** Medir
+  este atraso exigió cruzar 267 snapshots contra Yahoo para inferirlo; ahora está en el registro.
+
+⚠️ **Sin validar en vivo**: el mercado estaba cerrado (sábado). Con las dos fuentes sirviendo el
+cierre del viernes, la selección no puede discriminar — **la primera prueba real es el lunes en la
+apertura.** Lo que sí se verificó: que `tradeDate` llega, que la selección resuelve los cuatro
+escenarios, y que la medición del atraso es sólida (mínimo limpio, 7x mejor que suponer 0).
+
+### Los monitores de salida, cerrados el mismo día
+
+Quedaban leyendo Yahoo directo, sin chequeo de frescura. El costo que lo frenaba resultó ser
+imaginario: **Yahoo manda `regularMarketTime` en la misma respuesta**, así que verificar la
+frescura no cuesta ninguna llamada extra. `precioSPXFresco({ rapido: true })` devuelve Yahoo si
+está fresco y **sólo entonces** paga la segunda consulta a Tradier — 1 llamada en el caso normal,
+exactamente lo que costaba el fetch suelto de antes.
+
+Ya no queda ninguna lectura cruda del spot en el código: las tres pasan por `leerSpotYahoo`.
+
+⚠️ **Decisión de diseño que conviene conocer: sin precio fiable, los monitores NO actúan.** Si
+ninguna fuente está por debajo de `MAX_EDAD_SPOT_SEG` (180s) se saltea el gatillo por nivel:
+
+- **Direccional** — pierde el `TECHNICAL_STOP` (Fractal/POC), pero el **stop económico sigue**,
+  porque sale de las cotizaciones de las patas, no del índice.
+- **Reversión** — queda sin ninguna salida automática: TP, SL y time-stop son *todos* por nivel de
+  precio. Una posición puede quedarse abierta hasta el vencimiento.
+
+Es el lado reversible del error —cerrar sobre un precio viejo es lo que se acaba de arreglar—
+pero **ciego y callado sería peor que ciego**: a los 4 ciclos consecutivos sin precio fiable sale
+un ntfy urgente (`avisarSpotNoFiable`, contador por monitor para que uno no enmascare al otro) y
+ahí corresponde cerrar a mano con el botón de pánico o el cierre manual.
+
+Nota: en el escenario del 2026-07-24 (Yahoo congelado) Tradier tampoco pasaría el umbral —los
+~16 min lo dejan fuera— así que ese día los monitores habrían quedado ciegos **y avisando**, en
+vez de operar sobre un precio inventado.
+
+## Batería de pruebas (`scripts/pruebas.js`, 2026-08-22)
+
+```bash
+node scripts/pruebas.js            # unidad — rápido, sin red
+node scripts/pruebas.js --local    # + levanta el servidor y le pide TODAS las rutas
+node scripts/pruebas.js --humo     # + las mismas rutas contra producción
+```
+
+**Por qué existe, con caso y fecha.** El 2026-08-22 se desplegó un cambio que tumbaba
+`/api/spx/reversion-sombra` con un **500 en cada request**: usaba `spxConfig`, que no es
+global sino un `const` local en otras cuatro funciones.
+
+Ni `node -c` ni el optional chaining lo habrían visto — no es error de sintaxis sino de
+ejecución, y `a?.b` sigue fallando si `a` no está declarada. Estuvo caído ~20 minutos y se
+descubrió de casualidad, corriendo el Auditor: **ningún chequeo tocaba ese endpoint**.
+
+La prueba de humo lo caza en dos segundos.
+
+### Qué cubre
+
+| Bloque | Qué prueba |
+|---|---|
+| **El dinero** | `resultadoOficial` en sus ramas: libro propio, libro no confiable, broker, `gainloss` dudoso, orden fantasma, posición abierta. Y que `agregar` **nunca** sume comparable con legado |
+| **Los frenos** | El circuito diario en sus bordes, incluido el límite **exacto** (caza el día que alguien cambie `<=` por `<`), y que solo uno de los tres frenos declarados esté activo |
+| **Humo** | Las 52 rutas GET sin parámetros. Un 4xx se acepta; un **5xx nunca**: significa que el endpoint se cayó solo |
+
+### `MODO_PRUEBAS=1`
+
+Levanta el servidor **sin programar ni un ciclo periódico**. Las rutas responden igual, que
+es lo único que el humo necesita. Sin la variable el comportamiento es idéntico al de
+siempre.
+
+No es una protección contra operar —esa ya existía, la auto-ejecución está deshabilitada
+fuera de Railway— sino contra el ruido: sin los 19 ciclos el arranque es rápido y
+determinista, no consulta al broker cada 30 segundos y no dispara notificaciones.
+
+### El hook `pre-push`
+
+`scripts/hooks/pre-push` corre `--local` y **aborta el push** si algo queda en rojo. A
+diferencia de `post-commit`, este sí puede abortar, y es deliberado: un commit roto se
+arregla con otro commit; un despliegue roto deja el robot operando mal, o sin operar.
+
+Para saltarlo: `SKIP_PRUEBAS=1 git push`.
+
+⚠️ **`.git/hooks/` no se versiona.** En un clon nuevo:
+`cp scripts/hooks/pre-push .git/hooks/ && chmod +x .git/hooks/pre-push`.
+
+### Roturas conocidas
+
+`CONOCIDOS`, dentro del script, lista lo que ya estaba roto **con fecha y diagnóstico**. No
+hace fallar la corrida —el trabajo de la batería es cazar lo nuevo— pero se imprime fuerte
+en cada pasada. Si una entrada lleva semanas ahí, el problema ya no es el endpoint: es que
+nadie decidió qué hacer con él.
+
+**Hoy la lista está vacía**, y ese es el estado correcto. La única entrada que hubo duró un
+día: `/api/margin-raw` devolvía 500 porque TastyTrade responde 404 a
+`/accounts/<acct>/margin-requirements`, no lo llamaba nadie y `getMarginRequirements()` solo
+existía para servirlo. La batería lo encontró el 2026-08-22 y se borró el mismo día.
+
+Si algo entra a `CONOCIDOS`, tiene que salir pronto — por arreglo o por borrado. Una lista
+de roturas toleradas que crece deja de ser deuda y pasa a ser costumbre.
+
+## Parámetros vigentes de Reversión — la fuente declarada (2026-08-22)
+
+Este bloque existe porque el manual no se podía leer sin adivinar. `scripts/deriva.py`
+comparaba producción contra el canario y contra **prosa**: un regex barría el documento
+buscando pares de porcentajes, y el 2026-08-22 pescó «0.1-0.2» de una frase sobre la meseta
+óptima del esquema de puntaje **viejo** y lo reportó como si el manual dijera que la banda
+máxima es 0.2.
+
+El problema de fondo: las secciones históricas de más arriba describen el esquema de
+**puntaje por bandas** que ya no rige. Era el diseño correcto en su momento y se conservan
+porque explican por qué se llegó acá — pero no describen la puerta que corre hoy.
+
+Así que la puerta vigente se declara acá, en un bloque que se lee sin interpretar. **Si se
+cambia un valor en producción, se cambia también acá y en `ESPERADO_REVERSION` del canario.**
+Tres fuentes que dicen lo mismo o una deriva que alguien tiene que explicar.
+
+```parametros-vigentes-reversion
+extBandMinPct: 0.10
+extBandMaxPct: 0.30
+requiereGammaPositivo: false
+alejamientoEsPuerta: true
+puertasBinarias: true
+minScore: 75
+earlyExitPct: 0.6
+stopMinPts: 20
+maxDailyDrawdownPct: 3.5
+```
+
+**Historia de los dos que derivaron**, para que no se vuelvan a marcar como sospechosos:
+
+| Parámetro | Cambio | Commit |
+|---|---|---|
+| `extBandMinPct` | 0.13 → 0.10 | `075945c` «la banda de alejamiento baja a 0.10% — estaba cerrada de hecho». Con 0.13 el setup moría por centésimas: 77 de 112 evaluaciones de un día quedaban entre −0.09% y −0.12%, siempre afuera |
+| `requiereGammaPositivo` | true → false | `6084471` «el gamma vuelve a ponderar en vez de vetar». El GEX dejó de ser puerta y pasa a pesar 10 en el score |
+
+⚠️ **Ojo con `riskPctPerTrade` y `maxStopsPerDay`:** siguen guardados en `spx_config.json` con
+valores que parecen protecciones (1 y 2) y **no frenan nada** — ver `src/frenos.js`. No están
+en este bloque a propósito: declarar como vigente algo que el robot no aplica es justo lo que
+hace que se tomen decisiones creyendo que hay protecciones puestas.
+
+## Fase 0 — una sola respuesta a «¿cuánto ganó este trade?» (`src/pnl_oficial.js`, 2026-08-21)
+
+El 20-ago se cambió la regla del dinero a la cadena real, pero **solo en las pantallas**.
+La regla quedó viviendo dentro de `src/metrics_tradier.js` y ningún otro consumidor se
+enteró. Resultado: la misma pregunta tenía **cinco implementaciones distintas** —métricas,
+`/api/spx/version-stats`, `/api/spx/shadow-trail`, el skill del informe de trade y
+`scripts/control_cambios.py`— y cada pantalla nueva inventaba la sexta.
+
+`src/pnl_oficial.js` es ahora **la única puerta**. Devuelve, por ejecución:
+
+| Campo | Qué es |
+|---|---|
+| `pnl` / `neto` | El resultado oficial. Bruto (sin comisión) y neto |
+| `fuente` | `cadena_real` · `broker` · `broker_dudoso` · `no_operacion` |
+| `esCadenaReal` | `true` solo si salió del libro propio (`paperPnl.confiable`) |
+| `comparable` | Apto para promediar con otros comparables. **Solo `cadena_real` lo es** |
+| `pnlBroker` / `diferencia` | El número del sandbox y lo que cuesta operar con 15 min de atraso |
+
+**Nadie más lee `ex.pnl` directamente salvo para auditar la diferencia.** Así la regla deja
+de ser una convención (que se olvida) y pasa a ser una dependencia (que no se puede saltar
+sin darse cuenta).
+
+**Cortes que aplica:** `2026-08-03` (antes, el `/gainloss` viejo asignaba mal las patas) y
+`2026-08-16` (antes no existe el libro propio, así que no hay medición contra la cadena
+real que ponerles). Y excluye siempre lo que **no fue una operación**: la orden fantasma del
+sandbox (`pnl=0`, `SANDBOX_GLITCH_SIN_POSICION`) entraba a las estadísticas.
+
+⚠️ **Comparables y legado nunca se suman.** Van en bloques separados en todos los reportes.
+Mezclarlos es de donde salían los promedios sin sentido: sobre los trades que tienen las dos
+mediciones, **4 de cada 12 cambian de signo**.
+
+**Consumidores conectados el 2026-08-21:**
+
+- `/api/spx/version-stats` — además se arreglaron dos defectos: **mezclaba familias** (la fila
+  `(sin sello)` reportaba 51 trades como TENDENCIA cuando eran 23 TENDENCIA + 26 REVERSION +
+  2 NEUTRAL; ahora la clave es `familia|huella`) y **dejaba pasar basura** (el filtro excluía
+  solo `gainloss` exacto).
+- `/api/spx/shadow-trail` — es el instrumento con el que se valida un cambio antes de
+  aplicarlo. Comparaba la sombra contra los fills de Tradier: validar contra el número
+  equivocado no es medir de menos, es medir otra cosa.
+- `/api/tradier/executions` — expone `resultadoOficial` ya calculado, **para que los
+  consumidores que no son JavaScript no reimplementen la regla**.
+- `scripts/control_cambios.py` — lee ese campo. Los libros ahora traen **Pérdida media** y
+  **Legado (Tradier)** como columnas propias, y el veredicto distingue *«sin trades aún»* de
+  *«no comparable (N trades medidos con Tradier)»*.
+- `skills/informe-trade` — el nombre del archivo sale del mismo número que el cuerpo. Antes
+  el cuerpo mostraba la cadena real y el nombre se armaba con Tradier, así que podía salir un
+  `..._perdedor100.pdf` cuyo informe mostraba ganancia.
+
+**Lo que esto reveló al conectarlo** (192 ejecuciones, 2026-08-21):
+
+| | |
+|---|---|
+| Comparables (cadena real) | **13**, todos de TENDENCIA |
+| REVERSION y NEUTRAL | **cero** trades medidos contra la cadena real |
+| TENDENCIA `f85c9f8e` | 13 trades · WR 69.2% · +$130 · ganancia media **+$111** · pérdida media **−$217.50** |
+
+Los 41 trades con «muestra suficiente» que reportaba la tabla vieja eran los fills del
+sandbox sobre una bolsa mezclada. **La muestra útil arranca el 17-ago.** Y la pérdida media
+duplica a la ganancia media: el 69% de acierto es lo único que sostiene el número, que es
+exactamente el riesgo de cola que hay que vigilar.
+
+## Control de cambios — NORMA: todo ajuste queda documentado (2026-08-08)
+
+> **Regla del usuario:** *"necesito que sea una norma, siempre que cualquier ajuste o cambio se
+> documente"*. No es opcional ni depende de acordarse.
+
+`scripts/control_cambios.py` genera **seis** libros de Excel (uno por familia) desde el historial
+de git, en `mentoria alejandro/`. Lo dispara solo el hook **`.git/hooks/post-commit`** después de
+cada commit, en segundo plano (consulta producción para atribuir trades y no debe demorar el
+commit). Log en `.git/control_cambios.log`; para saltarlo una vez, `SKIP_CONTROL_CAMBIOS=1`.
+
+⚠️ **`.git/hooks/` no se versiona.** La copia buena está en `scripts/hooks/post-commit` — en un
+clon nuevo hay que copiarla a mano (`cp scripts/hooks/post-commit .git/hooks/ && chmod +x`), o el
+registro deja de actualizarse sin avisar. Así fue como los libros llegaron a estar **240 commits
+desactualizados** (tenían 49) antes del 2026-08-08.
+
+**Declarar impacto y familia en el commit.** La heurística solo mira el *asunto*, así que un
+commit que hace dos cosas se clasifica por la que quedó en el título. Caso real: `89941f9`
+("La Rueda contaba dos veces…") también arreglaba el gate del roll —una decisión de trading— y
+quedó como BAJO. Cuando el commit toca algo que cambia decisiones, **declararlo**; el trailer
+manda sobre la heurística:
+
+```
+Impacto: ALTO
+Estrategia: RUEDA, DIRECCIONAL
+```
+
+**Las columnas de seguimiento se llenan solas** (antes estaban siempre vacías, o sea que el libro
+registraba el cambio pero nunca cerraba el ciclo). Reglas, tomadas de la propia hoja *Seguimiento*:
+
+| | |
+|---|---|
+| Un período | Cada cambio **ALTO** abre uno; lo cierra el ALTO siguiente de esa familia |
+| Atribución | Por fecha de commit. La huella de `algoVersion` va aparte, en su propia tabla: **no se mueve con un cambio de código**, solo de config |
+| Muestra mínima | **30 trades cerrados**. Con menos: `insuficiente (n/30)` |
+| Corte de fiabilidad | Nada anterior al **2026-08-03** es comparable — 39 de 62 direccionales tienen el P&L mal calculado por el `/gainloss` viejo |
+
+Los trades salen de **producción** (`/api/tradier/executions`), no de los JSON locales, que están
+viejos. Si no hay red cae a los locales y lo dice en la hoja (`Fuente de los trades`), en vez de
+reportar en silencio sobre datos rancios.
+
+## Desarrollo local
+
+- `npm run dev` — nodemon (recomendado). Configurado en `nodemon.json` para ignorar `*.json` y `public/*`, evitando bucle de reinicios cuando el servidor escribe datos.
+- `node server.js` — alternativa sin nodemon si hay problemas.

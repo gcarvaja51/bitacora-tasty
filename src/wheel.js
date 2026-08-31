@@ -65,6 +65,10 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       const txType    = tx['transaction-type'] || '';
       const instrType = tx['instrument-type'] || '';
       const nv        = signed(tx['net-value'] || tx.value, tx['net-value-effect'] || tx['value-effect']);
+      // Bruto = `value` sin fees. Es el numero que el usuario ve en la plataforma
+      // y con el que habla ("cerre el bull put en +22"), asi que el timeline tiene
+      // que poder mostrarlo al lado del neto en vez de obligarlo a cuadrarlo a mano.
+      const gv        = signed(tx.value, tx['value-effect']);
       const parsed    = parseSymbol(tx.symbol || '');
       const date      = (tx['transaction-date'] || '').slice(0, 10);
 
@@ -89,7 +93,7 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
         // UNA sola orden. Es la forma fiable de saber que van juntas, sin tener
         // que adivinarlo por fecha (ver la consolidacion mas abajo).
         events.push({ date, type, strike:parsed.strike, expiry:parsed.expiry, contracts:qty,
-                      amount:+nv.toFixed(3), orderId: tx['order-id'] ?? null });
+                      amount:+nv.toFixed(3), gross:+gv.toFixed(2), orderId: tx['order-id'] ?? null });
         totalPremium += nv;
         syncBasis();
         continue;
@@ -181,6 +185,7 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       if (patas.length === 1) { rollEvents.push(patas[0]); continue; }
 
       const neto      = +patas.reduce((s, e) => s + e.amount, 0).toFixed(2);
+      const bruto     = +patas.reduce((s, e) => s + (e.gross || 0), 0).toFixed(2);
       const cierres   = patas.filter(e => /^(BTC|STC)_/.test(e.type));
       const aperturas = patas.filter(e => /^(STO|BTO)_/.test(e.type));
 
@@ -197,6 +202,8 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
           toStrike:   sto.strike,
           toExpiry:   sto.expiry,
           amount:     neto,
+          gross:      bruto,
+          legs:       patas.length,
           orderId:    patas[0].orderId,
         });
         continue;
@@ -207,8 +214,26 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       // Rueda, pero con el importe NETO de todas las patas. Asi un bull put
       // 150/145 sale como "Put vendida $150 +$53.75" y no como dos lineas de
       // +336.87 y -283.12 que hay que restar a mano.
+      //
+      // AJUSTE 2026-08-31: representarla con la pata corta esta bien, pero antes se
+      // perdia TODO rastro de que era un spread. El bull put GAP 19/18 cerrado hoy
+      // salia en el timeline como "Put cerrada $19 -$2.25": ni el strike de la pata
+      // larga, ni el riesgo definido, ni el resultado del trade. `hedge`/`isSpread`
+      // no tapan el hueco porque se calculan sobre posiciones ABIERTAS — un spread
+      // ya cerrado queda indistinguible de una put desnuda. Se guardan la pata larga
+      // y el numero de patas en el propio evento, que es el unico sitio que sobrevive
+      // al cierre.
       const corta = patas.find(e => /^(STO|BTC)_/.test(e.type)) || patas[0];
-      rollEvents.push({ ...corta, amount: neto, contracts: corta.contracts });
+      const larga = patas.find(e => /^(BTO|STC)_/.test(e.type)) || null;
+      rollEvents.push({
+        ...corta,
+        amount:     neto,
+        gross:      bruto,
+        contracts:  corta.contracts,
+        legs:       patas.length,
+        longStrike: larga && larga !== corta ? larga.strike : null,
+        longExpiry: larga && larga !== corta ? larga.expiry : null,
+      });
     }
 
     // ── Consolidar dividendos: bruto + retención del mismo día = UN pago ──
