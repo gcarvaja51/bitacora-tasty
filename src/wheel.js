@@ -194,13 +194,21 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
       if (cierres.length && aperturas.length) {
         const btc = cierres.find(e => e.type.startsWith('BTC')) || cierres[0];
         const sto = aperturas.find(e => e.type.startsWith('STO')) || aperturas[0];
+        // AJUSTE 2026-08-31 (bis): el ROLL guarda el TIPO de opcion de sus dos
+        // extremos. Sin eso no se puede encadenar un cierre huerfano hacia atras
+        // hasta su STO: la pata que se cierra nacio de un roll y la unica pista
+        // que queda es `from/toStrike|Expiry`, que sin el tipo colisiona igual que
+        // colisionaba `claveOpt` antes de llevarlo (una Put $12 06-18 y una Covered
+        // Call $12 06-18 son la misma clave). Ver `resolverCadena` en el front.
         rollEvents.push({
           date:       patas[0].date,
           type:       'ROLL',
           fromStrike: btc.strike,
           fromExpiry: btc.expiry,
+          fromType:   /_PUT$/.test(btc.type) ? 'P' : 'C',
           toStrike:   sto.strike,
           toExpiry:   sto.expiry,
+          toType:     /_PUT$/.test(sto.type) ? 'P' : 'C',
           amount:     neto,
           gross:      bruto,
           legs:       patas.length,
@@ -313,10 +321,17 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
     // Contratos equivalentes: opciones abiertas, o acciones/100 si solo hay equity
     const contracts     = contractsPut || contractsCall || Math.round(sharesFromPos / 100);
 
+    // La fase es UNA etiqueta para un estado que puede tener tres patas a la vez, asi
+    // que el orden decide que se ve y que se tapa. Con `if (openPut)` primero, NU salia
+    // "CSP Activa" el 2026-08-31 teniendo 200 acciones, 2 covered calls $14 11-20 y solo
+    // de tercera una put $14 09-18: la etiqueta anunciaba la pata mas chica y escondia
+    // la posicion. Se invierte la precedencia — tener las acciones es el estado que
+    // manda en la Rueda, y la put de un ciclo nuevo no lo cambia. Lo que ninguna
+    // etiqueta puede resolver se resuelve en POSICION, que ahora las lista todas.
     let phase = 'IDLE';
-    if (openPut)                      phase = 'CSP_ACTIVA';
-    else if (openCall)                phase = 'CC_ACTIVA';
-    else if (openStock || shares > 0) phase = 'ACCIONES';
+    if (openStock || shares > 0) phase = openCall ? 'CC_ACTIVA' : 'ACCIONES';
+    else if (openPut)            phase = 'CSP_ACTIVA';
+    else if (openCall)           phase = 'CC_ACTIVA';
 
     const putStrike  = openPut  ? parseSymbol(openPut.symbol||'').strike  || parseFloat(openPut['strike-price']||0)  : 0;
     const callStrike = openCall ? parseSymbol(openCall.symbol||'').strike || parseFloat(openCall['strike-price']||0) : 0;

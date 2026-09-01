@@ -209,7 +209,7 @@ día, **solo patas cortas**), `STOCK_BUY`/`STOCK_SELL`/`ASSIGNED`, `DIVIDENDO`.
 | Evento | Campos |
 |---|---|
 | `STO_PUT` / `STO_CALL` | `date, type, strike, expiry, contracts, amount` |
-| `ROLL` | `date, type, fromStrike, fromExpiry, toStrike, toExpiry, amount` |
+| `ROLL` | `date, type, fromStrike, fromExpiry, fromType, toStrike, toExpiry, toType, amount` |
 | `ASSIGNED` | `date, type, qty, price, fees, costBasis, amount` |
 | `STOCK_SELL` | `date, type, qty, price, amount` |
 | `DIVIDENDO` | `date, type, amount, bruto, retencion, costBasis` |
@@ -252,11 +252,37 @@ compra de equity separada.
   - **El invariante de caja no se rompe**: el importe de la fila fundida es la **suma** de
     los dos flujos, así que la columna VALOR sigue sumando el flujo real del subyacente.
     Verificado en los cuatro papeles. Por eso se funde sumando, no con un número aparte.
-  - Solo se funde lo que se pudo emparejar. Un cierre huérfano —típico de una pata nacida
-    de un `ROLL`, que ya es neto— se queda con su flujo crudo en vez de inventarle una
-    apertura. Las posiciones **abiertas** siguen mostrando la prima cobrada.
+  - **La fila funde la cadena entera**, no solo el par apertura/cierre: apertura + los
+    `ROLL` que haya en medio + cierre. Un roll no abre ni cierra una operación, la
+    **mueve** — es la norma 5 del usuario (*"un ROLL no es un cierre"*) leída al derecho:
+    la operación sigue viva hasta el BTC. Se encadena hacia atrás por
+    `toStrike|toExpiry` → `fromStrike|fromExpiry`, **con el tipo de opción en la clave**
+    (por eso el `ROLL` guarda `fromType`/`toType`), hasta dar con la apertura original.
+    Cada roll se consume una sola vez y, si la cadena no llega a ninguna apertura, **no
+    se consume nada**: el cierre se queda con su flujo crudo, como antes.
+    - Lo que arregló: JBLU 2026-08-18 mostraba *"Put cerrada $6 09-18 −$94.12"* en rojo.
+      La operación fue STO $5.5 09-04 el 03-ago (+$15.87) → roll a $6 09-18 el 18-ago
+      (+$46.75) → cierre el mismo día (−$94.12): perdió **$31.50**, no $94. Tres veces
+      peor de lo que fue, con el roll en otra fila del mismo día. Y el 2026-07-31 pasa
+      de −$7.12 en rojo a **+$33.50** en verde.
+    - La suma de la cadena se guarda con **tres** decimales, la misma precisión con la
+      que `src/wheel.js` guarda cada flujo (`+nv.toFixed(3)`). Redondeando a dos se
+      perdía medio centavo por cadena y JBLU cerraba en −$444.96 en vez de −$444.97.
+    - Un cierre que sigue sin apertura tras encadenar se queda con su flujo crudo en vez
+      de inventarle una: queda uno, `STC_PUT $24 06-18` de GAP (la pata larga del bull
+      put 27/24, cuyo `BTO` se absorbió en la consolidación por orden). Las posiciones
+      **abiertas** siguen mostrando la prima cobrada.
   - `semanalHtml` trabaja sobre los eventos **crudos** con su propia atribución por semana.
     Las dos vistas coinciden porque comparten el emparejamiento (`claveOpt`), no la lista.
+- **La fase no puede tapar una pata abierta.** `phase` es UNA etiqueta para un estado que
+  puede tener tres patas a la vez, así que el orden decide qué se ve y qué se esconde. Con
+  `if (openPut)` primero, NU salía *"CSP Activa"* el 2026-08-31 teniendo 200 acciones, 2
+  covered calls $14 11-20 y solo de tercera una put $14 09-18. Ahora manda tener las
+  acciones (`openStock || shares > 0` → `CC_ACTIVA` si hay call, si no `ACCIONES`) y la put
+  de un ciclo nuevo no cambia la etiqueta. Lo que ninguna etiqueta sola puede resolver se
+  resuelve en **POSICIÓN**, que dejó de ser un `? :` encadenado y **lista todas** las patas:
+  *"200 acc + $14.00 Call · 11-20 · 2 ctr + $14.00 Put · 09-18"*. `w.phase` es solo de
+  presentación — el `phase` de `server.js` es el de la Rueda **automatizada**, otro objeto.
 - **La clave que empareja cierre con apertura lleva el tipo de opción**
   (`P|19|2026-09-04`), no `strike|expiry` a secas, y el índice guarda **todas** las
   aperturas de esa clave en orden — un cierre consume la última **anterior** que siga
@@ -289,7 +315,13 @@ histórico § *Auditoría 2026-08-03*, § *Auditoría 2026-08-03 (bis)*, § *Esq
 ### Primas/Semana (`semanalHtml`)
 Solo P&L **realizados**:
 - `ROLL` → siempre incluido (ya es neto)
-- `BTC` → busca su `STO` por `tipo|strike|expiry`, muestra el **neto** en la semana del cierre
+- `BTC` → busca su `STO` por `tipo|strike|expiry` —y si no está, **encadenando los rolls**
+  (`resolverCadena`, el mismo del timeline)— y muestra el **neto** en la semana del cierre.
+  El roll **no se mueve de su semana**: la cadena solo sirve para recuperar la apertura, así
+  que sumando por semanas el total coincide con el timeline sin contar el roll dos veces.
+  Antes, la put JBLU $5.5 09-04 rolada a $6 09-18 y cerrada el 18-ago se daba por **viva** y
+  su prima quedaba excluida en silencio esperando un expiry que ya no iba a llegar: la
+  semana del 18-ago decía −$47.37 en vez de −$31.50 y JBLU sumaba **$67.24 en vez de $83.11**
 - `STO` sin BTC y expirado → prima en la semana del **expiry**
 - `STO` aún abierto → **excluido silenciosamente**
 - `STC` → igual que `BTC` pero contra su `BTO` (índice `btoIndex`), para que un spread no

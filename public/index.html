@@ -4413,13 +4413,84 @@ async function loadWheel() {
       }
       return idx;
     };
-    const tomarApertura = (idx, cierre) => {
-      const lista = idx.get(claveOpt(cierre));
+    // `buscar*` NO consume: devuelve la ranura para poder deshacer una cadena que no
+    // llego a ninguna apertura. `tomar*` consume, que es el caso directo de siempre.
+    const buscarApertura = (idx, clave, hasta) => {
+      const lista = idx.get(clave);
       if (!lista) return null;
       for (let i = lista.length - 1; i >= 0; i--) {
-        if (!lista[i].used && lista[i].ev.date <= cierre.date) { lista[i].used = true; return lista[i].ev; }
+        if (!lista[i].used && lista[i].ev.date <= hasta) return lista[i];
       }
       return null;
+    };
+    const tomarApertura = (idx, cierre) => {
+      const r = buscarApertura(idx, claveOpt(cierre), cierre.date);
+      if (!r) return null;
+      r.used = true;
+      return r.ev;
+    };
+
+    // ── ENCADENAR POR ROLLS ─────────────────────────────────────────
+    // Un cierre puede no tener STO propio porque la pata que cierra NACIO de un roll,
+    // y un roll no deja un STO suelto que emparejar. Hasta hoy esos cierres se
+    // quedaban con su flujo crudo, que es justo el numero que no se puede leer:
+    //
+    //   JBLU 2026-08-18 — la bitacora mostraba "Put cerrada $6 09-18  -$94.12".
+    //   La operacion real fue STO $5.5 09-04 el 03-ago (+$15.87), roll a $6 09-18 el
+    //   18-ago (+$46.75) y cierre el mismo dia (-$94.12): perdio $31.50, no $94.
+    //   Tres veces peor de lo que fue, y con el roll en otra fila del mismo dia.
+    //
+    // Se camina la cadena hacia atras por `toStrike|toExpiry` -> `fromStrike|fromExpiry`
+    // (con el TIPO de opcion en la clave, que por eso `src/wheel.js` lo guarda ahora)
+    // hasta dar con la apertura original. Cada roll se consume UNA vez.
+    //
+    // Es coherente con la norma del usuario "un ROLL no es un cierre": la operacion no
+    // termina en el roll, sigue viva hasta el BTC. Si la cadena no llega a ninguna
+    // apertura no se consume nada y el cierre se queda como estaba.
+    const claveDestinoRoll = (r) => `${r.toType || 'P'}|${r.toStrike}|${r.toExpiry}`;
+    const claveOrigenRoll  = (r) => `${r.fromType || 'P'}|${r.fromStrike}|${r.fromExpiry}`;
+
+    const indiceRolls = (events) => {
+      const idx = new Map();
+      for (const ev of (events || [])) {
+        if (ev.type !== 'ROLL' || ev.toStrike == null || !ev.toExpiry) continue;
+        const k = claveDestinoRoll(ev);
+        if (!idx.has(k)) idx.set(k, []);
+        idx.get(k).push({ ev, used: false });
+      }
+      return idx;
+    };
+    const buscarRoll = (idx, clave, hasta, yaEnCadena) => {
+      const lista = idx.get(clave);
+      if (!lista) return null;
+      for (let i = lista.length - 1; i >= 0; i--) {
+        if (!lista[i].used && !yaEnCadena.includes(lista[i]) && lista[i].ev.date <= hasta) return lista[i];
+      }
+      return null;
+    };
+
+    // Devuelve { apertura, rolls[] } o null. Solo consume si la cadena cierra entera.
+    const MAX_CADENA = 50;   // tope de seguridad: una cadena ciclica no puede colgar la vista
+    const resolverCadena = (idxAp, idxRolls, cierre) => {
+      const directa = tomarApertura(idxAp, cierre);
+      if (directa) return { apertura: directa, rolls: [] };
+      const cadena = [];
+      let clave = claveOpt(cierre);
+      let hasta = cierre.date;
+      for (let i = 0; i < MAX_CADENA; i++) {
+        const r = buscarRoll(idxRolls, clave, hasta, cadena);
+        if (!r) break;
+        cadena.push(r);
+        hasta = r.ev.date;
+        clave = claveOrigenRoll(r.ev);
+        const ap = buscarApertura(idxAp, clave, hasta);
+        if (ap) {
+          ap.used = true;
+          for (const c of cadena) c.used = true;
+          return { apertura: ap.ev, rolls: cadena.map(c => c.ev) };
+        }
+      }
+      return null;   // sin apertura: no se consume ni un roll
     };
 
     // ── UNA OPERACION = UNA FILA ────────────────────────────────────
@@ -4444,32 +4515,54 @@ async function loadWheel() {
     // `semanalHtml` NO usa esta lista: trabaja sobre los eventos crudos con su propia
     // regla de atribucion por semana. Las dos coinciden porque parten del mismo
     // emparejamiento (`claveOpt`), no porque compartan la vista.
+    //
+    // AJUSTE 2026-08-31 (bis): la fila funde la CADENA entera —apertura, los rolls que
+    // haya en medio y el cierre—, no solo el par apertura/cierre. Un roll no abre ni
+    // cierra una operacion: la mueve. Dejarlo como fila aparte obligaba a sumar tres
+    // renglones a mano y era exactamente el defecto que motivo esta vista (JBLU
+    // 2026-08-18: -$94.12 en rojo para una operacion que perdio $31.50). Los rolls
+    // siguen visibles uno a uno en Primas/Semana, que tiene su propia atribucion.
     const timelineEventos = (w) => {
-      const idxSto = indiceAperturas(w.events, /^STO_/);
-      const idxBto = indiceAperturas(w.events, /^BTO_/);
-      const fundidas = new Set();   // aperturas que ya viajan dentro de su cierre
-      const paresPorCierre = new Map();
+      const idxSto   = indiceAperturas(w.events, /^STO_/);
+      const idxBto   = indiceAperturas(w.events, /^BTO_/);
+      const idxRolls = indiceRolls(w.events);
+      const fundidas = new Set();   // aperturas y rolls que ya viajan dentro de su cierre
+      const cadenaPorCierre = new Map();
       for (const ev of (w.events || [])) {
         const esBtc = /^BTC_/.test(ev.type || '');
         const esStc = /^STC_/.test(ev.type || '');
         if (!esBtc && !esStc) continue;
-        const ap = tomarApertura(esBtc ? idxSto : idxBto, ev);
-        if (!ap) continue;
-        fundidas.add(ap);
-        paresPorCierre.set(ev, ap);
+        const cad = resolverCadena(esBtc ? idxSto : idxBto, idxRolls, ev);
+        if (!cad) continue;
+        fundidas.add(cad.apertura);
+        for (const r of cad.rolls) fundidas.add(r);
+        cadenaPorCierre.set(ev, cad);
       }
       const out = [];
       for (const ev of (w.events || [])) {
         if (fundidas.has(ev)) continue;
-        const ap = paresPorCierre.get(ev);
-        if (!ap) { out.push(ev); continue; }
+        const cad = cadenaPorCierre.get(ev);
+        if (!cad) { out.push(ev); continue; }
+        // El importe es la SUMA de los flujos de la cadena, nunca un numero calculado
+        // aparte: asi la columna VALOR sigue sumando el flujo de caja del subyacente.
+        //
+        // La suma se guarda con TRES decimales, la misma precision con la que
+        // `src/wheel.js` guarda cada flujo (`+nv.toFixed(3)`). Redondeando a dos aqui
+        // se perdia medio centavo por cadena y JBLU cerraba en -$444.96 en vez de
+        // -$444.97: dos cadenas de tres patas (29.867+10.75-7.12 y 15.867+46.75-94.12)
+        // caen las dos en .497/-.503. La vista ya redondea a dos al pintar.
+        const piezas = [cad.apertura, ...cad.rolls, ev];
+        const brutos = piezas.every(p => p.gross != null);
         out.push({
           ...ev,
-          amount:    +(((ap.amount || 0) + (ev.amount || 0))).toFixed(2),
-          gross:     (ap.gross != null && ev.gross != null)
-                       ? +(((ap.gross) + (ev.gross))).toFixed(2) : null,
+          amount:    +piezas.reduce((t, p) => t + (p.amount || 0), 0).toFixed(3),
+          gross:     brutos ? +piezas.reduce((t, p) => t + p.gross, 0).toFixed(2) : null,
           cerrado:   true,
-          abiertoEl: ap.date,
+          abiertoEl: cad.apertura.date,
+          rolls:     cad.rolls.length,
+          // Con rolls en medio, el strike/expiry del cierre NO es con el que se abrio.
+          abiertoStrike: cad.rolls.length ? cad.apertura.strike : null,
+          abiertoExpiry: cad.rolls.length ? cad.apertura.expiry : null,
         });
       }
       return out;
@@ -4482,7 +4575,10 @@ async function loadWheel() {
     // Detalle de una operacion cerrada: cuando se abrio, cuanto duro y el bruto —
     // que es el numero que se ve en la plataforma del broker.
     const detalleCierre = (e) => !e.cerrado ? '' :
-      ` · abierto ${e.abiertoEl} (${diasEntre(e.abiertoEl, e.date)}d)` +
+      ` · abierto ${e.abiertoEl}` +
+      (e.abiertoStrike != null ? ` como $${e.abiertoStrike} ${(e.abiertoExpiry||'').slice(5)}` : '') +
+      ` (${diasEntre(e.abiertoEl, e.date)}d)` +
+      (e.rolls ? ` · ${e.rolls} roll${e.rolls > 1 ? 's' : ''}` : '') +
       (e.gross != null ? ` · bruto ${fmtMonto(e.gross)}` : '');
 
     // ── VISTA TABLA ──────────────────────────────────────────────
@@ -4516,11 +4612,17 @@ async function loadWheel() {
           dte = d >= 0 ? d+'d' : '—';
         }
 
-        // Posición
+        // Posición — TODO lo que está abierto, no la primera pata que aparezca.
+        // Con el `? :` encadenado, NU mostraba solo "$14.00 Put · 09-18" teniendo
+        // ademas 200 acciones y 2 covered calls $14 11-20: la fase decia una cosa, la
+        // posicion otra, y las dos tapaban la tercera. Ninguna etiqueta sola alcanza
+        // cuando hay tres patas vivas, asi que se listan todas.
         const ctrLabel = (n) => n > 1 ? ` · ${n} ctr` : '';
-        const openInfo = w.activePut  ? `$${w.activePut.strike.toFixed(2)} Put · ${w.activePut.expiry.slice(5)}${ctrLabel(w.contractsPut)}`
-                       : w.activeCall ? `$${w.activeCall.strike.toFixed(2)} Call · ${w.activeCall.expiry.slice(5)}${ctrLabel(w.contractsCall)}`
-                       : w.shares > 0 ? `${w.shares} acciones` : '—';
+        const partesPos = [];
+        if (w.shares > 0)   partesPos.push(`${w.shares} acc`);
+        if (w.activeCall)   partesPos.push(`$${w.activeCall.strike.toFixed(2)} Call · ${w.activeCall.expiry.slice(5)}${ctrLabel(w.contractsCall)}`);
+        if (w.activePut)    partesPos.push(`$${w.activePut.strike.toFixed(2)} Put · ${w.activePut.expiry.slice(5)}${ctrLabel(w.contractsPut)}`);
+        const openInfo = partesPos.length ? partesPos.join(' + ') : '—';
 
         const phaseLabel = { CSP_ACTIVA:'CSP Activa', CC_ACTIVA:'Covered Call', ACCIONES:'Acciones', IDLE:'Sin actividad' };
         const phaseCls   = { CSP_ACTIVA:'phase-csp', CC_ACTIVA:'phase-cc', ACCIONES:'phase-stock', IDLE:'phase-idle' };
@@ -4869,8 +4971,22 @@ async function loadWheel() {
         // en orden. Con la clave vieja (`strike|expiry`) una Put $12 06-18 y una
         // Covered Call $12 06-18 colisionaban, y la ultima apertura pisaba a la
         // anterior — el mismo defecto que corregia mal el timeline de NU.
-        const stoIndex = indiceAperturas(w.events, /^STO_/);
-        const btoIndex = indiceAperturas(w.events, /^BTO_/);
+        //
+        // AJUSTE 2026-08-31 (bis): tambien encadena por rolls (`resolverCadena`), y por
+        // el mismo motivo de siempre — que las dos vistas no puedan contradecirse. Aqui
+        // la cadena se usa SOLO para recuperar la apertura: el roll se queda en SU
+        // semana, porque la regla vigente es "ROLL -> siempre incluido, ya es neto".
+        // Sumando por semanas el total sale igual que en el timeline, sin contar dos
+        // veces el roll.
+        //
+        // Lo que arregla: JBLU. La put $5.5 09-04 del 03-ago se rolo a $6 09-18 y se
+        // cerro el 18-ago, pero como el indice no veia el roll la daba por VIVA y su
+        // prima quedaba excluida "en silencio" esperando un expiry que ya no iba a
+        // llegar. La semana del 18-ago mostraba -$47.37 en vez de -$31.50, y el total
+        // de JBLU $67.24 en vez de $83.11.
+        const stoIndex   = indiceAperturas(w.events, /^STO_/);
+        const btoIndex   = indiceAperturas(w.events, /^BTO_/);
+        const rollsIndex = indiceRolls(w.events);
 
         const addAmt = (date, amt) => {
           const wk = mondayOf(date);
@@ -4884,15 +5000,15 @@ async function loadWheel() {
             addAmt(ev.date, ev.amount || 0);
 
           } else if (ev.type === 'BTC_PUT' || ev.type === 'BTC_CALL') {
-            // BTC: buscar el STO que lo originó y mostrar el neto en la semana del cierre
-            const sto = tomarApertura(stoIndex, ev);
-            // Si no hay STO matching (caso raro), mostrar el BTC solo
-            addAmt(ev.date, (sto ? (sto.amount || 0) : 0) + (ev.amount || 0));
+            // BTC: buscar el STO que lo originó —directo o encadenando los rolls— y
+            // mostrar el neto en la semana del cierre. Si no aparece, el BTC solo.
+            const cad = resolverCadena(stoIndex, rollsIndex, ev);
+            addAmt(ev.date, (cad ? (cad.apertura.amount || 0) : 0) + (ev.amount || 0));
 
           } else if (ev.type === 'STC_PUT' || ev.type === 'STC_CALL') {
             // Cierre de pata larga: netear contra su BTO, misma logica que arriba
-            const bto = tomarApertura(btoIndex, ev);
-            addAmt(ev.date, (bto ? (bto.amount || 0) : 0) + (ev.amount || 0));
+            const cad = resolverCadena(btoIndex, rollsIndex, ev);
+            addAmt(ev.date, (cad ? (cad.apertura.amount || 0) : 0) + (ev.amount || 0));
 
           }
           // STO_*/BTO_*: se procesan al llegar su cierre o al expirar (ver abajo)
