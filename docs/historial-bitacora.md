@@ -320,6 +320,41 @@ cuando sus flujos de opciones suman $192.20 — $55.48 perdidos, justo la prima 
 presentación y emparejamiento, no de contabilidad. Batería: 102 pruebas en verde
 (`--local`).
 
+**Segunda pasada, el mismo día — una operación, una fila.** Con el resultado ya visible en
+la descripción, Guillermo volvió sobre la línea del cierre: *"¿por qué me aparece pérdida de
+2,25 dólares?"*. La respuesta era correcta (esa columna es caja del día, y hoy salieron
+$2.25 de la cuenta) pero la pregunta era la buena: **si hay que explicar la fila, la fila
+está mal**. El +$21.75 quedaba cuatro filas más arriba, con un roll de la Covered Call en
+medio; nadie lee un timeline sumando renglones separados por cuatro días.
+
+Decisión: *"dejemos todo el bull put como una sola ejecución, con el dato neto de cómo
+quedó"*. `timelineEventos(w)` funde cada apertura con su cierre en una fila fechada el día
+del cierre:
+
+```
+antes   2026-08-27  ⬆️ Bull put abierto  $19/$18 09-04                              +$21.75
+        2026-08-31  ⬇️ Bull put cerrado  $19/$18 09-04 · trade +$19.50 neto …        -$2.25
+
+ahora   2026-08-31  ⬆️ Bull put cerrado  $19/$18 09-04 · abierto 2026-08-27 (4d)
+                                          · bruto +$22.00                           +$19.50
+```
+
+**Por qué esto no rompe la contabilidad**, que era la razón de no haberlo hecho de entrada:
+el importe de la fila fundida es la **suma** de los dos flujos ($21.75 − $2.25), no un número
+calculado aparte. La columna VALOR sigue sumando exactamente el flujo de caja del subyacente
+— verificado en los cuatro papeles con los eventos crudos contra los fundidos: NU $192.20,
+SOFI $208.37, JBLU $83.11, GAP $489.75, idénticos antes y después. Filas: GAP 18 → 15,
+NU 19 → 18.
+
+Lo que **no** se funde: los cierres huérfanos, que en la práctica son patas nacidas de un
+`ROLL` (JBLU 07-31 y 08-18) — un roll ya es neto y no tiene un `STO` propio que emparejar.
+Inventarles una apertura sería peor que dejar el flujo crudo. Las posiciones abiertas siguen
+mostrando la prima cobrada, como debe ser.
+
+`semanalHtml` sigue trabajando sobre los eventos **crudos**: tiene su propia regla de
+atribución por semana y no debe depender de cómo se dibuje el timeline. Las dos coinciden
+porque comparten el emparejamiento (`claveOpt`), no la lista de filas.
+
 **Lo que NO se tocó, y por qué.**
 
 - *La prima del spread especulativo sigue reduciendo el costo base de las 100 acciones de

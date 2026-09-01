@@ -4422,28 +4422,68 @@ async function loadWheel() {
       return null;
     };
 
-    const resultadosDeCierre = (w) => {
+    // ── UNA OPERACION = UNA FILA ────────────────────────────────────
+    // Decision de Guillermo (2026-08-31): *"dejemos todo el bull put como una sola
+    // ejecucion, con el dato neto de como quedo"*. El timeline es un registro de
+    // OPERACIONES, no de movimientos de caja: la apertura y su cierre se funden en
+    // una fila, fechada el dia del cierre, cuyo importe es el resultado del trade.
+    //
+    // El bull put GAP 19/18 se leia en dos filas separadas por cuatro dias y un roll
+    // en medio (+$21.75 el 27-ago, -$2.25 el 31-ago), y la segunda —roja— se
+    // interpretaba como una perdida. Ahora es una sola linea verde de +$19.50.
+    //
+    // El invariante de caja NO se rompe: el importe de la fila fundida es la SUMA de
+    // los dos flujos, asi que la columna VALOR sigue sumando el flujo real del
+    // subyacente. Por eso se funde con la suma y no con un numero calculado aparte.
+    //
+    // Solo aplica a lo que se pudo emparejar (`tomarApertura`). Un cierre huerfano
+    // —tipico de una pata que nacio de un ROLL, que ya es neto de por si— se queda
+    // como estaba, con su flujo de caja crudo, en vez de inventarle una apertura.
+    // Las posiciones ABIERTAS tambien: se siguen viendo con la prima cobrada.
+    //
+    // `semanalHtml` NO usa esta lista: trabaja sobre los eventos crudos con su propia
+    // regla de atribucion por semana. Las dos coinciden porque parten del mismo
+    // emparejamiento (`claveOpt`), no porque compartan la vista.
+    const timelineEventos = (w) => {
       const idxSto = indiceAperturas(w.events, /^STO_/);
       const idxBto = indiceAperturas(w.events, /^BTO_/);
-      const res = new Map();
+      const fundidas = new Set();   // aperturas que ya viajan dentro de su cierre
+      const paresPorCierre = new Map();
       for (const ev of (w.events || [])) {
         const esBtc = /^BTC_/.test(ev.type || '');
         const esStc = /^STC_/.test(ev.type || '');
         if (!esBtc && !esStc) continue;
         const ap = tomarApertura(esBtc ? idxSto : idxBto, ev);
         if (!ap) continue;
-        res.set(ev, {
-          neto:  +(((ap.amount || 0) + (ev.amount || 0))).toFixed(2),
-          bruto: (ap.gross != null && ev.gross != null)
-                   ? +(((ap.gross) + (ev.gross))).toFixed(2) : null,
-          desde: ap.date,
+        fundidas.add(ap);
+        paresPorCierre.set(ev, ap);
+      }
+      const out = [];
+      for (const ev of (w.events || [])) {
+        if (fundidas.has(ev)) continue;
+        const ap = paresPorCierre.get(ev);
+        if (!ap) { out.push(ev); continue; }
+        out.push({
+          ...ev,
+          amount:    +(((ap.amount || 0) + (ev.amount || 0))).toFixed(2),
+          gross:     (ap.gross != null && ev.gross != null)
+                       ? +(((ap.gross) + (ev.gross))).toFixed(2) : null,
+          cerrado:   true,
+          abiertoEl: ap.date,
         });
       }
-      return res;
+      return out;
     };
+
     const fmtMonto = (v) => (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
-    const resultadoTxt = (r) => !r ? '' :
-      ` · trade ${fmtMonto(r.neto)} neto${r.bruto != null ? ` (${fmtMonto(r.bruto)} bruto)` : ''} desde ${r.desde}`;
+    const diasEntre = (a, b) =>
+      Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 86400000);
+
+    // Detalle de una operacion cerrada: cuando se abrio, cuanto duro y el bruto —
+    // que es el numero que se ve en la plataforma del broker.
+    const detalleCierre = (e) => !e.cerrado ? '' :
+      ` · abierto ${e.abiertoEl} (${diasEntre(e.abiertoEl, e.date)}d)` +
+      (e.gross != null ? ` · bruto ${fmtMonto(e.gross)}` : '');
 
     // ── VISTA TABLA ──────────────────────────────────────────────
     const tablaHtml = (() => {
@@ -4495,16 +4535,15 @@ async function loadWheel() {
             <th class="wheel-event-th" style="text-align:left;">DESCRIPCIÓN</th>
             <th class="wheel-event-th" style="text-align:right;">VALOR</th>
           </tr></thead>
-          <tbody>${(() => { const resDe = resultadosDeCierre(w); return w.events.map(e => {
+          <tbody>${timelineEventos(w).map(e => {
           const isRoll = e.type === 'ROLL';
           const tipo = evIconFor(e);
-          const res  = resDe.get(e);
           const desc = isRoll ? `Roll $${e.fromStrike}→$${e.toStrike} · ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
             : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
             : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
             : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
             : e.type === 'DIVIDENDO' && e.retencion ? `Bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
-            : `${evLabelFor(e)}${evStrikes(e)}${e.expiry?' '+e.expiry.slice(5):''}${resultadoTxt(res)}`;
+            : `${evLabelFor(e)}${evStrikes(e)}${e.expiry?' '+e.expiry.slice(5):''}${detalleCierre(e)}`;
           const amt = e.amount||0;
           const amtCls = amt>=0?'pos':'neg';
           const amtStr = (amt>=0?'+$':'-$')+Math.abs(amt).toFixed(2);
@@ -4514,7 +4553,7 @@ async function loadWheel() {
             <td style="color:var(--muted2);">${desc}</td>
             <td style="text-align:right;" class="${amtCls}">${amtStr}</td>
           </tr>`;
-        }).join(''); })()}</tbody></table>`;
+        }).join('')}</tbody></table>`;
 
         const id = 'wr-'+w.underlying;
         return `<div class="wheel-row" id="${id}">
@@ -4586,16 +4625,14 @@ async function loadWheel() {
           </div>
         </div>` : '';
 
-      const resDeCard = resultadosDeCierre(w);
-      const timelineHtml = w.events.map(e => {
+      const timelineHtml = timelineEventos(w).map(e => {
         const isRoll = e.type === 'ROLL';
-        const res    = resDeCard.get(e);
         const desc   = isRoll ? `Roll: $${e.fromStrike}→$${e.toStrike} | ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
           : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
           : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
           : e.type === 'DIVIDENDO' && e.retencion ? `Dividendo: bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
-          : `${evLabelFor(e)}${evStrikes(e)}${e.expiry?` ${e.expiry.slice(5)}` :''}${resultadoTxt(res)}`;
+          : `${evLabelFor(e)}${evStrikes(e)}${e.expiry?` ${e.expiry.slice(5)}` :''}${detalleCierre(e)}`;
         const amt = e.amount||0;
         return `<div class="wheel-event">
           <div class="wheel-event-icon">${evIconFor(e)}</div>

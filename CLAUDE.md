@@ -242,11 +242,21 @@ compra de equity separada.
   desnuda: `hedge`/`isSpread` se calculan sobre posiciones **abiertas** y no sobreviven al
   cierre. El timeline lo etiqueta *Bull put / Bear call abierto|cerrado* y muestra los dos
   strikes (`$19/$18`).
-- **El evento de cierre muestra el resultado del trade**, no solo lo que costó cerrar. Un
-  `BTC` suelto se lee como pérdida: el bull put GAP 19/18 cerrado el 2026-08-31 salía
-  `-$2.25` cuando la operación dio **+$19.50 netos / +$22 brutos**. La columna VALOR sigue
-  siendo caja pura (su suma tiene que dar el flujo del subyacente); el resultado va en la
-  descripción, con el bruto al lado porque es el número que el usuario ve en la plataforma.
+- **Una operación = una fila** (`timelineEventos`, decisión del usuario 2026-08-31). El
+  timeline es un registro de **operaciones**, no de movimientos de caja: la apertura y su
+  cierre se funden en una sola fila, fechada el día del cierre, cuyo importe es el
+  **resultado neto** del trade. El bull put GAP 19/18 salía en dos filas separadas por
+  cuatro días y un roll en medio (+$21.75 el 27-ago, −$2.25 el 31-ago) y la segunda, roja,
+  se leía como una pérdida; ahora es una línea verde de **+$19.50**, con la fecha de
+  apertura, los días y el bruto (+$22.00) en la descripción.
+  - **El invariante de caja no se rompe**: el importe de la fila fundida es la **suma** de
+    los dos flujos, así que la columna VALOR sigue sumando el flujo real del subyacente.
+    Verificado en los cuatro papeles. Por eso se funde sumando, no con un número aparte.
+  - Solo se funde lo que se pudo emparejar. Un cierre huérfano —típico de una pata nacida
+    de un `ROLL`, que ya es neto— se queda con su flujo crudo en vez de inventarle una
+    apertura. Las posiciones **abiertas** siguen mostrando la prima cobrada.
+  - `semanalHtml` trabaja sobre los eventos **crudos** con su propia atribución por semana.
+    Las dos vistas coinciden porque comparten el emparejamiento (`claveOpt`), no la lista.
 - **La clave que empareja cierre con apertura lleva el tipo de opción**
   (`P|19|2026-09-04`), no `strike|expiry` a secas, y el índice guarda **todas** las
   aperturas de esa clave en orden — un cierre consume la última **anterior** que siga
