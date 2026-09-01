@@ -350,6 +350,7 @@ Lo que **no** se funde: los cierres huérfanos, que en la práctica son patas na
 `ROLL` (JBLU 07-31 y 08-18) — un roll ya es neto y no tiene un `STO` propio que emparejar.
 Inventarles una apertura sería peor que dejar el flujo crudo. Las posiciones abiertas siguen
 mostrando la prima cobrada, como debe ser.
+*(Los dos cierres huérfanos de JBLU se resolvieron el mismo día — ver la sección siguiente.)*
 
 `semanalHtml` sigue trabajando sobre los eventos **crudos**: tiene su propia regla de
 atribución por semana y no debe depender de cómo se dibuje el timeline. Las dos coinciden
@@ -363,7 +364,75 @@ porque comparten el emparejamiento (`claveOpt`), no la lista de filas.
 - *`phase` sigue saliendo de las posiciones abiertas con `if (openPut) → CSP_ACTIVA`.* Entre
   el 27 y el 31 de agosto GAP tenía 100 acciones, una Covered Call y la put corta del
   spread, y la tarjeta decía **CSP Activa** tapando las otras dos. Es un defecto real y
-  aparte; queda anotado, sin cambiar.
+  aparte; queda anotado, sin cambiar. *(Corregido el mismo día — ver la sección siguiente.)*
+
+## El mismo ajuste, aplicado a los otros tres papeles — JBLU y NU (2026-08-31, bis)
+
+**Pedido del usuario:** *"hace poco hicimos una validación del activo GAP en el ciclo de la
+rueda. revisa que ese mismo ajuste aparezca en la bitácora de los demás activos que tenemos
+en ciclo de la rueda en este momento"*.
+
+El código del ajuste anterior es genérico —no tiene ninguna rama por símbolo— así que la
+revisión no era del código sino del **efecto**. Corrido sobre las 1.819 transacciones reales,
+con las funciones extraídas del propio `public/index.html` para no probar una copia:
+
+| Papel | ¿Se activaba? | Estado |
+|---|---|---|
+| **NU** | Sí | Bull put 12/11 06-18 en una fila: **+$16.96** (antes −$10.65 por la colisión de clave). Ya estaba bien |
+| **GAP** | Sí | 3 operaciones fundidas, 18 → 15 filas. Ya estaba bien |
+| **SOFI** | Nada que hacer | 7 eventos, **todos rolls**: cero cierres, cero spreads. No es un fallo |
+| **JBLU** | **No** | 2 cierres huérfanos — el hueco |
+
+**El hueco: JBLU.** Las dos patas nacieron de un `ROLL`, así que no tenían `STO` propio y se
+quedaban con el flujo crudo — que es justo el número que no se puede leer, el mismo defecto
+que originó todo esto:
+
+| Fecha | Lo que mostraba | Lo que dio la operación |
+|---|---|---|
+| 2026-07-31 | `Put cerrada $5 08-21` **−$7.12** (rojo) | +$29.87 STO 17-jun · +$10.75 roll 26-jun · −$7.12 → **+$33.50** |
+| 2026-08-18 | `Put cerrada $6 09-18` **−$94.12** (rojo) | +$15.87 STO 03-ago · +$46.75 roll 18-ago · −$94.12 → **−$31.50** |
+
+La segunda es la mala: se leía una pérdida de $94 cuando la real fue de $31.50, **tres veces
+peor de lo que fue**, y con el roll en otra fila del mismo día.
+
+**La corrección: encadenar por rolls.** Un roll no abre ni cierra una operación, la **mueve**
+— que es la norma 5 del usuario (*"un ROLL no es un cierre"*) leída al derecho: la operación
+sigue viva hasta el BTC. `resolverCadena` camina hacia atrás por `toStrike|toExpiry` →
+`fromStrike|fromExpiry` hasta la apertura original, y la fila funde la **cadena entera**.
+
+Para poder encadenar, el evento `ROLL` de `src/wheel.js` guarda ahora `fromType`/`toType`.
+Sin el tipo en la clave, el encadenado colisionaría exactamente igual que colisionaba
+`claveOpt` antes de llevarlo — una Put $12 06-18 y una Covered Call $12 06-18 son la misma
+clave. JBLU es el caso donde eso muerde: tiene una cadena de calls y una de puts corriendo en
+paralelo, con strikes $5/$5.5 en las dos.
+
+Si la cadena **no** llega a ninguna apertura no se consume nada y el cierre se queda como
+estaba: sigue quedando uno, el `STC_PUT $24 06-18` de GAP (la pata larga del bull put 27/24,
+cuyo `BTO` se absorbió en la consolidación por orden). Sale en verde y no engaña.
+
+**Primas/Semana usa el mismo encadenado**, para que las dos vistas no puedan contradecirse —
+pero el roll **no se mueve de su semana**, porque la regla vigente es *"`ROLL` → siempre
+incluido, ya es neto"*. La cadena solo sirve para recuperar la apertura. Sumando por semanas
+el total coincide con el timeline sin contar el roll dos veces. Antes, la put $5.5 09-04 se
+daba por **viva** —el índice no veía el roll— y su prima quedaba excluida en silencio
+esperando un expiry que ya no iba a llegar.
+
+**Medio centavo.** La suma de la cadena se guarda con **tres** decimales, la misma precisión
+con la que `src/wheel.js` guarda cada flujo (`+nv.toFixed(3)`). Con dos, las dos cadenas de
+JBLU caen en `.497` y `−.503` y el papel cerraba en −$444.96 en vez de −$444.97.
+
+**La fase dejó de tapar patas.** `phase` es UNA etiqueta para un estado que puede tener tres
+patas a la vez, así que el orden decide qué se ve y qué se esconde. El defecto anotado arriba
+con GAP hoy lo disparaba **NU**: 200 acciones, 2 covered calls $14 11-20 y una put $14 09-18,
+y la tarjeta anunciaba *"CSP Activa"* — la pata más chica. Ahora manda tener las acciones, y
+**POSICIÓN** dejó de ser un `? :` encadenado y lista todas: *"200 acc + $14.00 Call · 11-20 ·
+2 ctr + $14.00 Put · 09-18"*.
+
+**Verificación.** Invariante de caja (eventos crudos vs filas fundidas) en verde en los
+cuatro: NU −$2.412,80 · SOFI +$208,37 · JBLU −$444,97 · GAP −$2.203,00. Primas/Semana:
+JBLU **$67.24 → $83.11** (la suma real de sus flujos de opciones), NU $192.20, SOFI $208.37 y
+GAP $489.75 **sin moverse**. Filas JBLU 16 → 12. Batería en verde (102 pruebas con `--local`)
+y render confirmado en el navegador en las tres vistas.
 
 ## Tabla Primas/Semana (`semanalHtml` en index.html)
 
@@ -2994,6 +3063,70 @@ registraba el cambio pero nunca cerraba el ciclo). Reglas, tomadas de la propia 
 Los trades salen de **producción** (`/api/tradier/executions`), no de los JSON locales, que están
 viejos. Si no hay red cae a los locales y lo dice en la hoja (`Fuente de los trades`), en vez de
 reportar en silencio sobre datos rancios.
+
+## El SL que tardó tres minutos y medio en poder salir — tex-1788275797593 (2026-09-01)
+
+Reportado por el usuario en vivo: *"YA HIZO UN TRADE, salimos en pérdida"*. El informe
+automático (`analisis tradier/09012026_BEAR_PUT_SPREAD_perdedor185.pdf`) ya contaba la
+historia del trade y su análisis de mercado. Esto anota lo que el informe **no** recoge:
+cómo se comportó el sistema al salir.
+
+**Lo que muestra el log de estrategia, que el PDF resume de menos:**
+
+```
+11:38:14  CIERRE_DISPARADO  SL en 38088413 — P&L estimado -$177,50
+11:38:15  POSITION_CHECK_MISMATCH   el registro local dice posicion abierta,
+11:38:43  POSITION_CHECK_MISMATCH   Tradier dice que no. Se bloquea por precaucion.
+11:39:13  POSITION_CHECK_MISMATCH
+11:39:43  POSITION_CHECK_MISMATCH
+11:41:41  closeFailed — "Buy To Cover order cannot be placed unless closing a
+                         short position, please check open orders."
+11:41:44  CIERRE_DISPARADO  SL otra vez — cerrado (closeOrderId 38091717)
+```
+
+El PDF dice *"primer intento de cierre rechazado por Tradier a las 11:41:41; el reintento
+llenó 3 s después"* — cierto pero incompleto. **El stop había disparado a las 11:38:14**:
+entre el primer disparo y el cierre efectivo pasaron **3 min 30 s**, con cuatro bloqueos por
+desacuerdo de posición en medio. El P&L estimado se movió de −$177,50 a −$182,50 en esa
+ventana. `closeFailCount` quedó en 1 porque solo cuenta el rechazo explícito del broker, no
+los ciclos que el guard de desacuerdo se saltó.
+
+**Causa raíz: la misma del día.** El sandbox de Tradier tenía el feed de posiciones
+inconsistente — es lo que produjo **31 órdenes rechazadas** entre las 09:54 y las 11:11 con
+`Tradier API 500 /accounts/VA6540433/orders`, y es lo que aquí le hizo creer que no había
+pata corta que cubrir. La lógica propia decidió bien: detectó el SL a tiempo, cotizó contra
+la cadena de TastyTrade en vivo (0 s de antigüedad, no contra Tradier) y reintentó hasta que
+el broker aceptó.
+
+**Lo que queda por decidir, no resuelto acá:** el guard de desacuerdo de posición existe para
+no operar a ciegas, pero en este caso **bloqueó una salida** mientras la posición perdía. Que
+proteger la entrada y proteger la salida exijan la misma cautela no es obvio, y cambiarlo es
+una decisión de diseño, no un arreglo evidente. Queda anotado, sin tocar.
+
+### Y un bug de verdad: el R:R que anuncia la señal sale inflado en los débitos
+
+El propio informe lo cazó: la señal anunció **R:R 3,35** cuando el real era ~1,90. En
+`src/spx.js`:
+
+```js
+const maxProfit = sel.isCredit ? credit : (sel.spreadWidth * 100 * sel.contracts) - (debit || 0);
+```
+
+Usa `sel.spreadWidth` —el ancho **configurado** (15 pts)— en vez de la distancia **real**
+entre los strikes que se ejecutaron (7645/7635, o sea **10 pts**). El selector de strikes
+puede aterrizar más cerca que el ancho objetivo, y ahí los dos números dejan de coincidir:
+el máximo real eran ~$655, no los ~$1.155 que anunció.
+
+**Alcance, para no exagerarlo:** `maxProfit` en un débito solo alimenta `riskReward` y
+`rrNote`, que es texto de apoyo a la decisión (*"revisar antes de ejecutar"*). **No sizea ni
+ejecuta**: `maxRisk` de un débito es el débito pagado, y eso está bien calculado. Aquí además
+el aviso saltó igual, porque 3,35 y 1,90 están los dos fuera del rango ATM esperado
+(0,80–1,20) — pero el número que se lee es falso, y con otros strikes podría dejar un R:R
+malo dentro del rango y no avisar.
+
+El arreglo es tomar la distancia real de los strikes en vez del ancho configurado. Es un
+**bug**, así que no espera al viernes; requiere despliegue a Railway y por eso se coordina la
+hora con el usuario en vez de subirlo con el mercado abierto.
 
 ## Desarrollo local
 

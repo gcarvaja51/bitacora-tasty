@@ -195,6 +195,41 @@ medición de las dos.
 
 ---
 
+### 5. El veto de muro no mira el muro que queda a la espalda — DIRECCIONAL, impacto ALTO
+
+**Anotado:** 2026-09-01 · **Evidencia:** informe del trade `tex-1788275797593`
+(`analisis tradier/09012026_BEAR_PUT_SPREAD_perdedor185.pdf`)
+
+El Bear Put Spread 7645/7635 del 1-sep entró con **score 100/100** —los cinco checks del
+playbook en verde, los tres Mundos alineados en bajista, Lower-High confirmado (7696,33 →
+7661,69), MACD 15m en descenso, GEX y DEX negativos— y perdió **$185** en 25 minutos sin
+estar a favor **ni un solo tick** (el trail sombra registró un pico de −8,3 pts).
+
+Lo que lo explica no está en el score: se entró corto en 7646,34 con el **Call Wall en
+7650, a 3,7 puntos por encima**, y con el precio ya rebotando desde el mínimo de 7643 de
+las 11:06. El rebote contra ese muro se comió el trade.
+
+`vetoMuroSombra` sí corrió y **no vetó** — correctamente, según cómo está escrito: midió los
+21,34 pts de aire hasta el **Put Wall (7625)**, que es el muro del lado del **objetivo**,
+contra los 6,27 pts que exigía el TP. Nunca miró el muro que quedaba **a la espalda**, que
+era el que iba a frenar el movimiento antes de que empezara.
+
+**La propuesta:** que el veto mire los dos muros — el del objetivo (¿hay recorrido hasta el
+TP?) y el de la espalda (¿hay espacio para que el precio se aleje, o entramos pegados a la
+pared que lo va a devolver?). El umbral de "pegado" hay que medirlo, no inventarlo: el
+candidato natural es el ATR de 2m (aquí 2,69 pts, o sea que 3,7 pts es **1,4 ATR** — dentro
+del ruido de una sola vela).
+
+**Para el Auditor, antes de aplicar nada:** correr en sombra sobre el histórico qué habría
+pasado vetando las entradas con el muro contrario a menos de N×ATR. Hace falta saber las dos
+caras — cuántas pérdidas evita y cuántos ganadores mata. Con un solo trade no se decide;
+esto es una hipótesis con una autopsia detrás, no un hallazgo.
+
+**Ojo con no sobreajustar a este trade.** Es un caso, en un día de GEX negativo, con score
+perfecto. Que la explicación sea convincente no la hace cierta.
+
+---
+
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
 
 ### 2026-08-31 · corrida diaria, 753 evaluaciones

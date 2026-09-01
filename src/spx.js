@@ -733,10 +733,40 @@ function buildSignalSummary(strategy, strikes, sel, context) {
 
   const credit    = sel.isCredit ? strikes.premium * 100 * sel.contracts : null;
   const debit     = !sel.isCredit ? Math.abs(strikes.premium) * 100 * sel.contracts : null;
+
+  // ── ANCHO REAL, NO EL TEORICO (2026-09-01) ────────────────────────────
+  // `sel.spreadWidth` NO es el ancho de las patas que se van a ejecutar. Son dos
+  // numeros distintos que nunca se reconciliaron:
+  //
+  //   - `selectStrategy` calcula `spreadWidthFor(capital, 2)` — un ancho DINAMICO
+  //     segun el capital. Eso es lo que viaja en `sel.spreadWidth`.
+  //   - `findStrikesByDelta` recibe `tradingCfg.spreadWidth || 10` (el del config),
+  //     y construye `longStrike = shortStrike +/- spreadWidth`. ESE es el ancho que
+  //     de verdad se opera.
+  //
+  // El 2026-09-01 el Bear Put Spread `tex-1788275797593` se ejecuto en 7645/7635
+  // —10 pts— mientras `sel.spreadWidth` valia 15, y la señal anuncio un R:R de 3.35
+  // cuando el real era 1.90: el maximo eran ~$655, no ~$1.155. Lo cazo el informe
+  // automatico del trade, no el sistema.
+  //
+  // Por que importa mas de lo que parece: en un DEBITO solo ensucia el R:R que se
+  // muestra, pero en un CREDITO `maxRisk` sale INFLADO, y `maxRisk` si decide —
+  // server.js lo usa para `creditoRiesgoPct` contra el gate de MIN_CREDITO_RIESGO_PCT
+  // (20%). Un riesgo inflado baja ese porcentaje y puede tumbar creditos validos.
+  // Es el mismo tipo de falla que el 2026-08-05 mato las 27 señales de credito del
+  // dia (ver la nota larga en server.js, gate de credito/riesgo).
+  //
+  // La verdad esta en los strikes que se eligieron, asi que se mide de ahi. En un
+  // Iron Condor las dos alas se construyen con el mismo ancho, de modo que el ala
+  // de puts basta. Si faltaran los strikes se cae al valor anterior.
+  const anchoReal = (strikes.longStrike != null && strikes.shortStrike != null)
+    ? Math.abs(strikes.longStrike - strikes.shortStrike)
+    : sel.spreadWidth;
+
   const maxRisk   = sel.isCredit
-    ? (sel.spreadWidth * 100 * sel.contracts) - (credit || 0)
+    ? (anchoReal * 100 * sel.contracts) - (credit || 0)
     : debit;
-  const maxProfit = sel.isCredit ? credit : (sel.spreadWidth * 100 * sel.contracts) - (debit || 0);
+  const maxProfit = sel.isCredit ? credit : (anchoReal * 100 * sel.contracts) - (debit || 0);
   // Solo para CREDITO (2026-08-16). La formula es "probabilidad de que el short
   // expire OTM", que es exactamente el exito de un credito — pero en un DEBITO el
   // maximo se cobra cuando el precio SUPERA el short, asi que 1-shortDelta seria
@@ -771,7 +801,8 @@ function buildSignalSummary(strategy, strikes, sel, context) {
     expType:     sel.expType,
     expiry:      strikes.expiry,
     contracts:   sel.contracts,
-    spreadWidth: sel.spreadWidth,
+    spreadWidth: anchoReal,          // el que se opera (ver ANCHO REAL arriba)
+    spreadWidthTeorico: sel.spreadWidth,   // el de selectStrategy, para poder auditarlos
     strikes,
     isCredit:    sel.isCredit,
     credit:      credit ? +credit.toFixed(2) : null,
