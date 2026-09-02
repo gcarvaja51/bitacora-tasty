@@ -3128,6 +3128,97 @@ El arreglo es tomar la distancia real de los strikes en vez del ancho configurad
 **bug**, así que no espera al viernes; requiere despliegue a Railway y por eso se coordina la
 hora con el usuario en vez de subirlo con el mercado abierto.
 
+## 18 horas en `degraded` con el vigilante mirando (2026-09-02)
+
+Reportado por el usuario al abrir la sesion: *"revisa que daemon este bien"*.
+
+**Lo que estaba pasando.** El daemon llevaba **18 horas sin un solo ciclo exitoso**
+—ultimo exito el 1-sep a las 15:06 local— con el proceso vivo y ciclando cada 2
+minutos. `mode: degraded`, `consecutiveFailures: 5`, y el error siempre el mismo:
+*"Sigma Terminal no devolvio el simbolo tras 10s"*.
+
+Los muros del chart y del celular llevaban toda la primera hora de sesion con datos
+de la vispera, y no era un desfase cosmetico:
+
+| | Chart (18 h viejo) | Real en Sigma |
+|---|---|---|
+| Put Wall | 7630 | **7650** |
+| Call Wall | 7635 | **7675** |
+| Gamma Flip | 7703 | **7633** |
+| Regimen GEX | NEGATIVO | **POSITIVO** |
+
+El Gamma Flip 70 puntos desplazado y **el regimen invertido**. El Iron Condor exige
+GEX POSITIVO: llevaba la manana bloqueado por un dato viejo.
+
+**Lo que NO era**, descartado con evidencia antes de tocar nada:
+
+- *Sigma caida o sesion expirada.* Se cargo `web.sigma.trade/terminal` en el
+  navegador normal: sesion activa, datos en vivo, SPX cargado.
+- *Perfil de Chrome trabado.* 8 `chrome.exe` con `sigma_profile` creados minutos
+  antes y cero ficheros `Singleton*`. Chrome arrancaba bien.
+- *Disco.* 106 GB libres.
+
+Era **estado atascado dentro del proceso** — un Chrome headless que tras 18 horas
+dejo de entregar el simbolo. Matar el node y dejar que `start.bat` lo relanzara lo
+resolvio en 40 segundos, y los muros volvieron a coincidir exactos con Sigma.
+
+### Lo que de verdad fallo: el vigilante detecto y no actuo
+
+`watchdog.ps1` **vio el problema a las 09:06** y lo anoto tal cual:
+
+```
+09:06:54  PROBLEMA: cicla pero lleva 1,081 min SIN UN CICLO EXITOSO,
+          con el mercado abierto ... (relanzado=False)
+09:06:55  ntfy fallo: An error occurred while sending the request.
+```
+
+Detecto, no hizo nada, y encima el aviso no salio. Es la trampa que el propio
+puesto tiene escrita —*"que cicle no quiere decir que funcione"*— medida pero no
+actuada.
+
+Y la razon de no actuar estaba documentada y era **correcta**: *"una segunda
+instancia escribiendo sobre el mismo status.json y empujando a la misma ventana de
+TradingView seria peor que el atasco"*. Ademas `schtasks /Run` no habria hecho nada:
+la tarea sigue en `Running` y con `MultipleInstances=IgnoreNew` la llamada se ignora.
+
+**La salida es matar primero.** Se mata el node del daemon y el bucle de `start.bat`
+lo relanza en ~16s: muere uno, vuelve uno, nunca hay dos. Es exactamente la maniobra
+que resolvio el incidente a mano.
+
+Lo que se cambio en `watchdog.ps1`:
+
+- `$degradado` marca los dos casos de "vivo pero inutil" (`fallos >= 3`, o sin exito
+  con el mercado abierto). Solo esos se curan reiniciando.
+- **Identificacion estricta antes de matar**: no basta con que la linea de comando
+  diga `index.js` — se exige que el PADRE sea el `start.bat` del `gamma_daemon`. El
+  2026-09-01 un filtro ancho (`*server.js*`) se llevo por delante el MCP de
+  TradingView; aqui se paga el doble de rigor. Si ningun proceso pasa la
+  comprobacion, **no se mata nada** y se avisa.
+- **Guarda anti-bucle**: como maximo un reinicio forzado cada 30 min
+  (`$minEntreReiniciosMin`), con la marca en `watchdog_state.json`. Si vuelve a
+  degradarse dentro de la ventana, el reinicio no era el remedio: escala el aviso en
+  vez de reiniciar cada 10 minutos.
+
+**Que se probo y que no.** Verificado: el selector devuelve **exactamente un**
+objetivo (el node del daemon) y ninguno mas; el camino feliz sale 0 con el daemon
+sano; y la guarda anti-bucle frena el reinicio y deja el proceso real intacto,
+probada en un entorno aislado con un `status.json` degradado.
+
+**NO se ha probado de punta a punta el reinicio automatico**: exigia matar un daemon
+sano en horario de mercado. El paso equivalente se hizo a mano y funciono, pero eso
+no es un simulacro del codigo. Queda pendiente correrlo con el mercado cerrado antes
+de darlo por probado.
+
+**Sin relacion con el despliegue**: el `gamma_daemon` corre desde el arbol de
+trabajo, asi que el cambio quedo activo en la siguiente pasada del vigilante sin
+tocar Railway.
+
+**Aparte, sin resolver:** el envio por ntfy fallo otra vez, asi que el aviso no
+llego por ningun lado. Y el 2026-09-01 el propio vigilante se colgo en 7 corridas
+seguidas (06:26-07:26) y el Programador lo mato por su limite de 5 minutos — una
+hora ciega justo en premercado. El unico punto sin acotar de ese script es la
+enumeracion WMI de `Win32_Process`. Los dos siguen pendientes.
+
 ## Desarrollo local
 
 - `npm run dev` — nodemon (recomendado). Configurado en `nodemon.json` para ignorar `*.json` y `public/*`, evitando bucle de reinicios cuando el servidor escribe datos.
