@@ -232,6 +232,79 @@ chequear('la lectura de un impulso 3 alcista trae tpPctExigido 15',
 chequear('sin velas suficientes no se toca el TP',
   evaluarImpulso({ velas: [v(7600, 7598)], direction: 'BULLISH' }).tpPctExigido === null);
 
+// ── 2d. La figura de cada posicion abierta ─────────────────────────────────
+seccion('Las figuras de OptionStrat (src/optionstrat.js)');
+
+// POR QUE EXISTE, con nombre y fecha: el 2026-09-02 se abrio un PMCC de F
+// (compra call 10 dic-27 / venta call 14.5 sep-26). El agrupado por
+// SUBYACENTE|VENCIMIENTO lo partio en dos, y la mitad corta salio etiquetada
+// `short-call`: la hoja de posiciones dibujaba una call DESNUDA, de perdida
+// ilimitada, para una pata que estaba cubierta por la LEAPS. Un dibujo de riesgo
+// equivocado sobre cuenta real es exactamente lo que esta bateria debe frenar.
+const { agruparPosiciones } = require('../src/optionstrat');
+
+const opc = (und, exp, sym, dir, q = 1) => ({
+  'instrument-type': 'Equity Option', 'underlying-symbol': und,
+  'expires-at': exp + 'T20:00:00.000Z', 'streamer-symbol': sym,
+  'quantity-direction': dir, quantity: String(q),
+});
+const acc = (und, q) => ({ 'instrument-type': 'Equity', 'underlying-symbol': und, quantity: String(q) });
+const figuras = pos => agruparPosiciones(pos).map(g => g.figura);
+
+const PMCC_F = [
+  opc('F', '2026-09-18', '.F260918C14.5', 'Short'),
+  opc('F', '2027-12-17', '.F271217C10',   'Long'),
+];
+const fPmcc = agruparPosiciones(PMCC_F);
+chequear('el PMCC de F sale en UNA figura, no partido en dos', fPmcc.length === 1, `dio ${fPmcc.length}`);
+chequear('y se llama PMCC', fPmcc[0]?.figura === 'PMCC', `dio ${fPmcc[0]?.figura}`);
+// El slug NO es 'poor-mans-covered-call': esa ruta da "Error 404 Strategy type
+// not found" en OptionStrat (comprobado en vivo el 2026-09-02).
+chequear('se dibuja como diagonal-call-spread, que es lo unico que OptionStrat entiende',
+  fPmcc[0]?.url === 'https://optionstrat.com/build/diagonal-call-spread/F/.F271217C10,-.F260918C14.5',
+  `dio ${fPmcc[0]?.url}`);
+chequear('NUNCA vuelve a salir una call desnuda en un PMCC',
+  !figuras(PMCC_F).includes('Short Call'));
+
+// Comprar la CERCANA y vender la lejana tambien es diagonal, pero no es un PMCC
+// y llamarlo asi mentiria sobre el riesgo: se prefiere dejarlo en dos mitades.
+chequear('la diagonal invertida no se llama PMCC',
+  !figuras([opc('F', '2026-09-18', '.F260918C10', 'Long'),
+            opc('F', '2027-12-17', '.F271217C14.5', 'Short')]).includes('PMCC'));
+
+chequear('mismo strike y dos vencimientos = calendario',
+  figuras([opc('F', '2026-09-18', '.F260918C14', 'Short'),
+           opc('F', '2027-12-17', '.F271217C14', 'Long')])[0] === 'Calendar Call Spread');
+
+// Las guardas de la fusion. Con 100 acciones detras la call corta es una covered
+// call de verdad y la LEAPS es OTRO trade: fundirlas seria inventar una figura.
+chequear('con 100 acciones no se fusiona nada',
+  JSON.stringify(figuras([acc('JBLU', 100),
+    opc('JBLU', '2026-09-25', '.JBLU260925C5', 'Short'),
+    opc('JBLU', '2027-01-15', '.JBLU270115C4', 'Long')])) === '["Covered Call","Long Call"]');
+chequear('con dos cortas candidatas la pareja es ambigua y no se fusiona',
+  agruparPosiciones([
+    opc('F', '2026-09-18', '.F260918C14.5', 'Short'),
+    opc('F', '2026-10-16', '.F261016C15',   'Short'),
+    opc('F', '2027-12-17', '.F271217C10',   'Long')]).length === 3);
+
+// No regresion: lo que ya funcionaba el 2026-08-31 sigue igual.
+chequear('GAP mantiene sus dos figuras separadas por vencimiento',
+  JSON.stringify(figuras([acc('GAP', 100),
+    opc('GAP', '2026-09-25', '.GAP260925C25', 'Short'),
+    opc('GAP', '2026-09-04', '.GAP260904P20', 'Short'),
+    opc('GAP', '2026-09-04', '.GAP260904P18', 'Long')])) === '["Bull Put Spread","Covered Call"]');
+chequear('la vertical de calls sigue siendo vertical',
+  figuras([opc('F', '2026-09-18', '.F260918C14', 'Long'),
+           opc('F', '2026-09-18', '.F260918C16', 'Short')])[0] === 'Bull Call Spread');
+chequear('el CSP suelto de la rueda no cambia',
+  figuras([opc('SOFI', '2026-09-25', '.SOFI260925P17.5', 'Short')])[0] === 'Cash-Secured Put');
+chequear('el iron condor de 4 patas no cambia',
+  figuras([opc('SPX', '2026-09-18', '.SPX260918P6400', 'Long'),
+           opc('SPX', '2026-09-18', '.SPX260918P6500', 'Short'),
+           opc('SPX', '2026-09-18', '.SPX260918C7800', 'Short'),
+           opc('SPX', '2026-09-18', '.SPX260918C7900', 'Long')])[0] === 'Iron Condor');
+
 // ── 3. Humo: que TODOS los endpoints respondan ──────────────────────────────
 //
 // Excluidos a proposito, con su razon. Un GET no deberia tener efectos, pero

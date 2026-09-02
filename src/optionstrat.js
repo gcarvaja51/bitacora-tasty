@@ -46,6 +46,48 @@ function strikeDe(pos) {
   return m ? parseFloat(m[1]) : NaN;
 }
 function esCorta(pos) { return String(pos['quantity-direction'] || '').toLowerCase() === 'short'; }
+function expDe(pos)   { return (pos['expires-at'] || '').slice(0, 10); }
+
+/*
+ * Nombre para pantalla. El slug es lo que entiende OptionStrat en la URL; esto es
+ * lo que se lee en la bitácora. Se separan porque NO siempre coinciden: OptionStrat
+ * no tiene figura "Poor Man's Covered Call" —`/build/poor-mans-covered-call/...`
+ * devuelve "Error 404 Strategy type not found", comprobado en vivo el 2026-09-02—
+ * y hay que dibujarlo como `diagonal-call-spread`. En la hoja de posiciones, en
+ * cambio, queremos leer PMCC, que es como se pidió el trade.
+ */
+const NOMBRE_FIGURA = {
+  'long-call':            'Long Call',
+  'long-put':             'Long Put',
+  'short-call':           'Short Call',
+  'cash-secured-put':     'Cash-Secured Put',
+  'covered-call':         'Covered Call',
+  'bull-put-spread':      'Bull Put Spread',
+  'bear-put-spread':      'Bear Put Spread',
+  'bull-call-spread':     'Bull Call Spread',
+  'bear-call-spread':     'Bear Call Spread',
+  'iron-condor':          'Iron Condor',
+  'iron-butterfly':       'Iron Butterfly',
+  'calendar-call-spread': 'Calendar Call Spread',
+  'calendar-put-spread':  'Calendar Put Spread',
+  'diagonal-call-spread': 'Diagonal Call Spread',
+  'diagonal-put-spread':  'Diagonal Put Spread',
+};
+
+/*
+ * PMCC = covered call sintética. La LEAPS comprada hace de acciones y contra ella
+ * se vende la call corta. Formalmente es una diagonal de calls con dos rasgos:
+ * la comprada VENCE DESPUÉS y su strike es MÁS BAJO (está dentro de dinero).
+ *
+ * Al revés —comprar la cercana y vender la lejana— también es una diagonal, pero
+ * NO es un PMCC y llamarla así sería mentir sobre el riesgo.
+ */
+function esPMCC(patas) {
+  if (patas.length !== 2 || !patas.every(esCall)) return false;
+  const corta = patas.find(esCorta), larga = patas.find(p => !esCorta(p));
+  if (!corta || !larga) return false;
+  return expDe(larga) > expDe(corta) && strikeDe(larga) < strikeDe(corta);
+}
 
 /*
  * Deduce el slug de OptionStrat a partir de la COMPOSICIÓN de las patas.
@@ -70,6 +112,14 @@ function detectarSlug(patas, accionesDelSubyacente = 0) {
   if (n === 2 && puts.length === 2) {
     const corta = puts.find(esCorta), larga = puts.find(p => !esCorta(p));
     if (!corta || !larga) return null;
+    // Dos vencimientos = calendario/diagonal. La vertical es el caso de vencimiento
+    // ÚNICO, y aplicarle su fórmula a una diagonal es lo que hacía que la posición
+    // saliera como "beneficio máximo 0" (ver `esPMCC`).
+    if (expDe(corta) !== expDe(larga)) {
+      // La larga tiene que vivir MÁS que la corta. Al revés no sabemos nombrarlo.
+      if (expDe(larga) < expDe(corta)) return null;
+      return strikeDe(corta) === strikeDe(larga) ? 'calendar-put-spread' : 'diagonal-put-spread';
+    }
     // Vender el strike ALTO y comprar el bajo = crédito alcista.
     return strikeDe(corta) > strikeDe(larga) ? 'bull-put-spread' : 'bear-put-spread';
   }
@@ -77,6 +127,10 @@ function detectarSlug(patas, accionesDelSubyacente = 0) {
   if (n === 2 && calls.length === 2) {
     const corta = calls.find(esCorta), larga = calls.find(p => !esCorta(p));
     if (!corta || !larga) return null;
+    if (expDe(corta) !== expDe(larga)) {
+      if (expDe(larga) < expDe(corta)) return null;
+      return strikeDe(corta) === strikeDe(larga) ? 'calendar-call-spread' : 'diagonal-call-spread';
+    }
     // Vender el strike BAJO = crédito bajista. Comprarlo = débito alcista.
     return strikeDe(corta) < strikeDe(larga) ? 'bear-call-spread' : 'bull-call-spread';
   }
@@ -91,12 +145,76 @@ function detectarSlug(patas, accionesDelSubyacente = 0) {
 }
 
 /*
+ * Vuelve a coser las figuras que viven en DOS vencimientos.
+ *
+ * El agrupado por `SUBYACENTE|VENCIMIENTO` parte un PMCC en dos mitades sueltas, y
+ * la mitad corta acaba etiquetada `short-call`: la bitácora dibujaba una call
+ * DESNUDA —pérdida ilimitada— para una pata que en realidad está cubierta por la
+ * LEAPS. Ese fue el fallo del 2026-09-02 con el PMCC de F (10 dic-27 / 14.5 sep-26).
+ *
+ * Se fusiona con la mano MUY quieta, porque el broker no dice qué patas pertenecen
+ * al mismo trade y una figura inventada es peor que dos mitades honestas:
+ *
+ *   - solo grupos de UNA pata (los de dos ya son una figura cerrada),
+ *   - mismo tipo (call con call, put con put), una larga y una corta,
+ *   - EXACTAMENTE una candidata de cada lado; con más de una la pareja es
+ *     ambigua y se dejan todas como estaban,
+ *   - y nunca si hay 100+ acciones del subyacente: ahí la call corta es una
+ *     covered call de verdad y la larga es otro trade distinto.
+ */
+function fusionarDiagonales(grupos, acciones = {}) {
+  const porSubyacente = new Map();
+  for (const g of grupos) {
+    if (!porSubyacente.has(g.underlying)) porSubyacente.set(g.underlying, []);
+    porSubyacente.get(g.underlying).push(g);
+  }
+
+  const fusionados = [];
+  const consumidos = new Set();
+
+  for (const [und, delTicker] of porSubyacente) {
+    if ((acciones[und] || 0) >= 100) continue;
+    const sueltos = delTicker.filter(g => g.patas.length === 1);
+
+    for (const esDelTipo of [esCall, esPut]) {
+      const delTipo = sueltos.filter(g => esDelTipo(g.patas[0]));
+      const largos  = delTipo.filter(g => !esCorta(g.patas[0]));
+      const cortos  = delTipo.filter(g =>  esCorta(g.patas[0]));
+      if (largos.length !== 1 || cortos.length !== 1) continue;
+
+      const larga = largos[0].patas[0], corta = cortos[0].patas[0];
+      if (expDe(larga) === expDe(corta)) continue;  // misma fecha: es vertical, ya la ve detectarSlug
+      if (expDe(larga) <  expDe(corta)) continue;   // la larga muere antes: no sabemos nombrarlo
+
+      consumidos.add(largos[0].clave);
+      consumidos.add(cortos[0].clave);
+      const expiries = [expDe(corta), expDe(larga)];
+      fusionados.push({
+        // La clave lleva los DOS vencimientos: es lo que indexa el link puesto a
+        // mano en `optionstrat_links.json`, y tiene que ser estable y distinta de
+        // las de las dos mitades viejas.
+        clave: `${und}|${expiries.join('+')}`,
+        underlying: und,
+        expiry: expiries[0],   // la CERCANA: es la que hay que gestionar
+        expiries,
+        patas: [larga, corta],
+      });
+    }
+  }
+
+  return [...grupos.filter(g => !consumidos.has(g.clave)), ...fusionados];
+}
+
+/*
  * Agrupa las posiciones de opciones por subyacente + vencimiento.
  *
  * El vencimiento entra en la clave a propósito: GAP tiene HOY una covered call a
  * 25-sep y un bull put spread a 4-sep. Agrupar solo por ticker los fundiría en una
  * figura que no existe, y el popup actual —que guarda un link por ticker— ya no
  * puede representar los dos.
+ *
+ * Después pasa por `fusionarDiagonales`, que rehace las figuras de dos vencimientos
+ * (PMCC, calendarios) que este mismo agrupado parte por la mitad.
  */
 function agruparPosiciones(positions = []) {
   const opciones = positions.filter(p => p['instrument-type'] === 'Equity Option');
@@ -110,20 +228,25 @@ function agruparPosiciones(positions = []) {
   const grupos = new Map();
   for (const p of opciones) {
     const und = p['underlying-symbol'];
-    const exp = (p['expires-at'] || '').slice(0, 10);
+    const exp = expDe(p);
     if (!und || !exp) continue;
     const clave = `${und}|${exp}`;
-    if (!grupos.has(clave)) grupos.set(clave, { clave, underlying: und, expiry: exp, patas: [] });
+    if (!grupos.has(clave)) grupos.set(clave, { clave, underlying: und, expiry: exp, expiries: [exp], patas: [] });
     grupos.get(clave).patas.push(p);
   }
 
-  return [...grupos.values()].map(g => {
+  return fusionarDiagonales([...grupos.values()], acciones).map(g => {
     const slug = detectarSlug(g.patas, acciones[g.underlying] || 0);
+    const pmcc = esPMCC(g.patas);
     // Orden estable: puts antes que calls y por strike. Sin esto la URL cambia
     // según el orden en que TastyTrade devuelva las posiciones, y un link que
-    // cambia solo deja de ser comparable con el que ya estaba guardado.
+    // cambia solo deja de ser comparable con el que ya estaba guardado. En un
+    // calendario los dos strikes son iguales, así que desempata el vencimiento —
+    // la lejana primero, que es el orden verificado en vivo.
     const ordenadas = [...g.patas].sort((a, b) =>
-      (esPut(a) === esPut(b)) ? strikeDe(a) - strikeDe(b) : (esPut(a) ? -1 : 1)
+      (esPut(a) !== esPut(b)) ? (esPut(a) ? -1 : 1)
+      : (strikeDe(a) !== strikeDe(b)) ? strikeDe(a) - strikeDe(b)
+      : expDe(b).localeCompare(expDe(a))
     );
     const porPata = ordenadas.map(legToken);
     // Una pata sin streamer-symbol rompería la figura en silencio: mejor sin link.
@@ -132,6 +255,10 @@ function agruparPosiciones(positions = []) {
     return {
       ...g,
       slug,
+      // Lo que se lee en pantalla. Un PMCC se DIBUJA como diagonal porque es lo
+      // único que OptionStrat entiende, pero se NOMBRA PMCC.
+      figura: pmcc ? 'PMCC' : (NOMBRE_FIGURA[slug] || null),
+      esPMCC: pmcc,
       // El gráfico de una covered call sale SIN las acciones (ver legToken), así
       // que no es el P&L de la posición completa. Se marca para que la bitácora
       // lo diga en pantalla en vez de dejar que parezca un dibujo fiel.
@@ -148,4 +275,4 @@ function agruparPosiciones(positions = []) {
   }).sort((a, b) => a.clave.localeCompare(b.clave));
 }
 
-module.exports = { agruparPosiciones, detectarSlug, legToken };
+module.exports = { agruparPosiciones, detectarSlug, legToken, esPMCC, fusionarDiagonales };
