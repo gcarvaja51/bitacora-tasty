@@ -19,6 +19,125 @@
 
 ---
 
+## Los apagones del sandbox de Tradier (2026-09-03)
+
+**Síntoma:** 57 `ORDEN_RECHAZADA` entre el 24-ago y el 2-sep, todas con el mismo mensaje
+—*"Tradier API 500 … An error occurred while communicating with the backend"*— y en
+escalada: 2 el 24-ago, 1 el 28-ago, 5 el 31-ago, **31 el 1-sep**, **18 el 2-sep**.
+
+### Qué se descartó primero
+
+| hipótesis | por qué no |
+|---|---|
+| "No reintenta" | Sí reintenta: el ciclo siguiente de la estrategia. El 1-sep hizo **20 intentos en 23 minutos seguidos** |
+| "El payload va mal" | `quantity: 1` fijo, precio bien formado (prima × 0.4 ≈ 1.60–2.00), símbolos OCC correctos |
+| "Los strikes no existen en Tradier" | La cadena del sandbox tiene los 5 puntos completos de 7600 a 7720 |
+| "Es el límite de tasa" | 200 permitidas, 1 usada |
+| "Las órdenes zombi bloquean" | `hasOpenPosition` las descarta por edad (`ORDEN_ZOMBI_MS`) |
+| "El vigilante no avisó" | Sí avisó: ámbar de 10:00 a 12:00 el 1-sep, rojo a las 10:12 el 2-sep |
+
+Los 57 rechazos son en realidad **13 setups perdidos** — el resto son reintentos del mismo
+ciclo. Y ninguno llegó a crear una orden: en la cuenta no hay ni una `pending` fechada
+después del 24-ago, que es el día en que empiezan los 500.
+
+### La medición que lo cerró
+
+Se mandaron **62 sondas `preview=true`** (Tradier valida la orden y devuelve costo y
+margen, sin colocarla) con la misma vertical ATM, ancho 10, cada 2 minutos:
+
+| | muestras | fallos | |
+|---|---|---|---|
+| Mercado **cerrado** (08:23–09:28) | 33 | 0 | **0%** |
+| Mercado **abierto** (09:30–10:36) | 29 | 17 | **59%** |
+
+Y por bloques:
+
+```
+09:30 → 09:32   caído
+09:34 → 09:44   anda
+09:46 → 10:24   caído   ← 38 minutos seguidos
+10:26 → 10:36   anda
+```
+
+**No hay franja horaria.** La primera lectura de los datos de producción sugería una
+ventana fija de 09:45 a 11:11 ET, pero eso era un artefacto de *cuándo evalúan las
+estrategias*, no del fallo. Con muestreo parejo se ve que son bloques que van y vienen.
+
+Las órdenes reales dan lo mismo o peor: **89% de rechazo el 1-sep** (31 de 35) y **82% el
+2-sep** (18 de 22).
+
+Con el mercado cerrado, Tradier aceptó 33 de 33 la misma orden que después rechazó 17
+veces. **No es el payload: es el motor de órdenes del sandbox.**
+
+### El hallazgo lateral: fallos de servidor disfrazados de 400
+
+Las sondas no devolvieron 500 sino **HTTP 400**, con este cuerpo:
+
+```json
+{"message":"An error occurred while processing your request","error":"Unexpected server error"}
+```
+
+Eso importa porque `_req` (`src/tradier.js`) decide reintentar por el **código**:
+
+```js
+if (res.status < 500) throw err;   // 4xx: la peticion esta mal, repetirla no la arregla
+```
+
+El razonamiento es correcto en general, pero Tradier está devolviendo fallos de su propio
+servidor bajo un 400 — y ahí el bot lo trata como *"mi culpa, no insisto"* cuando era
+transitorio. En el camino real de las órdenes hoy llega como 500, así que todavía no
+muerde; es una mina puesta. Por eso `esFalloDelBroker()` mira **el cuerpo, no el código**.
+
+### Qué se hizo (y qué no)
+
+**No se reintenta más fuerte.** Un bloque de 38 minutos se come cualquier setup de 0DTE, y
+un `POST /orders` no es idempotente (ver la nota de `_req`). Reintentar dentro del bloque
+sería mandar órdenes duplicadas para nada.
+
+Lo que se hizo es **darle nombre al hecho**, en `src/apagon_broker.js`:
+
+- **Dos fallos seguidos del broker declaran el apagón**, no uno: un rechazo aislado no
+  merece una notificación. Los bloques medidos tienen 2, 6 y 15 muestras.
+- **La duración se cuenta desde el primer fallo de la racha**, no desde el que la declara —
+  si no, todo apagón saldría reportado más corto de lo que fue.
+- **Un fallo nuestro corta la racha.** Si un 400 de *"price must be greater than 0"* pudiera
+  sostener un apagón, el sistema se auto-absolvería y el bug quedaría tapado detrás de un
+  aviso de "Tradier está caído". Es exactamente lo contrario de para lo que existe esto.
+- **Un aviso ntfy por bloque, no por intento.** El 1-sep hubo 20 rechazos en 23 minutos, y
+  veinte notificaciones iguales se silencian — que es peor que no avisar.
+- **Corte de 20 min entre fallos** para no encadenar el último rechazo de un martes con el
+  primero de un miércoles en un apagón de 18 horas. Generoso frente al bloque más largo
+  medido (38 min) porque el Iron Condor evalúa cada 5 minutos, no cada 60 segundos.
+- `APAGON_BROKER_INICIO` / `APAGON_BROKER_FIN` en el strategy log, con el costo en setups.
+- `GET /api/spx/apagon-broker`, que lee la Torre de Control (`scripts/vigilancia.py`).
+  En memoria a propósito: un apagón vive minutos y el proceso que manda las órdenes es el
+  mismo que lo detecta.
+
+Los tres `catch` de `ORDEN_RECHAZADA` —que estaban copiados idénticos en las tres
+estrategias— pasan ahora por `anotarFalloDeOrden()`. El registro por intento **no cambia**:
+cada rechazo sigue siendo su propia fila, porque cada uno es un setup que la estrategia
+acertó y no pudo operar.
+
+### La pregunta que queda abierta
+
+Si el dinero ya se mide contra la cadena real de TastyTrade y **nunca** contra los fills de
+Tradier (`src/pnl_oficial.js`), lo único que aporta Tradier es simular el ciclo de vida de
+la orden — y lo hace mal el 59% del tiempo. El libro sombra
+(`sombraDeLimiteSinEjecutar`, `/api/spx/reversion-sombra`, `/api/spx/sombra-libro`) ya mide
+el resultado sin mandar ninguna orden, y ese no se cae nunca. Mover la ejecución ahí, o a
+un broker que funcione, quedó **planteado y sin decidir**.
+
+### Dato colateral
+
+Los 13 setups perdidos, valuados al valor esperado de la versión vigente de cada familia
+(TENDENCIA +$18.47/trade con n=59, REVERSION −$62.31/trade con n=13), habrían valido
+**−$406**. O sea que los rechazos *ahorraron* dinero, porque golpearon sobre todo a
+Reversión. Eso no vuelve bueno al bug —un sistema que solo funciona porque el broker falla
+es suerte, y la suerte se da vuelta— pero sí cambió el orden de la cola: arreglar la
+ejecución con Reversión encendida habría hecho perder más rápido.
+
+---
+
 
 Dashboard de trading personal conectado a TastyTrade. Node.js/Express + vanilla JS (sin framework frontend).
 

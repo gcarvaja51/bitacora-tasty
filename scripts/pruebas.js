@@ -149,6 +149,63 @@ chequear('con el cierre ya mandado hace rato, deja de bloquear',
 chequear('con el cierre recien mandado sigue bloqueando (gracia de 90s)',
   bloquea({ status: 'filled', strategyFamily: 'TENDENCIA', closeOrderSentAt: reciente }) === true);
 
+// ── 2b-bis. Los apagones del broker ────────────────────────────────────────
+seccion('Apagones del broker (src/apagon_broker.js)');
+
+const ab = require('../src/apagon_broker');
+
+// LO QUE MAS IMPORTA: no confundir un bug nuestro con una caida de Tradier. Si un
+// 400 de "precio invalido" contara como apagon, el sistema se auto-absolveria y el
+// bug quedaria tapado detras de un aviso de "el broker esta caido".
+chequear('un 5xx es del broker',
+  ab.esFalloDelBroker('Tradier API 500 /accounts/X/orders: An error occurred while communicating with the backend.'));
+// El 400 con cuerpo de error de servidor, medido en vivo el 2026-09-03.
+chequear('un 400 que dice "Unexpected server error" tambien es del broker',
+  ab.esFalloDelBroker('Tradier API 400 /accounts/X/orders: {"message":"An error occurred while processing your request","error":"Unexpected server error"}'));
+chequear('un 400 de precio invalido NO es del broker',
+  ab.esFalloDelBroker('Tradier API 400 /accounts/X/orders: price must be greater than 0') === false);
+chequear('un 400 de decimales NO es del broker',
+  ab.esFalloDelBroker('Tradier API 400 /accounts/X/orders: price must use up to 2 decimal place(s)') === false);
+
+const T0 = Date.parse('2026-09-03T13:46:00Z');
+const minAp = n => T0 + n * 60000;
+
+ab._reset();
+const ap1 = ab.registrarFallo({ familia: 'REVERSION', mensaje: 'Tradier API 500 x: backend', ahora: minAp(0) });
+chequear('un rechazo suelto todavia no declara apagon', ap1.enApagon === false && ap1.recienDeclarado === false);
+const ap2 = ab.registrarFallo({ familia: 'REVERSION', mensaje: 'Tradier API 500 x: backend', ahora: minAp(1) });
+chequear('el segundo seguido declara el apagon', ap2.recienDeclarado === true && ap2.enApagon === true);
+const ap3 = ab.registrarFallo({ familia: 'TENDENCIA', mensaje: 'Tradier API 500 x: backend', ahora: minAp(2) });
+chequear('dentro del apagon ya no se vuelve a avisar', ap3.enApagon === true && ap3.recienDeclarado === false);
+
+// La duracion se cuenta desde el PRIMER fallo, no desde el que lo declara — si no,
+// todo apagon saldria reportado mas corto de lo que fue.
+const finAp = ab.registrarExito({ ahora: minAp(39) });
+chequear('el exito cierra el apagon', finAp.seRecupero === true);
+chequear('la duracion se mide desde el primer fallo', finAp.duracionMin === 39, `dio ${finAp.duracionMin}`);
+chequear('cuenta los setups perdidos', finAp.setupsPerdidos === 3, `dio ${finAp.setupsPerdidos}`);
+chequear('recuerda que familias golpeo', finAp.familias.length === 2);
+chequear('tras recuperarse no hay apagon', ab.estado({ ahora: minAp(40) }).enApagon === false);
+
+// Un bug nuestro en medio corta la racha: no puede sostener un apagon ajeno.
+ab._reset();
+ab.registrarFallo({ familia: 'REVERSION', mensaje: 'Tradier API 500 x: backend', ahora: minAp(0) });
+ab.registrarFallo({ familia: 'REVERSION', mensaje: 'Tradier API 400 x: price must be greater than 0', ahora: minAp(1) });
+const trasBug = ab.registrarFallo({ familia: 'REVERSION', mensaje: 'Tradier API 500 x: backend', ahora: minAp(2) });
+chequear('un fallo nuestro corta la racha del broker', trasBug.recienDeclarado === false && trasBug.fallos === 1);
+
+// Dos fallos separados por horas no son el mismo apagon (el ultimo de un martes y
+// el primero de un miercoles no pueden encadenarse en uno de 18 horas).
+ab._reset();
+ab.registrarFallo({ familia: 'NEUTRAL', mensaje: 'Tradier API 500 x: backend', ahora: minAp(0) });
+const lejano = ab.registrarFallo({ familia: 'NEUTRAL', mensaje: 'Tradier API 500 x: backend', ahora: minAp(120) });
+chequear('dos fallos lejanos no son el mismo apagon', lejano.recienDeclarado === false && lejano.fallos === 1);
+
+// Un exito sin apagon previo no inventa una recuperacion.
+ab._reset();
+chequear('exito sin apagon previo no reporta nada', ab.registrarExito({ ahora: minAp(0) }).seRecupero === false);
+ab._reset();
+
 // ── 2c. El conteo de impulsos de 15m ───────────────────────────────────────
 seccion('El conteo de impulsos (src/impulsos.js)');
 

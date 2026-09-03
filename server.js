@@ -4533,6 +4533,7 @@ const { sellarVersion } = require('./src/algo_version');
 const { evaluarSalidasAlternativas } = require('./src/salidas_alternativas');
 const { evaluarImpulso } = require('./src/impulsos');
 const { evaluateReversionPattern } = require('./src/sma_reversion');
+const apagonBroker = require('./src/apagon_broker');
 
 // ── SPX Config (pesos ajustables) ─────────────────────────────
 const SPX_CONFIG_FILE = path.join(DATA_DIR, 'spx_config.json');
@@ -5081,6 +5082,13 @@ app.get('/api/spx/strategies', (req, res) => {
   }
   res.json({ ok: true, estrategias: out });
 });
+// Estado del apagon del broker — lo lee la Torre de Control (scripts/vigilancia.py).
+// Es en MEMORIA a proposito: un apagon vive minutos y el proceso que manda las
+// ordenes es el mismo que lo detecta. Persistirlo obligaria a un archivo mas en el
+// volumen para un dato que no sobrevive util a un reinicio.
+app.get('/api/spx/apagon-broker', (req, res) => {
+  res.json({ ok: true, ...apagonBroker.estado() });
+});
 app.post('/api/spx/strategies/:nombre', (req, res) => {
   const nombre = String(req.params.nombre || '').toUpperCase();
   const { enabled } = req.body || {};
@@ -5212,6 +5220,63 @@ function logStrategyEvent(entry) {
     saveStrategyLog(log.slice(0, 5000));
   } catch(e) { console.error('[SPX-Log] Error guardando log de estrategia:', e.message); }
 }
+// ── Un rechazo del broker, con apagon detras o no (2026-09-03) ─────────────
+//
+// Las tres estrategias tenian el MISMO catch copiado tres veces. Ahora pasan por
+// aca, que ademas de registrar el setup perdido —que es lo que ya se hacia—
+// pregunta si esto es un apagon del sandbox (ver src/apagon_broker.js) y avisa
+// UNA sola vez por bloque, no una por intento: el 1-sep hubo 20 rechazos en 23
+// minutos, y veinte notificaciones iguales se silencian, que es peor que ninguna.
+//
+// El registro por intento NO cambia. Cada rechazo sigue siendo su propia fila de
+// ORDEN_RECHAZADA porque cada uno es un setup que la estrategia acerto y no pudo
+// operar; lo unico que se suma es la marca de si cayo dentro de un apagon.
+async function anotarFalloDeOrden({ familia, error, ctx, strikes }) {
+  const v = apagonBroker.registrarFallo({ familia, mensaje: error.message });
+  try {
+    logStrategyEvent({ strategyFamily: familia, etTime: ctx?.etTime,
+      stage: 'ORDEN_RECHAZADA', passed: false,
+      reason: `El broker rechazo la orden: ${error.message}`,
+      snapshot: buildStrategySnapshot(ctx, { strikes, error: error.message,
+                                             apagonBroker: v.enApagon || undefined }) });
+  } catch { /* registrar el fallo no puede provocar otro */ }
+
+  if (!v.recienDeclarado) return;
+
+  console.error(`[APAGON] 🔌 El sandbox de Tradier dejo de aceptar ordenes — ${v.fallos} seguidas desde ${v.desde}.`);
+  try {
+    logStrategyEvent({ strategyFamily: familia, etTime: ctx?.etTime,
+      stage: 'APAGON_BROKER_INICIO', passed: false,
+      reason: `El broker dejo de aceptar ordenes: ${v.fallos} rechazos seguidos. ` +
+              'Los setups que caigan en este bloque se pierden.' });
+  } catch { /* idem */ }
+  try {
+    await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+      method: 'POST',
+      headers: { 'Title': '🔌 Tradier no acepta ordenes', 'Priority': 'high',
+                 'Tags': 'warning,electric_plug', 'Content-Type': 'text/plain' },
+      body: `El sandbox de Tradier lleva ${v.fallos} ordenes rechazadas seguidas ` +
+            `(${familia}). Mientras dure, las señales se generan y NO se ejecutan. ` +
+            'Medido el 3-sep: bloques de 10 a 40 min, ~59% del horario de mercado.',
+    });
+  } catch(e) { console.error('[APAGON] Error enviando ntfy:', e.message); }
+}
+
+// Una orden que SI entro — cierra el apagon si habia uno y deja el saldo escrito.
+function anotarOrdenAceptada({ familia, ctx }) {
+  const v = apagonBroker.registrarExito();
+  if (!v.seRecupero) return;
+  console.log(`[APAGON] ✔ Tradier volvio a aceptar ordenes tras ${v.duracionMin} min — ${v.setupsPerdidos} setups perdidos.`);
+  try {
+    logStrategyEvent({ strategyFamily: familia, etTime: ctx?.etTime,
+      stage: 'APAGON_BROKER_FIN', passed: true,
+      reason: `El broker volvio a aceptar ordenes tras ${v.duracionMin} min. ` +
+              `Costo: ${v.setupsPerdidos} setups perdidos (${v.familias.join(', ')}).`,
+      snapshot: { desde: v.desde, duracionMin: v.duracionMin,
+                  setupsPerdidos: v.setupsPerdidos, familias: v.familias } });
+  } catch { /* idem */ }
+}
+
 // Snapshot minimo para reconstruir "por que" despues — mismos campos que ya
 // usan los gates existentes, no inventa nada nuevo.
 function buildStrategySnapshot(ctx, extra = {}) {
@@ -6856,6 +6921,7 @@ async function processDirectionalEntry(direction, meta = {}) {
             netLimitPrice:  limiteDeAperturaVertical(signal.strategy, signal.strikes.premium, spxConfig?.trading),
           });
           signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
+          anotarOrdenAceptada({ familia: 'TENDENCIA', ctx });
           signal.status    = 'EXECUTED';
           signal.notes     = 'Auto-ejecutado en Tradier sandbox';
           signal.actionAt  = new Date().toISOString();
@@ -6986,12 +7052,7 @@ async function processDirectionalEntry(direction, meta = {}) {
         // trade por plomeria.
         signal.tradierOrder = { error: e.message };
         console.error('[Tradier] ❌ Error enviando orden:', e.message);
-        try {
-          logStrategyEvent({ strategyFamily: 'TENDENCIA',
-            etTime: ctx.etTime, stage: 'ORDEN_RECHAZADA', passed: false,
-            reason: `El broker rechazo la orden: ${e.message}`,
-            snapshot: buildStrategySnapshot(ctx, { strikes: signal.strikes, error: e.message }) });
-        } catch { /* registrar el fallo no puede provocar otro */ }
+        await anotarFalloDeOrden({ familia: 'TENDENCIA', error: e, ctx, strikes: signal.strikes });
       }
     } else if (tradierEligible && !tradierEnabled) {
       // Ejecución pausada: se mide en la sombra qué habría pasado con el piso
@@ -8088,6 +8149,7 @@ async function checkIronCondor() {
               minCreditPrice:   limiteDeAperturaVertical('IRON_CONDOR', strikes.premium, null, true),
             });
         signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
+        anotarOrdenAceptada({ familia: 'NEUTRAL', ctx });
         signal.status   = 'EXECUTED';
         signal.notes    = (signal.notes ? signal.notes + ' | ' : '') + 'Auto-ejecutado en Tradier sandbox';
         signal.actionAt = new Date().toISOString();
@@ -8211,12 +8273,7 @@ async function checkIronCondor() {
         // trade por plomeria.
         signal.tradierOrder = { error: e.message };
         console.error('[Tradier-IC] ❌ Error enviando orden:', e.message);
-        try {
-          logStrategyEvent({ strategyFamily: 'NEUTRAL',
-            etTime: ctx.etTime, stage: 'ORDEN_RECHAZADA', passed: false,
-            reason: `El broker rechazo la orden: ${e.message}`,
-            snapshot: buildStrategySnapshot(ctx, { strikes: signal.strikes, error: e.message }) });
-        } catch { /* registrar el fallo no puede provocar otro */ }
+        await anotarFalloDeOrden({ familia: 'NEUTRAL', error: e, ctx, strikes: signal.strikes });
       }
     } else if (IS_PRODUCTION && !useDebit) {
       // Ejecución pausada: se mide en la sombra qué habría pasado con el piso
@@ -11065,6 +11122,7 @@ async function checkAlejamientoSMA() {
           netLimitPrice: limiteDeAperturaVertical(strategy, strikes.premium, cfg),
         });
         signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
+        anotarOrdenAceptada({ familia: 'REVERSION', ctx });
         signal.status   = 'EXECUTED';
         signal.actionAt = new Date().toISOString();
         console.log(`[Tradier-REV] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${strategy} ${strikes.shortStrike}/${strikes.longStrike}`);
@@ -11226,12 +11284,7 @@ async function checkAlejamientoSMA() {
         // trade por plomeria.
         signal.tradierOrder = { error: e.message };
         console.error('[Tradier-REV] ❌ Error enviando orden:', e.message);
-        try {
-          logStrategyEvent({ strategyFamily: 'REVERSION',
-            etTime: ctx.etTime, stage: 'ORDEN_RECHAZADA', passed: false,
-            reason: `El broker rechazo la orden: ${e.message}`,
-            snapshot: buildStrategySnapshot(ctx, { strikes: signal.strikes, error: e.message }) });
-        } catch { /* registrar el fallo no puede provocar otro */ }
+        await anotarFalloDeOrden({ familia: 'REVERSION', error: e, ctx, strikes: signal.strikes });
       }
     }
 

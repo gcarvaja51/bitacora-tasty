@@ -164,6 +164,24 @@ def chequear(frenos=False):
     except Exception as e:      # noqa: BLE001
         inc_ambar.append(f"no se pudo leer el log de estrategia: {str(e)[:80]}")
 
+    # 4-bis. ¿Estamos DENTRO de un apagon del broker ahora mismo? (2026-09-03)
+    #
+    # Distinto del conteo de rechazos de arriba, que mira una hora hacia atras y
+    # no distingue veinte rechazos de un mismo bloque de veinte problemas. Esto
+    # dice si el sandbox esta caido EN ESTE MOMENTO, que es lo que decide si
+    # tiene sentido esperar una entrada hoy. Medido el 3-sep: bloques de 10 a 40
+    # min, ~59% del horario de mercado. Ver src/apagon_broker.js.
+    try:
+        ap = _get_json(f"{PROD}/api/spx/apagon-broker")
+        det["apagonBroker"] = ap
+        if ap.get("enApagon"):
+            inc_ambar.append(
+                f"el broker lleva {ap.get('duracionMin')} min sin aceptar ordenes "
+                f"({ap.get('setupsPerdidos')} setups perdidos, {', '.join(ap.get('familias') or [])}): "
+                "las señales se generan y no se ejecutan")
+    except Exception as e:      # noqa: BLE001
+        inc_ambar.append(f"no se pudo leer el estado del broker: {str(e)[:80]}")
+
     # 5. Los frenos. IMPORTANTE: esto verifica que esten CONFIGURADOS y cuanto
     #    margen queda, NO que disparen. Probar que un freno frena exige un
     #    simulacro deliberado, y decir que esta verificado sin haberlo hecho es

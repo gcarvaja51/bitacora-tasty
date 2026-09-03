@@ -40,6 +40,7 @@ Tradier. Node.js/Express + vanilla JS (sin framework frontend).
 | `src/camino_b.js` | Entrada direccional (`calcPullbackEntry`, fase 15m) |
 | `src/impulsos.js` | Conteo de impulsos de 15m → escalera de TP y listón de score |
 | `src/frenos.js` | Circuito diario. **Declara cuáles frenos están realmente activos** |
+| `src/apagon_broker.js` | Detecta los apagones del sandbox de Tradier y **separa su culpa de la nuestra** |
 | `src/impuestos.js` | Hoja fiscal DIAN — **local, no desplegar** |
 | `public/index.html` | SPA completa (~8000 líneas). Todo el frontend en un archivo |
 | `public/tradier.html` | Dashboard dedicado a Tradier/SPX. **Por defecto tocar este** para ajustes de SPX |
@@ -154,6 +155,36 @@ avisar más que un banner chico — verificar `Version history…` antes de edit
 El shorthand resetea las 4 esquinas y pisa el ajuste de `env(safe-area-inset-top)` del
 notch de iOS. Había **3 reglas `.panel` duplicadas** en distintos `@media`.
 
+### 11. El sandbox de Tradier rechaza ~6 de cada 10 órdenes, en apagones por bloques
+**No es nuestro payload.** Medido el 2026-09-03 con 62 sondas `preview=true` mandando la
+misma vertical cada 2 minutos:
+
+| | muestras | fallos | |
+|---|---|---|---|
+| Mercado **cerrado** | 33 | 0 | **0%** |
+| Mercado **abierto** | 29 | 17 | **59%** |
+
+Y no es una franja horaria fija: son **bloques de 10 a 40 minutos** que aparecen y se van.
+Ese día: caído 9:30–9:32, bien 9:34–9:44, **caído 9:46–10:24 (38 min seguidos)**, bien
+10:26–10:36. Las órdenes reales de producción dan lo mismo o peor — **89% de rechazo el
+1-sep** (31 de 35) y **82% el 2-sep** (18 de 22).
+
+Con el mercado cerrado aceptó 33 de 33 la misma orden, con los mismos strikes, que después
+rechazó 17 veces. Es el motor de órdenes de Tradier, no nosotros.
+
+⚠️ **Tradier devuelve fallos de su propio servidor bajo un HTTP 400**, con el cuerpo
+diciéndolo (`"error":"Unexpected server error"`). Eso es una mina: `_req` no reintenta los
+4xx —con razón— así que un fallo transitorio disfrazado de 400 se abandona en silencio.
+`esFalloDelBroker()` (`src/apagon_broker.js`) mira **el cuerpo, no el código**.
+
+**Lo que NO se hace:** reintentar más fuerte. Un bloque de 38 min se come cualquier setup de
+0DTE, y un `POST /orders` no es idempotente. El reintento sano sigue siendo el ciclo
+siguiente de la estrategia. Lo que sí se hace es **decirlo**: un ntfy por bloque (no por
+intento — el 1-sep hubo 20 rechazos en 23 min), los eventos `APAGON_BROKER_INICIO`/`_FIN` en
+el strategy log con el costo en setups, y `GET /api/spx/apagon-broker` para la Torre.
+
+Histórico § *Los apagones del sandbox de Tradier*.
+
 ---
 
 # Reflejos de diagnóstico
@@ -165,6 +196,7 @@ notch de iOS. Había **3 reglas `.panel` duplicadas** en distintos `@media`.
 | Un arreglo del frontend "no funciona" | ¿Editaste `public/index.html` o el de la raíz? ¿Subiste `sw.js`? |
 | Un cambio de config "no se aplicó" en producción | Gotcha 1: push ≠ volumen |
 | Las señales dejaron de generarse | Órdenes zombi (gotcha 7) · el daemon de Gamma caído · un gate que cambió de valor |
+| Las señales se generan pero **ninguna entra** | `GET /api/spx/apagon-broker` → `enApagon: true` = el sandbox no acepta órdenes (gotcha 11). Si dice `false`, entonces sí es nuestro |
 | Los muros/GEX se congelaron | `GET /api/spx/sigma-levels` → `fresh: false` = daemon caído |
 | Una hoja no cuadra con otra | El checkbox de "errores de implementación", o dos lecturas separadas en el tiempo (TTL 60s con P&L en vivo) |
 | P&L pegado en `pendiente_verificar` para siempre | Orden fantasma del sandbox: patas `filled`, orden padre `open`, posición nunca existió. Se corrige a mano con `pnl: 0` |
