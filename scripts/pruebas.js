@@ -305,6 +305,40 @@ chequear('el iron condor de 4 patas no cambia',
            opc('SPX', '2026-09-18', '.SPX260918C7800', 'Short'),
            opc('SPX', '2026-09-18', '.SPX260918C7900', 'Long')])[0] === 'Iron Condor');
 
+// ── 2e. Indices: sector propio y simbolo correcto en Yahoo ─────────────────
+seccion('Los indices (src/indices.js)');
+
+// POR QUE EXISTE: el 2026-09-02 SPX y VIX salian en el donut de sectores como
+// "Sin sector". Yahoo solo devuelve `sector` para quoteType EQUITY, asi que un
+// indice nunca lo va a traer; la categoria la tenemos que poner nosotros.
+const { esIndice, sectorDe, simboloYahoo, SECTOR_INDICES } = require('../src/indices');
+
+chequear('SPX y VIX son indices', esIndice('SPX') && esIndice('VIX'));
+chequear('los ETF de indice tambien (SPY, QQQ, IWM, DIA)',
+  ['SPY','QQQ','IWM','DIA'].every(esIndice));
+chequear('todos caen en el sector Indices',
+  ['SPX','VIX','SPY','QQQ','NDX','RUT'].every(s => sectorDe(s) === SECTOR_INDICES));
+chequear('una accion NO es indice y sigue preguntandole a Yahoo',
+  !esIndice('F') && !esIndice('NU') && sectorDe('ADBE') === null);
+chequear('da igual mayusculas o minusculas', esIndice('spx') && esIndice('vix'));
+
+// Los simbolos, verificados contra Yahoo en vivo el 2026-09-02. Estos numeros
+// estan clavados a proposito: si alguien cambia un mapeo, esta prueba lo canta.
+chequear('SPX -> ^GSPC (S&P 500)',       simboloYahoo('SPX') === '^GSPC');
+// `VIX` pelado devuelve una respuesta SIN precio. Este era el bug: VIX no estaba
+// mapeado, asi que /api/market-data/VIX venia vacio.
+chequear('VIX -> ^VIX, no `VIX`',        simboloYahoo('VIX') === '^VIX');
+// ^IXIC es el NASDAQ Composite (26.217); NDX es el NASDAQ-100 (29.143). Eran dos
+// indices distintos con un 11% de diferencia.
+chequear('NDX -> ^NDX (NASDAQ-100), no ^IXIC (Composite)',
+  simboloYahoo('NDX') === '^NDX');
+chequear('RUT -> ^RUT (Russell 2000)',   simboloYahoo('RUT') === '^RUT');
+chequear('las semanales del SPX cuelgan del mismo indice',
+  simboloYahoo('SPXW') === '^GSPC');
+chequear('un ETF se pide por su propio ticker, sin ^',
+  simboloYahoo('SPY') === 'SPY' && simboloYahoo('QQQ') === 'QQQ');
+chequear('una accion se pide tal cual', simboloYahoo('F') === 'F');
+
 // ── 3. Humo: que TODOS los endpoints respondan ──────────────────────────────
 //
 // Excluidos a proposito, con su razon. Un GET no deberia tener efectos, pero

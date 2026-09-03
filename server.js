@@ -7,6 +7,7 @@ const { TastytradeClient }                              = require('./src/tastytr
 const { TradierClient }                                 = require('./src/tradier');
 const { buildMetrics, buildEquityCurve, buildCalendar } = require('./src/metrics');
 const { agruparPosiciones }                             = require('./src/optionstrat');
+const { esIndice, sectorDe, simboloYahoo }              = require('./src/indices');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -2009,11 +2010,10 @@ function calcRSI(closes, period = 14) {
 app.get('/api/market-data/:symbol', async (req, res) => {
   try {
     const symbol = req.params.symbol.toUpperCase();
-    const isIndex = ['SPX','SPY','QQQ','IWM','NDX','RUT'].includes(symbol);
-    const yhSym = symbol === 'SPX' ? '%5EGSPC'
-                : symbol === 'NDX' ? '%5EIXIC'
-                : symbol === 'RUT' ? '%5ERUT'
-                : encodeURIComponent(symbol);
+    // La lista vive en src/indices.js, no aqui: estaba escrita a mano y le
+    // faltaba VIX, y NDX apuntaba al NASDAQ Composite en vez de al 100.
+    const isIndex = esIndice(symbol);
+    const yhSym = encodeURIComponent(simboloYahoo(symbol));
 
     // VIX actual + historial 1 año (para IV Rank)
     const vixR = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1y',
@@ -2053,7 +2053,10 @@ app.get('/api/market-data/:symbol', async (req, res) => {
 
     // Earnings + Sector — solo acciones individuales
     let earningsDays = 999;
-    let sector = null, industry = null;
+    // Un indice no tiene sector en Yahoo (solo lo trae quoteType EQUITY) y
+    // preguntarselo no sirve de nada. La categoria la ponemos nosotros, que si
+    // no el donut de sectores los amontona todos en "Sin sector".
+    let sector = sectorDe(symbol), industry = null;
     if (!isIndex) {
       try {
         // Earnings desde calendarEvents
