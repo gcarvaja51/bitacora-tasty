@@ -300,10 +300,11 @@ seccion('Las figuras de OptionStrat (src/optionstrat.js)');
 // equivocado sobre cuenta real es exactamente lo que esta bateria debe frenar.
 const { agruparPosiciones } = require('../src/optionstrat');
 
-const opc = (und, exp, sym, dir, q = 1) => ({
+const opc = (und, exp, sym, dir, q = 1, precio) => ({
   'instrument-type': 'Equity Option', 'underlying-symbol': und,
   'expires-at': exp + 'T20:00:00.000Z', 'streamer-symbol': sym,
   'quantity-direction': dir, quantity: String(q),
+  ...(precio === undefined ? {} : { 'average-open-price': String(precio) }),
 });
 const acc = (und, q) => ({ 'instrument-type': 'Equity', 'underlying-symbol': und, quantity: String(q) });
 const figuras = pos => agruparPosiciones(pos).map(g => g.figura);
@@ -361,6 +362,47 @@ chequear('el iron condor de 4 patas no cambia',
            opc('SPX', '2026-09-18', '.SPX260918P6500', 'Short'),
            opc('SPX', '2026-09-18', '.SPX260918C7800', 'Short'),
            opc('SPX', '2026-09-18', '.SPX260918C7900', 'Long')])[0] === 'Iron Condor');
+
+// ── 2d-bis. El precio de apertura en la URL de OptionStrat ─────────────────
+
+// POR QUE EXISTE, con nombre y fecha: el 2026-09-04 Guillermo detecto que las
+// primas que muestra OptionStrat no coincidian con las que cobro al abrir. La
+// URL solo llevaba los CONTRATOS, asi que OptionStrat valoraba la figura a
+// precio de mercado de HOY. En el bull put de ADBE decia "NET CREDIT $59.50"
+// cuando la prima real fueron $58.00; en la covered call de GAP la desviacion
+// era de $117.
+//
+// La sintaxis `@precio` por pata lo arregla y ademas hace aparecer el
+// "Unrealized gain/loss". Verificado en vivo con las cuatro formas que
+// manejamos (ADBE, SPX, NU x2 y F).
+const conPrecio = agruparPosiciones([
+  opc('ADBE', '2026-10-02', '.ADBE261002P240', 'Long',  1, 2.03),
+  opc('ADBE', '2026-10-02', '.ADBE261002P245', 'Short', 1, 2.61),
+]);
+chequear('la URL lleva el precio de apertura de cada pata',
+  conPrecio[0]?.url === 'https://optionstrat.com/build/bull-put-spread/ADBE/.ADBE261002P240@2.03,-.ADBE261002P245@2.61',
+  `dio ${conPrecio[0]?.url}`);
+
+// Con cantidad 2 el precio va en las DOS copias de la pata.
+chequear('la pata repetida por cantidad lleva precio en cada copia',
+  agruparPosiciones([opc('NU', '2026-11-20', '.NU261120C14', 'Short', 2, 2.11)])[0]?.url
+    === 'https://optionstrat.com/build/covered-call/NU/-.NU261120C14@2.11,-.NU261120C14@2.11'
+  || agruparPosiciones([opc('NU', '2026-11-20', '.NU261120C14', 'Short', 2, 2.11)])[0]?.url
+    === 'https://optionstrat.com/build/short-call/NU/-.NU261120C14@2.11,-.NU261120C14@2.11');
+
+// Sin precio no se inventa uno: se emite la pata pelada y OptionStrat valora a
+// mercado. Es peor que con precio, pero mejor que un grafico equivocado.
+chequear('sin average-open-price la URL sale sin @, no con @0 ni @NaN',
+  !/@/.test(agruparPosiciones([opc('SOFI', '2026-09-25', '.SOFI260925P17.5', 'Short')])[0]?.url || ''));
+chequear('un precio invalido tampoco ensucia la URL',
+  !/@/.test(agruparPosiciones([opc('SOFI', '2026-09-25', '.SOFI260925P17.5', 'Short', 1, 0)])[0]?.url || ''));
+
+// El decimal se normaliza: 55.70 -> 55.7, como hace la propia OptionStrat.
+chequear('el precio se normaliza sin ceros de relleno',
+  /@55\.7,/.test(agruparPosiciones([
+    opc('SPX', '2026-10-16', '.SPXW261016P7310', 'Long',  1, 55.70),
+    opc('SPX', '2026-10-16', '.SPXW261016P7320', 'Short', 1, 57.10),
+  ])[0]?.url || ''));
 
 // ── 2e. Indices: sector propio y simbolo correcto en Yahoo ─────────────────
 seccion('Los indices (src/indices.js)');

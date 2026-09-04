@@ -25,6 +25,23 @@
  * cae a la página genérica— pero `-.NU261120C14,-.NU261120C14` sí, y el título
  * pasa a "NU Nov 20th 14 Short Calls", en plural. Devuelve un ARRAY.
  *
+ * PRECIO DE APERTURA con `@precio` (verificado en vivo el 2026-09-04):
+ *
+ * Sin él, OptionStrat valora la figura al precio de mercado de HOY, no al que
+ * pagaste. El bull put de ADBE salia con "NET CREDIT $59.50" cuando la prima
+ * real de apertura fueron $58.00. La diferencia crecia con el tiempo: en la
+ * covered call de GAP era de $117.
+ *
+ * Añadiendo `@2.03` a cada pata, OptionStrat:
+ *   - clava el credito/debito neto en el que de verdad cobraste o pagaste,
+ *   - recalcula max loss y breakeven sobre ESE precio,
+ *   - y AÑADE una linea nueva, "Unrealized gain/loss", con el P&L vivo de la
+ *     posicion. Ese dato antes no aparecia.
+ *
+ * Comprobado con las cuatro formas que tenemos: vertical de 2 patas (ADBE),
+ * iron condor de 4 (SPX, $405 exactos), pata repetida por cantidad 2 (NU,
+ * $422) y diagonal de dos vencimientos (F, $451 de debito).
+ *
  * Lo que NO se pone: la pata de ACCIONES de una covered call. El ticker suelto
  * (`JBLU,-.JBLU260925C5`) se parsea, pero OptionStrat degrada la figura a
  * "Custom" y no hay forma de confirmar si ese token vale 1 acción o 100
@@ -36,7 +53,12 @@ function legToken(pos) {
   if (!sym) return null;
   const corta = String(pos['quantity-direction'] || '').toLowerCase() === 'short';
   const n = Math.max(1, Math.round(Math.abs(parseFloat(pos.quantity || 1))));
-  return Array(n).fill((corta ? '-' : '') + sym);
+  // `average-open-price` viene por ACCION, que es la unidad que espera la URL.
+  // Sin precio válido se emite la pata pelada: mejor un gráfico a precio de
+  // mercado que ninguno.
+  const precio = parseFloat(pos['average-open-price']);
+  const suf = Number.isFinite(precio) && precio > 0 ? '@' + (+precio.toFixed(2)) : '';
+  return Array(n).fill((corta ? '-' : '') + sym + suf);
 }
 
 function esPut(pos)  { return /P[\d.]+$/.test(pos['streamer-symbol'] || ''); }
