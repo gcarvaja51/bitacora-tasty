@@ -659,7 +659,28 @@ function buildMetrics(items, opts = {}) {
      un dia donde salieron $2.518 (la asignacion de GAP, 100 acciones a $2.705).
      Ahora entra TODA orden que abra algo, con su signo — un dia puede salir en
      rojo, que es lo que de verdad paso. Sigue siendo caja, no resultado. */
-  const openByDay = {};
+  /* Lo que sigue ABIERTO hoy, fechado en la apertura de su campaña.
+     `openByDay` mira solo el mismo dia (es lo que quiere la vista diaria); esto
+     mira hasta hoy, que es lo que quiere el resumen del mes: "de lo que abri
+     este mes, cuanto sigue abierto".
+     Sumar la caja diaria de todo un mes NO responde eso: cuenta entera la prima
+     de una posicion abierta y cerrada dentro del mismo mes, y febrero daria
+     +$3.158 de "abierto" cuando de febrero no queda ni una pata viva.
+     Se toma el VALOR de las patas que quedan en el inventario, no una fraccion
+     del neto de la orden: en una cadena de rolls la pata viva carga el arrastre
+     de toda la campaña, asi que solo el valor real hace que la suma de todos los
+     meses de exactamente el costo de lo abierto — y con eso la invariante
+     `caja = realizado + patas vivas` sigue cerrando. La fecha es la de la
+     apertura original (`e.date`), que es cuando empezo la operacion. */
+  const abiertoByDay = {};
+  for (const [, stack] of inventory) {
+    for (const e of stack) {
+      if (e.qty > 0 && e.date) abiertoByDay[e.date] = (abiertoByDay[e.date] || 0) + e.value;
+    }
+  }
+  for (const d of Object.keys(abiertoByDay)) abiertoByDay[d] = +abiertoByDay[d].toFixed(2);
+
+  const openByDay = {};      // caja del dia: lo que sobrevivio ESE dia
   const vivoDeOrden = {};
   for (const o of orders) {
     const patasAbiertas = o.legs.filter(l => /to Open/i.test(l.action || ''));
@@ -750,6 +771,7 @@ function buildMetrics(items, opts = {}) {
     strategies:      stratLimit > 0 ? consolidatedStrategies.slice(-stratLimit) : consolidatedStrategies,
     stratByDay,
     openByDay,
+    abiertoByDay,
     movimientos,
     strategyByMonth,
     strategyByWeek,

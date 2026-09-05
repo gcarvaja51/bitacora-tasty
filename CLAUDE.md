@@ -479,6 +479,20 @@ comparar:
   dos filas — las aperturas de posiciones vivas y los rolls no existían para la pantalla.
   Las filas de `Apertura` y `Roll` van **sin P&L y no suman a la casilla**.
 
+**El resumen del mes** (arriba a la derecha del Calendario, y en la PWA del iPhone) trae tres
+números: **Ejecutado** (realizado que cerró en el mes), **Abierto** (`abiertoByDay` — de lo que
+se abrió ese mes, lo que **sigue abierto hoy**, valorado a lo que costó con todo lo que se le
+sumó rolando) y **Total**. Solo del mes que se mira, sin acumular otros meses.
+
+⚠️ **`abiertoByDay` NO es la suma de la caja diaria.** `openByDay` solo descuenta los cierres
+del MISMO día, así que sumado por mes cuenta entera la prima de una posición abierta y cerrada
+dentro del mes: febrero daría **+$3.158 de "abierto" sin tener ni una pata viva**. Se toma el
+**valor de las patas que quedan en el inventario**, fechado en la apertura original de la
+campaña — y no una fracción del neto de la orden, porque en una cadena de rolls la pata viva
+carga el arrastre de toda la campaña. Con el valor real, **la suma de todos los meses da
+exactamente el costo de lo abierto**, y por tanto `Σ(Ejecutado) + Σ(Abierto) = la caja real`.
+Hay test.
+
 El detalle del día va en **dos bloques con su propio subtotal**, porque son dos preguntas
 distintas: **CERRADO** (lo que dejó resultado — su subtotal es exactamente la casilla del
 calendario) y **CAJA** (rolls y aperturas — lo que entró o salió de la cuenta, que se realiza

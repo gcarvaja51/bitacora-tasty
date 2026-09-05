@@ -222,11 +222,13 @@
             <option value="RUEDA">La Rueda</option>
             <option value="OTRO">Sin clasificar</option>
           </select>
-          <div style="display:flex;gap:16px;font-family:var(--mono);font-size:11px;">
-            <span>Mes: <strong class="pos" id="cal-month-pnl">—</strong></span>
-            <span class="dim">|</span>
-            <span>Días +: <strong class="pos" id="cal-pos-days">—</strong></span>
-            <span>Días -: <strong class="neg" id="cal-neg-days">—</strong></span>
+          <div class="cal-resumen">
+            <span title="Resultado realizado: lo que cerró en el mes">Ejecutado <strong id="cal-month-pnl">—</strong></span>
+            <span title="De lo que se abrió en el mes, lo que sigue abierto hoy — valorado a lo que costó">Abierto <strong id="cal-month-caja">—</strong></span>
+            <span class="cal-resumen-total" title="Ejecutado + Abierto: todo lo que este mes movió de la cuenta">Total <strong id="cal-month-total">—</strong></span>
+            <span class="dim cal-resumen-dias">|</span>
+            <span class="cal-resumen-dias">Días +: <strong class="pos" id="cal-pos-days">—</strong></span>
+            <span class="cal-resumen-dias">Días -: <strong class="neg" id="cal-neg-days">—</strong></span>
           </div>
         </div>
         <div class="card-body">
@@ -1658,10 +1660,26 @@ function renderCalendar() {
   let moTotal=0, moPos=0, moNeg=0;
   const prefix = `${y}-${String(mo+1).padStart(2,'0')}`;
   Object.entries(cal).forEach(([d,v])=>{ if(d.startsWith(prefix)){moTotal+=v;if(v>0)moPos++;else if(v<0)moNeg++;} });
-  $('cal-month-pnl').textContent = f$(moTotal);
-  $('cal-month-pnl').className   = cc(moTotal);
-  $('cal-pos-days').textContent  = moPos;
-  $('cal-neg-days').textContent  = moNeg;
+  /* "Abierto" = de lo que se abrió ESE mes, lo que sigue abierto hoy, valorado a
+     lo que costó (con todo lo que se le sumó rolando). Solo del mes que se está
+     mirando: no acumula nada de otros meses.
+     No es la suma de la caja diaria: esa cuenta entera la prima de una posición
+     abierta y cerrada dentro del mismo mes, y febrero daría +$3.158 de "abierto"
+     cuando de febrero no queda ni una pata viva. */
+  const abiertos = m?.abiertoByDay || {};
+  let moCaja = 0;
+  Object.entries(abiertos).forEach(([d, v]) => { if (d.startsWith(prefix)) moCaja += v; });
+  moCaja = +moCaja.toFixed(2);
+  const moSuma = moTotal + moCaja;
+
+  $('cal-month-pnl').textContent  = f$(moTotal);
+  $('cal-month-pnl').className    = cc(moTotal);
+  $('cal-month-caja').textContent = f$(moCaja);
+  $('cal-month-caja').className   = cc(moCaja);
+  $('cal-month-total').textContent= f$(moSuma);
+  $('cal-month-total').className  = cc(moSuma);
+  $('cal-pos-days').textContent   = moPos;
+  $('cal-neg-days').textContent   = moNeg;
 
   // Day-of-week headers
   const dows = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];

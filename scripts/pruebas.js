@@ -297,6 +297,37 @@ chequear('con Cash Settled, el Removal a $0 no cierra la pata dos veces',
   Math.abs((mDob.stratByDay['2026-04-15'] || 0) - 200) < 0.01,
   `dio ${mDob.stratByDay['2026-04-15']}, deberia ser 200 (+500 -300)`);
 
+// (f) El resumen del mes: "Abierto" es lo que de ese mes SIGUE abierto hoy, no
+//     la suma de la caja diaria. La caja diaria solo descuenta los cierres del
+//     mismo dia, asi que sumada por mes cuenta entera la prima de una posicion
+//     abierta y cerrada dentro del mes: febrero daba +$3.158 de "abierto" sin
+//     tener ni una pata viva. Pedido del usuario el 2026-09-05, "para saber como
+//     vamos". La invariante que lo ata: realizado + abierto = la caja real.
+const libroMes = [
+  // abre y cierra dentro del mes: no puede dejar nada "abierto"
+  tx({ id: 70, 'order-id': 800, 'transaction-date': '2026-03-03T14:00:00Z', 'executed-at': '2026-03-03T14:00:00Z',
+       symbol: 'NU    260320P00013000', action: 'Sell to Open', 'net-value': '100', 'net-value-effect': 'Credit',
+       'underlying-symbol': 'NU' }),
+  tx({ id: 71, 'order-id': 801, 'transaction-date': '2026-03-10T14:00:00Z', 'executed-at': '2026-03-10T14:00:00Z',
+       symbol: 'NU    260320P00013000', action: 'Buy to Close', 'net-value': '40', 'net-value-effect': 'Debit',
+       'underlying-symbol': 'NU' }),
+  // abre y sigue viva
+  tx({ id: 72, 'order-id': 802, 'transaction-date': '2026-03-20T14:00:00Z', 'executed-at': '2026-03-20T14:00:00Z',
+       symbol: 'NU    271217P00013000', action: 'Sell to Open', 'net-value': '250', 'net-value-effect': 'Credit',
+       'underlying-symbol': 'NU' }),
+];
+const mMes = buildMetrics(libroMes, { limit: 0 });
+const sumaMes = (o) => Object.entries(o).reduce((a, [d, v]) => a + (d.startsWith('2026-03') ? v : 0), 0);
+chequear('lo abierto y cerrado dentro del mes no cuenta como "abierto"',
+  Math.abs(sumaMes(mMes.abiertoByDay) - 250) < 0.01,
+  `dio ${sumaMes(mMes.abiertoByDay)}, solo la de dic-2027 sigue viva (250)`);
+chequear('la suma de la caja diaria SI la contaria (por eso no se usa)',
+  Math.abs(sumaMes(mMes.openByDay) - 350) < 0.01,
+  `dio ${sumaMes(mMes.openByDay)}`);
+chequear('realizado + abierto = la caja real del libro',
+  Math.abs((sumaMes(mMes.stratByDay) + sumaMes(mMes.abiertoByDay)) - 310) < 0.01,
+  `dio ${sumaMes(mMes.stratByDay) + sumaMes(mMes.abiertoByDay)}, la caja fue +100 -40 +250 = 310`);
+
 // (c) El detalle de un dia sale de `metrics.strategies`: si viene recortado, los
 //     meses viejos quedan mudos aunque la casilla muestre P&L. El 2026-09-05
 //     habia 304 round-trips y 56 de 127 dias en blanco por el tope de 200, por

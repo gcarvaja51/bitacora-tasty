@@ -208,6 +208,46 @@ distintas y no una.
 
 ---
 
+### El resumen del mes: Ejecutado / Abierto / Total (2026-09-05)
+
+Pedido del usuario: *"en el dato resumen de cada mes… que aparezca el dato real de lo
+ejecutado y el otro valor de lo que está abierto y la suma de ambos, para saber cómo vamos"* —
+y, preguntado, *"abierto es lo que llamas caja, solo lo del mes, nada acumulado"*.
+
+La trampa: **sumar la caja diaria de un mes no da "lo que está abierto"**. `openByDay`
+descuenta únicamente los cierres del MISMO día, así que sumado por mes cuenta entera la prima
+de cualquier posición abierta y cerrada dentro del mes. Medido: febrero habría mostrado
+**+$3.158,45 de "abierto"** cuando de febrero no queda ni una pata viva; marzo, +$7.230,64.
+
+`abiertoByDay` se construye desde el otro lado: el **valor de las patas que siguen en el
+inventario**, fechado en la apertura original de su campaña. No una fracción del neto de la
+orden — en una cadena de rolls la pata viva carga el arrastre de toda la campaña, y solo el
+valor real hace que la suma cierre. Así queda:
+
+```
+MES        Ejecutado      Abierto        Total
+2026-02      +$626,32       +$0,00     +$626,32
+2026-03    -$1.530,75       +$0,00   -$1.530,75
+2026-04      -$547,43       +$0,00     -$547,43
+2026-05      +$564,67   -$3.144,24   -$2.579,57   ← GAP y NU asignadas en acciones
+2026-06      -$424,16   -$2.179,36   -$2.603,52
+2026-07       -$53,54       +$0,00      -$53,54
+2026-08      +$274,77     +$401,43     +$676,20
+2026-09      +$192,20      +$78,37     +$270,57
+TOTAL        -$897,91   -$4.843,80   -$5.741,71
+```
+
+Los meses viejos dan $0 de abierto, que es la señal de que el número dice la verdad. Y el
+total cierra contra la caja real del libro (−$5.741,72, residuo $0,01 de redondeo): **la misma
+invariante maestra, ahora visible mes a mes en pantalla**.
+
+En el iPhone se apoya en el `flex-wrap` de `.card-header` del breakpoint de 1024px —el arreglo
+del 2026-08-28, cuando los totales del mes quedaban recortados fuera del recuadro— y a 640px
+se esconden los contadores "Días +/−" para que los tres números que importan quepan en la
+primera línea.
+
+---
+
 ### La auditoría hacia atrás (2026-09-05, cierre): dos bugs más
 
 Con todo lo anterior desplegado, el usuario pidió *"revísalo todo hacia atrás"*. Se corrió una

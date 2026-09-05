@@ -617,6 +617,23 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
   color: var(--muted); padding-top: 12px; border-bottom: 1px solid var(--border); }
 .cal-grp td .dim { text-transform: none; letter-spacing: 0; }
 .cal-sub td { border-top: 1px solid var(--border); font-size: 11px; padding-top: 7px; }
+/* Resumen del mes: Ejecutado / Abierto / Total.
+   El envolver ya lo resuelve `.card-header { flex-wrap }` del breakpoint de
+   1024px (ver la nota del 2026-08-28: sin eso los totales quedaban RECORTADOS
+   fuera del recuadro en el movil, no ocultos). Aca solo se esconden los
+   contadores de dias, y a 640px y no a 1024: en una tablet o un portatil chico
+   caben de sobra; en el iPhone son los que sacan los tres numeros que importan
+   de la primera linea. */
+.cal-resumen { display: flex; flex-wrap: wrap; gap: 14px; align-items: baseline;
+  font-family: var(--mono); font-size: 11px; }
+.cal-resumen strong { margin-left: 4px; }
+.cal-resumen-total { padding-left: 12px; border-left: 1px solid var(--border); }
+.cal-resumen-total strong { font-size: 13px; }
+@media (max-width: 640px) {
+  .cal-resumen { gap: 10px; font-size: 12px; width: 100%; }
+  .cal-resumen-dias { display: none; }
+  .cal-resumen-total { padding-left: 10px; }
+}
 
 /* ══ CADENA DE OPCIONES ══════════════════════════════════ */
 .chain-expiry-btn { padding:5px 12px; border-radius:20px; border:1px solid var(--border2); background:var(--card2); color:var(--muted); font-size:11px; font-family:var(--mono); cursor:pointer; transition:.15s; }
