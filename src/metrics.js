@@ -196,6 +196,18 @@ function weekKey(dateStr) {
 // completo o el total declarado queda por debajo del real.
 function buildMetrics(items, opts = {}) {
   const stratLimit = opts.limit === undefined ? 200 : Number(opts.limit) || 0;
+  /* Simbolo+fecha que SI tienen una fila "Cash Settled". Ahi el Removal a $0 es
+     su acompañante y hay que ignorarlo o la pata se cierra dos veces. Cuando NO
+     la hay —una asignacion que entrega ACCIONES, no efectivo— ese Removal es la
+     unica transaccion que cierra la opcion, y botarlo dejaba la corta viva para
+     siempre con su prima sin realizar. Encontrado el 2026-09-05 auditando hacia
+     atras: la put de GAP $27 06/18 (+$279,87, asignada el 29-may en 100
+     acciones) y la de NU $13 06/05 (+$55,73, asignada el 3-jun en 200). */
+  const liquidadoEnEfectivo = new Set(
+    items.filter(t => t['transaction-type'] === 'Receive Deliver' &&
+                      /Cash Settled/i.test(t['transaction-sub-type'] || ''))
+         .map(t => `${t.symbol}|${(t['transaction-date'] || '').slice(0, 10)}`));
+
   const trades = items.filter(t => {
     if (t['transaction-type'] === 'Trade') return true;
     if (t['transaction-type'] === 'Receive Deliver') {
@@ -205,9 +217,14 @@ function buildMetrics(items, opts = {}) {
       // unica transaccion que lo registraba: botarla dejaba viva para siempre una
       // pata ya vencida y su prima nunca se realizaba. Historico § Expiraciones a
       // cero (15-abr-2026: el calendario daba +$6.258,21 en un dia de -$77,59).
-      const nv = parseFloat(t['net-value'] || 0);
+      const nv  = parseFloat(t['net-value'] || 0);
       if (nv !== 0) return true;
-      return /Expiration/i.test(t['transaction-sub-type'] || '');
+      const sub = t['transaction-sub-type'] || '';
+      if (/Expiration/i.test(sub)) return true;
+      if (/Assignment|Exercise/i.test(sub)) {
+        return !liquidadoEnEfectivo.has(`${t.symbol}|${(t['transaction-date'] || '').slice(0, 10)}`);
+      }
+      return false;
     }
     return false;
   });
@@ -287,11 +304,16 @@ function buildMetrics(items, opts = {}) {
   /* ── 2. FIFO con matching por apertura más próxima en fecha ── */
   const inventory = new Map(); // sym → [{orderId, value, date, ...}]
   const rawPairs  = [];
-  /* orderId -> cuanto del valor de apertura de esa orden se cerro el MISMO dia.
-     Sirve para no contar dos veces un intradia: su historia entera va en la fila
-     de cierre, con su P&L; enseñarlo ademas como "prima nueva que entro hoy" lo
-     mostraba dos veces en el detalle del dia. */
-  const cerradoMismoDia = {};
+  /* orderId -> CONTRATOS de esa orden que se cerraron el MISMO dia en que se
+     abrieron. Sirve para no contar dos veces un intradia: su historia entera va
+     en la fila de cierre, con su P&L; enseñarlo ademas como "prima nueva que
+     entro hoy" lo mostraba dos veces en el detalle del dia.
+     Se mide en CONTRATOS y no en dinero a proposito: el valor de apertura de una
+     pata nacida de un roll viene ARRASTRADO de dias anteriores, asi que restarlo
+     del neto de la orden es mezclar dos cosas distintas — el 2026-07-31 la orden
+     del roll de COIN daba `vivo` 192,12 sobre un neto de 19,75. Con contratos la
+     proporcion siempre es la correcta. */
+  const cerradoMismoDiaQty = {};
 
   // Detectar si una orden es un ROLL: tiene patas "to Close" y "to Open" del mismo tipo (C o P)
   function detectRoll(order) {
@@ -340,6 +362,11 @@ function buildMetrics(items, opts = {}) {
           value:      lv,
           qty,
           date:       order.date,
+          // `date` puede quedar pisada por el arrastre de un roll (pasa a ser la
+          // apertura original de la campaña, que es lo que quiere la duracion).
+          // `orderDate` conserva el dia en que ESTA pata nacio, que es lo unico
+          // que sirve para saber si se cerro el mismo dia.
+          orderDate:  order.date,
           execAt:     order.executedAt,
           underlying: order.underlying,
           desc:       order.desc,
@@ -399,8 +426,8 @@ function buildMetrics(items, opts = {}) {
           }
 
           for (const t of taken) {
-            if (t.open.date === order.date) {
-              cerradoMismoDia[t.open.orderId] = (cerradoMismoDia[t.open.orderId] || 0) + t.openValue;
+            if ((t.open.orderDate || t.open.date) === order.date) {
+              cerradoMismoDiaQty[t.open.orderId] = (cerradoMismoDiaQty[t.open.orderId] || 0) + (t.qty || 0);
             }
           }
 
@@ -635,10 +662,16 @@ function buildMetrics(items, opts = {}) {
   const openByDay = {};
   const vivoDeOrden = {};
   for (const o of orders) {
-    if (!o.legs.some(l => /to Open/i.test(l.action || ''))) continue;
-    // Lo que se abrio y se cerro el mismo dia no deja caja en juego: se descuenta
-    // en la proporcion que se haya cerrado (abrir 2 y cerrar 1 deja la mitad).
-    const vivo = +(o.netValue - (cerradoMismoDia[o.id] || 0)).toFixed(2);
+    const patasAbiertas = o.legs.filter(l => /to Open/i.test(l.action || ''));
+    if (!patasAbiertas.length) continue;
+    // Lo que se abrio y se cerro el mismo dia no deja caja en juego. Se prorratea
+    // por CONTRATOS: abrir 2 y cerrar 1 deja viva la mitad del neto. Aplica igual
+    // a un roll cuya pata nueva muere el mismo dia (JBLU 2026-08-18: rolo a la
+    // put $6 09/18 y la recompro esa misma tarde).
+    const abiertos = patasAbiertas.reduce((a, l) => a + (legQty(l) || 0), 0);
+    const cerrados = cerradoMismoDiaQty[o.id] || 0;
+    const frac     = abiertos > 0 ? Math.max(0, 1 - cerrados / abiertos) : 1;
+    const vivo     = +(o.netValue * frac).toFixed(2);
     vivoDeOrden[o.id] = vivo;
     if (Math.abs(vivo) > 0.005) openByDay[o.date] = (openByDay[o.date] || 0) + vivo;
   }

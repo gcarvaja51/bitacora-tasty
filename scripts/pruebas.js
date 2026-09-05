@@ -229,6 +229,74 @@ chequear('el movimiento lleva el neto de caja con su signo',
   Math.abs((movs.find(x => x.date === '2026-06-15')?.net || 0) - 30) < 0.01,
   `dio ${movs.find(x => x.date === '2026-06-15')?.net}, el roll fue -10 +40 = 30`);
 
+// (d) Un roll cuya pata NUEVA muere el mismo dia tampoco deja caja. Encontrado
+//     el 2026-09-05 auditando hacia atras: JBLU el 18-ago rolo a la put $6 09/18
+//     y la recompro esa misma tarde; el roll seguia enseñando +$46,75 de caja
+//     viva. La proporcion se mide en CONTRATOS y no en dinero: el valor de una
+//     pata nacida de un roll viene arrastrado de dias anteriores, y restarlo del
+//     neto daba disparates (COIN 31-jul: `vivo` 192,12 sobre un neto de 19,75).
+const libroRollMuerto = [
+  tx({ id: 40, 'order-id': 600, 'transaction-date': '2026-08-03T14:00:00Z', 'executed-at': '2026-08-03T14:00:00Z',
+       symbol: 'JBLU  260904P00005500', action: 'Sell to Open', 'net-value': '15', 'net-value-effect': 'Credit',
+       'underlying-symbol': 'JBLU' }),
+  tx({ id: 41, 'order-id': 601, 'transaction-date': '2026-08-18T14:00:00Z', 'executed-at': '2026-08-18T14:00:00Z',
+       symbol: 'JBLU  260904P00005500', action: 'Buy to Close', 'net-value': '48', 'net-value-effect': 'Debit',
+       'underlying-symbol': 'JBLU' }),
+  tx({ id: 42, 'order-id': 601, 'transaction-date': '2026-08-18T14:00:00Z', 'executed-at': '2026-08-18T14:00:00Z',
+       symbol: 'JBLU  260918P00006000', action: 'Sell to Open', 'net-value': '95', 'net-value-effect': 'Credit',
+       'underlying-symbol': 'JBLU' }),
+  tx({ id: 43, 'order-id': 602, 'transaction-date': '2026-08-18T18:00:00Z', 'executed-at': '2026-08-18T18:00:00Z',
+       symbol: 'JBLU  260918P00006000', action: 'Buy to Close', 'net-value': '94', 'net-value-effect': 'Debit',
+       'underlying-symbol': 'JBLU' }),
+];
+const mRM = buildMetrics(libroRollMuerto, { limit: 0 });
+chequear('un roll que muere el mismo dia no deja caja viva',
+  mRM.openByDay['2026-08-18'] === undefined,
+  `dio ${mRM.openByDay['2026-08-18']}`);
+chequear('y la cadena entera aflora el dia del cierre',
+  Math.abs((mRM.stratByDay['2026-08-18'] || 0) + 32) < 0.01,
+  `dio ${mRM.stratByDay['2026-08-18']}, la cadena vale +15 -48 +95 -94 = -32`);
+
+// (e) Una asignacion que entrega ACCIONES cierra la opcion corta. Es el unico
+//     evento que lo registra —no hay fila "Cash Settled"— y botarlo dejaba la
+//     corta viva para siempre con su prima sin realizar. Encontrado el
+//     2026-09-05: la put de GAP $27 (+$279,87) y la de NU $13 (+$55,73) seguian
+//     abiertas meses despues de haber sido asignadas.
+const libroAsignacion = [
+  tx({ id: 50, 'order-id': 700, 'transaction-date': '2026-05-28T14:00:00Z', 'executed-at': '2026-05-28T14:00:00Z',
+       symbol: 'GAP   260618P00027000', action: 'Sell to Open', 'net-value': '279.87', 'net-value-effect': 'Credit',
+       'underlying-symbol': 'GAP' }),
+  tx({ id: 51, 'transaction-type': 'Receive Deliver', 'transaction-sub-type': 'Assignment', 'order-id': null,
+       'transaction-date': '2026-05-29T21:00:00Z', 'executed-at': '2026-05-29T21:00:00Z',
+       symbol: 'GAP   260618P00027000', 'net-value': '0', 'net-value-effect': 'None',
+       'underlying-symbol': 'GAP' }),
+  tx({ id: 52, 'transaction-type': 'Receive Deliver', 'transaction-sub-type': 'Buy to Open', 'order-id': null,
+       'transaction-date': '2026-05-29T21:00:00Z', 'executed-at': '2026-05-29T21:00:00Z',
+       symbol: 'GAP', action: 'Buy to Open', quantity: '100',
+       'net-value': '2705', 'net-value-effect': 'Debit', 'underlying-symbol': 'GAP' }),
+];
+const mAs = buildMetrics(libroAsignacion, { limit: 0 });
+chequear('una asignacion en acciones cierra la opcion y realiza su prima',
+  Math.abs((mAs.stratByDay['2026-05-29'] || 0) - 279.87) < 0.01,
+  `dio ${mAs.stratByDay['2026-05-29']}, la prima cobrada fue 279,87`);
+
+// Pero cuando SI hay "Cash Settled", el Removal a $0 es su acompanante y no
+// puede cerrar la pata otra vez.
+const libroDoble = [
+  tx({ id: 60, 'transaction-date': '2026-04-15T14:00:00Z', 'executed-at': '2026-04-15T14:00:00Z',
+       symbol: 'SPXW  260415C06915000', action: 'Sell to Open', 'net-value': '500', 'net-value-effect': 'Credit' }),
+  tx({ id: 61, 'transaction-type': 'Receive Deliver', 'transaction-sub-type': 'Assignment', 'order-id': null,
+       'transaction-date': '2026-04-15T21:00:00Z', 'executed-at': '2026-04-15T21:00:00Z',
+       symbol: 'SPXW  260415C06915000', 'net-value': '0', 'net-value-effect': 'None' }),
+  tx({ id: 62, 'transaction-type': 'Receive Deliver', 'transaction-sub-type': 'Cash Settled Assignment', 'order-id': null,
+       'transaction-date': '2026-04-15T21:00:00Z', 'executed-at': '2026-04-15T21:00:00Z',
+       symbol: 'SPXW  260415C06915000', 'net-value': '300', 'net-value-effect': 'Debit' }),
+];
+const mDob = buildMetrics(libroDoble, { limit: 0 });
+chequear('con Cash Settled, el Removal a $0 no cierra la pata dos veces',
+  Math.abs((mDob.stratByDay['2026-04-15'] || 0) - 200) < 0.01,
+  `dio ${mDob.stratByDay['2026-04-15']}, deberia ser 200 (+500 -300)`);
+
 // (c) El detalle de un dia sale de `metrics.strategies`: si viene recortado, los
 //     meses viejos quedan mudos aunque la casilla muestre P&L. El 2026-09-05
 //     habia 304 round-trips y 56 de 127 dias en blanco por el tope de 200, por

@@ -208,6 +208,54 @@ distintas y no una.
 
 ---
 
+### La auditoría hacia atrás (2026-09-05, cierre): dos bugs más
+
+Con todo lo anterior desplegado, el usuario pidió *"revísalo todo hacia atrás"*. Se corrió una
+auditoría estructural de los 131 días con actividad — 623 órdenes, 266 operaciones — con diez
+chequeos. Ocho salieron limpios a la primera. Los otros dos destaparon esto:
+
+**1. En un roll, `vivo` se calculaba con la unidad equivocada.** El descuento del intradía
+restaba del neto de la orden el **valor de apertura** consumido ese día. Para una pata nacida
+de un roll ese valor viene **arrastrado** de días anteriores, así que la resta mezclaba dos
+magnitudes: el roll de COIN del 31-jul daba `vivo` **192,12** sobre un neto de **19,75**. Y
+había un fallo peor por omisión: el arrastre pisa la `date` de la pata con la apertura
+original de la campaña, así que la comparación *"se cerró el mismo día en que se abrió"* nunca
+daba verdadera para una pata de roll. Resultado: **tres rolls cuya pata nueva murió esa misma
+tarde seguían enseñando caja viva** — JBLU 18-ago (+$46,75), COIN 31-jul, SOFI 22-may
+(+$100,75).
+
+La corrección: la pata del inventario guarda `orderDate` (el día en que ESA pata nació) además
+de `date` (la apertura original, que es lo que quiere la duración), y la proporción se mide en
+**contratos**, no en dinero. Abrir 2 y cerrar 1 deja la mitad viva, siempre, venga de donde
+venga el valor.
+
+**2. Una asignación que entrega acciones no cerraba la opción.** La regla anterior era
+*"`Expiration` a $0 sí, `Assignment`/`Exercise` a $0 no"*, porque estos últimos son el
+acompañante de una fila `Cash Settled`. Cierto — **salvo cuando no la hay**. En una asignación
+física no existe fila de efectivo: la opción se retira con `net-value = 0` y aparece por
+separado un `Buy to Open` de las acciones. Ese Removal es el **único** evento que cierra la
+opción, y botarlo dejaba la corta viva para siempre:
+
+| | asignada | prima que nunca se realizó |
+|---|---|---|
+| GAP $27 06/18 | 29-may (100 acciones a $27) | **+$279,87** |
+| NU $13 06/05 | 3-jun (200 acciones a $13) | **+$144,71** (con su cadena de rolls) |
+
+Seguían apareciendo como posiciones abiertas **tres meses después**. La regla definitiva
+distingue por la existencia del `Cash Settled` del mismo símbolo y fecha.
+
+Tras los dos arreglos el P&L del calendario pasa de −$1.322,49 a **−$897,91**, las operaciones
+de 264 a 266, y los diez chequeos quedan en verde. La invariante maestra sigue clavada:
+
+```
+caja real (Trade + RD)   : -5.741,72
+P&L realizado            :   -897,91
+valor en patas vivas     : -4.843,80
+residuo                  :     -0,00
+```
+
+---
+
 ### Lo que quedaba abierto — resuelto el mismo día
 
 Tras el arreglo del recorte quedaban dos días sin detalle (03-jun y 10-jun-2026): solo tenían

@@ -458,9 +458,16 @@ comparar:
   el calendario, tiraba el valor de apertura de la pata vieja y contaba dos veces el crédito
   de la nueva**. 54 rolls, $1.162,55 de P&L que no existía. Histórico § *El calendario mudo y
   el día de +$6.258*.
-- **Expiraciones a $0**: una `Receive Deliver / Expiration` con `net-value = 0` **es el cierre
-  de la pata** y tiene que entrar. Los `Assignment`/`Exercise`/`Removal` a cero NO: son el
-  acompañante de una fila `Cash Settled` del mismo símbolo y cerrarían la pata dos veces.
+- **Los `Receive Deliver` a $0 sí cierran patas** — la regla completa, que costó tres bugs:
+  | Sub-tipo | ¿Entra? | Por qué |
+  |---|---|---|
+  | `Expiration` | **Sí** | Es la única transacción que registra que la pata venció |
+  | `Assignment`/`Exercise` **con** `Cash Settled` del mismo símbolo+fecha | **No** | Es su acompañante: cerraría la pata dos veces |
+  | `Assignment`/`Exercise` **sin** `Cash Settled` | **Sí** | Asignación que entrega **acciones**: es el único evento que cierra la opción |
+
+  El último caso dejaba dos cortas vivas para siempre con su prima sin realizar (GAP $27 06/18
+  asignada el 29-may en 100 acciones, +$279,87; NU $13 06/05 el 3-jun en 200, +$144,71 con su
+  cadena de rolls).
 - **`openByDay` es CAJA, no resultado**: el neto de **toda** orden que abra algo ese día —
   aperturas de crédito, de débito y rolls, cada una con su signo. Un día puede salir en rojo.
   Hasta el 2026-09-05 era `if (o.isOpening && o.netValue > 0)`, que borraba las de débito:
@@ -480,10 +487,16 @@ Orden de columnas: **el P&L va antes que la Prima** — lo primero que se mira e
 obtuvo.
 
 ⚠️ **Un intradía no deja caja en juego.** El campo `vivo` de cada movimiento descuenta lo que
-se cerró el MISMO día (a prorrata si el cierre fue parcial), y tanto `openByDay` como el
-bloque CAJA usan `vivo`, no `net`. Sin eso un trade que abre y cierra el mismo día salía en
-los **dos** bloques: su P&L en CERRADO y otra vez su prima en CAJA. Lo cazó el usuario el
-2026-09-05 mirando el bear call de SPX del 4-sep.
+se cerró el MISMO día, y tanto `openByDay` como el bloque CAJA usan `vivo`, no `net`. Sin eso
+un trade que abre y cierra el mismo día salía en los **dos** bloques: su P&L en CERRADO y otra
+vez su prima en CAJA. Lo cazó el usuario el 2026-09-05 mirando el bear call de SPX del 4-sep.
+
+**La proporción se mide en CONTRATOS, nunca en dinero.** El valor de apertura de una pata
+nacida de un roll viene **arrastrado** de días anteriores, así que restarlo del neto de la
+orden mezcla dos cosas distintas: el roll de COIN del 31-jul daba `vivo` **192,12** sobre un
+neto de **19,75**. Por eso la pata del inventario guarda `orderDate` (el día en que nació esa
+pata) aparte de `date` (la apertura original de la campaña, que es lo que usa la duración):
+sin `orderDate`, un roll cuya pata nueva muere el mismo día no se detectaba.
 - **P&L neto, no bruto**: usa `net-value` (ya incluye fees regulatorios). TastyTrade muestra
   bruto. Diferencia típica $1-2.50 por leg.
 - **FIFO**: empareja con la apertura más cercana en fecha. Multi-leg se consolida por
