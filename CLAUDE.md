@@ -461,6 +461,16 @@ comparar:
 - **Expiraciones a $0**: una `Receive Deliver / Expiration` con `net-value = 0` **es el cierre
   de la pata** y tiene que entrar. Los `Assignment`/`Exercise`/`Removal` a cero NO: son el
   acompañante de una fila `Cash Settled` del mismo símbolo y cerrarían la pata dos veces.
+- **`openByDay` es CAJA, no resultado**: el neto de **toda** orden que abra algo ese día —
+  aperturas de crédito, de débito y rolls, cada una con su signo. Un día puede salir en rojo.
+  Hasta el 2026-09-05 era `if (o.isOpening && o.netValue > 0)`, que borraba las de débito:
+  22 días de 127 inflados, $14.088,50 de exceso, y el 29-may mostraba **+$187 en un día donde
+  salieron $2.518** (la asignación de GAP, 100 acciones a $2.705).
+- **`movimientos`**: una fila por orden (`Apertura` / `Roll` / `Cierre`) con su neto de caja y
+  un resumen de strikes/vencimiento. Es lo que alimenta el detalle del día en el Calendario:
+  `strategies` solo conoce round-trips **cerrados**, así que un día con cinco órdenes mostraba
+  dos filas — las aperturas de posiciones vivas y los rolls no existían para la pantalla.
+  Las filas de `Apertura` y `Roll` van **sin P&L y no suman a la casilla**.
 - **P&L neto, no bruto**: usa `net-value` (ya incluye fees regulatorios). TastyTrade muestra
   bruto. Diferencia típica $1-2.50 por leg.
 - **FIFO**: empareja con la apertura más cercana en fecha. Multi-leg se consolida por

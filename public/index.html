@@ -1684,7 +1684,11 @@ function renderCalendar() {
     if(dateStr===todayStr) cls+=' today';
     const pnlHtml  = pnl!==undefined ? `<div class="cal-pnl ${cc(pnl)}">${f$(pnl)}</div>` : '';
     const openAmt  = opens[dateStr];
-    const openHtml = openAmt ? `<div class="cal-open" title="Prima cobrada (posición abierta)">+${openAmt.toFixed(0)}</div>` : '';
+    // Neto de TODO lo que abrio o rolo ese dia, con su signo. Antes decia
+    // "Prima cobrada" y solo sumaba las ordenes de credito: el 29-may mostraba
+    // +187 en un dia donde salieron 2.518 (la asignacion de GAP). Es caja, no
+    // resultado — por eso va aparte del P&L de la casilla.
+    const openHtml = openAmt ? `<div class="cal-open${openAmt < 0 ? ' neg' : ''}" title="Neto de lo que se abrió o roló ese día — caja, no resultado">${openAmt > 0 ? '+' : ''}${openAmt.toFixed(0)}</div>` : '';
     html+=`<div class="${cls}" onclick="calDayClick('${dateStr}',${pnl||0})">
       <div class="cal-num">${d}</div>${pnlHtml}${openHtml}
     </div>`;
@@ -1708,15 +1712,20 @@ async function calDayClick(dateStr, pnl) {
     }
     const legs = S.txns.metrics?.strategies || [];
 
-    // Trades CERRADOS ese día
+    // Trades CERRADOS ese día — los únicos que dejan resultado
     const closedLegs = legs.filter(s => s.closeDate === dateStr);
     const closed      = consolidateStrategies(closedLegs);
 
-    // Trades ABIERTOS ese día (sin cerrar aún o cerrados en otro día)
-    const openLegs = legs.filter(s => s.openDate === dateStr && s.closeDate !== dateStr);
-    const opened   = consolidateStrategies(openLegs);
+    // Todo lo demás que se movió: aperturas y rolls. Sale de
+    // `metrics.movimientos` (una fila por orden) y NO de `strategies`, que solo
+    // conoce round-trips cerrados — por eso un día con cinco órdenes mostraba
+    // dos filas: las aperturas de posiciones que siguen vivas y los rolls no
+    // existían para esta pantalla. Son caja, no resultado: van sin P&L y no
+    // suman a la casilla.
+    const movs = (S.txns.metrics?.movimientos || [])
+      .filter(mv => mv.date === dateStr && mv.tipo !== 'Cierre');
 
-    if (!closed.length && !opened.length) {
+    if (!closed.length && !movs.length) {
       tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">Sin trades este día</td></tr>';
       return;
     }
@@ -1737,20 +1746,15 @@ async function calDayClick(dateStr, pnl) {
           <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
         </tr>`;
       }),
-      ...opened.map((s,oi) => {
-        window._calTrades = window._calTrades||{};
-        const tkey = 'o_'+oi+'_'+dateStr;
-        window._calTrades[tkey] = s;
-        return `<tr style="opacity:.8;cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
-          <td><span class="badge badge-blue" style="font-size:9px;">Apertura</span></td>
-          <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
-          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
-          <td class="td-mono dim">Abierto</td>
-          <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
-          <td class="td-mono dim">En curso</td>
+      ...movs.map(mv => `<tr style="opacity:.85;">
+          <td><span class="badge ${mv.tipo==='Roll'?'badge-gold':'badge-blue'}" style="font-size:9px;">${mv.tipo}</span></td>
+          <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${mv.underlying}',event)" title="Ver en OptionStrat">${mv.underlying}</td>
+          <td>${mv.stratType?`<span class="badge badge-muted" style="font-size:9px;">${mv.stratType}</span> `:''}<span class="dim" style="font-size:10px;">${mv.resumen||''}</span></td>
           <td class="dim">—</td>
-        </tr>`;
-      }),
+          <td class="td-mono ${cc(mv.net)}">${f$(mv.net)}</td>
+          <td class="dim" style="font-size:10px;" title="Un roll o una apertura mueven caja, no resultado: el P&amp;L aparece el día que la operación cierre de verdad">caja, no resultado</td>
+          <td class="dim">—</td>
+        </tr>`),
     ];
     tbody.innerHTML = rows.join('');
   } catch(e) { tbody.innerHTML=`<tr><td colspan="7"><div class="error-box">${e.message}</div></td></tr>`; }

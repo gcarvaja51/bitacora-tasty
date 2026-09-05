@@ -613,11 +613,63 @@ function buildMetrics(items, opts = {}) {
     stratByDay[s.closeDate] = (stratByDay[s.closeDate] || 0) + s.pnl;
   }
 
-  /* ── 9b. Primas cobradas en aperturas ── */
+  /* ── 9b. Lo que entro o salio de caja por abrir y por rolar ──
+     Antes esto era `if (o.isOpening && o.netValue > 0)`: solo sumaba las ordenes
+     de apertura con neto POSITIVO, asi que una apertura de debito o un roll que
+     se paga eran invisibles y el numero salia inflado. 22 dias de 127 mal,
+     $14.088,50 de exceso acumulado; el peor el 2026-05-29, que mostraba +$187 en
+     un dia donde salieron $2.518 (la asignacion de GAP, 100 acciones a $2.705).
+     Ahora entra TODA orden que abra algo, con su signo — un dia puede salir en
+     rojo, que es lo que de verdad paso. Sigue siendo caja, no resultado. */
   const openByDay = {};
   for (const o of orders) {
-    if (o.isOpening && o.netValue > 0) openByDay[o.date] = (openByDay[o.date]||0) + o.netValue;
+    if (o.legs.some(l => /to Open/i.test(l.action || ''))) {
+      openByDay[o.date] = (openByDay[o.date] || 0) + o.netValue;
+    }
   }
+  for (const d of Object.keys(openByDay)) openByDay[d] = +openByDay[d].toFixed(2);
+
+  /* ── 9c. Movimientos del dia — que PASO, no solo que cerro ──
+     El detalle del calendario solo sabia de round-trips cerrados, asi que un dia
+     con cinco ordenes podia mostrar dos filas: las aperturas de posiciones que
+     siguen vivas y los rolls no existian para la pantalla. (2026-09-04: cinco
+     ordenes, dos filas.) Aca va una fila por orden, con su signo de caja. Los
+     cierres se marcan igual pero la pantalla los toma de `strategies`, que es
+     quien tiene el P&L. */
+  const fmtExp = (e) => e ? `${e.slice(2, 4)}/${e.slice(4, 6)}` : '';
+  function ladoDe(order, filtro) {
+    const legs    = order.legs.filter(l => filtro.test(l.action || ''));
+    const strikes = [...new Set(legs.map(l => {
+      const mm = (l.symbol || '').match(/[CP](\d{8})$/);
+      return mm ? +mm[1] / 1000 : null;
+    }).filter(v => v !== null))].sort((a, b) => a - b);
+    const exps = [...new Set(legs.map(l => symExpiry(l.symbol || '')).filter(Boolean))];
+    return { strikes, exp: exps[0] || '' };
+  }
+  const movimientos = orders.map(o => {
+    const abre   = o.legs.filter(l => /to Open/i.test(l.action || '')).length;
+    const cierra = o.legs.length - abre;
+    const tipo   = (abre && cierra) ? 'Roll' : (abre ? 'Apertura' : 'Cierre');
+    let resumen = '';
+    if (tipo === 'Roll') {
+      const c = ladoDe(o, /to Close/i), a = ladoDe(o, /to Open/i);
+      const cambiaVenc = c.exp && a.exp && c.exp !== a.exp;
+      resumen = `${c.strikes.join('/')}${cambiaVenc ? ' ' + fmtExp(c.exp) : ''}`
+              + ` → ${a.strikes.join('/')}${cambiaVenc ? ' ' + fmtExp(a.exp) : ''}`;
+    } else {
+      const x = ladoDe(o, tipo === 'Apertura' ? /to Open/i : /./);
+      resumen = `${x.strikes.join('/')}${x.exp ? ' ' + fmtExp(x.exp) : ''}`;
+    }
+    return {
+      date:       o.date,
+      id:         o.id,
+      underlying: o.underlying || '—',
+      tipo,
+      net:        +o.netValue.toFixed(2),
+      stratType:  o.stratType || null,
+      resumen:    resumen.trim() || (o.desc || ''),
+    };
+  }).filter(mv => mv.date);
 
   /* ── KPIs finales ── */
   const winners    = consolidatedStrategies.filter(s => s.pnl > 0);
@@ -645,6 +697,7 @@ function buildMetrics(items, opts = {}) {
     strategies:      stratLimit > 0 ? consolidatedStrategies.slice(-stratLimit) : consolidatedStrategies,
     stratByDay,
     openByDay,
+    movimientos,
     strategyByMonth,
     strategyByWeek,
     byDay,

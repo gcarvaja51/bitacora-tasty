@@ -132,13 +132,56 @@ STO → ROLL → cierre cuyo P&L solo puede aparecer el día del cierre) y dos c
 que `/api/transactions` devuelva todos los round-trips que dice tener, y que **ningún día con
 P&L se quede sin detalle** — que es el síntoma tal como lo describió el usuario.
 
-### Lo que queda abierto
+### Continuacion (2026-09-05, mismo dia): el reporte de ingresos diarios
 
-Dos días siguen sin detalle (03-jun y 10-jun-2026) y **es correcto que así sea con el diseño
-actual**: solo tienen aperturas de posiciones que siguen vivas, y `metrics.strategies` solo
-contiene round-trips cerrados. Para que un día de pura apertura muestre algo, `buildMetrics`
-tendría que exponer también el inventario vivo. No se hizo: es una función nueva, no el
-arreglo de un bug.
+Cerrado el calendario, el usuario preguntó por el día anterior: *"los cierres del día de ayer
+fueron 4, no 2"*. Eran 5 órdenes: dos cierres reales (SPX +$105,12 y BA +$28,49), **dos
+rolls** (BE 192,5/182,5 → 200/190 y JBLU call $5 sep-25 → oct-16) y una apertura (ORCL). Con
+el código viejo el día mostraba 4 filas y $174,85; con el nuevo, 2 filas y $133,61 — que es lo
+correcto por la norma 5. Nada se perdió: las dos patas vivas de BE cargan **$312,19**, que es
+la apertura del 5-ago ($53,75) más los cinco rolls, y saldrá como un solo número el día que
+BE cierre.
+
+Pero la queja tenía fondo: **cinco órdenes y dos filas**. Al revisar el reporte diario
+aparecieron dos cosas más.
+
+**El "+N" de la casilla estaba inflado.** Decía *"Prima cobrada"* y sumaba
+`if (o.isOpening && o.netValue > 0)` — solo las órdenes de apertura con neto positivo. Las
+aperturas de débito y los rolls que se pagan eran invisibles. **22 días de 127 mal,
+$14.088,50 de exceso acumulado.** El peor, el **29-may-2026**: mostraba **+$187** en un día
+donde salieron **$2.518** de la cuenta (la asignación de GAP, 100 acciones a $2.705). El
+1-sep decía +$1.292,55 cuando el neto real fue +$817,86: escondió un spread de débito de SPX
+(−$423,44) y el roll de ADBE (−$51,25).
+
+**El detalle del día solo sabía de round-trips cerrados.** Salía de `metrics.strategies`, así
+que una apertura de una posición que sigue viva o un roll no tenían fila. Ahora `buildMetrics`
+devuelve `movimientos`: una fila por orden, clasificada `Apertura` / `Roll` / `Cierre`, con su
+neto de caja y un resumen de strikes y vencimiento. El 4-sep queda:
+
+```
+4-sep-2026 — Realizado: $133,61
+  CIERRE    SPX   Bear Call 7730/7740     +105,12   ← suma al resultado
+  CIERRE    BA    Bull Put  195/200        +28,49   ← suma al resultado
+  ROLL      BE    182,5/192,5 → 190/200    +33,49   caja, no resultado
+  ROLL      JBLU  5 09/25 → 5 10/16         +7,75   caja, no resultado
+  APERTURA  ORCL  Bull Put 137/140         +63,75   caja, no resultado
+```
+
+La distinción que ordena todo, y que el usuario formuló como pregunta (*"¿cuando hago un roll
+eso no aparece como ganancia?"*): **el dinero del roll SÍ entra a la cuenta el mismo día**
+(está en el `cash-balance` y en el Net Liq), pero **no es resultado** mientras la posición
+siga viva. BE tiene $312,19 acumulados sobre un spread 200/190 de $1.000 de ancho: si vence
+por debajo de $190 no gana $312, pierde $688. Por eso la caja y el resultado son dos columnas
+distintas y no una.
+
+---
+
+### Lo que quedaba abierto — resuelto el mismo día
+
+Tras el arreglo del recorte quedaban dos días sin detalle (03-jun y 10-jun-2026): solo tenían
+aperturas de posiciones que siguen vivas, y `metrics.strategies` solo contiene round-trips
+cerrados. **Lo resolvió `movimientos`** (ver la continuación de arriba): ahora cada orden deja
+su fila, cierre o no. Ningún día con actividad se queda mudo.
 
 ---
 

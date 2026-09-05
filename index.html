@@ -1181,15 +1181,86 @@ function groupPositions(positions) {
       g.theta += thetaSign * (p.greeks.theta || 0) * qty * mul;
     }
   }
-  return [...map.values()].sort((a,b)=>a.underlying.localeCompare(b.underlying));
+  // Rehace las figuras de dos vencimientos que esta clave parte por la mitad.
+  return fusionarDiagonalesUI([...map.values()]).sort((a,b)=>a.underlying.localeCompare(b.underlying));
+}
+
+// ── Figuras de dos vencimientos (PMCC, calendarios) ──────────────
+//
+// GEMELO de `fusionarDiagonales` en src/optionstrat.js. Las reglas tienen que
+// ser LAS MISMAS en los dos sitios: alli deciden que dibuja OptionStrat, aqui
+// que se lee en la hoja de posiciones abiertas. Si se toca una, se toca la otra.
+//
+// POR QUE EXISTE: el 2026-09-02 se abrio un PMCC de F (compra call 10 dic-27 /
+// venta call 14.5 sep-26). Como `groupPositions` agrupa por subyacente+fecha, la
+// hoja lo partia en dos filas —"Call Vendida" y "Call Comprada"— en vez de una
+// sola que dijera PMCC, y la corta parecia una call desnuda.
+function legExp(l)    { return l['expires-at'] ? new Date(l['expires-at']).toISOString().slice(0,10) : ''; }
+function legStrike(l) { const m=(l.symbol||'').match(/[CP](\d{8})$/); return m ? parseInt(m[1])/1000 : NaN; }
+function legEsCall(l) { return /C\d{8}$/.test(l.symbol||''); }
+function legEsPut(l)  { return /P\d{8}$/.test(l.symbol||''); }
+function legEsCorta(l){ return l['quantity-direction']==='Short'; }
+
+function fusionarDiagonalesUI(grupos) {
+  // Con 100+ acciones la call corta es una covered call de verdad, no la pata de
+  // un PMCC: ahi no se fusiona nada.
+  const conAcciones = new Set(grupos.filter(g => g.isStock && Math.abs(g.totalQty||0) >= 100).map(g => g.underlying));
+  const consumidos = new Set(), fusionados = [];
+
+  for (const und of new Set(grupos.filter(g=>!g.isStock).map(g=>g.underlying))) {
+    if (conAcciones.has(und)) continue;
+    const sueltos = grupos.filter(g => !g.isStock && g.underlying===und && g.legs.length===1);
+    for (const esDelTipo of [legEsCall, legEsPut]) {
+      const delTipo = sueltos.filter(g => esDelTipo(g.legs[0]));
+      const largos  = delTipo.filter(g => !legEsCorta(g.legs[0]));
+      const cortos  = delTipo.filter(g =>  legEsCorta(g.legs[0]));
+      // Exactamente una de cada lado. Con mas, la pareja es ambigua y se prefiere
+      // dejar las mitades sueltas antes que inventar una figura sobre cuenta real.
+      if (largos.length!==1 || cortos.length!==1) continue;
+      const gl = largos[0], gc = cortos[0];
+      if (legExp(gl.legs[0]) <= legExp(gc.legs[0])) continue;  // la larga debe vivir MAS
+
+      consumidos.add(gl); consumidos.add(gc);
+      // La corta va primera: es la fecha que hay que gestionar, y es de donde
+      // `buildPosRow` saca el DTE.
+      fusionados.push({
+        underlying: und, isStock: false,
+        expiry: legExp(gc.legs[0]),
+        expiries: [legExp(gc.legs[0]), legExp(gl.legs[0])],
+        legs: [...gc.legs, ...gl.legs],
+        // Sumar es lo correcto: es el P&L, el debito neto y las griegas de la
+        // figura completa, que es justo lo que no se podia ver partido en dos.
+        unrealizedPnL: gc.unrealizedPnL + gl.unrealizedPnL,
+        premiumNet:    gc.premiumNet    + gl.premiumNet,
+        delta:         gc.delta         + gl.delta,
+        theta:         gc.theta         + gl.theta,
+        totalQty:      (gc.totalQty||0) + (gl.totalQty||0),
+        currentPrice:  gc.currentPrice ?? gl.currentPrice,
+        openDate:      gl.openDate,
+      });
+    }
+  }
+  return [...grupos.filter(g => !consumidos.has(g)), ...fusionados];
 }
 
 function strategyType(g) {
   if (g.isStock) return 'Acciones';
-  const legs=g.legs, puts=legs.filter(l=>(l.symbol||'').match(/P\d{8}$/)), calls=legs.filter(l=>(l.symbol||'').match(/C\d{8}$/));
+  const legs=g.legs, puts=legs.filter(legEsPut), calls=legs.filter(legEsCall);
   if (legs.length===1) return (puts.length?'Put':'Call') + (legs[0]['quantity-direction']==='Short'?' Vendida':' Comprada');
-  if (legs.length===2 && puts.length===2)  return 'Put Spread';
-  if (legs.length===2 && calls.length===2) return 'Call Spread';
+  // Dos vencimientos NO es una vertical. Tratarlo como tal es lo que hacia que un
+  // PMCC se leyera "Call Spread" y se le aplicara la formula de spread vertical.
+  if (legs.length===2 && (puts.length===2 || calls.length===2)) {
+    const corta = legs.find(legEsCorta), larga = legs.find(l=>!legEsCorta(l));
+    const tipo  = calls.length===2 ? 'Call' : 'Put';
+    if (corta && larga && legExp(corta) !== legExp(larga)) {
+      if (legStrike(corta) === legStrike(larga)) return `Calendar ${tipo}`;
+      // PMCC = la comprada vence DESPUES y su strike es mas bajo (esta ITM):
+      // es una covered call sintetica. Al reves es otra cosa y no se llama asi.
+      if (calls.length===2 && legExp(larga) > legExp(corta) && legStrike(larga) < legStrike(corta)) return 'PMCC';
+      return `Diagonal ${tipo}`;
+    }
+    return `${tipo} Spread`;
+  }
   if (legs.length===4) return 'Iron Condor';
   return `Spread (${legs.length}p)`;
 }
@@ -1613,7 +1684,11 @@ function renderCalendar() {
     if(dateStr===todayStr) cls+=' today';
     const pnlHtml  = pnl!==undefined ? `<div class="cal-pnl ${cc(pnl)}">${f$(pnl)}</div>` : '';
     const openAmt  = opens[dateStr];
-    const openHtml = openAmt ? `<div class="cal-open" title="Prima cobrada (posición abierta)">+${openAmt.toFixed(0)}</div>` : '';
+    // Neto de TODO lo que abrio o rolo ese dia, con su signo. Antes decia
+    // "Prima cobrada" y solo sumaba las ordenes de credito: el 29-may mostraba
+    // +187 en un dia donde salieron 2.518 (la asignacion de GAP). Es caja, no
+    // resultado — por eso va aparte del P&L de la casilla.
+    const openHtml = openAmt ? `<div class="cal-open${openAmt < 0 ? ' neg' : ''}" title="Neto de lo que se abrió o roló ese día — caja, no resultado">${openAmt > 0 ? '+' : ''}${openAmt.toFixed(0)}</div>` : '';
     html+=`<div class="${cls}" onclick="calDayClick('${dateStr}',${pnl||0})">
       <div class="cal-num">${d}</div>${pnlHtml}${openHtml}
     </div>`;
@@ -1637,15 +1712,20 @@ async function calDayClick(dateStr, pnl) {
     }
     const legs = S.txns.metrics?.strategies || [];
 
-    // Trades CERRADOS ese día
+    // Trades CERRADOS ese día — los únicos que dejan resultado
     const closedLegs = legs.filter(s => s.closeDate === dateStr);
     const closed      = consolidateStrategies(closedLegs);
 
-    // Trades ABIERTOS ese día (sin cerrar aún o cerrados en otro día)
-    const openLegs = legs.filter(s => s.openDate === dateStr && s.closeDate !== dateStr);
-    const opened   = consolidateStrategies(openLegs);
+    // Todo lo demás que se movió: aperturas y rolls. Sale de
+    // `metrics.movimientos` (una fila por orden) y NO de `strategies`, que solo
+    // conoce round-trips cerrados — por eso un día con cinco órdenes mostraba
+    // dos filas: las aperturas de posiciones que siguen vivas y los rolls no
+    // existían para esta pantalla. Son caja, no resultado: van sin P&L y no
+    // suman a la casilla.
+    const movs = (S.txns.metrics?.movimientos || [])
+      .filter(mv => mv.date === dateStr && mv.tipo !== 'Cierre');
 
-    if (!closed.length && !opened.length) {
+    if (!closed.length && !movs.length) {
       tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">Sin trades este día</td></tr>';
       return;
     }
@@ -1666,20 +1746,15 @@ async function calDayClick(dateStr, pnl) {
           <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
         </tr>`;
       }),
-      ...opened.map((s,oi) => {
-        window._calTrades = window._calTrades||{};
-        const tkey = 'o_'+oi+'_'+dateStr;
-        window._calTrades[tkey] = s;
-        return `<tr style="opacity:.8;cursor:pointer;" onclick="calShowTradeDetail('${tkey}')">
-          <td><span class="badge badge-blue" style="font-size:9px;">Apertura</span></td>
-          <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
-          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
-          <td class="td-mono dim">Abierto</td>
-          <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
-          <td class="td-mono dim">En curso</td>
+      ...movs.map(mv => `<tr style="opacity:.85;">
+          <td><span class="badge ${mv.tipo==='Roll'?'badge-gold':'badge-blue'}" style="font-size:9px;">${mv.tipo}</span></td>
+          <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${mv.underlying}',event)" title="Ver en OptionStrat">${mv.underlying}</td>
+          <td>${mv.stratType?`<span class="badge badge-muted" style="font-size:9px;">${mv.stratType}</span> `:''}<span class="dim" style="font-size:10px;">${mv.resumen||''}</span></td>
           <td class="dim">—</td>
-        </tr>`;
-      }),
+          <td class="td-mono ${cc(mv.net)}">${f$(mv.net)}</td>
+          <td class="dim" style="font-size:10px;" title="Un roll o una apertura mueven caja, no resultado: el P&amp;L aparece el día que la operación cierre de verdad">caja, no resultado</td>
+          <td class="dim">—</td>
+        </tr>`),
     ];
     tbody.innerHTML = rows.join('');
   } catch(e) { tbody.innerHTML=`<tr><td colspan="7"><div class="error-box">${e.message}</div></td></tr>`; }
@@ -1921,7 +1996,10 @@ function buildPosRow(g) {
     dir = 'LONG';
   } else {
     const shortLeg = g.legs.find(l => l['quantity-direction'] === 'Short');
-    if (shortLeg) {
+    // Un PMCC lleva una call vendida pero es ALCISTA: la LEAPS manda y la delta
+    // neta es positiva. Marcarlo SHORT en rojo por la pata corta seria al reves.
+    if (strat === 'PMCC') { dir = 'LONG'; }
+    else if (shortLeg) {
       const shortIsCall = (shortLeg.symbol||'').match(/C\d{8}$/);
       dir = shortIsCall ? 'SHORT' : 'LONG';
     } else { dir = 'LONG'; }
@@ -1930,11 +2008,16 @@ function buildPosRow(g) {
   g.stratType = strat;
   g.direction = dir;
   const dirBadge = dir==='SHORT'?'badge-red':'badge-green';
-  const fl = g.legs[0];
+  // El DTE sale del vencimiento MAS CERCANO, no del de la primera pata: en un
+  // PMCC la larga vence en 471 dias y la que hay que gestionar es la corta.
+  const vencs = g.isStock ? [] : [...new Set(g.legs.map(l=>l['expires-at']).filter(Boolean))].sort();
   let dte=null, expStr='—';
-  if (!g.isStock && fl['expires-at']) {
-    dte = Math.ceil((new Date(fl['expires-at'])-new Date())/86400000);
-    expStr = new Date(fl['expires-at']).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'});
+  if (vencs.length) {
+    const fmt = v => new Date(v).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'});
+    dte = Math.ceil((new Date(vencs[0])-new Date())/86400000);
+    // Dos fechas se enseñan las dos: con una sola parecería que la posición
+    // entera vence ahí.
+    expStr = vencs.length > 1 ? `${fmt(vencs[0])} → ${fmt(vencs[vencs.length-1])}` : fmt(vencs[0]);
   }
   g.dte = dte;
   const strikes = g.isStock ? '—' : [...new Set(g.legs.map(l=>parseOCC(l.symbol).strike))].join(' / ');
@@ -6239,14 +6322,22 @@ function osRenderPopup(sym, grupos) {
   const bloques = grupos.length ? grupos.map((g, i) => {
     const url    = g.url || '';
     const manual = !!g.urlManual;
-    const figura = g.slug ? g.slug.replace(/-/g,' ') : (g.motivoSinUrl || 'sin figura');
+    // `figura` es el nombre para leer; el slug es lo que entiende la URL. No
+    // siempre coinciden: un PMCC se dibuja como diagonal porque OptionStrat no
+    // tiene esa figura, pero aquí tiene que decir PMCC.
+    const figura = g.figura || g.motivoSinUrl || 'sin figura';
+    // Una figura de dos vencimientos (PMCC, calendario) tiene dos fechas; enseñar
+    // solo una haría pensar que la posición entera vence ahí.
+    const fechas = (g.expiries || [g.expiry]).join(' → ');
     const aviso  = g.sinPataAcciones
       ? `<div style="font-size:10px;color:#e0a83a;margin-bottom:6px;">⚠ El gráfico lleva solo la call vendida, sin las ${g.acciones} acciones — no es el P&amp;L de la posición completa.</div>`
+      : g.esPMCC
+      ? `<div style="font-size:10px;color:var(--muted);margin-bottom:6px;">OptionStrat no tiene figura PMCC: se dibuja como <b>Diagonal Call Spread</b>, que es la misma posición.</div>`
       : '';
     return `
       <div style="border-top:1px solid var(--border2);padding-top:12px;margin-top:12px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
-          <span style="font-size:13px;font-weight:700;color:var(--bright);">${g.expiry}</span>
+          <span style="font-size:13px;font-weight:700;color:var(--bright);">${fechas}</span>
           <span style="font-size:10px;color:${manual?'#13d68f':'var(--muted)'};">${manual?'link tuyo':'generado'} · ${figura} · ${g.contratos}c</span>
         </div>
         ${aviso}
@@ -6275,7 +6366,7 @@ function osRenderPopup(sym, grupos) {
     <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:22px;max-width:470px;width:100%;max-height:80vh;overflow-y:auto;position:relative;">
       <button onclick="document.getElementById('os-popup').remove()" style="position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;">✕</button>
       <div style="font-size:16px;font-weight:800;color:var(--bright);">📊 ${sym} — OptionStrat</div>
-      <div style="font-size:11px;color:var(--muted);">Un link por vencimiento, generado desde la posición real. Lo que pegues a mano manda.</div>
+      <div style="font-size:11px;color:var(--muted);">Un link por figura, generado desde la posición real — un PMCC o un calendario van en uno solo, con sus dos vencimientos. Lo que pegues a mano manda.</div>
       ${bloques}${migrar}
     </div>`;
 }

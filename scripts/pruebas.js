@@ -162,6 +162,38 @@ chequear('la operacion conserva su fecha de apertura original',
   mRoll.strategies[0]?.openDate === '2026-06-10',
   `dio ${mRoll.strategies[0]?.openDate}`);
 
+// (c-bis) La caja del dia: el "+N" del calendario sumaba SOLO las ordenes de
+//     apertura con neto positivo, asi que una apertura de debito o un roll que
+//     se paga eran invisibles. 22 dias de 127 inflados, $14.088,50 de exceso; el
+//     peor el 2026-05-29, que decia +$187 en un dia donde salieron $2.518.
+const libroCaja = [
+  tx({ id: 20, 'order-id': 400, 'transaction-date': '2026-07-01T14:00:00Z', 'executed-at': '2026-07-01T14:00:00Z',
+       symbol: 'NU    260918P00013000', action: 'Sell to Open', 'net-value': '50', 'net-value-effect': 'Credit',
+       'underlying-symbol': 'NU' }),
+  tx({ id: 21, 'order-id': 401, 'transaction-date': '2026-07-01T15:00:00Z', 'executed-at': '2026-07-01T15:00:00Z',
+       symbol: 'NU    260918C00015000', action: 'Buy to Open', 'net-value': '80', 'net-value-effect': 'Debit',
+       'underlying-symbol': 'NU' }),
+];
+const mCaja = buildMetrics(libroCaja, { limit: 0 });
+chequear('la caja del dia resta las aperturas de debito',
+  Math.abs((mCaja.openByDay['2026-07-01'] || 0) + 30) < 0.01,
+  `dio ${mCaja.openByDay['2026-07-01']}, deberia ser -30 (+50 de credito, -80 de debito)`);
+
+// (c-ter) El detalle del dia tiene que enseñar lo que PASO, no solo lo que
+//     cerro. El 2026-09-04 hubo cinco ordenes y la pantalla mostraba dos filas,
+//     porque las aperturas vivas y los rolls no existian para `strategies`.
+const movs = mRoll.movimientos || [];
+chequear('cada orden deja un movimiento, tambien las que no cierran nada',
+  movs.length === 3, `dio ${movs.length} de 3 (apertura, roll, cierre)`);
+chequear('el roll se marca como Roll, no como cierre',
+  movs.find(x => x.date === '2026-06-15')?.tipo === 'Roll',
+  `dio ${movs.find(x => x.date === '2026-06-15')?.tipo}`);
+chequear('la apertura de un trade que sigue vivo tambien deja movimiento',
+  movs.find(x => x.date === '2026-06-10')?.tipo === 'Apertura');
+chequear('el movimiento lleva el neto de caja con su signo',
+  Math.abs((movs.find(x => x.date === '2026-06-15')?.net || 0) - 30) < 0.01,
+  `dio ${movs.find(x => x.date === '2026-06-15')?.net}, el roll fue -10 +40 = 30`);
+
 // (c) El detalle de un dia sale de `metrics.strategies`: si viene recortado, los
 //     meses viejos quedan mudos aunque la casilla muestre P&L. El 2026-09-05
 //     habia 304 round-trips y 56 de 127 dias en blanco por el tope de 200, por
