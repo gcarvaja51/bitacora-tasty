@@ -1701,7 +1701,7 @@ async function calDayClick(dateStr, pnl) {
   if (!detail) { console.error('cal-detail no encontrado'); return; }
   detail.style.display='block';
   detail.scrollIntoView({ behavior:'smooth', block:'start' });
-  title.textContent=`${fDate(dateStr)}  —  P&L: ${f$(pnl)}`;
+  title.textContent=fDate(dateStr);   // los dos subtotales se ponen al final, ya calculados
   tbody.innerHTML='<tr><td colspan="7"><div class="loader"><div class="spinner"></div></div></td></tr>';
 
   try {
@@ -1730,7 +1730,17 @@ async function calDayClick(dateStr, pnl) {
       return;
     }
 
+    /* Dos bloques con su propio subtotal, porque son dos preguntas distintas:
+       "cuanto gane hoy" (lo cerrado, que es lo que suma al calendario) y "cuanta
+       plata entro o salio hoy" (rolls y aperturas, que es caja y todavia no es
+       resultado). Mezclarlos en una sola lista era justo lo que no dejaba ver
+       ninguna de las dos. */
+    const totCerrado = closed.reduce((a, s) => a + (s.pnl || 0), 0);
+    const totCaja    = movs.reduce((a, m) => a + (m.net || 0), 0);
+    const grupo = (t, sub) => `<tr class="cal-grp"><td colspan="7">${t}<span class="dim"> — ${sub}</span></td></tr>`;
+
     const rows = [
+      ...(closed.length ? [grupo('CERRADO', 'dejó resultado')] : []),
       ...closed.map((s,ci) => {
         window._calTrades = window._calTrades||{}; 
         const tkey = 'c_'+ci+'_'+dateStr;
@@ -1746,6 +1756,11 @@ async function calDayClick(dateStr, pnl) {
           <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
         </tr>`;
       }),
+      ...(closed.length ? [`<tr class="cal-sub">
+          <td colspan="5">Subtotal cerrado <span class="dim">— es lo que suma a la casilla del calendario</span></td>
+          <td class="td-mono ${cc(totCerrado)}" style="font-weight:700;">${f$(totCerrado)}</td><td></td>
+        </tr>`] : []),
+      ...(movs.length ? [grupo('CAJA', 'rolls y aperturas: entró o salió de la cuenta, pero no es resultado')] : []),
       ...movs.map(mv => `<tr style="opacity:.85;">
           <td><span class="badge ${mv.tipo==='Roll'?'badge-gold':'badge-blue'}" style="font-size:9px;">${mv.tipo}</span></td>
           <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${mv.underlying}',event)" title="Ver en OptionStrat">${mv.underlying}</td>
@@ -1755,8 +1770,18 @@ async function calDayClick(dateStr, pnl) {
           <td class="dim" style="font-size:10px;" title="Un roll o una apertura mueven caja, no resultado: el P&amp;L aparece el día que la operación cierre de verdad">caja, no resultado</td>
           <td class="dim">—</td>
         </tr>`),
+      ...(movs.length ? [`<tr class="cal-sub">
+          <td colspan="4">Subtotal caja <span class="dim">— se realiza el día que esas posiciones cierren</span></td>
+          <td class="td-mono ${cc(totCaja)}" style="font-weight:700;">${f$(totCaja)}</td><td colspan="2"></td>
+        </tr>`] : []),
     ];
     tbody.innerHTML = rows.join('');
+    // La cabecera lleva los dos numeros, para no tener que bajar a los subtotales.
+    const cab = [];
+    if (closed.length) cab.push(`Cerrado <b class="${cc(totCerrado)}">${f$(totCerrado)}</b>`);
+    if (movs.length)   cab.push(`Caja <b class="${cc(totCaja)}">${f$(totCaja)}</b>`);
+    title.innerHTML = fDate(dateStr) +
+      `<span style="float:right;font-weight:400;font-size:11px;">${cab.join(' <span class="dim">·</span> ')}</span>`;
   } catch(e) { tbody.innerHTML=`<tr><td colspan="7"><div class="error-box">${e.message}</div></td></tr>`; }
 }
 function calShowTradeDetail(tkey) {

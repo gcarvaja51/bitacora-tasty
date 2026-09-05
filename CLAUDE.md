@@ -471,6 +471,11 @@ comparar:
   `strategies` solo conoce round-trips **cerrados**, así que un día con cinco órdenes mostraba
   dos filas — las aperturas de posiciones vivas y los rolls no existían para la pantalla.
   Las filas de `Apertura` y `Roll` van **sin P&L y no suman a la casilla**.
+
+El detalle del día va en **dos bloques con su propio subtotal**, porque son dos preguntas
+distintas: **CERRADO** (lo que dejó resultado — su subtotal es exactamente la casilla del
+calendario) y **CAJA** (rolls y aperturas — lo que entró o salió de la cuenta, que se realiza
+el día que esas posiciones cierren). Los dos números van también en la cabecera del panel.
 - **P&L neto, no bruto**: usa `net-value` (ya incluye fees regulatorios). TastyTrade muestra
   bruto. Diferencia típica $1-2.50 por leg.
 - **FIFO**: empareja con la apertura más cercana en fecha. Multi-leg se consolida por

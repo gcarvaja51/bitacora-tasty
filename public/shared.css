@@ -612,6 +612,11 @@ tbody tr:hover td { background: rgba(255,255,255,.02); }
 .cal-day.today   { border-color: var(--blue) !important; }
 .cal-open { font-family: var(--mono); font-size: 9px; color: var(--blue); margin-top: 1px; opacity: 0.8; }
 .cal-open.neg { color: var(--red); }
+/* Detalle del día: dos bloques (lo cerrado y la caja) con su subtotal. */
+.cal-grp td { font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); padding-top: 12px; border-bottom: 1px solid var(--border); }
+.cal-grp td .dim { text-transform: none; letter-spacing: 0; }
+.cal-sub td { border-top: 1px solid var(--border); font-size: 11px; padding-top: 7px; }
 
 /* ══ CADENA DE OPCIONES ══════════════════════════════════ */
 .chain-expiry-btn { padding:5px 12px; border-radius:20px; border:1px solid var(--border2); background:var(--card2); color:var(--muted); font-size:11px; font-family:var(--mono); cursor:pointer; transition:.15s; }

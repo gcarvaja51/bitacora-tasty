@@ -167,6 +167,22 @@ neto de caja y un resumen de strikes y vencimiento. El 4-sep queda:
   APERTURA  ORCL  Bull Put 137/140         +63,75   caja, no resultado
 ```
 
+**Y el detalle del día se partió en dos bloques con subtotal**, a pedido del usuario
+(*"cuando haga click al día podríamos tener 2 subtotales… así llevaríamos visualmente el
+análisis de ambos temas"*): **CERRADO**, cuyo subtotal es exactamente la casilla del
+calendario, y **CAJA**, con los rolls y las aperturas. Los dos números salen también en la
+cabecera del panel. Ejemplo del 29-may, el día del badge inflado:
+
+```
+29-may-2026                                    Caja -$2.518,38
+CAJA — rolls y aperturas: no es resultado
+  Apertura  JBLU  5,5 06/05                            +14,87
+  Apertura  DGX   190/195 06/18                       +171,75
+  Apertura  GAP   Buy to Open 100 GAP @ 27.00       -2.705,00
+  ----------------------------------------------------------
+  Subtotal caja                                     -2.518,38
+```
+
 La distinción que ordena todo, y que el usuario formuló como pregunta (*"¿cuando hago un roll
 eso no aparece como ganancia?"*): **el dinero del roll SÍ entra a la cuenta el mismo día**
 (está en el `cash-balance` y en el Net Liq), pero **no es resultado** mientras la posición
