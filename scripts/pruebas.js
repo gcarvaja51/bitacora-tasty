@@ -595,6 +595,22 @@ async function humo(base = BASE) {
     chequear('ningun dia del calendario se queda sin su detalle',
       mudos.length === 0,
       `${mudos.length} dias con P&L y sin trades: ${mudos.slice(0, 5).join(', ')}${mudos.length > 5 ? '...' : ''}`);
+
+    // La curva arrancaba de un 10644 escrito a mano cuando lo depositado eran
+    // $10.676,03: $32,03 de desfase en el punto de partida y en el pico contra
+    // el que se mide el drawdown. Un numero de capital a mano se queda viejo al
+    // primer deposito nuevo, asi que se compara contra el ledger.
+    const cur = await (await fetch(base + '/api/curve')).json();
+    const primerDia = (cur.curve?.labels || [])[0] || '';
+    const aporteHasta = (j.items || [])
+      .filter(t => t['transaction-type'] === 'Money Movement' &&
+                   /Deposit|Withdrawal/i.test(t['transaction-sub-type'] || '') &&
+                   (t['transaction-date'] || '').slice(0, 10) <= primerDia)
+      .reduce((a, t) => a + parseFloat(t['net-value'] || t.value || 0) *
+              ((t['net-value-effect'] || t['value-effect']) === 'Credit' ? 1 : -1), 0);
+    chequear('la curva arranca del capital realmente depositado',
+      aporteHasta > 0 && Math.abs((cur.curve?.initial || 0) - aporteHasta) < 0.02,
+      `la curva dice ${cur.curve?.initial} y el ledger ${aporteHasta.toFixed(2)}`);
   } catch (e) {
     chequear('/api/transactions se puede leer para revisar el calendario', false, e.message);
   }

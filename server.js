@@ -362,11 +362,37 @@ app.get('/api/curve', async (req, res) => {
       const currentNlv = await tt.getBalances().then(b => parseFloat(b?.['net-liquidating-value']||0)).catch(()=>0);
       const nlvHistory = loadNlvHistory();
 
-      const initial = 10644;
-      const labels  = Object.keys(byDay).sort();
+      /* El capital aportado se LEE del ledger, no se escribe a mano. Estaba fijo
+         en 10644 y los depositos reales suman $10.676,03 (tres: $1,00 el 9-feb y
+         $10.666,04 + $8,99 el 12-feb), asi que la curva arrancaba $32,03 por
+         debajo y el drawdown se medía contra un pico falso.
+         Lo aportado ANTES del primer dia operado es el punto de partida; un
+         deposito o retiro posterior mueve la curva su propio dia, o la curva se
+         despegaria del Net Liq real. Se mantiene fuera de `byDay` a proposito:
+         byMonth/byWeek son P&L, y un deposito no es un resultado. */
+      const aportes = allItems
+        .filter(tx => tx['transaction-type'] === 'Money Movement' &&
+                      /Deposit|Withdrawal/i.test(tx['transaction-sub-type'] || ''))
+        .map(tx => ({
+          date: (tx['transaction-date'] || '').slice(0, 10),
+          val:  parseFloat(tx['net-value'] || tx.value || 0) *
+                ((tx['net-value-effect'] || tx['value-effect']) === 'Credit' ? 1 : -1),
+        }))
+        .filter(a => a.date);
+
+      const primerDiaOperado = Object.keys(byDay).sort()[0] || '';
+      const aportePorDia = {};
+      let initial = 0;
+      for (const a of aportes) {
+        if (!primerDiaOperado || a.date <= primerDiaOperado) initial += a.val;
+        else aportePorDia[a.date] = (aportePorDia[a.date] || 0) + a.val;
+      }
+      initial = +initial.toFixed(2);
+
+      const labels  = [...new Set([...Object.keys(byDay), ...Object.keys(aportePorDia)])].sort();
       let running   = initial;
       const values  = labels.map(d => {
-        running += byDay[d];
+        running += (byDay[d] || 0) + (aportePorDia[d] || 0);
         return +running.toFixed(2);
       });
       if (values.length > 0 && currentNlv > 0) {

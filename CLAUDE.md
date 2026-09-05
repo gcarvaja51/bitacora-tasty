@@ -378,6 +378,15 @@ Desplegable: Acumulado / **Δ Net Liq** / **Realizado**. "Realizado" sale de
 `metrics.stratByDay`/`strategyByWeek`/`strategyByMonth` — **la misma fuente que Reportes**,
 así los dos lugares no pueden contradecirse.
 
+**El capital de arranque se lee del ledger, no se escribe a mano.** Estuvo fijo en `10644`
+hasta el 2026-09-05, cuando lo depositado eran **$10.676,03** (tres depósitos: $1,00 el 9-feb
+y $10.666,04 + $8,99 el 12-feb): $32,03 de desfase en el punto de partida y en el pico contra
+el que se mide el drawdown. Ahora `/api/curve` suma los `Money Movement` de sub-tipo
+`Deposit`/`Withdrawal`: los anteriores al primer día operado forman el `initial`, y un
+depósito o retiro posterior mueve la curva **su propio día** (o la curva se despegaría del
+Net Liq). Se mantienen **fuera de `byDay`** a propósito: `byMonth`/`byWeek` son P&L, y un
+depósito no es un resultado. Hay chequeo de humo.
+
 Snapshots de NLV:
 - Todo lo que fecha un día de mercado usa **`todayStrET()`**, no `todayStr()` (UTC).
   `todayStr()` queda solo para rangos de consulta a la API.
