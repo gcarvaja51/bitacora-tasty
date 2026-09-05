@@ -427,7 +427,12 @@ app.get('/api/transactions', async (req, res) => {
         tx['transaction-type'] === 'Trade' ||
         tx['transaction-type'] === 'Receive Deliver'
       );
-      const metrics = buildMetrics(tradeItems);
+      // `limit: 0` — sin recorte. El calendario resuelve el detalle de un dia
+      // filtrando `metrics.strategies` por fecha; con el tope de 200 round-trips
+      // los meses viejos quedaban MUDOS (feb y mar 2026: el 100% de los dias
+      // salian "Sin trades este dia" aunque la casilla mostrara P&L). Medido el
+      // 2026-09-05: 304 round-trips en el rango, 56 de 127 dias en blanco.
+      const metrics = buildMetrics(tradeItems, { limit: 0 });
       return { items: allItems, metrics, ts: new Date().toISOString() };
     });
     res.json(data);

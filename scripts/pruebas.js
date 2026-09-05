@@ -95,6 +95,79 @@ chequear('agregar excluye lo que no fue operacion', ag.excluidas === 1);
 chequear('agregar no suma legado con comparable', ag.comparable.pnl === 105);
 chequear('con 1 trade la muestra NO es suficiente', ag.comparable.muestraSuficiente === false);
 
+// ── 1b. El calendario: cada dolar acaba realizado o en una pata viva ────────
+// POR QUE EXISTE, con nombre y fecha: el 2026-09-05 el usuario reporto que el
+// 15-abr-2026 el calendario decia +$6.258,21 en un dia que en caja fue -$77,59.
+// Dos fallos silenciosos, ninguno con prueba que los tapara:
+//   (a) las Expiration a net-value=0 se botaban del ledger, asi que la prima de
+//       una pata larga vencida sin valor nunca se realizaba ($6.335,80 ese dia);
+//   (b) un ROLL emitia fila propia con `pnl = order.netValue`, inventando
+//       resultado y contando dos veces el credito de la pata nueva.
+// La invariante que los caza a los dos: **caja = P&L realizado + patas vivas**.
+seccion('El calendario (src/metrics.js)');
+
+const { buildMetrics } = require('../src/metrics');
+
+const tx = (o) => Object.assign({
+  'transaction-type': 'Trade', 'transaction-sub-type': '', 'order-id': 1,
+  'net-value': '0', 'net-value-effect': 'Credit', quantity: '1',
+  'underlying-symbol': 'SPX', commission: '0', 'clearing-fees': '0',
+}, o);
+
+// (a) Un cono: pata corta que se liquida en efectivo + pata larga que vence a
+//     cero. La larga costo $200 y no volvio: tiene que aparecer en el P&L.
+const libroExpira = [
+  tx({ id: 1, 'transaction-date': '2026-04-15T14:00:00Z', 'executed-at': '2026-04-15T14:00:00Z',
+       symbol: 'SPXW  260415C06915000', action: 'Sell to Open', 'net-value': '500', 'net-value-effect': 'Credit' }),
+  tx({ id: 2, 'transaction-date': '2026-04-15T14:00:00Z', 'executed-at': '2026-04-15T14:00:00Z',
+       symbol: 'SPXW  260415C07030000', action: 'Buy to Open',  'net-value': '200', 'net-value-effect': 'Debit' }),
+  tx({ id: 3, 'transaction-type': 'Receive Deliver', 'transaction-sub-type': 'Cash Settled Assignment',
+       'transaction-date': '2026-04-15T21:00:00Z', 'executed-at': '2026-04-15T21:00:00Z', 'order-id': null,
+       symbol: 'SPXW  260415C06915000', 'net-value': '300', 'net-value-effect': 'Debit' }),
+  tx({ id: 4, 'transaction-type': 'Receive Deliver', 'transaction-sub-type': 'Expiration',
+       'transaction-date': '2026-04-15T21:00:00Z', 'executed-at': '2026-04-15T21:00:00Z', 'order-id': null,
+       symbol: 'SPXW  260415C07030000', action: 'Sell to Close', 'net-value': '0', 'net-value-effect': 'None' }),
+];
+const mExp = buildMetrics(libroExpira, { limit: 0 });
+chequear('una Expiration a $0 cierra la pata larga',
+  Math.abs((mExp.stratByDay['2026-04-15'] || 0) - 0) < 0.01,
+  `dio ${mExp.stratByDay['2026-04-15']}, la caja del dia es 0 (+500 -200 -300)`);
+
+// (b) STO -> ROLL -> cierre real. El roll no es un cierre: no puede dejar
+//     resultado en su propio dia, y el P&L completo aflora el dia del cierre.
+const libroRoll = [
+  tx({ id: 10, 'order-id': 100, 'transaction-date': '2026-06-10T14:00:00Z', 'executed-at': '2026-06-10T14:00:00Z',
+       symbol: 'NU    260618C00012000', action: 'Sell to Open', 'net-value': '30', 'net-value-effect': 'Credit',
+       'underlying-symbol': 'NU' }),
+  tx({ id: 11, 'order-id': 200, 'transaction-date': '2026-06-15T14:00:00Z', 'executed-at': '2026-06-15T14:00:00Z',
+       symbol: 'NU    260618C00012000', action: 'Buy to Close', 'net-value': '10', 'net-value-effect': 'Debit',
+       'underlying-symbol': 'NU' }),
+  tx({ id: 12, 'order-id': 200, 'transaction-date': '2026-06-15T14:00:00Z', 'executed-at': '2026-06-15T14:00:00Z',
+       symbol: 'NU    260702C00012000', action: 'Sell to Open', 'net-value': '40', 'net-value-effect': 'Credit',
+       'underlying-symbol': 'NU' }),
+  tx({ id: 13, 'order-id': 300, 'transaction-date': '2026-06-29T14:00:00Z', 'executed-at': '2026-06-29T14:00:00Z',
+       symbol: 'NU    260702C00012000', action: 'Buy to Close', 'net-value': '5', 'net-value-effect': 'Debit',
+       'underlying-symbol': 'NU' }),
+];
+const mRoll = buildMetrics(libroRoll, { limit: 0 });
+chequear('un ROLL no deja resultado en su dia',
+  mRoll.stratByDay['2026-06-15'] === undefined,
+  `dio ${mRoll.stratByDay['2026-06-15']}`);
+chequear('el P&L de la cadena aflora entero el dia del cierre',
+  Math.abs((mRoll.stratByDay['2026-06-29'] || 0) - 55) < 0.01,
+  `dio ${mRoll.stratByDay['2026-06-29']}, la cadena vale +30 -10 +40 -5 = 55`);
+chequear('un ROLL no genera fila propia',
+  mRoll.strategies.filter(x => x.stratType === 'Roll').length === 0);
+chequear('la operacion conserva su fecha de apertura original',
+  mRoll.strategies[0]?.openDate === '2026-06-10',
+  `dio ${mRoll.strategies[0]?.openDate}`);
+
+// (c) El detalle de un dia sale de `metrics.strategies`: si viene recortado, los
+//     meses viejos quedan mudos aunque la casilla muestre P&L. El 2026-09-05
+//     habia 304 round-trips y 56 de 127 dias en blanco por el tope de 200, por
+//     eso /api/transactions pide `limit: 0`. La prueba de humo comprueba que el
+//     endpoint devuelve TODOS los round-trips que dice tener.
+
 // ── 2. Los frenos ───────────────────────────────────────────────────────────
 seccion('El circuito diario (src/frenos.js)');
 
@@ -498,6 +571,32 @@ async function humo(base = BASE) {
     if (bien && CONOCIDOS[ruta]) {
       console.log(`  OJO    ${ruta} ya responde bien: sacalo de CONOCIDOS en scripts/pruebas.js`);
     }
+  }
+
+  // El calendario no se rompe con un 500: se rompe callado. Si /api/transactions
+  // vuelve a recortar `strategies`, las casillas siguen mostrando P&L y el
+  // detalle del dia sale "Sin trades este dia" para todos los meses viejos. Solo
+  // se ve contando. (2026-09-05: 304 round-trips, 200 devueltos, 56 dias mudos.)
+  try {
+    const res = await fetch(base + '/api/transactions');
+    const j   = await res.json();
+    const m   = j.metrics || {};
+    chequear('/api/transactions devuelve TODOS los round-trips, sin recortar',
+      m.totalStrategies > 0 && (m.strategies || []).length === m.totalStrategies,
+      `dice tener ${m.totalStrategies} y devuelve ${(m.strategies || []).length}`);
+
+    // El sintoma exacto que reporto el usuario: la casilla muestra un numero y al
+    // hacer click sale "Sin trades este dia". Pasa cuando un dia tiene P&L en
+    // `stratByDay` pero ninguna fila en `strategies`, que es de donde el
+    // frontend saca el detalle. Las dos cosas salen del mismo calculo: si se
+    // separan, es que algo recorto una y no la otra.
+    const conDetalle = new Set((m.strategies || []).map(x => x.closeDate).filter(Boolean));
+    const mudos = Object.keys(m.stratByDay || {}).filter(d => !conDetalle.has(d));
+    chequear('ningun dia del calendario se queda sin su detalle',
+      mudos.length === 0,
+      `${mudos.length} dias con P&L y sin trades: ${mudos.slice(0, 5).join(', ')}${mudos.length > 5 ? '...' : ''}`);
+  } catch (e) {
+    chequear('/api/transactions se puede leer para revisar el calendario', false, e.message);
   }
 }
 

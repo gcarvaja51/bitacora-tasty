@@ -117,8 +117,12 @@ rechazaba el 100%…*, § *Auditoría 2026-08-03 (bis)*.
 
 ### 4. `buildMetrics` recorta a 200 round-trips
 El default trunca. Cualquier consumidor que necesite el año completo tiene que pasar
-`{ limit: 0 }` — la hoja de Impuestos lo hace. Sin eso el error es **silencioso** (declara
-de menos). 2026 ya va en 224.
+`{ limit: 0 }` — la hoja de Impuestos y **`/api/transactions`** lo hacen. Sin eso el error es
+**silencioso**: la hoja fiscal declara de menos, y el calendario deja los meses viejos
+**mudos** — la casilla muestra P&L (`stratByDay` se calcula con todo) pero el detalle del día
+sale de `metrics.strategies`, que venía recortado. El 2026-09-05, con 304 round-trips,
+**56 de 127 días con actividad salían "Sin trades este día"**: febrero y marzo enteros,
+abril al 94%. Histórico § *El calendario mudo y el día de +$6.258*.
 
 ### 5. No restar comisiones dos veces
 El `net-value` de TastyTrade **ya viene neto** de comisiones y fees. `sumarComisiones()`
@@ -413,6 +417,11 @@ calendario y el journal.
 Invariante de verificación: para un vencimiento donde todo se abrió y cerró, la suma de P&L
 tiene que dar igual al flujo de caja crudo de esos contratos. **39 de 39 cuadran.**
 
+Invariante del libro entero, la que caza lo que la anterior no ve: **caja = P&L realizado +
+valor de las patas que siguen vivas**. Medido feb–ago 2026 el 2026-09-05: caja −$5.734,51 =
+realizado −$1.514,69 + patas vivas −$4.219,81 (residuo $0,01). Antes de arreglar las
+expiraciones y los rolls esa cuenta se iba por ~$6.000.
+
 ### Bitácora Tradier — coherencia entre hojas
 Dashboard, Historial, Reportes, Calendario y Hoy pasan **todas** por
 `fetchTxnsTradier()` → `/api/transactions-tradier` → `metrics.strategies`. Dos cosas al
@@ -428,11 +437,21 @@ comparar:
   separadas por minutos en día de mercado dan números distintos sin que haya ningún bug.
 
 ### `buildMetrics` (`src/metrics.js`)
-- **Rolls**: "to Close" + "to Open" del mismo tipo (C o P) en la misma orden →
-  `stratType: 'Roll'`, `pnl = order.netValue` (crédito neto del roll), duración "Intradía".
-  El leg de cierre consume el inventario viejo pero NO crea par negativo. Sin esto el FIFO
-  emparejaba el cierre contra la apertura original de semanas atrás y mostraba una pérdida
-  falsa.
+- **Rolls — se encadenan, no se cobran**: "to Close" + "to Open" del mismo tipo (C o P) en la
+  misma orden. El leg de cierre consume el inventario viejo y su valor de apertura **se
+  arrastra a la pata nueva** (a prorrata de contratos si hay varias), junto con la fecha de
+  apertura original. El roll **no emite fila propia**: la operación sigue siendo una sola y su
+  P&L completo aflora el día del cierre real. Es la norma 5 del usuario (*"un ROLL no es un
+  cierre"*) y el mismo encadenado que hace `src/wheel.js`.
+  Única excepción: si no hay nada que arrastrar (la pata vieja se abrió fuera del rango
+  pedido) se registra el neto del roll como evento suelto, o se perdería.
+  Hasta el 2026-09-05 el roll emitía `pnl = order.netValue`, lo que **inventaba resultado en
+  el calendario, tiraba el valor de apertura de la pata vieja y contaba dos veces el crédito
+  de la nueva**. 54 rolls, $1.162,55 de P&L que no existía. Histórico § *El calendario mudo y
+  el día de +$6.258*.
+- **Expiraciones a $0**: una `Receive Deliver / Expiration` con `net-value = 0` **es el cierre
+  de la pata** y tiene que entrar. Los `Assignment`/`Exercise`/`Removal` a cero NO: son el
+  acompañante de una fila `Cash Settled` del mismo símbolo y cerrarían la pata dos veces.
 - **P&L neto, no bruto**: usa `net-value` (ya incluye fees regulatorios). TastyTrade muestra
   bruto. Diferencia típica $1-2.50 por leg.
 - **FIFO**: empareja con la apertura más cercana en fecha. Multi-leg se consolida por

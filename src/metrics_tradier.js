@@ -430,7 +430,10 @@ function buildMetricsTradier(spxExecutions = [], wheelExecutions = [], brokerOnl
     avgLossDay:   negD.length ? +(negD.reduce((a, b) => a + b, 0) / negD.length).toFixed(2) : 0,
     bestDay:      sDayVals.length ? Math.max(...sDayVals) : 0,
     worstDay:     sDayVals.length ? Math.min(...sDayVals) : 0,
-    strategies:   strategies.slice(-200),
+    // Sin recorte: el calendario de Tradier resuelve el detalle de un dia
+    // filtrando este array por fecha, y con el tope de 200 los dias del 7 al 22
+    // de julio salian vacios teniendo P&L en la casilla (244 operaciones).
+    strategies,
     stratByDay,
     openByDay,
     strategyByMonth,

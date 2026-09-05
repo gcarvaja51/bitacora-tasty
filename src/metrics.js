@@ -199,9 +199,15 @@ function buildMetrics(items, opts = {}) {
   const trades = items.filter(t => {
     if (t['transaction-type'] === 'Trade') return true;
     if (t['transaction-type'] === 'Receive Deliver') {
-      // Ignorar Removals sin valor (net-value=0) — solo procesar Cash Settled
+      // Los Removal/Assignment/Exercise a net-value=0 son el acompanante de una
+      // fila "Cash Settled" del mismo simbolo: procesarlos cerraria la pata dos
+      // veces. Pero una **Expiration a $0 SI es el cierre** de la pata, y era la
+      // unica transaccion que lo registraba: botarla dejaba viva para siempre una
+      // pata ya vencida y su prima nunca se realizaba. Historico § Expiraciones a
+      // cero (15-abr-2026: el calendario daba +$6.258,21 en un dia de -$77,59).
       const nv = parseFloat(t['net-value'] || 0);
-      return nv !== 0;
+      if (nv !== 0) return true;
+      return /Expiration/i.test(t['transaction-sub-type'] || '');
     }
     return false;
   });
@@ -295,7 +301,28 @@ function buildMetrics(items, opts = {}) {
   for (const order of orders) {
     const isRoll = detectRoll(order);
 
-    for (const leg of order.legs) {
+    /* Un ROLL no cierra una operacion: la MUEVE (norma 5 del usuario, "el
+       resultado del calendario es lo que cerre hoy"). Antes se emitia como un par
+       propio con `pnl = order.netValue`, lo que hacia tres cosas mal a la vez:
+         1. metia en el calendario un resultado que no se realizo,
+         2. tiraba a la basura el valor de apertura de la pata vieja, y
+         3. contaba el credito de la pata nueva dos veces (en el roll y otra vez
+            al cerrarse de verdad).
+       Ahora la apertura vieja se ARRASTRA a la pata nueva: la operacion sigue
+       siendo una sola y su P&L completo aflora el dia del cierre real. Es el
+       mismo encadenado que ya hacia `src/wheel.js`. Para poder arrastrar hay que
+       procesar primero las patas que cierran. */
+    const rollOpenQty = isRoll
+      ? order.legs.filter(l => /to Open/i.test(l.action || ''))
+                  .reduce((a, l) => a + (legQty(l) || 0), 0)
+      : 0;
+    let rollCarry = null;
+    const legsToWalk = isRoll
+      ? [...order.legs].sort((a, b) =>
+          (/to Open/i.test(a.action || '') ? 1 : 0) - (/to Open/i.test(b.action || '') ? 1 : 0))
+      : order.legs;
+
+    for (const leg of legsToWalk) {
       const sym    = leg.symbol || '';
       const action = leg.action || '';
       const lv     = signed(leg['net-value'], leg['net-value-effect']);
@@ -303,7 +330,7 @@ function buildMetrics(items, opts = {}) {
 
       if (/to Open/i.test(action)) {
         if (!inventory.has(sym)) inventory.set(sym, []);
-        inventory.get(sym).push({
+        const entry = {
           orderId:    order.id,
           value:      lv,
           qty,
@@ -312,7 +339,16 @@ function buildMetrics(items, opts = {}) {
           underlying: order.underlying,
           desc:       order.desc,
           stratType:  order.stratType || 'Otro',
-        });
+        };
+        if (isRoll && rollCarry) {
+          // El arrastre se reparte entre las patas nuevas a prorrata de contratos.
+          const share = rollOpenQty ? (qty || 0) / rollOpenQty : 1;
+          entry.value    += rollCarry.value * share;
+          entry.date      = rollCarry.date      || entry.date;
+          entry.desc      = rollCarry.desc      || entry.desc;
+          entry.stratType = rollCarry.stratType || entry.stratType;
+        }
+        inventory.get(sym).push(entry);
 
       } else if (/to Close|Expir|Assign|Cash|Exercise|Removal|Deliver|Settled/i.test(action)) {
         const stack = inventory.get(sym);
@@ -358,8 +394,17 @@ function buildMetrics(items, opts = {}) {
           }
 
           if (isRoll) {
-            // Roll: consumir el inventario viejo pero NO crear par aquí
-            // El par se crea abajo como evento único con el neto del roll
+            // Roll: consumir el inventario viejo y guardarlo para la pata nueva.
+            // No se emite par: la operacion sigue abierta, solo cambio de strike
+            // o de vencimiento.
+            rollCarry = rollCarry || { value: 0, date: null, desc: null, stratType: null };
+            for (const t of taken) {
+              rollCarry.value    += t.openValue;
+              if (!rollCarry.date || t.open.date < rollCarry.date) rollCarry.date = t.open.date;
+              rollCarry.desc      = rollCarry.desc      || t.open.desc;
+              rollCarry.stratType = rollCarry.stratType || t.open.stratType;
+            }
+            rollCarry.value += lv;   // lo que costo recomprar la pata vieja
           } else {
             taken.forEach((t, i) => {
               // El cierre se reparte entre las aperturas que tapa
@@ -394,8 +439,11 @@ function buildMetrics(items, opts = {}) {
       }
     }
 
-    // Roll: registrar como evento único con el crédito/débito neto
-    if (isRoll) {
+    // Un roll ya no emite fila propia: su resultado vive dentro de la operacion
+    // que movio, y aflora entero el dia del cierre real.
+    if (isRoll && !rollCarry) {
+      // Sin nada que arrastrar (la pata vieja se abrio fuera del rango pedido):
+      // el neto del roll se registra como su propio evento, o se perderia.
       rawPairs.push({
         key:          `ROLL_${order.id}`,
         closeOrderId: order.id,

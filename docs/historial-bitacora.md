@@ -19,6 +19,129 @@
 
 ---
 
+## El calendario mudo y el día de +$6.258 (2026-09-05)
+
+**Síntoma, en palabras del usuario:** *"abril 15: dice que hay ganancias por 6000 dólares lo
+cual no es cierto. lo otro es que en muchos días le doy click al día y no se reportan los
+trades ejecutados en ese día."*
+
+Dos quejas, tres bugs, todos silenciosos: ninguno tira un error, ninguno se ve sin recalcular
+el libro entero contra el ledger crudo de TastyTrade.
+
+### La medición
+
+Revalidación día a día de feb–ago 2026: 1.819 transacciones, 304 round-trips. Se recalculó
+todo con `buildMetrics` y se contrastó contra la caja cruda (`net-value` de Trade +
+Receive Deliver, que ya viene neto de comisiones).
+
+| | Antes | Después |
+|---|---|---|
+| P&L del calendario feb–ago | **+$4.533,05** | **−$1.514,69** |
+| Round-trips | 304 | 255 |
+| Win rate | 70,07% | 66,67% |
+| Días con actividad y detalle vacío | **56 de 127 (44%)** | 2 |
+| 15-abr-2026 | **+$6.258,21** | **−$77,59** (= la caja del día) |
+
+### Bug 1 — las expiraciones a $0 se botaban del ledger
+
+`buildMetrics` filtraba toda `Receive Deliver` con `net-value = 0`:
+
+```js
+const nv = parseFloat(t['net-value'] || 0);
+return nv !== 0;      // ← aquí se caían las expiraciones
+```
+
+El comentario decía *"ignorar Removals sin valor"* y era cierto para los `Assignment` /
+`Exercise` a cero, que son el **acompañante** de una fila `Cash Settled` del mismo símbolo:
+procesarlos cerraría la pata dos veces. Pero una **`Expiration` a $0 es el cierre de la
+pata**, y era la única transacción que lo registraba. Al botarla, la pata quedaba viva para
+siempre en el inventario y su prima **nunca se realizaba**.
+
+El 15-abr-2026 se abrieron tres cóndores SPXW. Cuatro patas se liquidaron en efectivo, cuatro
+vencieron sin valor:
+
+| | |
+|---|---|
+| Patas que sí cerraron (cash settled) | apertura +$10.278,21 · cierre −$4.020 = **+$6.258,21** |
+| Patas que vencieron a cero (ignoradas) | **−$6.335,80** |
+| **Día real** | **−$77,59** |
+
+Es decir: el calendario mostraba el crédito de las patas cortas y **regalaba** las largas.
+56 filas de `Expiration` botadas en el periodo, **16 días con el dinero mal, $2.934,70
+inflados de más**.
+
+### Bug 2 — el detalle del día venía recortado a 200 round-trips
+
+La casilla del calendario sale de `metrics.stratByDay`, que se calcula con **todas** las
+operaciones. El detalle al hacer click sale de `metrics.strategies`, que venía con el default
+`limit: 200`. Con 304 round-trips, **las 104 más viejas no existían para el frontend**:
+
+```
+2026-02:  10 de 10 días en blanco   (100%)
+2026-03:  22 de 22 días en blanco   (100%)
+2026-04:  16 de 17 días en blanco   ( 94%)
+2026-05:   7 de 20 · 2026-06: 1 de 20 · jul y ago: 0
+```
+
+El corte era exacto: todo lo anterior al 2026-05-12 estaba mudo. Es el gotcha #4 de
+`CLAUDE.md`, que ya estaba escrito **para la hoja de Impuestos** y nunca se aplicó al
+calendario. `/api/transactions` ahora pide `limit: 0`. El lado Tradier tenía lo mismo
+(`strategies.slice(-200)` con 244 operaciones): **10 días en blanco, del 7 al 22 de julio**,
+incluidos −$1.225 el 17-jul y −$1.050 el 16-jul.
+
+### Bug 3 — el roll inventaba resultado y contaba dos veces
+
+`metrics.js` emitía cada roll como fila propia con `pnl = order.netValue`. Eso hacía tres
+cosas mal a la vez:
+
+1. metía en el calendario un resultado que **no se realizó** — contra la norma 5 del usuario
+   (*"el resultado del calendario es lo que cerré hoy… no importa si hice roll para
+   septiembre o noviembre"*);
+2. **tiraba a la basura** el valor de apertura de la pata vieja (se consumía del inventario
+   sin crear par);
+3. **contaba dos veces** el crédito de la pata nueva: una en el roll y otra cuando esa pata
+   cerraba de verdad.
+
+El error por roll era *(crédito nuevo − apertura vieja)*. **54 rolls, $1.162,55 de P&L que no
+existía.** Efecto colateral: el día de la apertura original quedaba en blanco (el 10-jun-2026,
+única operación del día, salía mudo incluso sin el tope de 200).
+
+La corrección es el mismo encadenado que ya hacía `src/wheel.js`: el valor de apertura de la
+pata vieja **se arrastra a la pata nueva** (a prorrata de contratos), junto con la fecha de
+apertura original, y el roll no emite fila. El P&L completo de la cadena aflora el día del
+cierre real. `src/impuestos.js` ya saltaba las filas `Roll` — o sea que la hoja fiscal también
+venía declarando de menos.
+
+### La invariante que los caza a los tres
+
+**caja = P&L realizado + valor de las patas que siguen vivas.** Ninguna de las tres fallas
+sobrevive a esa cuenta, y ninguna prueba la hacía. Medido feb–ago 2026 después del arreglo:
+
+```
+caja real (Trade + RD)   : -5.734,51
+P&L realizado            : -1.514,69
+valor en patas aún vivas : -4.219,81
+residuo                  :     -0,01
+```
+
+Antes del arreglo la misma cuenta se iba por ~$6.000.
+
+`scripts/pruebas.js` gana la sección *El calendario (src/metrics.js)* con los dos casos
+mínimos (una expiración a cero que tiene que cerrar la pata larga; una cadena
+STO → ROLL → cierre cuyo P&L solo puede aparecer el día del cierre) y dos chequeos de humo:
+que `/api/transactions` devuelva todos los round-trips que dice tener, y que **ningún día con
+P&L se quede sin detalle** — que es el síntoma tal como lo describió el usuario.
+
+### Lo que queda abierto
+
+Dos días siguen sin detalle (03-jun y 10-jun-2026) y **es correcto que así sea con el diseño
+actual**: solo tienen aperturas de posiciones que siguen vivas, y `metrics.strategies` solo
+contiene round-trips cerrados. Para que un día de pura apertura muestre algo, `buildMetrics`
+tendría que exponer también el inventario vivo. No se hizo: es una función nueva, no el
+arreglo de un bug.
+
+---
+
 ## Los apagones del sandbox de Tradier (2026-09-03)
 
 **Síntoma:** 57 `ORDEN_RECHAZADA` entre el 24-ago y el 2-sep, todas con el mismo mensaje
