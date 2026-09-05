@@ -179,6 +179,41 @@ chequear('la caja del dia resta las aperturas de debito',
   Math.abs((mCaja.openByDay['2026-07-01'] || 0) + 30) < 0.01,
   `dio ${mCaja.openByDay['2026-07-01']}, deberia ser -30 (+50 de credito, -80 de debito)`);
 
+// (c-quater) Un intradia NO deja caja en juego. Reportado por el usuario el
+//     2026-09-05 mirando el 4-sep: "aparece una apertura de un bear call spread
+//     en spx, es errado, porque ese trade se cerro intradia". Su prima ya esta
+//     contada en la fila de cierre con su P&L; volver a enseñarla como caja
+//     nueva lo mostraba dos veces, en los dos bloques del mismo dia.
+const libroIntradia = [
+  tx({ id: 30, 'order-id': 500, 'transaction-date': '2026-07-02T14:00:00Z', 'executed-at': '2026-07-02T14:00:00Z',
+       symbol: 'SPXW  260702C07730000', action: 'Sell to Open', 'net-value': '100', 'net-value-effect': 'Credit' }),
+  tx({ id: 31, 'order-id': 501, 'transaction-date': '2026-07-02T18:00:00Z', 'executed-at': '2026-07-02T18:00:00Z',
+       symbol: 'SPXW  260702C07730000', action: 'Buy to Close', 'net-value': '40', 'net-value-effect': 'Debit' }),
+];
+const mIntra = buildMetrics(libroIntradia, { limit: 0 });
+chequear('el intradia si deja resultado',
+  Math.abs((mIntra.stratByDay['2026-07-02'] || 0) - 60) < 0.01,
+  `dio ${mIntra.stratByDay['2026-07-02']}, deberia ser 60`);
+chequear('el intradia NO deja caja en juego',
+  mIntra.openByDay['2026-07-02'] === undefined,
+  `dio ${mIntra.openByDay['2026-07-02']}, su prima ya esta en la fila de cierre`);
+chequear('su apertura queda con vivo = 0, para que el detalle no la repita',
+  (mIntra.movimientos.find(x => x.tipo === 'Apertura') || {}).vivo === 0);
+
+// Cerrar solo una parte deja viva la otra: abrir 2 y cerrar 1 el mismo dia.
+const libroParcial = [
+  tx({ id: 32, 'order-id': 510, 'transaction-date': '2026-07-03T14:00:00Z', 'executed-at': '2026-07-03T14:00:00Z',
+       symbol: 'SPXW  260710C07730000', action: 'Sell to Open', 'net-value': '100', 'net-value-effect': 'Credit',
+       quantity: '2' }),
+  tx({ id: 33, 'order-id': 511, 'transaction-date': '2026-07-03T18:00:00Z', 'executed-at': '2026-07-03T18:00:00Z',
+       symbol: 'SPXW  260710C07730000', action: 'Buy to Close', 'net-value': '30', 'net-value-effect': 'Debit',
+       quantity: '1' }),
+];
+const mParcial = buildMetrics(libroParcial, { limit: 0 });
+chequear('un cierre parcial deja viva la parte que no se cerro',
+  Math.abs((mParcial.openByDay['2026-07-03'] || 0) - 50) < 0.01,
+  `dio ${mParcial.openByDay['2026-07-03']}, se cerro 1 de 2 contratos: quedan 50 de los 100`);
+
 // (c-ter) El detalle del dia tiene que enseñar lo que PASO, no solo lo que
 //     cerro. El 2026-09-04 hubo cinco ordenes y la pantalla mostraba dos filas,
 //     porque las aperturas vivas y los rolls no existian para `strategies`.

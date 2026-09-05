@@ -239,7 +239,7 @@
         <div class="card-header" id="cal-detail-title">Operaciones del día</div>
         <div class="card-body table-wrap">
           <table><thead><tr>
-            <th>Tipo</th><th>Símbolo</th><th>Estrategia</th><th>Duración</th><th>Prima</th><th>P&amp;L</th><th>% Cap.</th>
+            <th>Tipo</th><th>Símbolo</th><th>Estrategia</th><th>Duración</th><th>P&amp;L</th><th>Prima</th><th>% Cap.</th>
           </tr></thead>
           <tbody id="cal-detail-tbody"></tbody></table>
         </div>
@@ -1722,8 +1722,12 @@ async function calDayClick(dateStr, pnl) {
     // dos filas: las aperturas de posiciones que siguen vivas y los rolls no
     // existían para esta pantalla. Son caja, no resultado: van sin P&L y no
     // suman a la casilla.
+    // `vivo` y no `net`: un trade que abrió y cerró el mismo día ya está contado
+    // en el bloque CERRADO con su P&L, así que su prima no puede volver a salir
+    // acá como caja nueva. (2026-09-04: el bear call de SPX aparecía en los dos
+    // bloques.) Si se cerró solo una parte, queda lo que siguió en juego.
     const movs = (S.txns.metrics?.movimientos || [])
-      .filter(mv => mv.date === dateStr && mv.tipo !== 'Cierre');
+      .filter(mv => mv.date === dateStr && mv.tipo !== 'Cierre' && Math.abs(mv.vivo ?? mv.net) > 0.005);
 
     if (!closed.length && !movs.length) {
       tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">Sin trades este día</td></tr>';
@@ -1736,7 +1740,7 @@ async function calDayClick(dateStr, pnl) {
        resultado). Mezclarlos en una sola lista era justo lo que no dejaba ver
        ninguna de las dos. */
     const totCerrado = closed.reduce((a, s) => a + (s.pnl || 0), 0);
-    const totCaja    = movs.reduce((a, m) => a + (m.net || 0), 0);
+    const totCaja    = movs.reduce((a, m) => a + (m.vivo ?? m.net ?? 0), 0);
     const grupo = (t, sub) => `<tr class="cal-grp"><td colspan="7">${t}<span class="dim"> — ${sub}</span></td></tr>`;
 
     const rows = [
@@ -1751,14 +1755,14 @@ async function calDayClick(dateStr, pnl) {
           <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${s.underlying}',event)" title="Ver en OptionStrat">${s.underlying}</td>
           <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span>${badgeParcial(s)}</td>
           <td class="td-mono dim">${s.durationDays===0?'Intradía':s.durationDays+'d'}</td>
-          <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
           <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
+          <td class="td-mono ${cc(s.openValue)}">${s.openValue?f$(s.openValue):'—'}</td>
           <td>${cap!==null?`<span class="${cap>=0?'pos':'neg'}">${cap>0?'+':''}${cap}%</span>`:'—'}</td>
         </tr>`;
       }),
       ...(closed.length ? [`<tr class="cal-sub">
-          <td colspan="5">Subtotal cerrado <span class="dim">— es lo que suma a la casilla del calendario</span></td>
-          <td class="td-mono ${cc(totCerrado)}" style="font-weight:700;">${f$(totCerrado)}</td><td></td>
+          <td colspan="4">Subtotal cerrado <span class="dim">— es lo que suma a la casilla del calendario</span></td>
+          <td class="td-mono ${cc(totCerrado)}" style="font-weight:700;">${f$(totCerrado)}</td><td colspan="2"></td>
         </tr>`] : []),
       ...(movs.length ? [grupo('CAJA', 'rolls y aperturas: entró o salió de la cuenta, pero no es resultado')] : []),
       ...movs.map(mv => `<tr style="opacity:.85;">
@@ -1766,13 +1770,13 @@ async function calDayClick(dateStr, pnl) {
           <td class="td-bright" style="font-weight:700;cursor:pointer;" onclick="osShowPopup('${mv.underlying}',event)" title="Ver en OptionStrat">${mv.underlying}</td>
           <td>${mv.stratType?`<span class="badge badge-muted" style="font-size:9px;">${mv.stratType}</span> `:''}<span class="dim" style="font-size:10px;">${mv.resumen||''}</span></td>
           <td class="dim">—</td>
-          <td class="td-mono ${cc(mv.net)}">${f$(mv.net)}</td>
-          <td class="dim" style="font-size:10px;" title="Un roll o una apertura mueven caja, no resultado: el P&amp;L aparece el día que la operación cierre de verdad">caja, no resultado</td>
+          <td class="dim" style="font-size:10px;" title="Un roll o una apertura mueven caja, no resultado: el P&amp;L aparece el día que la operación cierre de verdad">—</td>
+          <td class="td-mono ${cc(mv.vivo ?? mv.net)}">${f$(mv.vivo ?? mv.net)}</td>
           <td class="dim">—</td>
         </tr>`),
       ...(movs.length ? [`<tr class="cal-sub">
-          <td colspan="4">Subtotal caja <span class="dim">— se realiza el día que esas posiciones cierren</span></td>
-          <td class="td-mono ${cc(totCaja)}" style="font-weight:700;">${f$(totCaja)}</td><td colspan="2"></td>
+          <td colspan="5">Subtotal caja <span class="dim">— se realiza el día que esas posiciones cierren</span></td>
+          <td class="td-mono ${cc(totCaja)}" style="font-weight:700;">${f$(totCaja)}</td><td></td>
         </tr>`] : []),
     ];
     tbody.innerHTML = rows.join('');

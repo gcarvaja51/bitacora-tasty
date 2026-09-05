@@ -167,6 +167,22 @@ neto de caja y un resumen de strikes y vencimiento. El 4-sep queda:
   APERTURA  ORCL  Bull Put 137/140         +63,75   caja, no resultado
 ```
 
+**El intradía se contaba dos veces.** Con los dos bloques ya en pantalla, el usuario vio el
+4-sep: *"aparece una apertura de un bear call spread en spx, es errado, porque ese trade se
+cerró intradía"*. Tenía razón: el spread de SPX 7730/7740 abrió y cerró el mismo día, así que
+salía en CERRADO con su P&L (+$105,12) **y otra vez** en CAJA con su prima (+$356,56). La
+misma operación, dos bloques.
+
+La corrección es el campo `vivo` de cada movimiento: el neto de la orden **menos la parte que
+se cerró ese mismo día**, a prorrata si el cierre fue parcial (abrir 2 y cerrar 1 deja la
+mitad viva). `openByDay` y el bloque CAJA usan `vivo`, no `net`. El 4-sep queda con caja
++$104,99 (ORCL, BE y JBLU) en vez de +$461,55, y el badge de la casilla dice lo mismo que el
+subtotal — no se pueden contradecir. El 1-sep pierde también el spread de débito de SPX que
+abrió y cerró intradía (−$423,44).
+
+Además, a pedido del usuario, **el P&L pasa a ir antes que la Prima** en las columnas: lo
+primero que se mira es lo que se obtuvo.
+
 **Y el detalle del día se partió en dos bloques con subtotal**, a pedido del usuario
 (*"cuando haga click al día podríamos tener 2 subtotales… así llevaríamos visualmente el
 análisis de ambos temas"*): **CERRADO**, cuyo subtotal es exactamente la casilla del

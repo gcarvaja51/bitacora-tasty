@@ -287,6 +287,11 @@ function buildMetrics(items, opts = {}) {
   /* ── 2. FIFO con matching por apertura más próxima en fecha ── */
   const inventory = new Map(); // sym → [{orderId, value, date, ...}]
   const rawPairs  = [];
+  /* orderId -> cuanto del valor de apertura de esa orden se cerro el MISMO dia.
+     Sirve para no contar dos veces un intradia: su historia entera va en la fila
+     de cierre, con su P&L; enseñarlo ademas como "prima nueva que entro hoy" lo
+     mostraba dos veces en el detalle del dia. */
+  const cerradoMismoDia = {};
 
   // Detectar si una orden es un ROLL: tiene patas "to Close" y "to Open" del mismo tipo (C o P)
   function detectRoll(order) {
@@ -391,6 +396,12 @@ function buildMetrics(items, opts = {}) {
             taken.push({ open, openValue, qty: take, partial: portion < 1 });
             remaining -= take;
             if (remaining <= 1e-9) break;
+          }
+
+          for (const t of taken) {
+            if (t.open.date === order.date) {
+              cerradoMismoDia[t.open.orderId] = (cerradoMismoDia[t.open.orderId] || 0) + t.openValue;
+            }
           }
 
           if (isRoll) {
@@ -622,10 +633,14 @@ function buildMetrics(items, opts = {}) {
      Ahora entra TODA orden que abra algo, con su signo — un dia puede salir en
      rojo, que es lo que de verdad paso. Sigue siendo caja, no resultado. */
   const openByDay = {};
+  const vivoDeOrden = {};
   for (const o of orders) {
-    if (o.legs.some(l => /to Open/i.test(l.action || ''))) {
-      openByDay[o.date] = (openByDay[o.date] || 0) + o.netValue;
-    }
+    if (!o.legs.some(l => /to Open/i.test(l.action || ''))) continue;
+    // Lo que se abrio y se cerro el mismo dia no deja caja en juego: se descuenta
+    // en la proporcion que se haya cerrado (abrir 2 y cerrar 1 deja la mitad).
+    const vivo = +(o.netValue - (cerradoMismoDia[o.id] || 0)).toFixed(2);
+    vivoDeOrden[o.id] = vivo;
+    if (Math.abs(vivo) > 0.005) openByDay[o.date] = (openByDay[o.date] || 0) + vivo;
   }
   for (const d of Object.keys(openByDay)) openByDay[d] = +openByDay[d].toFixed(2);
 
@@ -666,6 +681,11 @@ function buildMetrics(items, opts = {}) {
       underlying: o.underlying || '—',
       tipo,
       net:        +o.netValue.toFixed(2),
+      // `vivo` = lo que quedo en juego al cerrar el dia. Un intradia lo deja en
+      // 0: su resultado ya sale en la fila de cierre y volver a enseñar su prima
+      // como caja nueva era contarlo dos veces (2026-09-04: el bear call de SPX
+      // abrio y cerro el mismo dia y aparecia en los dos bloques).
+      vivo:       tipo === 'Cierre' ? 0 : (vivoDeOrden[o.id] ?? +o.netValue.toFixed(2)),
       stratType:  o.stratType || null,
       resumen:    resumen.trim() || (o.desc || ''),
     };

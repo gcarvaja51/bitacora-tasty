@@ -476,6 +476,14 @@ El detalle del día va en **dos bloques con su propio subtotal**, porque son dos
 distintas: **CERRADO** (lo que dejó resultado — su subtotal es exactamente la casilla del
 calendario) y **CAJA** (rolls y aperturas — lo que entró o salió de la cuenta, que se realiza
 el día que esas posiciones cierren). Los dos números van también en la cabecera del panel.
+Orden de columnas: **el P&L va antes que la Prima** — lo primero que se mira es lo que se
+obtuvo.
+
+⚠️ **Un intradía no deja caja en juego.** El campo `vivo` de cada movimiento descuenta lo que
+se cerró el MISMO día (a prorrata si el cierre fue parcial), y tanto `openByDay` como el
+bloque CAJA usan `vivo`, no `net`. Sin eso un trade que abre y cierra el mismo día salía en
+los **dos** bloques: su P&L en CERRADO y otra vez su prima en CAJA. Lo cazó el usuario el
+2026-09-05 mirando el bear call de SPX del 4-sep.
 - **P&L neto, no bruto**: usa `net-value` (ya incluye fees regulatorios). TastyTrade muestra
   bruto. Diferencia típica $1-2.50 por leg.
 - **FIFO**: empareja con la apertura más cercana en fecha. Multi-leg se consolida por
