@@ -106,7 +106,7 @@ chequear('con 1 trade la muestra NO es suficiente', ag.comparable.muestraSuficie
 // La invariante que los caza a los dos: **caja = P&L realizado + patas vivas**.
 seccion('El calendario (src/metrics.js)');
 
-const { buildMetrics } = require('../src/metrics');
+const { buildMetrics, getAmPm, fechaET } = require('../src/metrics');
 
 const tx = (o) => Object.assign({
   'transaction-type': 'Trade', 'transaction-sub-type': '', 'order-id': 1,
@@ -327,6 +327,37 @@ chequear('la suma de la caja diaria SI la contaria (por eso no se usa)',
 chequear('realizado + abierto = la caja real del libro',
   Math.abs((sumaMes(mMes.stratByDay) + sumaMes(mMes.abiertoByDay)) - 310) < 0.01,
   `dio ${sumaMes(mMes.stratByDay) + sumaMes(mMes.abiertoByDay)}, la caja fue +100 -40 +250 = 310`);
+
+// (g) La franja horaria va en hora de NUEVA YORK, no UTC. Reportado por el
+//     usuario el 2026-09-05: "en la hoja reportes solo veo cierres pm, no am".
+//     `getUTCHours() < 13` no se cumple nunca —el mercado abre 9:30 ET, que son
+//     las 13:30 UTC en verano y las 14:30 en invierno— asi que el cubo AM salia
+//     vacio: 164 de 266 cierres (62%) eran de la manana y se contaban como PM.
+//     Se prueban las dos mitades del ano, que es donde el bug se escondia.
+chequear('verano: 13:45 UTC son las 9:45 de Nueva York -> AM',
+  getAmPm('2026-07-15T13:45:00Z') === 'AM (9-12h)', `dio ${getAmPm('2026-07-15T13:45:00Z')}`);
+chequear('invierno: 15:00 UTC son las 10:00 de Nueva York -> AM',
+  getAmPm('2026-02-17T15:00:00Z') === 'AM (9-12h)', `dio ${getAmPm('2026-02-17T15:00:00Z')}`);
+chequear('verano: 18:00 UTC son las 14:00 -> PM',
+  getAmPm('2026-07-15T18:00:00Z') === 'PM (12-16h)', `dio ${getAmPm('2026-07-15T18:00:00Z')}`);
+chequear('invierno: 18:00 UTC son las 13:00 -> PM',
+  getAmPm('2026-02-17T18:00:00Z') === 'PM (12-16h)', `dio ${getAmPm('2026-02-17T18:00:00Z')}`);
+chequear('la liquidacion de vencimiento (21:00 UTC = 17:00 ET) no ensucia el PM',
+  getAmPm('2026-04-15T21:00:00Z') === 'After-hours', `dio ${getAmPm('2026-04-15T21:00:00Z')}`);
+chequear('antes de la apertura es Pre-market, no AM',
+  getAmPm('2026-07-15T13:00:00Z') === 'Pre-market', `dio ${getAmPm('2026-07-15T13:00:00Z')}`);
+chequear('las 9:30 en punto ya son AM',
+  getAmPm('2026-07-15T13:30:00Z') === 'AM (9-12h)', `dio ${getAmPm('2026-07-15T13:30:00Z')}`);
+
+// (g-bis) Y la FECHA tambien es la de Nueva York, no la de UTC. Norma del
+//     usuario: "todo el informe de bitacora tasty es con hora nueva york".
+//     `toISOString()` da la fecha UTC, que a partir de las 8pm ET ya es MANANA.
+chequear('las 9pm de Nueva York siguen siendo el mismo dia, no el siguiente',
+  fechaET('2026-04-16T01:00:00Z') === '2026-04-15', `dio ${fechaET('2026-04-16T01:00:00Z')}`);
+chequear('en invierno igual (10pm ET del 17-feb)',
+  fechaET('2026-02-18T03:00:00Z') === '2026-02-17', `dio ${fechaET('2026-02-18T03:00:00Z')}`);
+chequear('en horario de mercado la fecha no cambia',
+  fechaET('2026-04-15T18:00:00Z') === '2026-04-15', `dio ${fechaET('2026-04-15T18:00:00Z')}`);
 
 // (c) El detalle de un dia sale de `metrics.strategies`: si viene recortado, los
 //     meses viejos quedan mudos aunque la casilla muestre P&L. El 2026-09-05

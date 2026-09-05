@@ -208,6 +208,120 @@ distintas y no una.
 
 ---
 
+### Reportes no tenía ni un cierre AM (2026-09-05)
+
+**Síntoma, del usuario:** *"en la hoja reportes solo veo cierres pm, no am, debe ser un error
+de cálculo"*. Lo era, y de los baratos de encontrar:
+
+```js
+const h = new Date(isoStr).getUTCHours();
+return h < 13 ? 'AM (9-12h)' : 'PM (12-16h)';
+```
+
+Horas **UTC** contra un umbral pensado en hora del mercado. El mercado abre 9:30 ET, que son
+las **13:30 UTC en verano** y las **14:30 en invierno**: `h < 13` no se cumple nunca durante
+la sesión. El cubo AM era inalcanzable — no estaba vacío por casualidad, era imposible de
+llenar. Los 266 cierres caían en PM.
+
+La hora real de cierre, en Nueva York:
+
+```
+ 9:00  ██████████████████████████████████████████████████ 50
+10:00  ████████████████████████████████████████████████████████████████ 64
+11:00  ██████████████████████████████████████████████████ 50
+12:00  █████████████████████████████████ 33
+13:00  █████████████████████ 21
+14:00  ██████████ 10
+15:00  ████████████████████ 20
+16:00  ████ 4
+17:00  ██████████████ 14   ← liquidaciones de vencimiento
+```
+
+**164 de 266 (62%) eran de la mañana.** Con `Intl` y zona `America/New_York` —que resuelve el
+horario de verano solo— y los cuatro cubos que `timeOrder` del frontend ya esperaba:
+
+| Franja | Operaciones | P&L | Aciertos |
+|---|---|---|---|
+| AM (9-12h) | 164 | **+$1.727,19** | 69,5% |
+| PM (12-16h) | 84 | **−$1.810,19** | 64,3% |
+| After-hours | 18 | −$814,92 | 61,1% |
+
+El dato que el bug tapaba: **las mañanas ganan y las tardes pierden**. Y no es casualidad del
+libro de Tasty — el de Tradier, que ya calculaba bien la franja, dice lo mismo (AM +$2.505 en
+148, PM −$3.415 en 80).
+
+Detalle que duele: `src/metrics_tradier.js` **ya usaba `Intl` con `America/New_York`** desde su
+creación. El arreglo estaba a un archivo de distancia y nunca se retropropagó a `metrics.js`.
+Las liquidaciones de vencimiento (21:00 UTC = 17:00 ET) pasan ahora a `After-hours` en vez de
+ensuciar el cubo PM.
+
+---
+
+### Reportes no tenía ni un cierre AM (2026-09-05)
+
+**Síntoma, del usuario:** *"en la hoja reportes solo veo cierres pm, no am, debe ser un error
+de cálculo"*. Lo era:
+
+```js
+const h = new Date(isoStr).getUTCHours();
+return h < 13 ? 'AM (9-12h)' : 'PM (12-16h)';
+```
+
+Horas **UTC** contra un umbral pensado en hora del mercado. El mercado abre 9:30 ET, que son
+las **13:30 UTC en verano** y las **14:30 en invierno**: `h < 13` no se cumple nunca durante
+la sesión. El cubo AM no estaba vacío por casualidad — era **imposible de llenar**. Los 266
+cierres caían en PM.
+
+La hora real de cierre, en Nueva York:
+
+```
+ 9:00  ██████████████████████████████████████████████████ 50
+10:00  ████████████████████████████████████████████████████████████████ 64
+11:00  ██████████████████████████████████████████████████ 50
+12:00  █████████████████████████████████ 33
+13:00  █████████████████████ 21
+14:00  ██████████ 10
+15:00  ████████████████████ 20
+16:00  ████ 4
+17:00  ██████████████ 14   ← liquidaciones de vencimiento
+```
+
+**164 de 266 (62%) eran de la mañana.** Con `Intl` y zona `America/New_York` —que resuelve el
+horario de verano solo— y los cuatro cubos que `timeOrder` del frontend ya esperaba:
+
+| Franja | Operaciones | P&L | Aciertos |
+|---|---|---|---|
+| AM (9-12h) | 164 | **+$1.727,19** | 69,5% |
+| PM (12-16h) | 84 | **−$1.810,19** | 64,3% |
+| After-hours | 18 | −$814,92 | 61,1% |
+
+El dato que el bug tapaba: **las mañanas ganan y las tardes pierden**. Y no es rareza del
+libro de Tasty — el de Tradier, que ya calculaba bien la franja, dice lo mismo (AM +$2.505 en
+148 operaciones, PM −$3.415 en 80).
+
+Detalle que duele: `src/metrics_tradier.js` **ya usaba `Intl` con `America/New_York`** desde su
+creación. El arreglo estaba a un archivo de distancia y nunca se retropropagó.
+
+### La norma que salió de ahí: todo el informe en hora de Nueva York
+
+Al ver el arreglo el usuario dictó la regla general: *"todo el informe de bitácora tasty es con
+hora nueva york"*. Se barrió el resto de fechas y quedaban seis sitios más en UTC, todos con la
+misma trampa: **a partir de las 8pm ET la fecha UTC ya es mañana**.
+
+| Dónde | Qué fechaba mal |
+|---|---|
+| `metrics.js` — corte de "ya venció" | Una opción que vence hoy dejaba de contar como viva entre las 8pm y medianoche |
+| `metrics.js` — `buildEquityCurve` / `buildCalendar` | Sin usar hoy, pero eran una trampa esperando |
+| `server.js` — `/api/debug-today-strategies` | Pedía las operaciones de mañana después de las 8pm |
+| `server.js` — año gravable de Impuestos | A las 8pm del 31-dic la hoja se cambiaba sola de año |
+| `server.js` — `assignedAt` de La Rueda | Fechaba la asignación un día adelante |
+| `server.js` — fecha del screener y notas de cierre | Igual |
+
+`todayStr()` (UTC) queda **solo para rangos de consulta a la API**, donde pasarse un día por
+arriba no rompe nada, y lleva el aviso escrito encima de su definición.
+
+---
+
 ### El resumen del mes: Ejecutado / Abierto / Total (2026-09-05)
 
 Pedido del usuario: *"en el dato resumen de cada mes… que aparezca el dato real de lo

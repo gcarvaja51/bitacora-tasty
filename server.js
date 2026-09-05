@@ -256,6 +256,12 @@ function cached(k, s, fn) {
 }
 function bustCache() { _cache.clear(); }
 
+// ⚠️ FECHA UTC. Solo para RANGOS de consulta a la API (un rango que se pasa un
+// dia por arriba no rompe nada). Cualquier cosa que feche un DIA DE MERCADO —el
+// informe entero de la Bitacora: calendario, reportes, asignaciones, ano
+// gravable— usa todayStrET(). Norma del usuario, 2026-09-05: "todo el informe de
+// bitacora tasty es con hora nueva york". A partir de las 8pm ET, esta funcion
+// ya devuelve MANANA.
 const todayStr = () => new Date().toISOString().slice(0, 10);
 // Bug real (2026-08-01, encontrado por el usuario: "hay reportes de agosto,
 // algo esta mal" -- un sabado, sin mercado abierto, ya aparecia un bucket de
@@ -823,7 +829,7 @@ if (!process.env.RAILWAY_VOLUME_MOUNT_PATH) {
 // Hoja fiscal de un año gravable
 app.get('/api/impuestos', async (req, res) => {
   try {
-    const year = Number(req.query.year) || Number(todayStr().slice(0, 4));
+    const year = Number(req.query.year) || Number(todayStrET().slice(0, 4));
 
     const [trmMap, txData] = await Promise.all([
       getTrmMap(year, { force: req.query.refreshTrm === '1' }),
@@ -831,7 +837,9 @@ app.get('/api/impuestos', async (req, res) => {
         // El rango cubre el año completo. Se acota al inicio real de la
         // cuenta para no pedirle a Tastytrade meses que no existen.
         const sd = `${year}-01-01`;
-        const ed = Number(todayStr().slice(0, 4)) === year ? todayStr() : `${year}-12-31`;
+        // El ano gravable se decide en ET: a las 8pm del 31-dic en Nueva York, UTC
+        // ya es 1-ene y la hoja fiscal se cambiaba sola de ano.
+        const ed = Number(todayStrET().slice(0, 4)) === year ? todayStrET() : `${year}-12-31`;
         return cached(`imp_txns_${year}`, 300, async () => {
           const allItems = await tt.getAllTransactions(sd, ed);
           const tradeItems = allItems.filter(tx =>
@@ -977,7 +985,10 @@ app.post('/api/impuestos/config', (req, res) => {
 
 app.get('/api/debug-today-strategies', async (req, res) => {
   try {
-    const today = todayStr();
+    // ET, no UTC: "hoy" es un dia de mercado. Con todayStr() esto pedia las
+    // operaciones de MANANA a partir de las 8pm de Nueva York — el mismo fallo
+    // que vacio la tarjeta de /api/today.
+    const today = todayStrET();
     const txData = await tt.getAllTransactions(today, today);
     const { buildMetrics } = require('./src/metrics');
     const m = buildMetrics(txData);
@@ -1036,7 +1047,7 @@ app.get('/report', async (req, res) => {
     const totalRet = ((nlv - initial) / initial * 100).toFixed(2);
     const nlvHist  = loadNlvHistory();
     const nlvByMonth = computeMonthlyNlv(nlvHist, nlv);
-    const today    = todayStr();
+    const today    = todayStrET();
 
     // Consolidar estrategias
     const allLegs  = m.strategies || [];
@@ -1460,7 +1471,7 @@ app.post('/api/watchlist/eval-all', async (req, res) => {
       return al===0 ? 100 : +( 100 - 100/(1+ag/al) ).toFixed(1);
     };
 
-    const today = new Date().toISOString().slice(0,10);
+    const today = todayStrET();
     const signals = loadSignals ? loadSignals() : {};
     const results = [];
 
@@ -3671,7 +3682,7 @@ async function checkWheelPutManagementImpl() {
           ex.status = 'closed';
           ex.closedAt = new Date().toISOString();
           ex.closeReason = 'HUERFANO_SIN_POSICION';
-          ex.notes = `Cerrado automaticamente ${new Date().toISOString().slice(0,10)}: la pata ${ex.leg?.optionSymbol} no existe en la cuenta de Tradier (cerrada/vencida fuera de nuestros monitores). Se deja de reintentar. P&L no verificable desde aca — revisar a mano si hace falta.`;
+          ex.notes = `Cerrado automaticamente ${todayStrET()}: la pata ${ex.leg?.optionSymbol} no existe en la cuenta de Tradier (cerrada/vencida fuera de nuestros monitores). Se deja de reintentar. P&L no verificable desde aca — revisar a mano si hace falta.`;
           cambios = true;
           console.log(`[WHEEL-MGMT] 🧹 ${ex.symbol}: registro huerfano cerrado (${ex.leg?.optionSymbol} no esta en la cuenta).`);
           continue;
@@ -3993,7 +4004,7 @@ async function checkWheelExpiryImpl() {
         ex.stockCostBasis = Math.abs(parseFloat(acciones.cost_basis ?? 0)) || null;
         ex.shares         = Math.abs(parseFloat(acciones.quantity || 0)) || null;
         ex.assignedStrike = ex.leg?.strike ?? null;
-        ex.assignedAt     = new Date().toISOString().slice(0, 10);
+        ex.assignedAt     = todayStrET();
         ex.notes = `Asignado el ${ex.assignedAt} — ${acciones.quantity} acciones.`;
         console.log(`[WHEEL-EXPIRY] ${ex.symbol}: ${ex.notes}${ex.stockCostBasis ? ` (costo real $${ex.stockCostBasis})` : ''}`);
       } else {
@@ -4017,7 +4028,7 @@ async function checkWheelExpiryImpl() {
       if (!acciones) {
         ex.phase = 'CERRADO';
         ex.status = 'closed';
-        ex.notes = `Call ejercida el ${new Date().toISOString().slice(0,10)} — ciclo completo, acciones entregadas.`;
+        ex.notes = `Call ejercida el ${todayStrET()} — ciclo completo, acciones entregadas.`;
         console.log(`[WHEEL-EXPIRY] ${ex.symbol}: ${ex.notes}`);
       } else {
         ex.phase = 'ASIGNADO';

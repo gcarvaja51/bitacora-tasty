@@ -220,6 +220,12 @@ Estas no son preferencias técnicas, son reglas de trabajo.
 3. **Congelar cambios de alto impacto hasta juntar muestra** (~30 trades). Desde
    2026-08-04.
 4. **La hoja de Impuestos no se despliega a Railway.** Datos personales, URL pública.
+5. **Todo el informe va en hora de NUEVA YORK.** Calendario, Reportes, franjas horarias,
+   asignaciones, año gravable: cualquier cosa que feche un **día de mercado** usa
+   `todayStrET()` / `fechaET()`, nunca `todayStr()` ni `toISOString()`. A partir de las **8pm
+   ET la fecha UTC ya es mañana**. `todayStr()` (UTC) queda **solo para rangos de consulta a
+   la API**, donde pasarse un día por arriba no rompe nada. Ver histórico § *Reportes no tenía
+   ni un cierre AM*.
 5. **Un ROLL no es un cierre.** *"el resultado del calendario es lo que cerré hoy… no
    importa si hice roll para septiembre o noviembre, eso no tiene nada que ver."*
 6. **Nunca se paga por rolar.** Si ningún strike/fecha da crédito neto, no se rola.
@@ -513,6 +519,22 @@ pata) aparte de `date` (la apertura original de la campaña, que es lo que usa l
 sin `orderDate`, un roll cuya pata nueva muere el mismo día no se detectaba.
 - **P&L neto, no bruto**: usa `net-value` (ya incluye fees regulatorios). TastyTrade muestra
   bruto. Diferencia típica $1-2.50 por leg.
+- **La franja horaria (`getAmPm`) va en hora de NUEVA YORK, nunca en UTC.** Cuatro cubos:
+  `Pre-market` / `AM (9-12h)` / `PM (12-16h)` / `After-hours` — los que `timeOrder` del
+  frontend ya esperaba. Estuvo comparando `getUTCHours() < 13` contra un umbral pensado en
+  hora del mercado: como abre 9:30 ET = **13:30 UTC en verano y 14:30 en invierno**, la
+  condición **no se cumplía nunca** y Reportes enseñaba el 100% de los cierres como PM. Eran
+  164 de 266 (62%) de la mañana. `src/metrics_tradier.js` ya lo hacía bien con `Intl` — el
+  arreglo existía a un archivo de distancia y nunca se retropropagó. Hay test para verano e
+  invierno.
+- **La franja horaria (`getAmPm`) va en hora de NUEVA YORK, nunca en UTC.** Cuatro cubos:
+  `Pre-market` / `AM (9-12h)` / `PM (12-16h)` / `After-hours` — los que `timeOrder` del
+  frontend ya esperaba. Estuvo comparando `getUTCHours() < 13` contra un umbral pensado en
+  hora del mercado: como abre 9:30 ET = **13:30 UTC en verano y 14:30 en invierno**, la
+  condición **no se cumplía nunca** y Reportes enseñaba el 100% de los cierres como PM. Eran
+  164 de 266 (62%) de la mañana. `src/metrics_tradier.js` ya lo hacía bien con `Intl` — el
+  arreglo existía a un archivo de distancia y nunca se retropropagó. Hay test para verano e
+  invierno.
 - **FIFO**: empareja con la apertura más cercana en fecha. Multi-leg se consolida por
   `closeOrderId + underlying + closeDate`.
 

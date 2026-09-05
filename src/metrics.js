@@ -159,10 +159,36 @@ function getDurationCat(openDate, closeDate) {
   return '> 1 mes';
 }
 
+/* TODO lo que fecha un dia de mercado en la Bitacora va en hora de NUEVA YORK.
+   `new Date().toISOString()` da la fecha UTC, que a partir de las 8pm ET ya es
+   MAÑANA: entre las 8pm y la medianoche el sistema creia estar un dia adelante.
+   Mismo criterio que `todayStrET()` de server.js. */
+function hoyET() {
+  return fechaET(new Date());
+}
+function fechaET(instante) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(instante));
+}
+
+/* La franja horaria de un cierre, en hora de NUEVA YORK.
+   Estaba comparando `getUTCHours() < 13` contra un umbral pensado en hora del
+   mercado. El mercado abre 9:30 ET = 13:30 UTC en verano y 14:30 en invierno,
+   asi que la condicion NO SE CUMPLIA NUNCA: el cubo AM salia vacio y la pestana
+   Reportes enseñaba el 100% de los cierres como PM. Medido el 2026-09-05:
+   164 de 266 (62%) eran de la manana. Intl resuelve el horario de verano solo.
+   Las cuatro etiquetas son las que la pantalla ya esperaba (`timeOrder`). */
 function getAmPm(isoStr) {
   if (!isoStr) return null;
-  const h = new Date(isoStr).getUTCHours();
-  return h < 13 ? 'AM (9-12h)' : 'PM (12-16h)';
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(isoStr));
+  const hh  = +(partes.find(x => x.type === 'hour')   || {}).value || 0;
+  const mm  = +(partes.find(x => x.type === 'minute') || {}).value || 0;
+  const min = hh * 60 + mm;
+  if (min <  9 * 60 + 30) return 'Pre-market';
+  if (min < 12 * 60)      return 'AM (9-12h)';
+  if (min < 16 * 60)      return 'PM (12-16h)';
+  return 'After-hours';   // liquidaciones de vencimiento, que llegan 17:00 ET
 }
 
 function signed(val, effect) {
@@ -514,7 +540,11 @@ function buildMetrics(items, opts = {}) {
      Se exige vencimiento futuro: una opción vieja sin transacción de
      expiración se queda colgada en el inventario para siempre y marcaría
      abiertos trades que no lo están. */
-  const todayYmd  = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+  // En ET, no en UTC: este corte decide si una opcion ya vencio, y por tanto si
+  // una operacion se presenta como abierta. Con la fecha UTC, entre las 8pm y la
+  // medianoche de Nueva York el corte saltaba al dia siguiente y una posicion que
+  // vence hoy dejaba de contar como viva antes de tiempo.
+  const todayYmd  = hoyET().slice(2).replace(/-/g, '');
   const openNow   = new Set();
   for (const [sym, stack] of inventory) {
     const exp = symExpiry(sym);
@@ -791,7 +821,7 @@ function buildEquityCurve(nlvItems = []) {
   if (!nlvItems.length) return { labels:[], values:[], initial:0, maxDD:0, maxDDPct:0 };
   const labels = [], values = [];
   for (const item of nlvItems) {
-    labels.push(new Date(item.time).toISOString().slice(0,10));
+    labels.push(fechaET(item.time));
     values.push(parseFloat(item['total-close'] || item.close || 0));
   }
   const initial = values[0] || 0;
@@ -809,11 +839,11 @@ function buildCalendar(nlvItems = []) {
   for (let i = 1; i < nlvItems.length; i++) {
     const prev = parseFloat(nlvItems[i-1]['total-close'] || nlvItems[i-1].close || 0);
     const curr = parseFloat(nlvItems[i]['total-close']   || nlvItems[i].close   || 0);
-    const date = new Date(nlvItems[i].time).toISOString().slice(0,10);
+    const date = fechaET(nlvItems[i].time);
     result[date] = +(curr - prev).toFixed(2);
   }
   return result;
 }
 
-module.exports = { buildMetrics, buildEquityCurve, buildCalendar };
+module.exports = { buildMetrics, buildEquityCurve, buildCalendar, getAmPm, fechaET };
 
