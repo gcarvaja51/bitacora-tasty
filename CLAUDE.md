@@ -384,7 +384,12 @@ Desplegable: Acumulado / **Δ Net Liq** / **Realizado**. "Realizado" sale de
 `metrics.stratByDay`/`strategyByWeek`/`strategyByMonth` — **la misma fuente que Reportes**,
 así los dos lugares no pueden contradecirse.
 
-**El capital de arranque se lee del ledger, no se escribe a mano.** Estuvo fijo en `10644`
+**El capital de arranque se lee del ledger, no se escribe a mano** — y en TODOS los sitios:
+`sumaAportes(items)` / `capitalAportado()` (cacheada, para quien no tenga el historial completo
+a mano). Estuvo fijo en `10644` en **cuatro**: la curva, el PDF de `/report` y las dos entradas
+del chat de IA, que le daban a Claude un "retorno total" con $32 de desfase.
+⚠️ El `10644` que queda en `NLV_SEED['2026-02-13']` **no es el capital**: es un Net Liq
+aproximado metido a mano, y decía "depósito inicial" sin serlo. Estuvo fijo en `10644`
 hasta el 2026-09-05, cuando lo depositado eran **$10.676,03** (tres depósitos: $1,00 el 9-feb
 y $10.666,04 + $8,99 el 12-feb): $32,03 de desfase en el punto de partida y en el pico contra
 el que se mide el drawdown. Ahora `/api/curve` suma los `Money Movement` de sub-tipo

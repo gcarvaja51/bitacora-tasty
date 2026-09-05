@@ -808,6 +808,12 @@ async function humo(base = BASE) {
     chequear('la curva arranca del capital realmente depositado',
       aporteHasta > 0 && Math.abs((cur.curve?.initial || 0) - aporteHasta) < 0.02,
       `la curva dice ${cur.curve?.initial} y el ledger ${aporteHasta.toFixed(2)}`);
+
+    // /report no empieza por /api/, asi que el barrido de rutas de arriba no lo
+    // toca — y es el PDF que el usuario manda para afuera. Tenia el capital
+    // escrito a mano; que responda es lo minimo.
+    const rep = await fetch(base + '/report');
+    chequear('GET /report responde', rep.status < 500, `HTTP ${rep.status}`);
   } catch (e) {
     chequear('/api/transactions se puede leer para revisar el calendario', false, e.message);
   }

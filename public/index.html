@@ -949,7 +949,10 @@ const S = {
   calMonth: new Date().getMonth(),
   charts: {},
   wheelSyms: null,   // Set de subyacentes de la hoja Rueda — ver cargarWheelSyms()
-  initialCapital: parseFloat(localStorage.getItem('tt_initial') || '10644'),
+  // Solo se usa si /api/curve no respondio (`curve?.initial || S.initialCapital`).
+  // El capital de verdad lo calcula el servidor leyendo los depositos del ledger;
+  // este numero es un ultimo recurso, no una fuente.
+  initialCapital: parseFloat(localStorage.getItem('tt_initial') || '10676.03'),
 };
 
 // Vencimiento de la caché en memoria (2026-08-04) — mismo arreglo que se hizo
@@ -1463,7 +1466,7 @@ function renderEquityChart(curve, nlvSnapshots, _tipo, _chtype) {
   if (!ctxEl) return;
   var ctx = ctxEl.getContext('2d');
   if (S.charts && S.charts.equity) S.charts.equity.destroy();
-  var initial = curve.initial || 10644;
+  var initial = curve.initial || 10676.03;
 
   // Período en header
   var p0 = curve.labels[0] || '', pN = curve.labels[curve.labels.length-1] || '';
@@ -2695,7 +2698,7 @@ async function loadReports(forceRefresh) {
     const months = [...new Set([...Object.keys(realizedByMonth), ...(isFiltered ? [] : Object.keys(nlvByMonth))])]
       .sort().reverse();
     const byDay  = m.stratByDay || m.byDay || {};
-    const initial = S.curve?.curve?.initial || 10644;
+    const initial = S.curve?.curve?.initial || 10676.03;
     $('monthly-tbody').innerHTML = months.map(mo=>{
       const pnl  = realizedByMonth[mo] || 0, pct = initial ? (pnl/initial*100).toFixed(2) : 0;
       const dNlv = isFiltered ? null : nlvByMonth[mo];
@@ -7721,7 +7724,7 @@ function _chRedraw() {
   var byMonth     = _cData.byMonth     || {};
   var nlvByMonth  = _cData.nlvByMonth  || byMonth;
   var nlvByWeek   = _cData.nlvByWeek   || byWeek;
-  var initial     = curve.initial || 10644;
+  var initial     = curve.initial || 10676.03;
   var labels, vals, snaps;
 
   // Vista REALIZADO — corta antes de las tres ramas de Net Liq: es otra

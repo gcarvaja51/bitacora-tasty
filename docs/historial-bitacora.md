@@ -208,6 +208,38 @@ distintas y no una.
 
 ---
 
+### El capital escrito a mano estaba en cuatro sitios, no en uno (2026-09-05)
+
+El arreglo del capital de la curva (ver más arriba) dejó vivos otros tres `10644`, encontrados
+al barrer el repo:
+
+| Dónde | A quién le mentía |
+|---|---|
+| `/report` | El PDF que se manda para afuera: "retorno total" con $32 de desfase |
+| `/api/ai-chat` — contexto de texto | Le decía a Claude *"Capital inicial: $10,644"* |
+| `/api/ai-chat` — resumen JSON | `capitalInicial: 10644` en el objeto que analiza el coach |
+
+Los tres pasan por `capitalAportado()` / `sumaAportes(items)`, el mismo cálculo que la curva —
+extraído a un helper para que no vuelvan a divergir. La versión cacheada existe porque el chat
+de IA acepta un rango de fechas: pidiendo *"cómo me fue en agosto"*, el depósito inicial de
+febrero no aparece en `items` y el sumatorio daría cero.
+
+También se limpiaron los cuatro fallbacks `curve.initial || 10644` del frontend. Solo disparan
+si `/api/curve` no respondió, así que no cambian nada en la práctica — pero llevar el número
+viejo escrito ahí es cómo se propagó la primera vez.
+
+**Lo que NO se tocó:** el `10644` de `NLV_SEED['2026-02-13']`. Ese no es el capital, es un
+snapshot de Net Liq cargado a mano para los meses anteriores a que el sistema los guardara
+solo. Decía `// depósito inicial` y no lo es —los depósitos suman $10.676,03, cerrados el
+12-feb— pero no hay dato del broker de esa fecha con que reemplazarlo, y **inventar el número
+sería peor que dejarlo**. Se corrigió la etiqueta y se dejó el valor, con el aviso escrito
+encima.
+
+Se añadió humo para `/report`: no empieza por `/api/`, así que el barrido de rutas de
+`scripts/pruebas.js` nunca lo había tocado.
+
+---
+
 ### Reportes no tenía ni un cierre AM (2026-09-05)
 
 **Síntoma, del usuario:** *"en la hoja reportes solo veo cierres pm, no am, debe ser un error

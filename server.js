@@ -137,8 +137,14 @@ function msUntilET(hour, minute) {
 }
 
 const NLV_FILE = path.join(DATA_DIR, 'nlv_history.json');
+/* Snapshots de Net Liq cargados A MANO, para los meses anteriores a que el
+   sistema empezara a guardarlos solo. NO son el capital aportado: eso se lee del
+   ledger con `sumaAportes()` y da $10.676,03 (tres depositos, 9 y 12 de feb).
+   ⚠️ El 13-feb decia "deposito inicial" y no lo es — es un Net Liq aproximado,
+   $32 por debajo de lo depositado, metido a mano. No se corrige porque no hay
+   dato del broker de esa fecha con que reemplazarlo; inventarlo seria peor. */
 const NLV_SEED = {
-  '2026-02-13': 10644.00,   // depósito inicial
+  '2026-02-13': 10644.00,   // Net Liq aproximado del primer dia operado
   '2026-02-28': 11328.69,
   '2026-03-30': 9730.48,
   '2026-04-30': 9208.64,
@@ -263,6 +269,31 @@ function bustCache() { _cache.clear(); }
 // bitacora tasty es con hora nueva york". A partir de las 8pm ET, esta funcion
 // ya devuelve MANANA.
 const todayStr = () => new Date().toISOString().slice(0, 10);
+
+/* El capital aportado se LEE del ledger, NUNCA se escribe a mano. Estuvo fijo en
+   `10644` en cuatro sitios (la curva, el PDF y las dos entradas del chat de IA)
+   cuando lo realmente depositado son $10.676,03 — y un numero a mano se queda
+   viejo al primer deposito nuevo, en silencio. */
+function aportesDe(items = []) {
+  return items
+    .filter(t => t['transaction-type'] === 'Money Movement' &&
+                 /Deposit|Withdrawal/i.test(t['transaction-sub-type'] || ''))
+    .map(t => ({
+      date: (t['transaction-date'] || '').slice(0, 10),
+      val:  parseFloat(t['net-value'] || t.value || 0) *
+            ((t['net-value-effect'] || t['value-effect']) === 'Credit' ? 1 : -1),
+    }))
+    .filter(a => a.date);
+}
+function sumaAportes(items = []) {
+  return +aportesDe(items).reduce((a, x) => a + x.val, 0).toFixed(2);
+}
+/* Version cacheada para los sitios que NO tienen el historial completo a mano:
+   el chat de IA puede pedir un sub-periodo, donde el deposito inicial ni aparece. */
+function capitalAportado() {
+  return cached('capital-aportado', 3600, async () =>
+    sumaAportes(await tt.getAllTransactions('2026-02-01', todayStr())));
+}
 // Bug real (2026-08-01, encontrado por el usuario: "hay reportes de agosto,
 // algo esta mal" -- un sabado, sin mercado abierto, ya aparecia un bucket de
 // agosto en la curva de capital de Tradier): ni el snapshot programado
@@ -376,15 +407,7 @@ app.get('/api/curve', async (req, res) => {
          deposito o retiro posterior mueve la curva su propio dia, o la curva se
          despegaria del Net Liq real. Se mantiene fuera de `byDay` a proposito:
          byMonth/byWeek son P&L, y un deposito no es un resultado. */
-      const aportes = allItems
-        .filter(tx => tx['transaction-type'] === 'Money Movement' &&
-                      /Deposit|Withdrawal/i.test(tx['transaction-sub-type'] || ''))
-        .map(tx => ({
-          date: (tx['transaction-date'] || '').slice(0, 10),
-          val:  parseFloat(tx['net-value'] || tx.value || 0) *
-                ((tx['net-value-effect'] || tx['value-effect']) === 'Credit' ? 1 : -1),
-        }))
-        .filter(a => a.date);
+      const aportes = aportesDe(allItems);
 
       const primerDiaOperado = Object.keys(byDay).sort()[0] || '';
       const aportePorDia = {};
@@ -1043,8 +1066,8 @@ app.get('/report', async (req, res) => {
     const { buildMetrics } = require('./src/metrics');
     const m        = buildMetrics(txData);
     const nlv      = parseFloat(bal?.['net-liquidating-value'] || 0);
-    const initial  = 10644;
-    const totalRet = ((nlv - initial) / initial * 100).toFixed(2);
+    const initial  = await capitalAportado();
+    const totalRet = initial ? ((nlv - initial) / initial * 100).toFixed(2) : '0.00';
     const nlvHist  = loadNlvHistory();
     const nlvByMonth = computeMonthlyNlv(nlvHist, nlv);
     const today    = todayStrET();
@@ -14087,6 +14110,9 @@ app.post('/api/ai-chat', async (req, res) => {
     const nlv = parseFloat(bal?.['net-liquidating-value'] || 0);
     const nlvHistory = loadNlvHistory();
     const nlvByMonth = computeMonthlyNlv(nlvHistory, nlv);
+    // Del historial completo, no de `items`: el chat puede pedir un sub-periodo
+    // donde el deposito inicial ni siquiera aparece.
+    const capital    = await capitalAportado();
 
     // Calcular P&L no realizado por posición
     const openPositions = positions
@@ -14115,8 +14141,8 @@ app.post('/api/ai-chat', async (req, res) => {
 
 DATOS DEL PERÍODO:
 - Net Liq actual: $${nlv.toFixed(2)}
-- Capital inicial: $10,644
-- Retorno total: ${(((nlv-10644)/10644)*100).toFixed(2)}%
+- Capital inicial: $${capital.toFixed(2)}
+- Retorno total: ${capital ? (((nlv - capital) / capital) * 100).toFixed(2) : '0.00'}%
 - Total trades: ${m.totalStrategies}
 - Win Rate: ${m.winRate}%
 - Profit Factor: ${m.profitFactor}x
@@ -14309,10 +14335,11 @@ app.post('/api/ai-analysis', async (req, res) => {
     const m   = txData.metrics;
     const nlv = parseFloat(overview.balances?.['net-liquidating-value'] || 0);
     const nlvByMonth = curveData.nlvByMonth || {};
+    const capital = sumaAportes(txData.items);
 
     // Construir resumen para Claude
     const summary = {
-      cuenta: { netLiq: nlv, capitalInicial: 10644, retornoTotal: +((nlv - 10644) / 10644 * 100).toFixed(2) },
+      cuenta: { netLiq: nlv, capitalInicial: capital, retornoTotal: capital ? +((nlv - capital) / capital * 100).toFixed(2) : 0 },
       rendimiento: { winRate: m.winRate, profitFactor: m.profitFactor, totalTrades: m.totalStrategies, totalPnL: m.totalPnL, comisiones: m.totalComm },
       mensual: Object.entries(nlvByMonth).sort().map(([mo, pnl]) => ({ mes: mo, pnl: +pnl.toFixed(2) })),
       porEstrategia: Object.entries(m.byStrategy || {}).sort((a,b) => b[1].trades - a[1].trades).slice(0, 8).map(([tipo, d]) => ({ tipo, trades: d.trades, winRate: d.winRate, pnl: +d.pnl.toFixed(2), promGan: d.avgWin, promPer: d.avgLoss })),
