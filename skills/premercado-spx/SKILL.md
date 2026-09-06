@@ -2164,6 +2164,79 @@ el mercado", "revisa si acertamos el premercado", o equivalente.
    empezar el premercado del día siguiente — no duplicar el análisis a mano ahí,
    solo referenciar lo que ya se escribió en el Postmercado.
 
+6. **Emitir la llamada de la sesión siguiente** (2026-09-06, nuevo). El
+   postmercado cierra con UNA predicción falsable para la próxima sesión,
+   escrita esa misma tarde y guardada en el log.
+
+   **Por qué se agrega.** La auditoría del 2026-09-06 midió los 35 premercados
+   contra el precio real: el favorito direccional acertó 14 de 22 (63,6%) —
+   exactamente lo mismo que ponerse corto a ciegas esos mismos días, con el
+   intervalo de confianza [43%, 80%] cruzando la moneda y p = 0,29. Cuando el
+   usuario preguntó lo mismo del postmercado, la respuesta fue que **no se podía
+   responder**: el Paso 8 solo evalúa hacia atrás, y una evaluación
+   retrospectiva no se puede puntuar. Cero observaciones hacia adelante. Este
+   bloque es lo que empieza a generarlas. La primera llamada es para el martes
+   2026-09-08 (el lunes 7 es Labor Day).
+
+   Reglas, todas obligatorias:
+   - **Se emite el mismo día y NO se edita después.** Si cambia la lectura, va
+     una entrada nueva con su hora, nunca una sobrescritura: una llamada
+     corregida con información posterior deja de ser una predicción.
+   - **Lleva nivel, no prosa.** Mismo contrato que `escenarios` (Paso 6), para
+     que la puntúe el mismo código y no una lectura a ojo. Una llamada que dice
+     "sesgo bajista con cautela" no se puede puntuar y por tanto no vale.
+   - **`para_fecha` se PREGUNTA al calendario**: `cal.siguienteDiaDeMercado()`
+     de `src/calendario_nyse`. No se asume "mañana" — gotcha 12 del CLAUDE.md
+     del repo: el calendario se pregunta, no se reimplementa.
+   - **La puntuación es mecánica y binaria. No existe "parcial".** La misma
+     auditoría encontró que de las 17 notas `parcial` del log, **6 tenían la
+     dirección objetivamente equivocada** y solo 3 la tenían bien: el "parcial"
+     funcionó como colchón y hacía ver la serie mucho mejor de lo que era.
+   - **Esto NO autoriza operar.** Muestra cero. Se acumulan al menos 30 sesiones
+     antes de que el número signifique nada, y se compara contra el benchmark de
+     "siempre corto" en las mismas fechas, nunca contra sí mismo.
+
+   Bloque a escribir en `premercado_hipotesis_log.json`, en la entrada del día
+   que se está cerrando:
+
+   ```json
+   "llamada_siguiente": {
+     "para_fecha": "2026-09-08",
+     "emitida_et": "2026-09-04T16:42",
+     "spot_cierre": 7718.36,
+     "direccion": "BAJISTA",
+     "conviccion": 55,
+     "activa":   { "tipo": "cierre_15m_bajo",  "nivel": 7700 },
+     "invalida": { "tipo": "cierre_15m_sobre", "nivel": 7735 },
+     "t1": [7675, 7680],
+     "t2": [7650],
+     "tesis": "Una sola frase: qué tiene que pasar y por qué.",
+     "resultado": null
+   }
+   ```
+
+   `resultado` lo completa el postmercado del día siguiente, sobre velas de 15m
+   y con el mismo colchón de 3 puntos que usa `src/estrategia_premercado.js`:
+
+   ```json
+   "resultado": {
+     "activo": true,
+     "hora_activacion_et": "10:15",
+     "alcanzo_t1": false,
+     "invalido": true,
+     "hora_invalidacion_et": "11:30",
+     "pts_desde_activacion_al_cierre": -12.4,
+     "veredicto": "FALLO"
+   }
+   ```
+
+   `veredicto` admite exactamente tres valores: **`ACIERTO`** (activó y alcanzó
+   T1 antes de invalidarse), **`FALLO`** (activó y se invalidó antes de T1),
+   **`NO_ACTIVO`** (el disparador nunca se cumplió). `NO_ACTIVO` no cuenta a
+   favor ni en contra en la tasa de acierto, pero **se registra y se cuenta
+   aparte**: una llamada que casi nunca se activa tampoco sirve para operar, y
+   sin ese contador eso queda invisible.
+
 **Ejemplo real completo (2026-07-20, ver el documento del día)**: apertura
 $7,489.18, máximo $7,513.23 (tocado en el primer minuto, dentro del target
 alcista), mínimo $7,440.53, cierre $7,443.28. Camino: spike alcista inicial que
