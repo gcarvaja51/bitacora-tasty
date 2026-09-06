@@ -5506,6 +5506,88 @@ function withExecutionsLock(fn) {
 // mientras tanto la fuerza sale null, que es lo correcto — nunca un valor viejo.
 let ultimoGexPorStrike = null;
 
+// Rellena la caché de arriba. La llaman DOS sitios: buildSPXContext (que ya
+// arma la cadena para su propio GEX) y refrescarRejillasGex (abajo).
+//
+// Se guarda la rejilla de CADA vencimiento por separado porque los muros de
+// Sigma son de UNO solo: el agregado de 4 le sumaría al muro la gamma de
+// vencimientos que no son el suyo. El agregado queda como respaldo.
+// maxPainPorVencimiento permite dar el max pain del 0DTE — el del día — en vez
+// del "más cercano" a secas. calcMaxPain es O(n²) sobre ~250 strikes; por 4
+// vencimientos son ~250k sumas, unos pocos ms.
+function guardarRejillasGex(enrichedExps, spxPrice, byStrike) {
+  if (!byStrike?.length) return false;
+  const porVencimiento = {};
+  const maxPainPorVencimiento = {};
+  for (const exp of (enrichedExps || [])) {
+    if (!exp.expiry) continue;
+    const rejilla = gexPorStrike(exp.strikes, spxPrice);
+    if (rejilla.length) porVencimiento[exp.expiry] = rejilla;
+    const mp = calcMaxPain(exp.strikes || []);
+    if (mp) maxPainPorVencimiento[exp.expiry] = mp;
+  }
+  ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike, porVencimiento, maxPainPorVencimiento };
+  return true;
+}
+
+// ── Ciclo propio de la rejilla (2026-09-06) ────────────────────────────────
+//
+// POR QUE EXISTE. La caché la llenaba SOLO buildSPXContext, y buildSPXContext lo
+// llaman las estrategias dentro de SUS ventanas: el direccional 9:45-14:00 ET, la
+// Reversión igual, el Iron Condor a ratos. Pero el gamma_daemon empuja al gráfico
+// desde las 9:00 hasta las 16:05, y la caché caduca a los 6 minutos.
+//
+// O sea que entre las 9:00 y las 9:45, y otra vez desde las ~14:00 hasta el
+// cierre, la caché estaba fría: el max pain caía al de Sigma y los muros salían
+// SIN palabra de fuerza — casi tres horas de sesión, degradándose en silencio y
+// justo en los dos tramos que más se miran, la apertura y el cierre.
+//
+// Se descubrió el mismo día de escribirlo, revisando de dónde salía el dato tras
+// la pregunta del usuario ("max pain se dibuja con el dato calculado, ¿correcto?").
+//
+// Cada 3 min y no cada 30s: la rejilla sale del open interest, que se actualiza
+// UNA VEZ AL DÍA. Lo único que se mueve intradía es el spot (entra al GEX al
+// cuadrado), y para decidir una banda de fuerza o un strike de max pain eso no
+// cambia nada en 3 minutos. Si buildSPXContext ya refrescó hace poco, no se hace
+// nada: esto solo cubre los huecos, no duplica trabajo.
+const REJILLA_REFRESCO_MS = 3 * 60 * 1000;
+
+async function refrescarRejillasGex() {
+  try {
+    // Misma ventana que el gamma_daemon (9:00-16:05 ET, media hora antes de la
+    // campana y cinco minutos despues del cierre), no la de las estrategias: lo
+    // que hay que cubrir es exactamente el rango en que el daemon empuja.
+    if (!calendario.enVentanaET(9 * 60, 16 * 60 + 5)) return;
+    if (ultimoGexPorStrike && Date.now() - ultimoGexPorStrike.at < REJILLA_REFRESCO_MS) return;
+
+    const r = await fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/SPX`);
+    const chainJson = await r.json();
+    const spot = chainJson.underlyingPrice;
+    if (!spot || spot < 1000) return;   // fuera de rueda la cadena devuelve 0
+
+    const enrichedExps = (chainJson.expirations || []).slice(0, 4).map(exp => ({
+      expiry: exp.expiry,
+      dte: exp.dte,
+      strikes: (exp.strikes || []).map(s => ({
+        strike: s.strike,
+        call: { delta: s.call?.delta || 0, gamma: s.call?.gamma || 0, oi: s.call?.oi || 0, mark: s.call?.mark || 0, iv: s.call?.iv || 0 },
+        put:  { delta: s.put?.delta  || 0, gamma: s.put?.gamma  || 0, oi: s.put?.oi  || 0, mark: s.put?.mark  || 0, iv: s.put?.iv  || 0 },
+      })),
+    }));
+    if (!enrichedExps.length) return;
+
+    // calcGEX aquí es solo para obtener byStrike; el netGex/gammaFlip de esta
+    // llamada no se usa ni se publica — de eso sigue encargándose buildSPXContext.
+    const gex = calcGEX(enrichedExps, spot);
+    guardarRejillasGex(enrichedExps, spot, gex.byStrike);
+  } catch (e) {
+    // Best-effort puro: si falla, la caché envejece y el POST de sigma-levels cae
+    // a sus respaldos (max pain de Sigma, muros sin palabra). Nada que dependa de
+    // dinero pasa por acá.
+    console.error('[rejilla] no se pudo refrescar:', e.message);
+  }
+}
+
 // GET /api/spx/context — contexto completo del mercado
 // Construye el contexto de mercado completo para SPX (precio, VIX, IV Rank, GEX,
 // indicadores 2m/15m/diario, rango de apertura, confluencia Weinstein). Usado tanto
@@ -5721,19 +5803,7 @@ async function buildSPXContext() {
     // sigma-levels para el porqué. calcMaxPain es O(n²) sobre ~250 strikes; por
     // 4 vencimientos son ~250k operaciones de suma cada 30s, medido en unos
     // pocos ms — no justifica cachearlo aparte ni recortarlo.
-    if (gex.byStrike?.length) {
-      const porVencimiento = {};
-      const maxPainPorVencimiento = {};
-      for (const exp of enrichedExps) {
-        if (!exp.expiry) continue;
-        const rejilla = gexPorStrike(exp.strikes, spxPrice);
-        if (rejilla.length) porVencimiento[exp.expiry] = rejilla;
-        const mp = calcMaxPain(exp.strikes || []);
-        if (mp) maxPainPorVencimiento[exp.expiry] = mp;
-      }
-      ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike: gex.byStrike,
-                             porVencimiento, maxPainPorVencimiento };
-    }
+    guardarRejillasGex(enrichedExps, spxPrice, gex.byStrike);
     delete gex.byStrike;
 
     // 7. Indicadores técnicos — diario y 15m
@@ -6429,6 +6499,12 @@ async function checkDirectionalAutonomous() {
   }
 }
 cicloDeTrading(checkDirectionalAutonomous, 30 * 1000);
+
+// La rejilla de GEX/max pain por vencimiento, en su PROPIO ciclo. Ver
+// refrescarRejillasGex: buildSPXContext solo corre dentro de las ventanas de las
+// estrategias (9:45-14:00 ET) y el daemon empuja de 9:00 a 16:05, asi que sin
+// esto la caduca quedaba fria casi tres horas de sesion — apertura y cierre.
+cicloDeTrading(refrescarRejillasGex, 60 * 1000);
 
 // Genera y (si corresponde) ejecuta la señal direccional una vez que Camino B
 // ya decidio la direccion — extraido del webhook el 2026-07-27 para poder
