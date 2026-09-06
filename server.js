@@ -7653,11 +7653,16 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   //      Condor, Reversión) siguen decidiendo con sigma.maxPain y su
   //      maxPainFuente, exactamente como quedó en agosto. No se toca dinero con
   //      un número que todavía no está validado.
-  //   2. Se calcula sobre EL MISMO VENCIMIENTO que reporta Sigma, no sobre el
-  //      más cercano a secas. Es la explicación más probable de aquel sesgo de
-  //      250 puntos: comparar dos vencimientos distintos y creer que era el
-  //      mismo. Si el vencimiento de Sigma no está en nuestra cadena, no se
-  //      inventa: se cae al de Sigma.
+  //   2. Se calcula sobre EL VENCIMIENTO DE HOY — el 0DTE — siempre, y no sobre
+  //      el que venga en la lectura de Sigma (directriz del usuario, 2026-09-06:
+  //      "el max pain que vamos a dibujar es el de hoy, siempre, el del día").
+  //      La fecha se resuelve en horario de NUEVA YORK, no en el del portátil:
+  //      a las 7pm en Colombia ya es el día siguiente en UTC pero en Nueva York
+  //      sigue siendo la misma jornada, y el daemon corre hasta las 16:05 ET.
+  //      Si el 0DTE no está en nuestra cadena —fuera de rueda, o ya expirado y
+  //      caído de la cadena— no se inventa: se cae al de Sigma y se dice.
+  //      Esto es además la explicación más probable del sesgo de 250 puntos de
+  //      agosto: comparar dos vencimientos distintos creyendo que eran el mismo.
   //   3. Se guardan LOS DOS en el historial (maxPain de Sigma y maxPainPropio)
   //      más la fuente que se dibujó. Aquel incidente costó caro justamente por
   //      no poder auditar de dónde salía el número: "un nivel sin procedencia se
@@ -7668,11 +7673,16 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // strikes a ±3% del spot no lo mueve, o sea que el OI lejano NO lo arrastra.
   const mpCache = ultimoGexPorStrike;
   const mpFresco = mpCache && Date.now() - mpCache.at <= FUERZA_MURO_MAX_EDAD_MS;
-  const maxPainPropio = (mpFresco && expiry && mpCache.maxPainPorVencimiento?.[expiry]) || null;
+  const hoyET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const maxPainPropio = (mpFresco && mpCache.maxPainPorVencimiento?.[hoyET]) || null;
 
   entry.maxPainPropio  = maxPainPropio;
   entry.maxPainGrafico = maxPainPropio ?? (maxPain ?? null);
   entry.maxPainFuenteGrafico = maxPainPropio ? 'propio' : 'sigma_terminal';
+  // Qué vencimiento se uso de verdad. Sin esto, un dia en que el 0DTE no este en
+  // la cadena se dibuja el de Sigma —que puede ser de OTRO vencimiento— y al
+  // revisar la semana no habria forma de notarlo. Es la misma leccion de agosto.
+  entry.maxPainVencimiento = maxPainPropio ? hoyET : (expiry || null);
 
   entry.gexMuroCall  = fuerzaMuros.call.gex;
   entry.gexMuroPut   = fuerzaMuros.put.gex;
@@ -7698,13 +7708,15 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   if (rechazo) {
     console.error(`[SIGMA] ⛔ Lectura descartada: ${rechazo}`);
     return res.json({ ok: true, saved: null, descartada: true, motivo: rechazo, fuerzaMuros,
-                      maxPainPropio, maxPainGrafico: entry.maxPainGrafico, maxPainFuenteGrafico: entry.maxPainFuenteGrafico });
+                      maxPainPropio, maxPainGrafico: entry.maxPainGrafico,
+                      maxPainFuenteGrafico: entry.maxPainFuenteGrafico, maxPainVencimiento: entry.maxPainVencimiento });
   }
 
   history.unshift(entry);
   saveSigmaLevelsHistory(history.slice(0, SIGMA_LEVELS_MAX_ENTRIES));
   res.json({ ok: true, saved: entry, fuerzaMuros,
-            maxPainPropio, maxPainGrafico: entry.maxPainGrafico, maxPainFuenteGrafico: entry.maxPainFuenteGrafico });
+            maxPainPropio, maxPainGrafico: entry.maxPainGrafico,
+                      maxPainFuenteGrafico: entry.maxPainFuenteGrafico, maxPainVencimiento: entry.maxPainVencimiento });
 });
 
 // Cuántos dólares de gamma hay en los muros que manda el daemon, y en qué banda

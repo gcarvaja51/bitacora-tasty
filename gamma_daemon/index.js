@@ -249,19 +249,30 @@ async function runCycle() {
     const fuerzaCall = Number(respuestaServidor?.fuerzaMuros?.call?.codigo) || 0;
     const fuerzaPut  = Number(respuestaServidor?.fuerzaMuros?.put?.codigo)  || 0;
 
-    // Max Pain: al GRAFICO va el calculado por nosotros, no el de Sigma
-    // (2026-09-06, pedido del usuario). El servidor lo calcula sobre el MISMO
-    // vencimiento que acabamos de mandarle y devuelve maxPainGrafico ya resuelto
-    // — si no pudo (rejilla vieja, vencimiento fuera de nuestra cadena, servidor
-    // sin desplegar) devuelve el de Sigma, y si tampoco, cae al de siempre.
+    // Max Pain: al GRAFICO va el calculado por nosotros sobre el vencimiento de
+    // HOY —el 0DTE— siempre (2026-09-06, directriz del usuario: "el max pain que
+    // vamos a dibujar es el de hoy, siempre, el del dia"). Ojo que eso NO tiene
+    // por que coincidir con el vencimiento que Sigma esta mostrando: por eso el
+    // servidor devuelve tambien maxPainVencimiento, que es el que uso de verdad.
+    //
+    // El servidor entrega maxPainGrafico ya resuelto. Si no pudo calcularlo
+    // (rejilla vieja, 0DTE fuera de nuestra cadena, servidor sin desplegar)
+    // devuelve el de Sigma, y si tampoco hay, se cae a 0 y el Pine no dibuja.
     //
     // OJO: esto cambia SOLO lo que se dibuja. Las estrategias del servidor
     // siguen decidiendo con el max pain de Sigma, como quedo el 2026-08-22.
     const maxPainGrafico = respuestaServidor?.maxPainGrafico ?? levels.maxPain ?? 0;
-    if (respuestaServidor?.maxPainFuenteGrafico === 'propio'
-        && respuestaServidor?.maxPainPropio !== levels.maxPain) {
-      console.log(`[tv] max pain propio ${respuestaServidor.maxPainPropio} vs Sigma ${levels.maxPain}`
-        + ` (${respuestaServidor.maxPainPropio - levels.maxPain} pts) — se dibuja el propio`);
+    if (respuestaServidor?.maxPainFuenteGrafico === 'propio') {
+      const dif = respuestaServidor.maxPainPropio - levels.maxPain;
+      if (dif !== 0) {
+        console.log(`[tv] max pain propio ${respuestaServidor.maxPainPropio} (vto ${respuestaServidor.maxPainVencimiento})`
+          + ` vs Sigma ${levels.maxPain} (vto ${levels.expiry}) — ${dif > 0 ? '+' : ''}${dif} pts, se dibuja el propio`);
+      }
+    } else if (respuestaServidor?.maxPainGrafico != null) {
+      // Que el 0DTE no este disponible no es rutina: se dice, para que no pase
+      // callado un dia entero dibujando el max pain de otro vencimiento.
+      console.warn(`[tv] sin max pain propio del 0DTE — se dibuja el de Sigma (${levels.maxPain},`
+        + ` vto ${levels.expiry})`);
     }
 
     const wasDegraded = mode === 'degraded';
