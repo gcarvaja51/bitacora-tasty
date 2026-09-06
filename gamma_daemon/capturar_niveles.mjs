@@ -17,6 +17,7 @@
 import { ensurePage, readLevels, readExpiryChips, seleccionarExpiry,
          seleccionarSimbolo, readSymbol, close,
          pestanaAuxiliar, cerrarAuxiliar } from './sigma.js';
+import calendario from '../src/calendario_nyse.js';
 
 // EL PANEL TIENE QUE ESTAR MONTADO ANTES DE EMPEZAR (portado de
 // 06_vencimiento de opciones/scripts/28_captura_sigma.mjs, 2026-08-26).
@@ -58,6 +59,23 @@ const args = process.argv.slice(2);
 const TODOS = args.includes('--todos');
 const iSim = args.indexOf('--simbolos');
 const SIMBOLOS_ARG = iSim >= 0 ? (args[iSim + 1] || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [];
+const FORZAR = args.includes('--forzar');
+
+// ── Guard de dia de mercado (2026-09-06) ────────────────────────────────────
+//
+// Esta captura no tenia NINGUN guard: ni de fin de semana ni de feriado. La
+// dispara la Tarea Programada `Bitacora_Captura_Niveles` de lunes a viernes, y
+// el lunes 2026-09-07 —Labor Day— iba a leer los mismos numeros congelados del
+// viernes y meterlos en la matriz de seguimiento del OPEX como si fueran la
+// foto de un dia nuevo. Una fila duplicada en esa matriz no es cosmetica: es la
+// que alimenta el algoritmo del Dia del Criterio.
+//
+// `--forzar` existe para las corridas a mano (re-capturar un dia, probar un
+// cambio); lo que no puede pasar es que la Tarea Programada lo haga sola.
+if (!calendario.esDiaDeMercado() && !FORZAR) {
+  console.log(`[captura] SALTA — hoy no hay mercado (${calendario.motivoCierre()}). Con --forzar se captura igual.`);
+  process.exit(0);
+}
 
 let fallos = 0;
 

@@ -4,23 +4,20 @@
 // Analiza contexto de mercado y genera sugerencias de entrada
 // para estrategias de opciones en SPX
 
+const calendario = require('./calendario_nyse');
+
 // Siguiente dia de TRADING (no solo +1 dia calendario) — usado para 1DTE, que
-// entra un viernes por la tarde y debe apuntar al lunes, no al sabado. No
-// maneja feriados (igual que el resto del sistema, ver nota de calendario
-// economico manual en CLAUDE.md) pero al menos salta fin de semana, que antes
-// causaba que findStrikesByDelta buscara una expiracion de sabado inexistente
-// y cayera al fallback (la primera expiracion disponible, sin relacion con
-// "el dia siguiente real").
+// entra un viernes por la tarde y debe apuntar al lunes, no al sabado.
+//
+// (2026-09-06) Ahora tambien salta FERIADOS. La version anterior solo saltaba
+// el fin de semana y lo decia en su propio comentario ("no maneja feriados,
+// igual que el resto del sistema"): un IC 1DTE abierto el viernes 2026-09-04
+// habria pedido la expiracion del lunes 7 —Labor Day, que no existe en la
+// cadena— y caido al fallback, o sea la PRIMERA expiracion disponible, sin
+// ninguna relacion con "el dia siguiente real". Es el mismo modo de falla que
+// motivo esta funcion, solo que por la puerta del feriado.
 function nextTradingDateET() {
-  let d = new Date(Date.now() + 86400000);
-  let dateStr = d.toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
-  let dow = new Date(dateStr + 'T12:00:00Z').getDay(); // 0=domingo, 6=sabado
-  while (dow === 0 || dow === 6) {
-    d = new Date(d.getTime() + 86400000);
-    dateStr = d.toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
-    dow = new Date(dateStr + 'T12:00:00Z').getDay();
-  }
-  return dateStr;
+  return calendario.siguienteDiaDeMercado();
 }
 
 function getETHour() {

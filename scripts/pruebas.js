@@ -708,6 +708,100 @@ chequear('un ETF se pide por su propio ticker, sin ^',
   simboloYahoo('SPY') === 'SPY' && simboloYahoo('QQQ') === 'QQQ');
 chequear('una accion se pide tal cual', simboloYahoo('F') === 'F');
 
+// ── 2f. El calendario de la NYSE ───────────────────────────────────────────
+//
+// Por que existe: el 2026-09-06 el usuario vio que el bot trabajaba un domingo y
+// pregunto por el lunes. Habia siete guards de "hay mercado hoy?" en el repo y
+// solo uno —el de server.js— conocia los feriados; los demas solo miraban sabado
+// y domingo, asi que el lunes 2026-09-07 (Labor Day) iban a correr todos. La
+// tabla se extrajo a src/calendario_nyse.json y estas pruebas son lo que impide
+// que alguien vuelva a escribir la suya.
+seccion('El calendario de la NYSE (src/calendario_nyse.js)');
+
+const cal = require('../src/calendario_nyse');
+
+// El caso que origino todo. Labor Day 2026 cae lunes: dia habil y sin campana.
+chequear('Labor Day 2026-09-07 NO es dia de mercado', cal.esDiaDeMercado('2026-09-07') === false);
+chequear('...y dice que el motivo es el feriado, no el fin de semana',
+         cal.motivoCierre('2026-09-07') === 'feriado', `dio ${cal.motivoCierre('2026-09-07')}`);
+chequear('el domingo se distingue del feriado',
+         cal.motivoCierre('2026-09-06') === 'fin_de_semana', `dio ${cal.motivoCierre('2026-09-06')}`);
+chequear('el martes siguiente si es dia de mercado', cal.esDiaDeMercado('2026-09-08') === true);
+
+// Lo que necesita el 1DTE: el viernes previo a Labor Day apunta al MARTES.
+// Con el salto de solo-fin-de-semana apuntaba al lunes, una expiracion que no
+// existe en la cadena, y findStrikesByDelta caia al fallback.
+chequear('siguienteDiaDeMercado salta fin de semana Y feriado',
+         cal.siguienteDiaDeMercado('2026-09-04') === '2026-09-08',
+         `dio ${cal.siguienteDiaDeMercado('2026-09-04')}`);
+
+// La trampa que ya estaba documentada y no hay que perder: el 1-ene-2028 cae
+// sabado, asi que la NYSE cierra el viernes 31-dic-2027.
+chequear('2027-12-31 esta en el calendario (Año Nuevo 2028 cae sabado)',
+         cal.esFeriado('2027-12-31') === true);
+chequear('...y 2028-01-01 no hace falta que este (es sabado)',
+         cal.esDiaDeMercado('2028-01-01') === false);
+
+// Ningun feriado observado puede caer en fin de semana: si pasa es un tipeo.
+const feriadoEnFinde = [...cal.FERIADOS].filter(f => cal.esFinDeSemana(f));
+chequear('ningun feriado de la tabla cae en sabado o domingo',
+         feriadoEnFinde.length === 0, `caen en finde: ${feriadoEnFinde.join(', ')}`);
+const mediosDuplicados = [...cal.MEDIOS_DIAS].filter(d => cal.FERIADOS.has(d));
+chequear('ningun medio dia esta ademas como feriado (son cosas distintas)',
+         mediosDuplicados.length === 0, `duplicados: ${mediosDuplicados.join(', ')}`);
+
+// El borde exacto de la campana. Caza el dia que alguien cambie un < por un <=.
+const enET = (fecha, hhmm) => {
+  // Construye un instante que en Nueva York sea exactamente esa hora.
+  const [h, m] = hhmm.split(':').map(Number);
+  for (let offset = 0; offset <= 26; offset++) {
+    const d = new Date(`${fecha}T${String(offset).padStart(2, '0')}:${String(m).padStart(2, '0')}:00Z`);
+    if (cal.fechaET(d) === fecha && cal.minutosET(d) === h * 60 + m) return d;
+  }
+  throw new Error(`no se pudo construir ${fecha} ${hhmm} ET`);
+};
+chequear('9:29 ET todavia no es horario de mercado', cal.enHorarioDeMercado(enET('2026-09-08', '9:29')) === false);
+chequear('9:30 ET ya lo es',                          cal.enHorarioDeMercado(enET('2026-09-08', '9:30')) === true);
+chequear('15:59 ET sigue siendolo',                   cal.enHorarioDeMercado(enET('2026-09-08', '15:59')) === true);
+chequear('16:00 ET ya no',                            cal.enHorarioDeMercado(enET('2026-09-08', '16:00')) === false);
+chequear('a las 12:00 de Labor Day no hay mercado',   cal.enHorarioDeMercado(enET('2026-09-07', '12:00')) === false);
+
+// Medio dia: la campana suena a la 1pm, no a las 4. Es un dia ABIERTO.
+chequear('2026-11-27 es medio dia y si es dia de mercado',
+         cal.esMedioDia('2026-11-27') === true && cal.esDiaDeMercado('2026-11-27') === true);
+chequear('en medio dia a las 12:00 hay mercado',  cal.enHorarioDeMercado(enET('2026-11-27', '12:00')) === true);
+chequear('en medio dia a las 13:00 ya cerro',     cal.enHorarioDeMercado(enET('2026-11-27', '13:00')) === false);
+chequear('en un dia normal a las 13:00 no cerro', cal.enHorarioDeMercado(enET('2026-09-08', '13:00')) === true);
+
+// La ventana propia del gamma_daemon (9:00-16:05 ET) tampoco corre un feriado.
+chequear('la ventana del daemon no abre en Labor Day',
+         cal.enVentanaET(9 * 60, 16 * 60 + 5, { ahora: enET('2026-09-07', '10:00') }) === false);
+chequear('la ventana del daemon abre a las 9:00 de un dia normal',
+         cal.enVentanaET(9 * 60, 16 * 60 + 5, { ahora: enET('2026-09-08', '9:00') }) === true);
+chequear('la ventana del daemon se recorta sola en medio dia',
+         cal.enVentanaET(9 * 60, 16 * 60 + 5, { ahora: enET('2026-11-27', '14:00') }) === false);
+
+// El calendario tiene fecha de caducidad y tiene que fallar RUIDOSAMENTE cuando
+// se le acabe, no degradarse a "todos los dias son habiles". Esta prueba se
+// pone roja el dia que haya que extender el JSON, que es exactamente el aviso
+// que hace falta — no un console.warn que nadie lee.
+chequear(`el calendario NYSE todavia cubre hoy (llega a ${cal.HASTA})`,
+         cal.fechaET() <= cal.HASTA,
+         'hay que extender src/calendario_nyse.json con el año siguiente');
+
+// Nadie puede volver a escribir su propia lista. El gemelo de PowerShell tiene
+// que LEER el JSON, no copiarlo: si aparece una fecha suelta ahi dentro, es que
+// alguien empezo a duplicar el calendario otra vez.
+{
+  const fs = require('fs'), path = require('path');
+  const ps = fs.readFileSync(path.join(__dirname, 'calendario_nyse.ps1'), 'utf8');
+  const fechasSueltas = (ps.match(/"\d{4}-\d{2}-\d{2}"/g) || []);
+  chequear('scripts/calendario_nyse.ps1 no tiene fechas escritas a mano',
+           fechasSueltas.length === 0, `encontradas: ${fechasSueltas.join(', ')}`);
+  chequear('scripts/calendario_nyse.ps1 lee el mismo JSON que Node',
+           ps.includes('calendario_nyse.json'));
+}
+
 // ── 3. Humo: que TODOS los endpoints respondan ──────────────────────────────
 //
 // Excluidos a proposito, con su razon. Un GET no deberia tener efectos, pero

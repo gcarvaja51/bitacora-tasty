@@ -40,6 +40,9 @@
 # entonces escala el aviso en vez de reiniciar en bucle cada 10 minutos.
 
 $dir        = 'C:\Users\gcarv\bitacora-tasty\gamma_daemon'
+# El calendario de la NYSE, el mismo archivo que lee el servidor y el daemon.
+# Ver scripts/calendario_nyse.ps1 y src/calendario_nyse.json.
+. (Join-Path (Split-Path -Parent $dir) 'scripts\calendario_nyse.ps1')
 $statusF    = Join-Path $dir 'status.json'
 $stateF     = Join-Path $dir 'watchdog_state.json'
 $logF       = Join-Path $dir 'watchdog.log'
@@ -109,13 +112,19 @@ if (Test-Path $statusF) {
   } catch { Write-WLog "no se pudo leer status.json: $($_.Exception.Message)" }
 }
 
-# ¿Estamos dentro del horario de mercado? (9:30-16:00 ET, lunes a viernes)
-# Solo entonces tiene sentido exigir exitos: fuera de horario el daemon CICLA
-# pero salta el trabajo a proposito (lastSkipReason=fuera_de_horario), asi que
-# lastSuccessAt se queda quieto toda la noche sin que eso sea una averia.
-$etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'Eastern Standard Time')
-$minEt = $etNow.Hour * 60 + $etNow.Minute
-$enMercado = ($etNow.DayOfWeek -ne 'Saturday') -and ($etNow.DayOfWeek -ne 'Sunday') -and ($minEt -ge 570) -and ($minEt -lt 960)
+# ¿Estamos dentro del horario de mercado? Solo entonces tiene sentido exigir
+# exitos: fuera de horario el daemon CICLA pero salta el trabajo a proposito
+# (lastSkipReason), asi que lastSuccessAt se queda quieto toda la noche sin que
+# eso sea una averia.
+#
+# (2026-09-06) Esta linea calculaba el dia ella misma y solo descartaba sabado y
+# domingo. El lunes 2026-09-07 --Labor Day-- iba a dar $true: el vigilante habria
+# exigido un ciclo exitoso cada 20 minutos contra un mercado cerrado, marcado el
+# daemon como degradado y MATADO el proceso, con su guarda anti-bucle
+# permitiendo un reinicio cada 30 min durante toda la jornada. Ahora el dia lo
+# decide el calendario compartido (fin de semana Y feriados) y la hora sale de
+# la misma fuente, incluidos los medios dias, donde la campana suena a la 1pm.
+$enMercado = Test-HorarioDeMercadoNYSE
 
 # ── Ciclar no es lo mismo que funcionar (2026-08-19) ──────────────────────────
 #

@@ -16,11 +16,15 @@ $ErrorActionPreference = 'Stop'
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $log = Join-Path $dir 'gex_perfil_run.log'
 $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+. (Join-Path (Split-Path -Parent $dir) 'scripts\calendario_nyse.ps1')
 
 try {
   $et = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId((Get-Date), 'Eastern Standard Time')
-  if ($et.DayOfWeek -eq 'Saturday' -or $et.DayOfWeek -eq 'Sunday') {
-    Add-Content $log "$stamp  SKIP - fin de semana"; exit 0
+  # (2026-09-06) Igual que su hermano: solo miraba el fin de semana. Ahora
+  # pregunta al calendario compartido, que tambien conoce los feriados NYSE.
+  $motivo = Get-MotivoCierreNYSE
+  if ($motivo) {
+    Add-Content $log "$stamp  SKIP - $motivo"; exit 0
   }
   $h = $et.Hour + $et.Minute / 60.0
   if ($h -ge 16.0) {

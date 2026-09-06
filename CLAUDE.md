@@ -42,6 +42,8 @@ Tradier. Node.js/Express + vanilla JS (sin framework frontend).
 | `src/frenos.js` | Circuito diario. **Declara cuáles frenos están realmente activos** |
 | `src/apagon_broker.js` | Detecta los apagones del sandbox de Tradier y **separa su culpa de la nuestra** |
 | `src/impuestos.js` | Hoja fiscal DIAN — **local, no desplegar** |
+| `src/calendario_nyse.js` + `.json` | **¿Hay mercado hoy?** — la única fuente. Feriados, medios días, ventanas. Ver gotcha 12 |
+| `scripts/calendario_nyse.ps1` | El gemelo de PowerShell del anterior: lee **el mismo JSON**, no una copia |
 | `public/index.html` | SPA completa (~8000 líneas). Todo el frontend en un archivo |
 | `public/tradier.html` | Dashboard dedicado a Tradier/SPX. **Por defecto tocar este** para ajustes de SPX |
 | `public/sw.js` | Service worker PWA (network-first) |
@@ -189,6 +191,39 @@ el strategy log con el costo en setups, y `GET /api/spx/apagon-broker` para la T
 
 Histórico § *Los apagones del sandbox de Tradier*.
 
+### 12. El calendario de mercado se PREGUNTA, no se reimplementa
+`src/calendario_nyse.json` es la única fuente de "¿hay mercado hoy?". Lo leen dos módulos
+—`src/calendario_nyse.js` para Node y `scripts/calendario_nyse.ps1` para PowerShell— y
+**nadie más tiene permiso de escribir su propio guard**.
+
+Hasta el 2026-09-06 había **siete** repartidos por el repo y solo uno, el `isMarketHours()`
+de `server.js`, conocía los feriados. Los otros seis preguntaban únicamente "¿es sábado o
+domingo?", así que el lunes 2026-09-07 —Labor Day— iban a correr todos. Y el gate del
+premercado tenía su propia lista de feriados copiada a mano, que llegaba solo hasta 2026.
+
+```js
+const cal = require('./src/calendario_nyse');   // desde server.js / src/
+cal.esDiaDeMercado()        // día hábil y no feriado
+cal.enHorarioDeMercado()    // + 9:30-16:00 ET (13:00 en medio día)
+cal.enVentanaET(540, 965)   // ventana propia en minutos ET, se recorta sola en medio día
+cal.motivoCierre()          // null | 'fin_de_semana' | 'feriado'  ← para los logs
+cal.siguienteDiaDeMercado() // el próximo día con campana (1DTE, calendario económico)
+```
+
+```powershell
+. "C:\Users\gcarv\bitacora-tasty\scripts\calendario_nyse.ps1"
+if (Get-MotivoCierreNYSE) { exit 0 }        # o Test-HorarioDeMercadoNYSE
+```
+
+**Se actualiza cada enero, en un solo archivo.** Cuando `hasta` (hoy `2030-12-31`) se quede
+corto, la batería de pruebas se pone **roja** — no es un aviso que se pueda pasar por alto.
+
+⚠️ **Los medios días no son días cerrados**: van en `mediosDias`, no en `feriados`. Lo que
+cambia es la hora de corte (1:00pm ET), y `enHorarioDeMercado`/`enVentanaET` ya la aplican
+solas.
+
+Histórico § *Siete guards de día de mercado y un solo calendario*.
+
 ---
 
 # Reflejos de diagnóstico
@@ -204,6 +239,7 @@ Histórico § *Los apagones del sandbox de Tradier*.
 | Los muros/GEX se congelaron | `GET /api/spx/sigma-levels` → `fresh: false` = daemon caído |
 | Una hoja no cuadra con otra | El checkbox de "errores de implementación", o dos lecturas separadas en el tiempo (TTL 60s con P&L en vivo) |
 | P&L pegado en `pendiente_verificar` para siempre | Orden fantasma del sandbox: patas `filled`, orden padre `open`, posición nunca existió. Se corrige a mano con `pnl: 0` |
+| Un proceso corrió un día sin mercado | ¿Usa `src/calendario_nyse`? Gotcha 12. El motivo real está en `motivoCierre()` / el log del script, no en un `fuera_de_horario` genérico |
 | Un endpoint devuelve 500 | Correr `node scripts/pruebas.js --local`. Causa típica: usar `spxConfig` como si fuera global (es un `const` local en 4 funciones) |
 
 ---
@@ -557,7 +593,13 @@ fijo — se ajusta solo con EDT/EST.
 **Las tres tienen guard de `isMarketHours()`** (valida fin de semana **y** feriados NYSE).
 Sin él corrían sábados y domingos: un solo fin de semana metía ~1.600 evaluaciones al
 `spx_strategy_log.json`, que está topado en 5.000, y desalojaba el diagnóstico de los días
-reales.
+reales. Desde el 2026-09-06 `isMarketHours` es un alias de `src/calendario_nyse` —el mismo
+calendario que usa todo lo demás, ver gotcha 12— y ya no la tabla privada de `server.js`.
+
+El resto del sistema que fecha un día de mercado también pasa por ahí: `esDiaDeMercadoET()`
+para los snapshots de NLV, `nextTradingDateET()` (`src/spx.js`) para la expiración del 1DTE
+—que un viernes apunta al lunes, y si el lunes es feriado al martes— y
+`checkHighImpactUSEventsTomorrow` para el calendario económico.
 
 | | ventana ET | cadencia |
 |---|---|---|
@@ -1040,7 +1082,11 @@ Nombre para el usuario: **"Daemon Muros y Gamma"**. La carpeta/proceso sigue sie
 `gamma_daemon` (la Tarea Programada de Windows y `start.bat` referencian esa ruta literal).
 
 Proceso de Node de vida larga, **100% determinista, sin LLM en el loop caliente**, loop cada
-2 min de 9:00 a 16:05 ET. Reemplazó a un agente invocado desde cero cada 2 min, que generaba
+2 min de 9:00 a 16:05 ET los **días de mercado** (`isMarketWindow()` delega en
+`src/calendario_nyse` desde el 2026-09-06 — fin de semana, feriados, y el recorte a 13:05 en
+medio día; ver gotcha 12). Fuera de la ventana cicla igual pero salta el trabajo, y
+`status.json.lastSkipReason` dice **por qué**: `fin_de_semana`, `feriado` o
+`fuera_de_horario`. Reemplazó a un agente invocado desde cero cada 2 min, que generaba
 fallas silenciosas de horas (no tenía memoria entre ciclos, no sabía que venía fallando).
 Herramienta **local** (máquina Windows del usuario) — tiene su propio `package.json`, y
 Railway solo instala el de la raíz, así que nunca se despliega.
@@ -1535,6 +1581,7 @@ prueba de humo lo caza en dos segundos.
 | **El dinero** | `resultadoOficial` en sus ramas (libro propio, libro no confiable, broker, `gainloss` dudoso, orden fantasma, posición abierta), y que `agregar` **nunca** sume comparable con legado |
 | **Los frenos** | El circuito diario en sus bordes, incluido el límite **exacto** (caza el día que alguien cambie `<=` por `<`), y que solo uno de los tres frenos declarados esté activo |
 | **Los impulsos** | La escalera de TP, que en bajista **nunca** encarece la entrada, y el listón en 90 exacto |
+| **El calendario** | Labor Day y los bordes exactos de la campana, que ningún feriado caiga en fin de semana, el medio día, y que `calendario_nyse.ps1` **no tenga ni una fecha a mano**. Se pone en rojo el día que haya que extender el JSON |
 | **Humo** | Las 52 rutas GET sin parámetros. Un 4xx se acepta; un **5xx nunca**: significa que el endpoint se cayó solo |
 
 **`MODO_PRUEBAS=1`** levanta el servidor **sin programar ni un ciclo periódico**. Las rutas

@@ -28,6 +28,7 @@
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
+import calendario from '../src/calendario_nyse.js';
 
 // chrome-remote-interface vive en gamma_daemon/node_modules, no aqui. collect.js lo
 // resuelve de rebote porque importa ../gamma_daemon/tv.js; este script no necesita
@@ -130,11 +131,16 @@ const mediana = (v) => {
 function enRTH(tsSeg) {
   const d = new Date(tsSeg * 1000);
   const et = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const dia = et.getDay();
-  if (dia === 0 || dia === 6) return null;
+  const fecha = `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
+  // Fin de semana Y feriados (2026-09-06): en un feriado el CFD si cotiza y el
+  // contado no, asi que una barra de ese dia mide exactamente lo que esta
+  // funcion existe para no medir — el CFD contra un precio muerto.
+  if (!calendario.esDiaDeMercado(fecha)) return null;
   const min = et.getHours() * 60 + et.getMinutes();
-  if (min < 9 * 60 + 30 || min >= 16 * 60) return null;
-  return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
+  // En medio dia la campana suena a la 1pm: pasada esa hora vuelve a ser CFD
+  // contra un cierre.
+  if (min < 9 * 60 + 30 || min >= calendario.horaCierreMin(fecha)) return null;
+  return fecha;
 }
 
 // Empareja exacto por timestamp. Si las dos ventanas estan en resoluciones distintas

@@ -19,6 +19,126 @@
 
 ---
 
+## Siete guards de día de mercado y un solo calendario (2026-09-06)
+
+**Síntoma, en palabras del usuario:** *"veo que el bot trabaja en horarios donde el mercado
+está cerrado. el lunes por ejemplo no hay mercado."*
+
+Era domingo. El usuario había pedido los muros de puts y calls, vio en `status.json` que el
+daemon seguía ciclando, y ató un cabo que nadie había atado: el lunes siguiente —**7 de
+septiembre de 2026, Labor Day**— la NYSE no abría.
+
+### Lo que había
+
+Siete sitios distintos preguntaban "¿hay mercado hoy?", cada uno con su propia respuesta:
+
+| Dónde | Qué preguntaba |
+|---|---|
+| `server.js` · `isMarketHours()` | fin de semana **y feriados** (tabla `NYSE_HOLIDAYS` hasta 2030) |
+| `server.js` · `isWeekdayET()` | solo sábado/domingo |
+| `gamma_daemon/index.js` · `isMarketWindow()` | solo sábado/domingo |
+| `gamma_daemon/watchdog.ps1` | solo sábado/domingo |
+| `premercado_collector/run_estrategia_premercado.ps1` | solo sábado/domingo |
+| `premercado_collector/run_gex_perfil.ps1` | solo sábado/domingo |
+| `skills/comparacion-muros/scripts/collector.ps1` | solo sábado/domingo |
+| `gamma_daemon/capturar_niveles.mjs` | **nada** |
+
+Más un noveno caso aparte: `skills/premercado-spx/scripts/launch_premercado_gate.ps1` sí
+conocía los feriados, pero con **su propia lista copiada a mano** y solo hasta 2026, con un
+comentario que decía *"ACTUALIZAR CADA ENERO"*. Dos listas que dicen lo mismo es una lista
+que va a derivar.
+
+El comentario de `isMarketWindow()` decía *"mismo criterio que run_gamma_refresh.ps1 y el
+resto del sistema"*. Era falso desde el 2026-08-05, el día en que se le agregaron los
+feriados a `isMarketHours()` y a nadie más: el arreglo existía a un archivo de distancia y
+nunca se retropropagó. **Es el mismo patrón exacto que el bug de `getAmPm` en UTC**, donde
+`src/metrics_tradier.js` ya lo hacía bien y `src/metrics.js` no.
+
+### Qué iba a pasar el lunes
+
+El dinero **no** corría riesgo: los tres pipelines de SPX (`checkDirectionalAutonomous`,
+`checkIronCondor`, `checkAlejamientoSMA`) pasan por `isMarketHours()`, que sí tenía el
+`2026-09-07` en su tabla. El robot no iba a abrir nada. Lo que iba a envenenarse era el dato:
+
+1. **Muros muertos sellados como frescos.** El daemon iba a ciclar de 9:00 a 16:05 ET
+   —~210 ciclos— leyendo de Sigma Terminal los mismos números congelados del viernes
+   (Put Wall 7715, Call Wall 7720, cadena `expiry: 2026-09-04` ya vencida) y sellándolos con
+   `levels.capturadoEn = new Date()`. Ese sello se puso el 2026-08-17 para distinguir *"el
+   dato es de ahora"* de *"el daemon tardó en mandarlo"*; contra un mercado cerrado hace lo
+   contrario: certifica como recién nacido un dato que lleva tres días muerto.
+2. **El histórico de GEX, borrado.** `HISTORY_CAP = 60` y ~210 ciclos: el buffer entero
+   relleno de valores idénticos. El martes, el "previo" contra el que se calculan los deltas
+   de GEX/DEX/Vanna habría sido basura del lunes.
+3. **El vigilante matando al daemon.** `watchdog.ps1` también creía que había mercado, así
+   que iba a exigir un ciclo exitoso cada 20 min, marcar `degradado` y **matar el proceso**,
+   con su guarda anti-bucle permitiendo un reinicio cada 30 minutos durante toda la jornada.
+4. **Un día que no existe en la curva de capital.** `isWeekdayET()` habría dejado pasar un
+   snapshot de Net Liq fechado `2026-09-07`. Es el mismo bug del bucket de agosto en sábado
+   que el usuario cazó el 2026-08-01 (*"hay reportes de agosto, algo está mal"*), entrando
+   por la otra puerta.
+5. **Una fila falsa en la matriz del OPEX.** `capturar_niveles.mjs` no tenía guard de ningún
+   tipo y su Tarea Programada dispara de lunes a viernes: habría metido el Max Pain
+   congelado del viernes como la foto de un día nuevo, ocho días antes del Día del Criterio.
+
+Y dos que no dependían del lunes:
+
+6. **El 1DTE apuntando a una expiración inexistente.** `nextTradingDateET()` (`src/spx.js`)
+   solo saltaba el fin de semana, y su propio comentario lo admitía: *"no maneja feriados,
+   igual que el resto del sistema"*. Un IC 1DTE abierto el viernes 4-sep habría pedido la
+   cadena del lunes 7 y caído al fallback —**la primera expiración disponible**, sin ninguna
+   relación con "el día siguiente real"—, que es exactamente el modo de falla que motivó
+   escribir esa función.
+7. **El calendario económico consultando un día sin publicaciones.**
+   `checkHighImpactUSEventsTomorrow` saltaba el fin de semana con un `while` propio.
+
+### Lo que se hizo
+
+Un solo sitio. `src/calendario_nyse.json` tiene el dato —50 feriados y 11 medios días, hasta
+2030-12-31— y **dos lectores, no dos copias**:
+
+- `src/calendario_nyse.js` (CommonJS) para Node. Lo importan `server.js`, `src/spx.js`,
+  `gamma_daemon/index.js`, `gamma_daemon/capturar_niveles.mjs` y
+  `premercado_collector/base_sp500.js`. Los dos últimos son ESM y lo consumen como default
+  import: el módulo vive bajo el `package.json` de la raíz, que no declara `"type":"module"`.
+- `scripts/calendario_nyse.ps1` para PowerShell, que lee **ese mismo JSON**. Lo dot-sourcean
+  el watchdog, los dos collectors del premercado, el collector de muros y el gate del
+  premercado —que perdió su lista propia.
+
+`isMarketHours()`, `esMedioDiaNYSE()` y `fechaET()` siguen llamándose igual en `server.js`,
+pero ahora son alias del módulo. `isWeekdayET()` desapareció: su reemplazo se llama
+`esDiaDeMercadoET()`, porque un nombre que dice "weekday" mientras valida feriados es la
+próxima deriva esperando a pasar.
+
+**El motivo del salto dejó de mentir.** `motivoCierre()` devuelve `null`, `'fin_de_semana'`
+o `'feriado'`, y eso es lo que se escribe en `status.json` y en los logs de los collectors,
+en vez de un `fuera_de_horario` que no distingue las tres de la madrugada de Labor Day.
+
+**Los medios días viajan gratis.** `enVentanaET()` recorta sola la ventana propia del daemon
+(9:00–16:05 → 9:00–13:05) los días en que la campana suena a la 1pm, algo que ninguno de los
+seis guards sabía hacer.
+
+### Lo que NO se hizo, a propósito
+
+- **No se limpian retroactivamente los snapshots de feriado ya guardados**, a diferencia de
+  los de fin de semana (`dropWeekendSnapshots`). `NLV_SEED` tiene un sábado a propósito
+  (`2026-02-28`, cierre de mes cargado a mano) y borrar por calendario podría llevarse un
+  valor legítimo puesto a mano. Se corta la entrada de datos nuevos, no el historial.
+- **No se automatizó la extensión del calendario.** Cuando `hasta` se quede corto, la
+  batería de pruebas se pone **roja** —no un `console.warn` que nadie lee— y el módulo avisa
+  además por consola. Es el mismo criterio de la tabla vieja: el aviso lo hace ruidoso en vez
+  de invisible.
+
+### La prueba que lo sostiene
+
+Bloque *El calendario de la NYSE* en `scripts/pruebas.js` (24 chequeos): los bordes exactos
+de la campana (9:29/9:30/15:59/16:00, para cazar el día que alguien cambie un `<` por un
+`<=`), que ningún feriado de la tabla caiga en fin de semana, que `2027-12-31` siga ahí (el
+Año Nuevo de 2028 cae sábado, así que la NYSE cierra el viernes anterior), que el medio día
+sea un día **abierto** que cierra a la 1pm, que la ventana del daemon no abra en Labor Day,
+que el calendario todavía cubra hoy — y que **`scripts/calendario_nyse.ps1` no contenga ni
+una fecha escrita a mano**, que es la forma de detectar que alguien empezó a duplicar el
+calendario otra vez.
+
 ## El calendario mudo y el día de +$6.258 (2026-09-05)
 
 **Síntoma, en palabras del usuario:** *"abril 15: dice que hay ganancias por 6000 dólares lo

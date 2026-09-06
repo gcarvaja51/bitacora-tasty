@@ -10,14 +10,13 @@ $logPath = "C:\Users\gcarv\bitacora-tasty\comparacion_muros_log.jsonl"
 $ctxUrl   = "https://web-production-23473.up.railway.app/api/spx/context"
 $sigmaUrl = "https://web-production-23473.up.railway.app/api/spx/sigma-levels"
 
-# Guard duro de horario -- mismo patron que run_gamma_refresh.ps1 (hora ET real
-# via .NET, no bash/TZ). Ventana: 9:30am-4:00pm ET, lunes-viernes (horario de
-# mercado real -- fuera de esta ventana ambas fuentes reflejan el ultimo
-# cierre/premarket, comparar ahi no aporta nada a la decision).
-$etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, "Eastern Standard Time")
-$etMinutes = $etNow.Hour * 60 + $etNow.Minute
-$dentroDeVentana = ($etNow.DayOfWeek -ne 'Saturday') -and ($etNow.DayOfWeek -ne 'Sunday') -and ($etMinutes -ge (9*60+30)) -and ($etMinutes -le (16*60))
-if (-not $dentroDeVentana) {
+# Guard duro de horario: 9:30am-4:00pm ET de un dia de mercado. Fuera de esa
+# ventana ambas fuentes reflejan el ultimo cierre/premarket y comparar ahi no
+# aporta nada a la decision. Un feriado es exactamente ese caso, y hasta el
+# 2026-09-06 este guard solo descartaba sabado y domingo: habria escrito un dia
+# entero de filas identicas al cierre anterior en el log de la comparacion.
+. "C:\Users\gcarv\bitacora-tasty\scripts\calendario_nyse.ps1"
+if (-not (Test-HorarioDeMercadoNYSE)) {
     exit 0
 }
 

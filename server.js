@@ -8,6 +8,16 @@ const { TradierClient }                                 = require('./src/tradier
 const { buildMetrics, buildEquityCurve, buildCalendar } = require('./src/metrics');
 const { agruparPosiciones }                             = require('./src/optionstrat');
 const { esIndice, sectorDe, simboloYahoo }              = require('./src/indices');
+// El calendario de la NYSE — feriados, medios dias y "hay mercado hoy?". Vive en
+// un modulo propio desde el 2026-09-06 porque esta tabla estaba SOLO aca y los
+// otros seis guards del repo (gamma_daemon, su vigilante, los dos collectors
+// del premercado, el collector de muros y el viejo isWeekdayET) solo
+// sabian de sabados y domingos. Ver la cabecera de src/calendario_nyse.js.
+const calendario = require('./src/calendario_nyse');
+const isMarketHours     = calendario.enHorarioDeMercado;   // 9:30-16:00 ET (13:00 en medio dia), sin fines de semana ni feriados
+const esDiaDeMercadoET  = calendario.esDiaDeMercado;       // solo el dia: habil y no feriado
+const esMedioDiaNYSE    = calendario.esMedioDia;
+const fechaET           = calendario.fechaET;
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -88,7 +98,7 @@ if (!IS_PRODUCTION) {
 // Fecha de HOY en hora del Este, no en UTC. Bug real (2026-08-04, a partir de
 // un reporte del usuario: "el dato de julio y agosto lo veo raro"): los
 // snapshots de NLV se guardaban con todayStr() (fecha UTC) pero el guard de
-// dia habil usa isWeekdayET() (dia ET). Despues de las 8pm ET (7pm en
+// dia habil usa esDiaDeMercadoET() (dia ET). Despues de las 8pm ET (7pm en
 // invierno) la fecha UTC ya es la del dia siguiente, asi que un arranque o
 // redeploy un viernes de noche pasaba el guard (ET dice viernes) y escribia el
 // snapshot bajo la fecha del SABADO -- de ahi salio el "2026-08-01" que quedo
@@ -185,7 +195,7 @@ function saveNlvSnapshot(dateStr, nlv, { overwrite = true } = {}) {
 function computeWeeklyNlv(nlvHistory, currentNlv) {
   const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
   const today = todayStrET();
-  const allEntries = (isWeekdayET() ? [...entries, [today, currentNlv]] : entries).map(([d, v]) => [d, v, weekKey(d)]);
+  const allEntries = (esDiaDeMercadoET() ? [...entries, [today, currentNlv]] : entries).map(([d, v]) => [d, v, weekKey(d)]);
 
   const weeklyMap = {};
   const prevNlvByWeek = {};
@@ -218,10 +228,10 @@ function computeWeeklyNlv(nlvHistory, currentNlv) {
 // todayStrET/msUntilET/overwrite arriba.
 function computeMonthlyNlv(nlvHistory, currentNlv) {
   const entries = Object.entries(nlvHistory).sort((a,b) => a[0].localeCompare(b[0]));
-  // Agregar snapshot de hoy -- solo si hoy es dia habil (ver isWeekdayET),
+  // Agregar snapshot de hoy -- solo si hoy es dia habil (ver esDiaDeMercadoET),
   // mismo criterio que computeWeeklyNlv.
   const today = todayStrET();
-  const allEntries = isWeekdayET() ? [...entries, [today, currentNlv]] : entries;
+  const allEntries = esDiaDeMercadoET() ? [...entries, [today, currentNlv]] : entries;
 
   const monthlyMap = {};
   const prevNlvByMonth = {};
@@ -304,11 +314,20 @@ function capitalAportado() {
 // HOY, incluso sabado/domingo, ensuciando computeWeeklyNlv/computeMonthlyNlv
 // con un "cambio" que en realidad no corresponde a ningun dia de mercado
 // real. Se usa la fecha ET (no la del servidor) para decidir, mismo criterio
-// que el resto del sistema (ver gamma_daemon/isMarketWindow).
-function isWeekdayET() {
-  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(new Date());
-  return weekday !== 'Sat' && weekday !== 'Sun';
-}
+// que el resto del sistema (ver src/calendario_nyse.js).
+// (2026-09-06) Aqui vivia isWeekdayET(), que solo miraba sabado/domingo. El
+// nombre era honesto y el chequeo insuficiente: un feriado NYSE es tan poco un
+// dia de mercado como un domingo, y el 2026-09-07 —Labor Day— este guard iba a
+// dejar pasar un snapshot de Net Liq fechado en un dia sin campana, que es el
+// MISMO bug del bucket de agosto en sabado que el usuario cazo el 2026-08-01,
+// entrando por la otra puerta. Se reemplazo por esDiaDeMercadoET (importado
+// arriba desde src/calendario_nyse), que valida fin de semana Y feriado.
+//
+// Los snapshots de feriado que ya esten guardados NO se limpian al leer, a
+// diferencia de los de fin de semana (dropWeekendSnapshots): NLV_SEED tiene un
+// sabado a proposito (2026-02-28, cierre de mes cargado a mano) y borrar por
+// calendario podria llevarse un valor legitimo puesto a mano. Se corta la
+// entrada de datos nuevos, no el historial.
 const daysAgo  = n  => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 
 app.use(express.json({ limit: '25mb', type: ['application/json', 'text/plain'] }));
@@ -7868,16 +7887,15 @@ function getFreshSigmaLevels() {
 // propio calendario de Investing.com (endpoints.investing.com/pd-instruments/...),
 // no tiene auth y responde JSON limpio, pero podría cambiar sin aviso. country_ids=5
 // = Estados Unidos (confirmado con datos reales), importance 'high' = 3 estrellas.
-// Consulta el PROXIMO DIA DE MERCADO (salta fin de semana) — un IC 1DTE abierto un
-// viernes expira el lunes, no el sabado.
+// Consulta el PROXIMO DIA DE MERCADO — un IC 1DTE abierto un viernes expira el
+// lunes, no el sabado. Desde el 2026-09-06 sale de siguienteDiaDeMercado(), que
+// ademas salta los FERIADOS: hasta entonces solo saltaba el fin de semana, asi
+// que un IC abierto el viernes 2026-09-04 habria consultado los eventos de
+// Labor Day —un dia sin mercado y por tanto sin publicaciones— y habria fechado
+// mal el vencimiento que de verdad le toca (el martes 8).
 async function checkHighImpactUSEventsTomorrow() {
   try {
-    const nextDay = new Date();
-    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-    while (nextDay.getUTCDay() === 0 || nextDay.getUTCDay() === 6) {
-      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-    }
-    const dateStr = nextDay.toISOString().slice(0, 10);
+    const dateStr = calendario.siguienteDiaDeMercado();
     const url = `https://endpoints.investing.com/pd-instruments/v1/calendars/economic/events/occurrences?domain_id=1&limit=200&start_date=${dateStr}T00:00:00.000Z&end_date=${dateStr}T23:59:59.999Z&country_ids=5`;
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -10615,6 +10633,12 @@ async function checkTradierOrderCapability() {
   const dia = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
   if (dia === 'Sat') return;                      // sabado no: Tradier no responde igual
   if (hora !== 8 && hora !== 20) return;          // 8am (pre-apertura) y 8pm (noche anterior)
+  // La de las 8am es la sonda PRE-APERTURA: un dia sin campana no tiene apertura
+  // que preparar, y un fallo suyo manda un ntfy urgente por una sesion que no
+  // existe. La de las 20:00 se mantiene siempre (menos el sabado): su trabajo es
+  // mirar la PROXIMA sesion, y la noche de un feriado es justo cuando mas sirve
+  // — es el turno que habria salvado el lunes del caso que motivo este chequeo.
+  if (hora === 8 && !esDiaDeMercadoET()) return;
   if (tradierCapabilityAlertedOn === fecha + '-' + hora) return; // ya se corrio en esta franja
 
   const r = await tradier.checkOrderCapability();
@@ -12841,84 +12865,14 @@ function detectStrategy(legs) {
   return 'Spread';
 }
 
-const NYSE_HOLIDAYS = new Set([
-  // 2026
-  '2026-01-01','2026-01-19','2026-02-16','2026-04-03',
-  '2026-05-25','2026-06-19','2026-07-03','2026-09-07',
-  '2026-11-26','2026-12-25',
-  // 2027
-  '2027-01-01','2027-01-18','2027-02-15','2027-03-26',
-  '2027-05-31','2027-06-18','2027-07-05','2027-09-06',
-  '2027-11-25','2027-12-24',
-  // 2028 — OJO: el Año Nuevo de 2028 cae sábado, así que la NYSE cierra el
-  // viernes 2027-12-31. Faltaba pese a estar dentro del tramo de 2027.
-  '2027-12-31','2028-01-17','2028-02-21','2028-04-14',
-  '2028-05-29','2028-06-19','2028-07-04','2028-09-04',
-  '2028-11-23','2028-12-25',
-  // 2029
-  '2029-01-01','2029-01-15','2029-02-19','2029-03-30',
-  '2029-05-28','2029-06-19','2029-07-04','2029-09-03',
-  '2029-11-22','2029-12-25',
-  // 2030
-  '2030-01-01','2030-01-21','2030-02-18','2030-04-19',
-  '2030-05-27','2030-06-19','2030-07-04','2030-09-02',
-  '2030-11-28','2030-12-25',
-]);
-
-// Hasta donde llega la tabla de arriba. Pasada esa fecha, NYSE_HOLIDAYS deja de
-// reconocer feriados y el sistema volveria a operar un 1 de enero sin avisar —
-// que es exactamente el modo de falla silencioso que se quiso eliminar. El
-// aviso de isMarketHours() lo hace ruidoso en vez de invisible.
-const NYSE_CALENDAR_HASTA = '2030-12-31';
-let _avisoCalendario = false;
-
-// Medios dias de la NYSE: cierre a la 1:00pm ET, no a las 4:00pm (vispera de
-// Independencia cuando el 4 cae entre martes y viernes, viernes despues de
-// Accion de Gracias, y Nochebuena cuando es dia habil y no es el feriado
-// observado). No son dias cerrados, asi que no van en NYSE_HOLIDAYS: lo que
-// cambia es la hora de corte.
-const NYSE_HALF_DAYS = new Set([
-  '2026-11-27','2026-12-24',
-  '2027-11-26',
-  '2028-07-03','2028-11-24',
-  '2029-07-03','2029-11-23','2029-12-24',
-  '2030-07-03','2030-11-29','2030-12-24',
-]);
-
-function fechaET() {
-  return new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
-}
-
-// ¿Hoy la NYSE cierra a la 1:00pm ET en vez de a las 4:00pm?
-function esMedioDiaNYSE() {
-  return NYSE_HALF_DAYS.has(fechaET());
-}
-
-function isMarketHours() {
-  // OJO: antes hacia new Date(now.toLocaleString(...)) y leia .getDay()/.getHours()
-  // sobre ese resultado — eso solo da la hora ET correcta si el timezone LOCAL del
-  // proceso que corre el codigo es UTC (cierto en Railway, pero NO en el servidor
-  // local en Windows, que corre en la zona horaria del usuario). Mismo patron
-  // robusto (independiente del TZ del sistema) que ya usa getETHour(): extraer los
-  // componentes como texto en vez de reconstruir un Date y confiar en el TZ local.
-  const now = new Date();
-  const dateStr = now.toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
-  const dayName = now.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
-  if (dayName === 'Sat' || dayName === 'Sun') return false;
-  if (NYSE_HOLIDAYS.has(dateStr)) return false;
-  if (dateStr > NYSE_CALENDAR_HASTA && !_avisoCalendario) {
-    _avisoCalendario = true;
-    console.warn(`[MERCADO] La tabla de feriados NYSE llega hasta ${NYSE_CALENDAR_HASTA} y hoy es ${dateStr}: de aqui en adelante NO se detectan feriados. Hay que extender NYSE_HOLIDAYS y NYSE_HALF_DAYS.`);
-  }
-  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
-  let [hour, min] = etStr.split(':').map(Number);
-  if (hour === 24) hour = 0;
-  const mins = hour * 60 + min;
-  // Medio dia: la campana suena a la 1:00pm ET. Seguir evaluando hasta las 4
-  // seria el mismo error que correr el fin de semana, solo que tres horas.
-  const cierre = NYSE_HALF_DAYS.has(dateStr) ? 13 * 60 : 16 * 60;
-  return mins >= 9 * 60 + 30 && mins < cierre;
-}
+// ── El calendario de la NYSE se mudo a src/calendario_nyse.js ───────────────
+//
+// Aqui vivian NYSE_HOLIDAYS, NYSE_HALF_DAYS, fechaET(), esMedioDiaNYSE() e
+// isMarketHours(). Se extrajeron el 2026-09-06: eran correctos pero eran los
+// UNICOS del repo que conocian los feriados, y los otros seis guards de dia de
+// mercado no. Ahora los tres nombres se importan arriba, junto a los demas
+// requires, y el dato (que hay que extender cada enero) esta en un solo
+// archivo: src/calendario_nyse.json, que lee tambien el lado PowerShell.
 
 async function checkExtrinsicAndNotify() {
   console.log('[EXTR] Iniciando chequeo de extrínseco...');
@@ -13966,7 +13920,7 @@ app.get('/api/curve-tradier', async (req, res) => {
       const nlvByWeek  = computeWeeklyNlv(nlvHistory, currentNlv);
       const nlvEntries = Object.entries(nlvHistory).sort((a, b) => a[0].localeCompare(b[0]));
       const yaTieneHoy = nlvEntries.some(([d]) => d === todayStr());
-      const agregarHoy = currentNlv > 0 && !yaTieneHoy && isWeekdayET();
+      const agregarHoy = currentNlv > 0 && !yaTieneHoy && esDiaDeMercadoET();
 
       return {
         curve: { labels, values, initial: TRADIER_STARTING_BALANCE, maxDD: +maxDD.toFixed(2), maxDDPct: +maxDDPct.toFixed(2) },
@@ -13989,7 +13943,7 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 
 // ── Guardado automático diario de NLV ─────────────────────────
 async function snapshotNlv() {
-  if (!isWeekdayET()) return;
+  if (!esDiaDeMercadoET()) return;
   try {
     const bal = await tt.getBalances();
     const nlv = parseFloat(bal?.['net-liquidating-value'] || 0);
@@ -14023,10 +13977,10 @@ app.listen(PORT, async () => {
     const nlv = parseFloat(bal?.['net-liquidating-value'] || 0);
     console.log(`✅  Conectado — Cuenta: ${tt.accountNumber} | Net Liq: $${nlv.toFixed(2)}\n`);
     // Guardar snapshot de hoy al arrancar -- solo si hoy es dia habil (ver
-    // isWeekdayET arriba); un restart de fin de semana no debe crear un
+    // esDiaDeMercadoET arriba); un restart de fin de semana no debe crear un
     // snapshot falso para ese dia. overwrite:false para no pisar el valor de
     // cierre si ya se guardo: el arranque solo rellena huecos.
-    if (isWeekdayET()) saveNlvSnapshot(todayStrET(), nlv, { overwrite: false });
+    if (esDiaDeMercadoET()) saveNlvSnapshot(todayStrET(), nlv, { overwrite: false });
     // Programar guardado diario a las 4:35 PM ET
     scheduleDaily();
   } catch (e) {
@@ -14038,7 +13992,7 @@ app.listen(PORT, async () => {
   // fallo aca (ej. .env sin credenciales Tradier) nunca debe impedir que
   // termine de arrancar la autenticacion/snapshot de Tasty de arriba.
   try {
-    if (isWeekdayET()) {
+    if (esDiaDeMercadoET()) {
       const balT = await tradier.getBalances();
       const nlvT = parseFloat(balT?.total_equity || 0);
       if (nlvT > 0) {
@@ -14056,7 +14010,7 @@ function scheduleDailyTradier() {
   // 4:35 PM ET reales, igual que scheduleDaily (ver msUntilET).
   const ms = msUntilET(16, 35);
   setTimeout(async () => {
-    if (!isWeekdayET()) { scheduleDailyTradier(); return; }
+    if (!esDiaDeMercadoET()) { scheduleDailyTradier(); return; }
     try {
       const bal = await tradier.getBalances();
       const nlv = parseFloat(bal?.total_equity || 0);

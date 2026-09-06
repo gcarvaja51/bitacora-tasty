@@ -13,14 +13,19 @@ $ErrorActionPreference = 'Stop'
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $log = Join-Path $dir 'estrategia_premercado_run.log'
 $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+. (Join-Path (Split-Path -Parent $dir) 'scripts\calendario_nyse.ps1')
 
 try {
   $et = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId(
           (Get-Date), 'Eastern Standard Time')
   $h = $et.Hour + $et.Minute / 60.0
 
-  if ($et.DayOfWeek -eq 'Saturday' -or $et.DayOfWeek -eq 'Sunday') {
-    Add-Content $log "$stamp  SKIP - fin de semana (ET $($et.ToString('HH:mm')))"
+  # (2026-09-06) Antes esto solo miraba sabado/domingo y por eso el lunes de
+  # Labor Day iba a correr igual. El dia lo decide ahora el calendario
+  # compartido: src/calendario_nyse.json, el mismo que lee el servidor.
+  $motivo = Get-MotivoCierreNYSE
+  if ($motivo) {
+    Add-Content $log "$stamp  SKIP - $motivo (ET $($et.ToString('HH:mm')))"
     exit 0
   }
   if ($h -lt 10.0 -or $h -ge 11.0) {

@@ -145,10 +145,21 @@ class TradierClient {
   // bajo) funcionara perfecto -- otro falso positivo evitado.
   async checkOrderCapability() {
     if (!this.accountNumber) return { ok: false, status: 0, error: 'Falta TRADIER_ACCOUNT_NUMBER en .env' };
-    // Vencimiento de prueba: el proximo viernes (siempre existe en SPXW).
+    // Vencimiento de prueba: el proximo viernes. "Siempre existe en SPXW" era
+    // cierto salvo el par de viernes al año que son feriado NYSE (Viernes
+    // Santo, el 3-jul cuando el 4 cae sabado): esos dias la semanal se corre al
+    // JUEVES y la cadena del viernes no existe. La sonda pedia una expiracion
+    // inexistente, no encontraba strikes, y disparaba el ntfy urgente "Tradier
+    // NO acepta ordenes" — un falso positivo del chequeo que existe justamente
+    // para no tener falsos positivos. (2026-09-06, ver gotcha 12 de CLAUDE.md)
+    const cal = require('./calendario_nyse');
     const d = new Date();
     d.setUTCDate(d.getUTCDate() + ((5 - d.getUTCDay() + 7) % 7 || 7));
-    const expiry = d.toISOString().slice(0, 10);
+    let expiry = d.toISOString().slice(0, 10);
+    while (!cal.esDiaDeMercado(expiry)) {
+      d.setUTCDate(d.getUTCDate() - 1);          // el jueves anterior, no el viernes siguiente
+      expiry = d.toISOString().slice(0, 10);
+    }
 
     // Los strikes NO se inventan: se toman dos consecutivos reales de la
     // cadena. Un primer intento hardcodeaba 9000/9010 y fallaba con

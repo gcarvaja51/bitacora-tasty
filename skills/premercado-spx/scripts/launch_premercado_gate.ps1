@@ -7,6 +7,13 @@
 #  lo es, sale en silencio sin tocar TradingView/Chrome/claude.
 # ============================================================
 
+# El calendario de la NYSE. Hasta el 2026-09-06 este script tenia su PROPIA
+# lista de feriados, copiada a mano y solo hasta 2026 -- era el unico script de
+# PowerShell del repo que conocia los feriados, y precisamente por eso era el
+# unico que iba a saltar bien el lunes de Labor Day mientras los otros seis
+# guards corrian. Dos listas que dicen lo mismo es una lista que va a derivar.
+. "C:\Users\gcarv\bitacora-tasty\scripts\calendario_nyse.ps1"
+
 $logDir = "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\premercados alejandro\control premercado"
 $logFile = Join-Path $logDir "premercado_auto_launch.log"
 
@@ -46,32 +53,15 @@ if ($etNow -lt $windowStart -or $etNow -gt $windowEnd) {
     exit 0
 }
 
-# 2) Dia habil (defense in depth -- el trigger de Windows ya filtra
-#    Lun-Vie, pero se revalida aca por si alguna vez se edita a mano)
-if ($etNow.DayOfWeek -eq [DayOfWeek]::Saturday -or $etNow.DayOfWeek -eq [DayOfWeek]::Sunday) {
-    Write-Log "SKIP - fin de semana ($($etNow.DayOfWeek))."
-    exit 0
-}
-
-# 3) Feriados NYSE -- lista fija, ACTUALIZAR CADA ENERO para el año
-#    siguiente (ver SKILL.md, seccion "Disparo automatico" para el
-#    criterio de cada feriado). Formato yyyy-MM-dd.
-$feriadosNYSE = @(
-    # 2026
-    "2026-01-01", # New Year's Day
-    "2026-01-19", # Martin Luther King Jr. Day
-    "2026-02-16", # Washington's Birthday (Presidents Day)
-    "2026-04-03", # Good Friday
-    "2026-05-25", # Memorial Day
-    "2026-06-19", # Juneteenth
-    "2026-07-03", # Independence Day (observado, 4-jul cae sabado)
-    "2026-09-07", # Labor Day
-    "2026-11-26", # Thanksgiving
-    "2026-12-25"  # Christmas
-)
-$hoyStr = $etNow.ToString("yyyy-MM-dd")
-if ($feriadosNYSE -contains $hoyStr) {
-    Write-Log "SKIP - feriado NYSE ($hoyStr)."
+# 2) Dia de mercado: fin de semana Y feriados NYSE, en una sola pregunta al
+#    calendario compartido (defense in depth -- el trigger de Windows ya filtra
+#    Lun-Vie, pero se revalida aca por si alguna vez se edita a mano).
+#    La lista de feriados que vivia aqui se mudo a src/calendario_nyse.json:
+#    llegaba solo hasta 2026 y habia que acordarse de extenderla cada enero en
+#    dos sitios distintos. Ahora es uno, y avisa solo cuando se queda corto.
+$motivo = Get-MotivoCierreNYSE
+if ($motivo) {
+    Write-Log "SKIP - $motivo."
     exit 0
 }
 

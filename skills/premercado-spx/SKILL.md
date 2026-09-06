@@ -950,11 +950,21 @@ error, solo la hora equivocada. Usar Python, que sí resuelve DST:
 python -c "import datetime,zoneinfo; print(datetime.datetime.now(zoneinfo.ZoneInfo('America/New_York')).strftime('%u %H:%M %Z'))"
 ```
 (en PowerShell, `[System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId`, que es lo
-que el gate ya usa correctamente). Día 6/7 o fuera de 09:00-16:05 → salir. Para feriados
-NYSE (que caen en día de semana pero sin mercado) no hay lista de fechas a
-mano en el loop — si Sigma Terminal muestra su propio indicador "Market
-closed" pese a que el chequeo de horario dio "dentro de ventana", tratarlo
-igual como fuera de ventana. Cuando el guard salta, responder con una línea
+que el gate ya usa correctamente). Día 6/7 o fuera de 09:00-16:05 → salir.
+
+Para los **feriados NYSE** (que caen en día de semana pero sin mercado) ya no hay que
+adivinar ni fiarse del indicador de Sigma: desde el 2026-09-06 hay un calendario
+compartido, y la respuesta es una sola línea desde cualquiera de los dos lados —
+
+```powershell
+. "C:\Users\gcarv\bitacora-tasty\scripts\calendario_nyse.ps1"; Get-MotivoCierreNYSE
+```
+```bash
+node -e "console.log(require('C:/Users/gcarv/bitacora-tasty/src/calendario_nyse').motivoCierre())"
+```
+
+Devuelve `null` si hay mercado, o `fin_de_semana` / `feriado`. Ver gotcha 12 de
+`bitacora-tasty/CLAUDE.md`. Cuando el guard salta, responder con una línea
 breve ("fuera de horario, sin acción"), no repetir la explicación completa
 cada vez que corre.
 
@@ -1074,7 +1084,8 @@ más de la lista de "bonus disponible" del Paso 3. No tenía ningún papel anal�
 Regla general (usar esta, no la lista): **el vencimiento mensual de opciones es el 3er
 viernes del mes**. Si ese 3er viernes es feriado NYSE, el vencimiento se corre al **jueves
 anterior** — no es hipotético: el 3er viernes de junio de 2026 fue el 19, que es Juneteenth
-y está en la lista de feriados del gate.
+y está en `bitacora-tasty/src/calendario_nyse.json`, el calendario único del sistema (hasta
+el 2026-09-06 el gate tenía su propia lista copiada a mano; ver gotcha 12 de `CLAUDE.md`).
 
 Terceros viernes de 2026, calculados y verificados el 2026-08-21:
 

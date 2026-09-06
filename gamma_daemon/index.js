@@ -8,6 +8,10 @@ import * as tv from './tv.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+// El calendario de la NYSE, compartido con el servidor y con los scripts de
+// PowerShell. Es CommonJS (vive bajo el package.json de la raiz, sin
+// "type":"module") asi que entra como default import. Ver src/calendario_nyse.js.
+import calendario from '../src/calendario_nyse.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATUS_PATH = path.join(__dirname, 'status.json');
@@ -107,25 +111,24 @@ function recordAndGetPrevious(levels) {
   };
 }
 
-// Guard de horario duro -- calcula la hora ET real (con DST), mismo criterio que
-// run_gamma_refresh.ps1 y el resto del sistema. Ventana: 09:00-16:05 ET, lunes-viernes.
+// Guard de horario duro. Ventana propia: 09:00-16:05 ET (media hora antes de la
+// campana para tener muros puestos en la apertura, cinco minutos despues del
+// cierre para no perder la ultima lectura). El dia lo decide el calendario
+// compartido, que valida fin de semana Y FERIADOS.
+//
+// (2026-09-06) Antes esta funcion resolvia el dia ella misma con un
+// !['Sat','Sun'].includes(weekday) y nada mas. El lunes 2026-09-07 —Labor Day—
+// iba a dar `true` durante siete horas: ~210 ciclos leyendo de Sigma Terminal
+// los mismos numeros congelados del viernes, sellandolos con capturadoEn = AHORA
+// (o sea, llegando al servidor marcados como recien nacidos), empujandolos a
+// TradingView, y rellenando los 60 huecos de history.json con valores muertos
+// que el martes iban a ser el "previo" contra el que se calculan los deltas de
+// GEX/DEX/Vanna. Encima el vigilante, que tambien creia que habia mercado, iba a
+// exigir exitos y matar el proceso al tercer fallo.
+//
+// En medio dia (1:00pm ET) el calendario recorta el final solo: 13:05, no 16:05.
 function isMarketWindow() {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    weekday: 'short',
-    hour: 'numeric',
-    minute: 'numeric',
-    hourCycle: 'h23',
-  }).formatToParts(new Date());
-
-  const get = (type) => parts.find((p) => p.type === type)?.value;
-  const weekday = get('weekday');
-  const hour = Number(get('hour'));
-  const minute = Number(get('minute'));
-  const totalMinutes = hour * 60 + minute;
-
-  const isWeekday = !['Sat', 'Sun'].includes(weekday);
-  return isWeekday && totalMinutes >= 9 * 60 && totalMinutes <= 16 * 60 + 5;
+  return calendario.enVentanaET(9 * 60, 16 * 60 + 5);
 }
 
 async function ntfy(message, { priority = 'default', title } = {}) {
@@ -166,7 +169,11 @@ async function pushToTradingViewWithRetry(inputs) {
 
 async function runCycle() {
   if (!isMarketWindow()) {
-    saveStatus({ lastSkipReason: 'fuera_de_horario', lastCycleAt: new Date().toISOString() });
+    // El motivo real, no un 'fuera_de_horario' que no distingue las 3 de la
+    // madrugada de un domingo de Labor Day. Es lo primero que se mira en
+    // status.json cuando el daemon "no hace nada".
+    const motivo = calendario.motivoCierre() || 'fuera_de_horario';
+    saveStatus({ lastSkipReason: motivo, lastCycleAt: new Date().toISOString() });
     return;
   }
 
