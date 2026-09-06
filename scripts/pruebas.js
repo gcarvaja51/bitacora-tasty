@@ -1020,6 +1020,14 @@ async function humoPost(base = BASE) {
     chequear('la respuesta trae fuerzaMuros con call y put (contrato con el daemon)',
       !!(cuerpo && cuerpo.fuerzaMuros && cuerpo.fuerzaMuros.call && cuerpo.fuerzaMuros.put),
       `fuerzaMuros = ${JSON.stringify(cuerpo && cuerpo.fuerzaMuros)}`);
+
+    // maxPainGrafico es lo que el daemon escribe en in_31. Si llega vacio, el
+    // grafico se queda SIN linea de max pain (el guard del Pine es
+    // max_pain_G > 0) — y es un fallo callado. No puede ser null nunca: el
+    // respaldo es el max pain de Sigma, que viene en el mismo POST.
+    chequear('la respuesta trae maxPainGrafico (lo que se dibuja en in_31)',
+      !!(cuerpo && cuerpo.maxPainGrafico > 0),
+      `maxPainGrafico = ${cuerpo && cuerpo.maxPainGrafico}, fuente = ${cuerpo && cuerpo.maxPainFuenteGrafico}`);
   }
 
   // Limpieza: la lectura de prueba NO puede quedarse en el historial, que es de

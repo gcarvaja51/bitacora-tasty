@@ -249,6 +249,21 @@ async function runCycle() {
     const fuerzaCall = Number(respuestaServidor?.fuerzaMuros?.call?.codigo) || 0;
     const fuerzaPut  = Number(respuestaServidor?.fuerzaMuros?.put?.codigo)  || 0;
 
+    // Max Pain: al GRAFICO va el calculado por nosotros, no el de Sigma
+    // (2026-09-06, pedido del usuario). El servidor lo calcula sobre el MISMO
+    // vencimiento que acabamos de mandarle y devuelve maxPainGrafico ya resuelto
+    // — si no pudo (rejilla vieja, vencimiento fuera de nuestra cadena, servidor
+    // sin desplegar) devuelve el de Sigma, y si tampoco, cae al de siempre.
+    //
+    // OJO: esto cambia SOLO lo que se dibuja. Las estrategias del servidor
+    // siguen decidiendo con el max pain de Sigma, como quedo el 2026-08-22.
+    const maxPainGrafico = respuestaServidor?.maxPainGrafico ?? levels.maxPain ?? 0;
+    if (respuestaServidor?.maxPainFuenteGrafico === 'propio'
+        && respuestaServidor?.maxPainPropio !== levels.maxPain) {
+      console.log(`[tv] max pain propio ${respuestaServidor.maxPainPropio} vs Sigma ${levels.maxPain}`
+        + ` (${respuestaServidor.maxPainPropio - levels.maxPain} pts) — se dibuja el propio`);
+    }
+
     const wasDegraded = mode === 'degraded';
     consecutiveFailures = 0;
     mode = 'normal';
@@ -285,7 +300,7 @@ async function runCycle() {
           in_28: prev.netDex,
           in_29: levels.netVanna,
           in_30: prev.netVanna,
-          in_31: levels.maxPain ?? 0,
+          in_31: maxPainGrafico,
           in_32: fuerzaCall,
           in_33: fuerzaPut,
         });

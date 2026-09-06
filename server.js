@@ -5715,14 +5715,24 @@ async function buildSPXContext() {
     // suyo — ver gexPorStrike en src/spx.js. El agregado queda como respaldo
     // para cuando el daemon no manda expiry o el vencimiento no está en la
     // cadena (feriado, cadena corta).
+    // maxPainPorVencimiento (2026-09-06): el max pain calculado POR VENCIMIENTO,
+    // para poder dar el del MISMO vencimiento que reporta Sigma en vez del del
+    // más cercano a secas. Ver el bloque de max pain propio en el POST de
+    // sigma-levels para el porqué. calcMaxPain es O(n²) sobre ~250 strikes; por
+    // 4 vencimientos son ~250k operaciones de suma cada 30s, medido en unos
+    // pocos ms — no justifica cachearlo aparte ni recortarlo.
     if (gex.byStrike?.length) {
       const porVencimiento = {};
+      const maxPainPorVencimiento = {};
       for (const exp of enrichedExps) {
         if (!exp.expiry) continue;
         const rejilla = gexPorStrike(exp.strikes, spxPrice);
         if (rejilla.length) porVencimiento[exp.expiry] = rejilla;
+        const mp = calcMaxPain(exp.strikes || []);
+        if (mp) maxPainPorVencimiento[exp.expiry] = mp;
       }
-      ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike: gex.byStrike, porVencimiento };
+      ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike: gex.byStrike,
+                             porVencimiento, maxPainPorVencimiento };
     }
     delete gex.byStrike;
 
@@ -7631,6 +7641,39 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // etiqueta se puede recalcular después con otros umbrales, el dato no se puede
   // reconstruir hacia atrás. Es el mismo agujero que obligó a rehacer a mano el
   // RSI de 63 trades de Reversión — acá se evita desde el primer día.
+  // ── Max Pain propio (2026-09-06) ──────────────────────────────────────
+  // Lo pidió el usuario: que EL GRÁFICO pinte nuestro cálculo, no el de Sigma.
+  //
+  // ESTO REVIERTE, SOLO PARA EL GRÁFICO, la decisión del 2026-08-22 ("El max
+  // pain sale de Sigma, siempre"), que se tomó porque el 21-ago nuestro cálculo
+  // dio 7425 contra los 7675 de Sigma — 250 puntos, y el usuario confirmó que el
+  // bueno era el de Sigma. Por eso acá van tres cautelas:
+  //
+  //   1. SOLO cambia lo que se dibuja. Las estrategias (direccional, Iron
+  //      Condor, Reversión) siguen decidiendo con sigma.maxPain y su
+  //      maxPainFuente, exactamente como quedó en agosto. No se toca dinero con
+  //      un número que todavía no está validado.
+  //   2. Se calcula sobre EL MISMO VENCIMIENTO que reporta Sigma, no sobre el
+  //      más cercano a secas. Es la explicación más probable de aquel sesgo de
+  //      250 puntos: comparar dos vencimientos distintos y creer que era el
+  //      mismo. Si el vencimiento de Sigma no está en nuestra cadena, no se
+  //      inventa: se cae al de Sigma.
+  //   3. Se guardan LOS DOS en el historial (maxPain de Sigma y maxPainPropio)
+  //      más la fuente que se dibujó. Aquel incidente costó caro justamente por
+  //      no poder auditar de dónde salía el número: "un nivel sin procedencia se
+  //      puede leer, creer, y sacar la conclusión equivocada".
+  //
+  // Medido el 2026-09-06 sobre la cadena real: 7710 / 7675 / 7720 según
+  // vencimiento, todos a menos de 45 pts del spot, y estable — restringir los
+  // strikes a ±3% del spot no lo mueve, o sea que el OI lejano NO lo arrastra.
+  const mpCache = ultimoGexPorStrike;
+  const mpFresco = mpCache && Date.now() - mpCache.at <= FUERZA_MURO_MAX_EDAD_MS;
+  const maxPainPropio = (mpFresco && expiry && mpCache.maxPainPorVencimiento?.[expiry]) || null;
+
+  entry.maxPainPropio  = maxPainPropio;
+  entry.maxPainGrafico = maxPainPropio ?? (maxPain ?? null);
+  entry.maxPainFuenteGrafico = maxPainPropio ? 'propio' : 'sigma_terminal';
+
   entry.gexMuroCall  = fuerzaMuros.call.gex;
   entry.gexMuroPut   = fuerzaMuros.put.gex;
   entry.concMuroCall = fuerzaMuros.call.concentracion;
@@ -7654,12 +7697,14 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   const rechazo = lecturaSigmaSospechosa(entry, history);
   if (rechazo) {
     console.error(`[SIGMA] ⛔ Lectura descartada: ${rechazo}`);
-    return res.json({ ok: true, saved: null, descartada: true, motivo: rechazo, fuerzaMuros });
+    return res.json({ ok: true, saved: null, descartada: true, motivo: rechazo, fuerzaMuros,
+                      maxPainPropio, maxPainGrafico: entry.maxPainGrafico, maxPainFuenteGrafico: entry.maxPainFuenteGrafico });
   }
 
   history.unshift(entry);
   saveSigmaLevelsHistory(history.slice(0, SIGMA_LEVELS_MAX_ENTRIES));
-  res.json({ ok: true, saved: entry, fuerzaMuros });
+  res.json({ ok: true, saved: entry, fuerzaMuros,
+            maxPainPropio, maxPainGrafico: entry.maxPainGrafico, maxPainFuenteGrafico: entry.maxPainFuenteGrafico });
 });
 
 // Cuántos dólares de gamma hay en los muros que manda el daemon, y en qué banda
