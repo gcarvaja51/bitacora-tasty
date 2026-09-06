@@ -238,7 +238,16 @@ async function runCycle() {
     // aunque Sigma se hubiera leido perfecto. Mientras Sigma era solo una
     // referencia de muros eso era molesto; desde que es la fuente por defecto
     // del spot, un problema del GRAFICO dejaria ciego al sistema que OPERA.
-    await postSigmaLevels(levels);
+    const respuestaServidor = await postSigmaLevels(levels);
+
+    // Fuerza de los muros (2026-09-06). El servidor la devuelve en el mismo POST
+    // que ya haciamos: el strike del muro lo pone Sigma (lo tiene el daemon), los
+    // dolares de gamma de ese strike los pone la cadena del servidor. Se pide asi
+    // y no con un GET aparte para no sumar otra llamada por ciclo ni otro punto
+    // de falla — si la respuesta no la trae (servidor viejo, rejilla vieja), los
+    // codigos quedan en 0 = SIN DATO y la etiqueta del muro se dibuja como antes.
+    const fuerzaCall = Number(respuestaServidor?.fuerzaMuros?.call?.codigo) || 0;
+    const fuerzaPut  = Number(respuestaServidor?.fuerzaMuros?.put?.codigo)  || 0;
 
     const wasDegraded = mode === 'degraded';
     consecutiveFailures = 0;
@@ -277,6 +286,8 @@ async function runCycle() {
           in_29: levels.netVanna,
           in_30: prev.netVanna,
           in_31: levels.maxPain ?? 0,
+          in_32: fuerzaCall,
+          in_33: fuerzaPut,
         });
         const anyPaneUpdated = tvWindows.some((w) => w.results?.some((r) => r.updated));
         if (!anyPaneUpdated) {

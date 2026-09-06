@@ -188,7 +188,8 @@ mvs_G = input.float(0.0, "MVS", group=grpG)
 // hace ~6 min (3 ciclos de 2 min), no solo el signo. Vienen de Sigma Terminal (mismo
 // gamma_daemon que ya alimenta Call/Put Wall arriba), no del calculo interno del
 // servidor -- decision explicita del usuario. IDs posicionales: son estos 6
-// input.* (in_25..in_30), seguidos de Max Pain (in_31) al final del archivo --
+// input.* (in_25..in_30), seguidos de Max Pain (in_31) y de la fuerza de los dos
+// muros (in_32/in_33) al final del archivo --
 // ANTERIOR del archivo, hay que re-contar (mismo gotcha ya documentado arriba para
 // in_20-in_24).
 gex_now_G    = input.float(0.0, "GEX Actual", group=grpG)
@@ -203,6 +204,19 @@ vanna_prev_G = input.float(0.0, "Vanna Hace ~6min", group=grpG)
 // junto a los otros niveles gamma (arriba), los muros se escribirian en el input
 // equivocado y el chart mostraria numeros cruzados.
 max_pain_G   = input.float(0.0, "Max Pain", group=grpG)
+
+// Fuerza de los muros (2026-09-06) — MISMA REGLA que Max Pain: van AL FINAL de
+// todos los input.*, aqui como in_32 e in_33. Ponerlos junto a Call/Put Wall
+// (arriba) correria in_21..in_31 y el daemon escribiria los precios de los muros
+// en los inputs equivocados.
+//
+// No es un precio: es un CODIGO. 0 = sin dato, 1 = DEBIL, 2 = MEDIO, 3 = FUERTE.
+// Lo decide el servidor (clasificarFuerzaMuro, src/spx.js) segun cuantos dolares
+// de gamma hay en ese strike, y llega por la respuesta del POST de sigma-levels.
+// Se manda el codigo y no el texto porque indicator_set_inputs solo escribe
+// numeros — un input.string obligaria a otro mecanismo de push.
+call_wall_fuerza_G = input.float(0.0, "Call Wall - fuerza (0=s/d 1=debil 2=medio 3=fuerte)", group=grpG)
+put_wall_fuerza_G  = input.float(0.0, "Put Wall - fuerza (0=s/d 1=debil 2=medio 3=fuerte)", group=grpG)
 
 // Solo dibujar en SPX — evita que estos niveles (escala ~7500) distorsionen
 // el chart al abrir otro activo de precio muy distinto (ej. UBER, SOFI): la
@@ -219,6 +233,12 @@ show_gamma_active_G = show_gamma_G and is_spx_G
 // el texto) en vez de hline() — sin esa restriccion, y mismo estilo visual
 // (dashed/dotted) via line.style_dashed/dotted.
 x1_G = math.max(bar_index - 300, 0)
+
+// La tercera palabra de la etiqueta del muro. Sin dato (0) devuelve cadena
+// vacia a proposito: la etiqueta queda como estaba antes, "CALL WALL 7825.00",
+// en vez de mostrar un "SIN DATO" que ocupa lugar y no dice nada.
+fuerzaTxt_G(codigo) =>
+    codigo == 3 ? "  FUERTE" : codigo == 2 ? "  MEDIO" : codigo == 1 ? "  DEBIL" : ""
 
 var line callWallLine_G = na
 var line putWallLine_G = na
@@ -243,10 +263,10 @@ if barstate.islast
     label.delete(maxPainLbl_G)
     if show_gamma_active_G and call_wall_G > 0
         callWallLine_G := line.new(x1_G, call_wall_G, bar_index, call_wall_G, extend=extend.both, color=color.new(color.green, 0), style=line.style_dashed, width=2)
-        callWallLbl_G := label.new(bar_index, call_wall_G, "CALL WALL " + str.tostring(call_wall_G, "#.##"), style=label.style_label_left, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+        callWallLbl_G := label.new(bar_index, call_wall_G, "CALL WALL " + str.tostring(call_wall_G, "#.##") + fuerzaTxt_G(math.round(call_wall_fuerza_G)), style=label.style_label_left, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
     if show_gamma_active_G and put_wall_G > 0
         putWallLine_G := line.new(x1_G, put_wall_G, bar_index, put_wall_G, extend=extend.both, color=color.new(color.red, 0), style=line.style_dashed, width=2)
-        putWallLbl_G := label.new(bar_index, put_wall_G, "PUT WALL " + str.tostring(put_wall_G, "#.##"), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+        putWallLbl_G := label.new(bar_index, put_wall_G, "PUT WALL " + str.tostring(put_wall_G, "#.##") + fuerzaTxt_G(math.round(put_wall_fuerza_G)), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
     if show_gamma_active_G and gamma_flip_G > 0
         gammaFlipLine_G := line.new(x1_G, gamma_flip_G, bar_index, gamma_flip_G, extend=extend.both, color=color.new(color.purple, 0), style=line.style_dotted, width=2)
         gfTxt_G = call_wall_G > 0 and gamma_flip_G == call_wall_G ? "GAMMA FLIP" : "GAMMA FLIP " + str.tostring(gamma_flip_G, "#.##")
@@ -280,17 +300,20 @@ if barstate.islast
     posB = color.new(color.lime, 65)
     negB = color.new(color.red,  65)
 
-    table.cell(infoB, 0, 0, "GEX/DEX/VANNA", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoB, 0, 0, "DEX/GEX/VANNA", text_color=color.gray, text_size=size.tiny)
     table.cell(infoB, 1, 0, "ACTUAL",        text_color=color.gray, text_size=size.tiny)
     table.cell(infoB, 2, 0, "HACE ~6MIN",    text_color=color.gray, text_size=size.tiny)
 
-    table.cell(infoB, 0, 1, "GEX", text_color=color.white, text_size=size.tiny)
-    table.cell(infoB, 1, 1, fmtGDV(gex_now_G) + arrowGDV(gex_now_G, gex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=gex_now_G >= 0 ? posB : negB)
-    table.cell(infoB, 2, 1, fmtGDV(gex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=gex_prev_G >= 0 ? posB : negB)
+    // Orden DELTA → GAMMA → VANNA (2026-09-06, pedido del usuario). Antes era
+    // GEX → DEX → VANNA. Es solo presentacion: los inputs siguen siendo los
+    // mismos in_25..in_30 en el mismo orden, no se toco nada del push.
+    table.cell(infoB, 0, 1, "DEX", text_color=color.white, text_size=size.tiny)
+    table.cell(infoB, 1, 1, fmtGDV(dex_now_G) + arrowGDV(dex_now_G, dex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=dex_now_G >= 0 ? posB : negB)
+    table.cell(infoB, 2, 1, fmtGDV(dex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=dex_prev_G >= 0 ? posB : negB)
 
-    table.cell(infoB, 0, 2, "DEX", text_color=color.white, text_size=size.tiny)
-    table.cell(infoB, 1, 2, fmtGDV(dex_now_G) + arrowGDV(dex_now_G, dex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=dex_now_G >= 0 ? posB : negB)
-    table.cell(infoB, 2, 2, fmtGDV(dex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=dex_prev_G >= 0 ? posB : negB)
+    table.cell(infoB, 0, 2, "GEX", text_color=color.white, text_size=size.tiny)
+    table.cell(infoB, 1, 2, fmtGDV(gex_now_G) + arrowGDV(gex_now_G, gex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=gex_now_G >= 0 ? posB : negB)
+    table.cell(infoB, 2, 2, fmtGDV(gex_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=gex_prev_G >= 0 ? posB : negB)
 
     table.cell(infoB, 0, 3, "VANNA", text_color=color.white, text_size=size.tiny)
     table.cell(infoB, 1, 3, fmtGDV(vanna_now_G) + arrowGDV(vanna_now_G, vanna_prev_G), text_color=color.white, text_size=size.tiny, bgcolor=vanna_now_G >= 0 ? posB : negB)

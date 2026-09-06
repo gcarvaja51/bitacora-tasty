@@ -4606,7 +4606,7 @@ app.post('/api/wheel-trading/adopt', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
-const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow } = require('./src/spx');
+const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexPorStrike, medirMuro, bandaAlejandro, UMBRALES_MURO } = require('./src/spx');
 const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray, calcCompasMedias5m, calcPOC } = require('./src/spx_indicators');
 // Nota: calcRSI ya existe como funcion local en este archivo (linea ~1243, usada por el
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
@@ -5498,6 +5498,14 @@ function withExecutionsLock(fn) {
   return run;
 }
 
+// Última rejilla de GEX por strike calculada por buildSPXContext, en memoria.
+// { at: epoch_ms, spxPrice, byStrike: [{strike, gex}] }. La usa el POST de
+// sigma-levels para clasificar la fuerza de los muros — ver clasificarFuerzaMuro
+// (src/spx.js) y FUERZA_MURO_MAX_EDAD_MS abajo. En memoria a propósito: si el
+// servidor se reinicia, el primer buildSPXContext (≤30s después) la repuebla, y
+// mientras tanto la fuerza sale null, que es lo correcto — nunca un valor viejo.
+let ultimoGexPorStrike = null;
+
 // GET /api/spx/context — contexto completo del mercado
 // Construye el contexto de mercado completo para SPX (precio, VIX, IV Rank, GEX,
 // indicadores 2m/15m/diario, rango de apertura, confluencia Weinstein). Usado tanto
@@ -5692,6 +5700,31 @@ async function buildSPXContext() {
     const gex = calcGEX(enrichedExps, spxPrice);
     // Max Pain — se calcula por vencimiento (no agregado como el GEX), usamos el más cercano (0DTE)
     gex.maxPain = calcMaxPain(enrichedExps[0]?.strikes || []);
+
+    // Rejilla de GEX por strike, guardada aparte para que POST /api/spx/sigma-levels
+    // pueda decir cuántos dólares de gamma hay en los muros que manda el daemon
+    // (2026-09-06, ver clasificarFuerzaMuro en src/spx.js). Se cachea en vez de
+    // recalcularse en el POST porque el POST entra cada 2 min y armar la cadena
+    // cuesta una llamada a /api/option-chain/SPX — buildSPXContext ya corre cada
+    // 30s durante el mercado, así que el dato nunca está viejo cuando importa.
+    // NO va dentro del objeto de respuesta de /api/spx/context: son ~250 strikes
+    // por lectura y ese endpoint lo consume el frontend.
+    // Se guarda además la rejilla de CADA vencimiento por separado: los muros de
+    // Sigma son de UNO solo (el campo `expiry` que manda el daemon) y el
+    // agregado de 4 le sumaría al muro la gamma de vencimientos que no son el
+    // suyo — ver gexPorStrike en src/spx.js. El agregado queda como respaldo
+    // para cuando el daemon no manda expiry o el vencimiento no está en la
+    // cadena (feriado, cadena corta).
+    if (gex.byStrike?.length) {
+      const porVencimiento = {};
+      for (const exp of enrichedExps) {
+        if (!exp.expiry) continue;
+        const rejilla = gexPorStrike(exp.strikes, spxPrice);
+        if (rejilla.length) porVencimiento[exp.expiry] = rejilla;
+      }
+      ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike: gex.byStrike, porVencimiento };
+    }
+    delete gex.byStrike;
 
     // 7. Indicadores técnicos — diario y 15m
     let indicators = { daily: {}, m15: {}, spy: {} };
@@ -7578,6 +7611,32 @@ app.post('/api/spx/sigma-levels', (req, res) => {
       if (retrasoSeg > 120) console.warn(`[SIGMA] ⚠️ El daemon tardo ${retrasoSeg}s entre capturar y publicar.`);
     }
   }
+  // ── Fuerza de los muros (2026-09-06) ──────────────────────────────────
+  // El STRIKE del muro lo pone Sigma Terminal (es lo que ya se pinta en
+  // TradingView); los DÓLARES de gamma que hay en ese strike salen de nuestra
+  // cadena (buildSPXContext → ultimoGexPorStrike). Son dos fuentes distintas a
+  // propósito: Sigma no expone el GEX por strike por API — su endpoint
+  // /gex/snapshot/SPX pide sesión iniciada y devolvió 401 al probarlo.
+  //
+  // Se calcula ACÁ, antes del filtro de cordura, para que el daemon reciba la
+  // fuerza incluso cuando la lectura se descarta del historial: el push a
+  // TradingView sale igual, y es mejor que la etiqueta acompañe al muro que se
+  // está pintando a que se quede pegada en el valor del ciclo anterior.
+  //
+  // Si la rejilla está vieja o no existe, fuerza queda null y el daemon empuja 0
+  // = SIN DATO. Nunca se recicla una rejilla añeja: un muro etiquetado FUERTE
+  // con datos de hace media hora es peor que un muro sin etiqueta.
+  const fuerzaMuros = calcularFuerzaMuros(callWall, putWall, expiry);
+  // Al historial va el DATO (dólares y concentración), no la etiqueta: la
+  // etiqueta se puede recalcular después con otros umbrales, el dato no se puede
+  // reconstruir hacia atrás. Es el mismo agujero que obligó a rehacer a mano el
+  // RSI de 63 trades de Reversión — acá se evita desde el primer día.
+  entry.gexMuroCall  = fuerzaMuros.call.gex;
+  entry.gexMuroPut   = fuerzaMuros.put.gex;
+  entry.concMuroCall = fuerzaMuros.call.concentracion;
+  entry.concMuroPut  = fuerzaMuros.put.concentracion;
+  entry.fuerzaMuroBase = fuerzaMuros.base;
+
   const history = loadSigmaLevelsHistory();
 
   // Filtro de cordura (2026-08-03, a pedido del usuario tras verlo en el
@@ -7595,13 +7654,66 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   const rechazo = lecturaSigmaSospechosa(entry, history);
   if (rechazo) {
     console.error(`[SIGMA] ⛔ Lectura descartada: ${rechazo}`);
-    return res.json({ ok: true, saved: null, descartada: true, motivo: rechazo });
+    return res.json({ ok: true, saved: null, descartada: true, motivo: rechazo, fuerzaMuros });
   }
 
   history.unshift(entry);
   saveSigmaLevelsHistory(history.slice(0, SIGMA_LEVELS_MAX_ENTRIES));
-  res.json({ ok: true, saved: entry });
+  res.json({ ok: true, saved: entry, fuerzaMuros });
 });
+
+// Cuántos dólares de gamma hay en los muros que manda el daemon, y en qué banda
+// caen. Ver clasificarFuerzaMuro (src/spx.js) para el porqué de los umbrales y
+// para la advertencia de escala (nuestra cadena ≠ los billones del panel de Sigma).
+//
+// 6 minutos = 3 ciclos del daemon. buildSPXContext repuebla la rejilla cada 30s
+// mientras hay mercado, así que en operación normal nunca se llega a ese techo;
+// el límite existe para que fuera de mercado, o con el chequeo de Iron Condor
+// caído, la etiqueta desaparezca en vez de quedarse congelada.
+const FUERZA_MURO_MAX_EDAD_MS = 6 * 60 * 1000;
+
+function calcularFuerzaMuros(callWall, putWall, expiry) {
+  const vacio = { gex: null, codigo: 0, etiqueta: null };
+  const g = ultimoGexPorStrike;
+  if (!g || Date.now() - g.at > FUERZA_MURO_MAX_EDAD_MS) {
+    return { call: { ...vacio }, put: { ...vacio }, base: null,
+             rejillaEdadSeg: g ? Math.round((Date.now() - g.at) / 1000) : null };
+  }
+  // El vencimiento de los muros manda: el muro de Sigma es de UN vencimiento y
+  // los umbrales están calibrados sobre esa base (ver clasificarFuerzaMuro).
+  //
+  // Si ese vencimiento no está en nuestra cadena (el daemon no mandó `expiry`,
+  // o Sigma está mostrando uno más lejano que los 4 que traemos), se mide contra
+  // el agregado PERO NO SE ETIQUETA: los dólares del agregado son los de 4
+  // vencimientos juntos y contra umbrales de uno solo dan FUERTE casi siempre —
+  // medido el 2026-09-06, los mismos dos muros pasaban de FUERTE/MEDIO (base
+  // 09-09) a FUERTE/FUERTE (base agregada). El dato igual se guarda para
+  // análisis; lo que no se hace es pintar en el gráfico una etiqueta que no
+  // significa lo que parece.
+  const rejillaVto = expiry ? g.porVencimiento?.[expiry] : null;
+  const rejilla    = rejillaVto || g.byStrike;
+  const base       = rejillaVto ? expiry : 'agregado';
+  const uno = (strike, esPut) => {
+    const { gex, concentracion, dominancia } = medirMuro(rejilla, strike);
+    // netGex y regime son los de SIGMA — los que acaba de mandar el daemon en
+    // este mismo POST, no los nuestros. Las bandas de Alejandro estan dichas
+    // sobre los numeros que el lee en el panel, y nuestra cadena esta en otra
+    // escala (ver la advertencia de escala en clasificarFuerzaMuro).
+    const { codigo, etiqueta, banda, ajuste } = rejillaVto
+      ? clasificarFuerzaMuro(gex, { netGex, regime, esPut })
+      : { codigo: 0, etiqueta: null, banda: bandaAlejandro(netGex), ajuste: null };
+    // concentracion y dominancia NO deciden la etiqueta: viajan para poder
+    // recalibrar los umbrales con muestra real (ver clasificarFuerzaMuro).
+    return { gex, codigo, etiqueta, banda, ajuste, concentracion, dominancia };
+  };
+  return {
+    call: uno(callWall, false),
+    put:  uno(putWall, true),
+    base,
+    rejillaEdadSeg: Math.round((Date.now() - g.at) / 1000),
+    umbrales: UMBRALES_MURO,
+  };
+}
 
 // Devuelve el motivo del rechazo, o null si la lectura parece sana.
 //

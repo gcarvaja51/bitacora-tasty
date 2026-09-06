@@ -139,7 +139,188 @@ function calcGEX(expirations, spxPrice) {
     putWall,
     gammaFlip: calcGammaFlipSweep(expirations, spxPrice),
     levels:    sorted.filter(x => Math.abs(x.gex) > Math.abs(netGex) * 0.05), // niveles significativos
+    // byStrike: la rejilla COMPLETA, sin el filtro del 5% de `levels`. Agregado
+    // 2026-09-06 para poder responder "cuántos dólares de gamma hay en ESTE
+    // strike" cuando el strike viene de afuera (los muros de Sigma Terminal, que
+    // no tienen por qué coincidir con los nuestros — ver clasificarFuerzaMuro).
+    // `levels` no sirve para eso: filtra contra |netGex|, que cerca del gamma
+    // flip tiende a cero y entonces deja pasar la cadena entera. Campo aditivo,
+    // no cambia ningún valor existente.
+    byStrike:  sorted,
   };
+}
+
+// ── Fuerza de un muro: cuántos dólares de gamma hay en ESE strike ──────────
+//
+// De dónde sale (2026-09-06, pedido del usuario tras consultar la mentoría de
+// Alejandro en NotebookLM): al pintar CALL WALL / PUT WALL en TradingView se
+// quiere una tercera palabra —FUERTE / MEDIO / DÉBIL— según el tamaño del muro.
+//
+// LO QUE DICE ALEJANDRO Y LO QUE NO DICE. Su escala de billones ("por debajo de
+// 2 billones digamos que es un ruido", "entre 3 y 5 ya la cosa se va poniendo
+// más seria", "entre 5 y 10 es bien significativo", ">10 extremo") está dicha
+// SIEMPRE sobre el GEX/DEX **neto de la sesión entera**, nunca sobre un strike
+// suelto. Alejandro NO da un umbral por strike. Los números de acá abajo son
+// nuestros, no suyos: son una calibración a validar, no doctrina de la mentoría.
+//
+// POR QUÉ ESTOS NÚMEROS, Y SOBRE QUÉ BASE. Se miden sobre la rejilla de UN
+// vencimiento (ver gexPorStrike abajo), no sobre el agregado de 4 — que es la
+// base correcta, porque el muro de Sigma es de un vencimiento. Medido contra la
+// cadena real del 2026-09-06 (spot 7718.6), muro dominante de cada vencimiento:
+//
+//   2026-09-08  call 7800  0.40B (4.7% del |GEX| del vto)   put 7675  0.87B (10.4%)
+//   2026-09-09  call 7825  1.41B (16.4%)                    put 7550  0.52B ( 6.0%)
+//   2026-09-10  call 7765  0.38B (6.5%)                     put 7715  0.40B ( 6.8%)
+//   2026-09-11  call 7825  1.03B (10.6%)                    put 7650  0.65B ( 6.7%)
+//
+// La mediana de los strikes con GEX ronda 0.005B y el p99 va de 0.38B a 0.53B.
+// Con 0.5B y 1B, los dos muros que de verdad dominan su vencimiento (16.4% y
+// 10.6% del total, y 2.6x y 1.9x el segundo strike de su lado) salen FUERTE, y
+// los planos —donde el segundo strike está a 1.04x, o sea que no hay muro sino
+// meseta— salen DÉBIL. Coincide con el orden que da la concentración relativa,
+// que es la otra forma de medirlo (va en el payload como `concentracion` y
+// `dominancia`, sin decidir nada, para poder compararlas con muestra real).
+//
+// LO QUE NO ESTÁ VALIDADO, y hay que decirlo: la muestra es UNA foto de un
+// domingo de semana corta por Labor Day — el vencimiento más cercano es a 2
+// días, NO hay 0DTE. Un 0DTE de sesión real concentra mucho más OI en los
+// strikes del dinero, así que es esperable que estos umbrales queden cortos y
+// etiqueten FUERTE de más. Por eso el servidor guarda gexMuroCall/gexMuroPut en
+// el historial de sigma-levels: con dos semanas de muestra esto se recalibra
+// con datos en vez de con una foto.
+//
+// OJO CON LA ESCALA: estos dólares salen de NUESTRA cadena (TastyTrade), no de
+// Sigma Terminal, y las dos no están en la misma escala — el 2026-09-04 Sigma
+// reportaba Net GEX -14.81B contra los -0.24B nuestros. Estos umbrales NO son
+// trasladables a los billones que se leen en el panel de Sigma, ni al revés.
+const UMBRALES_MURO = { fuerte: 1e9, medio: 0.5e9 };
+
+// ── Las bandas de Alejandro, y por qué NO manejan la etiqueta ──────────────
+//
+// Alejandro clasifica la convicción del flujo por la magnitud del GEX/DEX
+// **neto de la sesión** (SPX; para SPY dividir por 10):
+//   <2B   Ruido operativo — "es muy fácil que yo pase el régimen"
+//   2-5B  Moderado — fricción, soportes locales, rango
+//   5-10B Significativo — "le está obligando al marketer a comprar el subyacente"
+//   >10B  Extremo — dominio del dealer, riesgo de squeeze; operar reversiones
+//         contra un DEX >10B es kill switch en su playbook
+//
+// MEDIDO ANTES DE USARLO (2026-09-06, 10.000 lecturas de Sigma Terminal, 18
+// días, 12-ago a 4-sep): aplicadas al Net GEX que hoy leemos, esas bandas dan
+// EXTREMO el 66.6% del tiempo (mediana |netGex| 13.6B; p25 7.5B, p90 31.1B). El
+// Net DEX, EXTREMO el 58.6%. O sea que una etiqueta manejada por el neto diría
+// FUERTE dos de cada tres minutos y no distinguiría nada.
+//
+// No es que las bandas estén mal: sus propios ejemplos encajan con la muestra
+// (llamó "significativo" a un DEX de 7.2B, hoy nuestro p30, y "exagerado" a 33B,
+// hoy p85). Es que la escala se formó con un mercado de menos gamma nocional y
+// hoy está saturada por arriba.
+//
+// Conclusión de diseño: la etiqueta la decide la CONCENTRACIÓN DEL STRIKE (los
+// umbrales de arriba), y las bandas de Alejandro entran como CONDICIÓN, que es
+// como él las usa — dicen si hoy hay que fiarse de los muros, no cuál muro es
+// más grande. Dos ajustes, los dos textuales suyos:
+//
+//   1. Régimen de ruido (|netGex| < 2B): ningún muro es confiable — "estoy
+//      cerquita al flip, paso el flip y ya se vuelve gamma negativo". Todo baja
+//      a DÉBIL. Pasa el 8.3% del tiempo, o sea que sí discrimina.
+//   2. Gamma negativo: el PUT WALL baja un escalón. Es literal — "los soportes
+//      técnicos suelen fallar, ahí no hay gamma... esa vaina pasó como
+//      mantequilla". El call wall no se toca: en GEX(-) el que se perfora es el
+//      soporte, no la resistencia.
+const BANDA_RUIDO = 2e9;
+
+function bandaAlejandro(neto) {
+  if (neto == null || !isFinite(neto)) return null;
+  const a = Math.abs(neto);
+  if (a < BANDA_RUIDO) return 'RUIDO';
+  if (a < 5e9)  return 'MODERADO';
+  if (a < 10e9) return 'SIGNIFICATIVO';
+  return 'EXTREMO';
+}
+
+// contexto: { netGex, regime, esPut } — todo opcional. Sin contexto, la
+// clasificación es puramente por concentración del strike (comportamiento base).
+function clasificarFuerzaMuro(gexDolares, contexto = {}, umbrales = UMBRALES_MURO) {
+  if (gexDolares == null || !isFinite(gexDolares)) {
+    return { codigo: 0, etiqueta: null, banda: null, ajuste: null };
+  }
+  const abs = Math.abs(gexDolares);
+  let codigo = abs >= umbrales.fuerte ? 3 : abs >= umbrales.medio ? 2 : 1;
+
+  const banda = bandaAlejandro(contexto.netGex);
+  const ajustes = [];
+  if (banda === 'RUIDO' && codigo > 1) {
+    codigo = 1;
+    ajustes.push('regimen de ruido (<2B): ningun muro es confiable');
+  }
+  if (contexto.regime === 'NEGATIVO' && contexto.esPut && codigo > 1) {
+    codigo -= 1;
+    ajustes.push('gamma negativo: el soporte se vuelve mantequilla');
+  }
+
+  const etiqueta = codigo === 3 ? 'FUERTE' : codigo === 2 ? 'MEDIO' : 'DEBIL';
+  return { codigo, etiqueta, banda, ajuste: ajustes.length ? ajustes.join(' + ') : null };
+}
+
+// Las dos medidas RELATIVAS del muro, que no deciden la etiqueta pero se guardan
+// para poder recalibrarla después con muestra real:
+//   concentracion — qué fracción del |GEX| de todo el vencimiento está en ese
+//                   strike. Es "los contratos de valor concentrados" del que
+//                   habla Alejandro, puesto en número.
+//   dominancia    — cuántas veces más grande es el muro que el segundo strike
+//                   del MISMO signo. Separa un muro de verdad (2.5x) de la
+//                   meseta donde el siguiente strike pesa casi igual (1.04x) y
+//                   el precio no tiene por qué frenar en uno y no en el otro.
+function medirMuro(rejilla, strike, tolerancia = 5) {
+  const gex = gexEnStrike(rejilla, strike, tolerancia);
+  if (gex == null || !rejilla?.length) return { gex, concentracion: null, dominancia: null };
+  const sumAbs = rejilla.reduce((s, x) => s + Math.abs(x.gex), 0);
+  const mismoSigno = rejilla
+    .filter(x => (gex >= 0 ? x.gex > 0 : x.gex < 0) && Math.abs(x.strike - strike) > tolerancia)
+    .map(x => Math.abs(x.gex))
+    .sort((a, b) => b - a);
+  return {
+    gex,
+    concentracion: sumAbs > 0 ? Math.abs(gex) / sumAbs : null,
+    dominancia:    mismoSigno.length && mismoSigno[0] > 0 ? Math.abs(gex) / mismoSigno[0] : null,
+  };
+}
+
+// Rejilla de GEX por strike de UN vencimiento suelto. Misma fórmula que calcGEX
+// (incluido el flip de signo del put), pero sin el barrido del gamma flip, que
+// es la parte cara: calcGammaFlipSweep reevalúa Black-Scholes en toda la cadena
+// para ~200 precios hipotéticos, y acá no hace falta.
+//
+// Existe porque los muros de Sigma Terminal son de UN vencimiento (el campo
+// `expiry` que manda el daemon) y calcGEX agrega los 4 primeros. Cobrarle a un
+// muro 0DTE la gamma de los otros tres vencimientos infla el número justo en el
+// dato que decide si se etiqueta FUERTE o DÉBIL.
+function gexPorStrike(strikes, spxPrice) {
+  const m = {};
+  for (const s of (strikes || [])) {
+    const c = s.call || {};
+    const p = s.put  || {};
+    const g = (c.gamma || 0) * (c.oi || 0) * 100 * spxPrice * spxPrice * 0.01
+            - (p.gamma || 0) * (p.oi || 0) * 100 * spxPrice * spxPrice * 0.01;
+    m[s.strike] = (m[s.strike] || 0) + g;
+  }
+  return Object.entries(m).map(([k, v]) => ({ strike: +k, gex: v })).sort((a, b) => a.strike - b.strike);
+}
+
+// El strike del muro viene de Sigma Terminal y la rejilla es nuestra: pueden no
+// caer en el mismo punto. Se busca el strike más cercano dentro de `tolerancia`
+// (la rejilla del SPX es de 5 puntos cerca del dinero). Fuera de eso devuelve
+// null — mejor "sin dato" que atribuirle a un muro los dólares de otro strike.
+function gexEnStrike(byStrike, strike, tolerancia = 5) {
+  if (!Array.isArray(byStrike) || !byStrike.length || !strike) return null;
+  let mejor = null;
+  for (const x of byStrike) {
+    const d = Math.abs(x.strike - strike);
+    if (d > tolerancia) continue;
+    if (!mejor || d < mejor.d) mejor = { d, gex: x.gex };
+  }
+  return mejor ? mejor.gex : null;
 }
 
 // ── Calcula Max Pain — strike donde el payout total a tenedores de
@@ -827,4 +1008,4 @@ function buildSignalSummary(strategy, strikes, sel, context) {
   };
 }
 
-module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, calcPinState, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow };
+module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, calcPinState, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexEnStrike, gexPorStrike, medirMuro, bandaAlejandro, UMBRALES_MURO };
