@@ -259,7 +259,7 @@ function clasificarFuerzaMuro(gexDolares, contexto = {}, umbrales = UMBRALES_MUR
     ajustes.push('gamma negativo: el soporte se vuelve mantequilla');
   }
 
-  const etiqueta = codigo === 3 ? 'FUERTE' : codigo === 2 ? 'MEDIO' : 'DEBIL';
+  const etiqueta = codigo === 3 ? 'STRONG' : codigo === 2 ? 'MEDIUM' : 'WEAK';
   return { codigo, etiqueta, banda, ajuste: ajustes.length ? ajustes.join(' + ') : null };
 }
 

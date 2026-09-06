@@ -215,8 +215,8 @@ max_pain_G   = input.float(0.0, "Max Pain", group=grpG)
 // de gamma hay en ese strike, y llega por la respuesta del POST de sigma-levels.
 // Se manda el codigo y no el texto porque indicator_set_inputs solo escribe
 // numeros — un input.string obligaria a otro mecanismo de push.
-call_wall_fuerza_G = input.float(0.0, "Call Wall - fuerza (0=s/d 1=debil 2=medio 3=fuerte)", group=grpG)
-put_wall_fuerza_G  = input.float(0.0, "Put Wall - fuerza (0=s/d 1=debil 2=medio 3=fuerte)", group=grpG)
+call_wall_fuerza_G = input.float(0.0, "Call Wall - strength (0=n/a 1=weak 2=medium 3=strong)", group=grpG)
+put_wall_fuerza_G  = input.float(0.0, "Put Wall - strength (0=n/a 1=weak 2=medium 3=strong)", group=grpG)
 
 // Solo dibujar en SPX — evita que estos niveles (escala ~7500) distorsionen
 // el chart al abrir otro activo de precio muy distinto (ej. UBER, SOFI): la
@@ -237,8 +237,27 @@ x1_G = math.max(bar_index - 300, 0)
 // La tercera palabra de la etiqueta del muro. Sin dato (0) devuelve cadena
 // vacia a proposito: la etiqueta queda como estaba antes, "CALL WALL 7825.00",
 // en vez de mostrar un "SIN DATO" que ocupa lugar y no dice nada.
+//
+// En INGLES por pedido del usuario (2026-09-06), para que hable el mismo idioma
+// que el resto del grafico (CALL WALL / PUT WALL / MAX PAIN / GAMMA FLIP).
 fuerzaTxt_G(codigo) =>
-    codigo == 3 ? "  FUERTE" : codigo == 2 ? "  MEDIO" : codigo == 1 ? "  DEBIL" : ""
+    codigo == 3 ? "  STRONG" : codigo == 2 ? "  MEDIUM" : codigo == 1 ? "  WEAK" : ""
+
+// Separacion de las etiquetas respecto de la ultima vela, EN VELAS (2026-09-06,
+// a pedido del usuario: "quedan muy pegadas"). Se dibujan a la derecha del
+// ultimo dato, en el margen vacio que el chart ya deja.
+//
+// Por que 4 y no mas: en el iPhone en vertical el panel son ~660px y las
+// etiquetas ya llegaban al borde de la escala de precios. Cada vela de
+// separacion son ~6px que se comen por la derecha, asi que esto va de la mano
+// con bajar el texto a size.tiny — si se sube este numero sin achicar la letra,
+// vuelve a recortarse en el movil.
+//
+// NO es un input a proposito: los IDs son posicionales (in_NN) y meter uno
+// nuevo aqui, en medio del archivo, correria in_21..in_33 y el daemon
+// escribiria los muros en el input equivocado. Se cambia aqui, a mano.
+sepLbl_G = 4
+xLbl_G = bar_index + sepLbl_G
 
 var line callWallLine_G = na
 var line putWallLine_G = na
@@ -263,20 +282,20 @@ if barstate.islast
     label.delete(maxPainLbl_G)
     if show_gamma_active_G and call_wall_G > 0
         callWallLine_G := line.new(x1_G, call_wall_G, bar_index, call_wall_G, extend=extend.both, color=color.new(color.green, 0), style=line.style_dashed, width=2)
-        callWallLbl_G := label.new(bar_index, call_wall_G, "CALL WALL " + str.tostring(call_wall_G, "#.##") + fuerzaTxt_G(math.round(call_wall_fuerza_G)), style=label.style_label_left, color=color.new(color.green, 0), textcolor=color.white, size=size.small)
+        callWallLbl_G := label.new(xLbl_G, call_wall_G, "CALL WALL " + str.tostring(call_wall_G, "#.##") + fuerzaTxt_G(math.round(call_wall_fuerza_G)), style=label.style_label_left, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
     if show_gamma_active_G and put_wall_G > 0
         putWallLine_G := line.new(x1_G, put_wall_G, bar_index, put_wall_G, extend=extend.both, color=color.new(color.red, 0), style=line.style_dashed, width=2)
-        putWallLbl_G := label.new(bar_index, put_wall_G, "PUT WALL " + str.tostring(put_wall_G, "#.##") + fuerzaTxt_G(math.round(put_wall_fuerza_G)), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+        putWallLbl_G := label.new(xLbl_G, put_wall_G, "PUT WALL " + str.tostring(put_wall_G, "#.##") + fuerzaTxt_G(math.round(put_wall_fuerza_G)), style=label.style_label_left, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
     if show_gamma_active_G and gamma_flip_G > 0
         gammaFlipLine_G := line.new(x1_G, gamma_flip_G, bar_index, gamma_flip_G, extend=extend.both, color=color.new(color.purple, 0), style=line.style_dotted, width=2)
         gfTxt_G = call_wall_G > 0 and gamma_flip_G == call_wall_G ? "GAMMA FLIP" : "GAMMA FLIP " + str.tostring(gamma_flip_G, "#.##")
-        gammaFlipLbl_G := label.new(bar_index, gamma_flip_G, gfTxt_G, style=label.style_label_left, color=color.new(color.purple, 0), textcolor=color.white, size=size.small)
+        gammaFlipLbl_G := label.new(xLbl_G, gamma_flip_G, gfTxt_G, style=label.style_label_left, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
     if show_gamma_active_G and mvs_G > 0
         mvsLine_G := line.new(x1_G, mvs_G, bar_index, mvs_G, extend=extend.both, color=color.new(color.orange, 0), style=line.style_dotted, width=2)
-        mvsLbl_G := label.new(bar_index, mvs_G, "MVS " + str.tostring(mvs_G, "#.##"), style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)
+        mvsLbl_G := label.new(xLbl_G, mvs_G, "MVS " + str.tostring(mvs_G, "#.##"), style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
     if show_gamma_active_G and max_pain_G > 0
         maxPainLine_G := line.new(x1_G, max_pain_G, bar_index, max_pain_G, extend=extend.both, color=color.new(color.blue, 0), style=line.style_dashed, width=2)
-        maxPainLbl_G := label.new(bar_index, max_pain_G, "MAX PAIN " + str.tostring(max_pain_G, "#.##"), style=label.style_label_left, color=color.new(color.blue, 0), textcolor=color.white, size=size.small)
+        maxPainLbl_G := label.new(xLbl_G, max_pain_G, "MAX PAIN " + str.tostring(max_pain_G, "#.##"), style=label.style_label_left, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
 
 // ══════════════════════════════════════════════════════════════════
 // ── Tabla GEX/DEX/Vanna — actual vs hace ~6min (2026-07-30) ─────────
