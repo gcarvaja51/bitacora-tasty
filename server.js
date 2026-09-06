@@ -7626,7 +7626,7 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // Si la rejilla está vieja o no existe, fuerza queda null y el daemon empuja 0
   // = SIN DATO. Nunca se recicla una rejilla añeja: un muro etiquetado FUERTE
   // con datos de hace media hora es peor que un muro sin etiqueta.
-  const fuerzaMuros = calcularFuerzaMuros(callWall, putWall, expiry);
+  const fuerzaMuros = calcularFuerzaMuros(callWall, putWall, expiry, netGex, regime);
   // Al historial va el DATO (dólares y concentración), no la etiqueta: la
   // etiqueta se puede recalcular después con otros umbrales, el dato no se puede
   // reconstruir hacia atrás. Es el mismo agujero que obligó a rehacer a mano el
@@ -7672,11 +7672,32 @@ app.post('/api/spx/sigma-levels', (req, res) => {
 // caído, la etiqueta desaparezca en vez de quedarse congelada.
 const FUERZA_MURO_MAX_EDAD_MS = 6 * 60 * 1000;
 
-function calcularFuerzaMuros(callWall, putWall, expiry) {
-  const vacio = { gex: null, codigo: 0, etiqueta: null };
+// netGex y regime SON PARAMETROS, no variables del handler: esta funcion vive a
+// nivel de modulo, asi que leerlas del cierre tiraba ReferenceError en CADA POST
+// — o sea 500 en el unico endpoint por el que el daemon entrega los niveles, y
+// el servidor ciego desde la apertura. Encontrado verificando contra produccion
+// el domingo, antes de que abriera el mercado.
+function calcularFuerzaMuros(callWall, putWall, expiry, netGex, regime) {
+  // La banda se calcula ARRIBA DEL TODO, antes de cualquier salida temprana, por
+  // dos razones. La util: sale solo del neto de Sigma, no necesita nuestra
+  // cadena, asi que se puede informar aunque la rejilla este fria.
+  //
+  // La otra es de seguridad, y viene de un caso real del 2026-09-06. La version
+  // anterior leia `netGex` recien en el fondo de la funcion; cuando estaba mal
+  // cableado (ReferenceError, la funcion es de modulo y lo buscaba en el cierre
+  // del handler) la ruta fria salia antes de tocarlo y devolvia 200 tan
+  // ricamente. La bateria local corre con MODO_PRUEBAS, o sea SIEMPRE con la
+  // rejilla fria: el 500 solo aparecia en produccion, con la rejilla caliente —
+  // que es justo donde no se quiere descubrir nada. Tocando los parametros en la
+  // primera linea, un error de alcance revienta en TODAS las llamadas y la
+  // prueba local lo ve.
+  const banda = bandaAlejandro(netGex);
+  const esNegativo = regime === 'NEGATIVO';
+
+  const vacio = { gex: null, codigo: 0, etiqueta: null, banda, ajuste: null };
   const g = ultimoGexPorStrike;
   if (!g || Date.now() - g.at > FUERZA_MURO_MAX_EDAD_MS) {
-    return { call: { ...vacio }, put: { ...vacio }, base: null,
+    return { call: { ...vacio }, put: { ...vacio }, base: null, banda, regimenNegativo: esNegativo,
              rejillaEdadSeg: g ? Math.round((Date.now() - g.at) / 1000) : null };
   }
   // El vencimiento de los muros manda: el muro de Sigma es de UN vencimiento y
@@ -7699,17 +7720,21 @@ function calcularFuerzaMuros(callWall, putWall, expiry) {
     // este mismo POST, no los nuestros. Las bandas de Alejandro estan dichas
     // sobre los numeros que el lee en el panel, y nuestra cadena esta en otra
     // escala (ver la advertencia de escala en clasificarFuerzaMuro).
-    const { codigo, etiqueta, banda, ajuste } = rejillaVto
-      ? clasificarFuerzaMuro(gex, { netGex, regime, esPut })
-      : { codigo: 0, etiqueta: null, banda: bandaAlejandro(netGex), ajuste: null };
+    // OJO al nombrar: destructurar `banda` aca la ensombreceria, y el `else`
+    // terminaria referenciandose a si mismo (TDZ). Se usa la de arriba y punto.
+    const clas = rejillaVto
+      ? clasificarFuerzaMuro(gex, { netGex, regime: esNegativo ? 'NEGATIVO' : 'POSITIVO', esPut })
+      : { codigo: 0, etiqueta: null, ajuste: null };
     // concentracion y dominancia NO deciden la etiqueta: viajan para poder
     // recalibrar los umbrales con muestra real (ver clasificarFuerzaMuro).
-    return { gex, codigo, etiqueta, banda, ajuste, concentracion, dominancia };
+    return { gex, codigo: clas.codigo, etiqueta: clas.etiqueta, banda,
+             ajuste: clas.ajuste, concentracion, dominancia };
   };
   return {
     call: uno(callWall, false),
     put:  uno(putWall, true),
     base,
+    banda,
     rejillaEdadSeg: Math.round((Date.now() - g.at) / 1000),
     umbrales: UMBRALES_MURO,
   };

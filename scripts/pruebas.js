@@ -967,8 +967,89 @@ async function conServidorLocal(fn) {
   }
 }
 
+// ── Humo de POST (2026-09-06) ───────────────────────────────────────────────
+//
+// POR QUE EXISTE, con caso y fecha. Esta bateria nacio el 2026-08-22 para cazar
+// un ReferenceError que devolvia 500 y que `node -c` no veia. El 2026-09-06 paso
+// EXACTAMENTE lo mismo —una funcion a nivel de modulo leyendo `netGex` del cierre
+// del handler, 500 en cada request— y la bateria lo dejo pasar: `humo()` enumera
+// `app.get(` y nada mas. Ningun POST se probaba nunca.
+//
+// Y el que se rompio no es uno cualquiera: POST /api/spx/sigma-levels es la UNICA
+// puerta por la que el gamma_daemon entrega muros, GEX, DEX y el spot. Con eso en
+// 500 el servidor entra a la sesion ciego, cayendo al calculo interno sin que
+// nada lo diga. Se descubrio verificando a mano contra produccion un domingo; el
+// lunes a las 9:30 lo habria descubierto el mercado.
+//
+// Los POST no se pueden barrer a ciegas como los GET: escriben. Por eso van uno
+// por uno, con su carga minima y su limpieza. Lo que NO se cubre se lista al
+// final, para que el hueco se vea en vez de suponerse tapado.
+async function humoPost(base = BASE) {
+  seccion(`Humo: POST con efectos, contra ${base}`);
+  const cubiertos = new Set(['/api/spx/sigma-levels']);
+
+  // Valores realistas a proposito: con basura, el filtro de cordura la rechaza
+  // antes de llegar al codigo que se quiere probar y la prueba pasaria en falso.
+  const lectura = {
+    netGex: -14.81e9, netDex: 7.69e9, netVanna: 64.7e9, regime: 'NEGATIVO',
+    callWall: 7825, putWall: 7675, gammaFlip: 7727, mvs: 7720,
+    spxPrice: 7718.6, totalGamma: 89.23e9, maxPain: 7705,
+    expiry: '2026-09-08', capturadoEn: new Date().toISOString(),
+  };
+  let estado = null, cuerpo = null, err = null;
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 45000);
+    const res = await fetch(base + '/api/spx/sigma-levels', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(lectura), signal: ctrl.signal,
+    });
+    clearTimeout(to);
+    estado = res.status;
+    try { cuerpo = await res.json(); } catch { /* no era JSON */ }
+  } catch (e) { err = e.message; }
+
+  chequear('POST /api/spx/sigma-levels no se cae (es la unica entrada del daemon)',
+    estado !== null && estado < 500,
+    err ? `sin respuesta: ${err}` : `HTTP ${estado}`);
+
+  // El contrato con el daemon: la respuesta trae fuerzaMuros con los dos muros.
+  // Si esto se rompe, el daemon empuja 0 y los muros pierden la tercera palabra
+  // sin que nadie se entere — un fallo callado, que es el peor de todos.
+  if (estado !== null && estado < 500) {
+    chequear('la respuesta trae fuerzaMuros con call y put (contrato con el daemon)',
+      !!(cuerpo && cuerpo.fuerzaMuros && cuerpo.fuerzaMuros.call && cuerpo.fuerzaMuros.put),
+      `fuerzaMuros = ${JSON.stringify(cuerpo && cuerpo.fuerzaMuros)}`);
+  }
+
+  // Limpieza: la lectura de prueba NO puede quedarse en el historial, que es de
+  // donde salen las calibraciones.
+  const guardada = cuerpo && cuerpo.saved && cuerpo.saved.updatedAt;
+  if (guardada) {
+    try {
+      const del = await fetch(`${base}/api/spx/sigma-levels?updatedAt=${encodeURIComponent(guardada)}`,
+                              { method: 'DELETE' });
+      const dj = await del.json();
+      chequear('la lectura de prueba se borro del historial',
+        Number(dj.borradas) >= 1,
+        `borradas: ${dj.borradas}`);
+    } catch (e) {
+      chequear('la lectura de prueba se borro del historial', false, e.message);
+    }
+  }
+
+  // Censo de lo que sigue sin cubrir. No falla el push: solo lo hace visible,
+  // para que manana se sepa cuanto falta en vez de suponer que esta tapado.
+  const fs2 = require('fs');
+  const src2 = fs2.readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+  const posts = [...new Set([...src2.matchAll(/app\.post\('(\/api\/[^']+)'/g)].map(m => m[1]))]
+    .filter(r => !r.includes(':') && !cubiertos.has(r)).sort();
+  console.log(`  ${cubiertos.size} POST cubierto(s); ${posts.length} sin cubrir todavia:`);
+  for (const p of posts) console.log(`    - ${p}`);
+}
+
 (async () => {
-  if (LOCAL) await conServidorLocal(base => humo(base));
+  if (LOCAL) await conServidorLocal(async (base) => { await humo(base); await humoPost(base); });
   if (HUMO) await humo();
   console.log('\n' + '='.repeat(70));
   if (fail) {
