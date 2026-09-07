@@ -107,3 +107,10 @@ spx_30m_*.png
 # local, y desde 2026-09-06 tambien el humo de POST de scripts/pruebas.js, que
 # manda una lectura de prueba y la borra. Es residuo, no dato.
 sigma_terminal_levels.json
+
+# Volcados de depuracion sueltos. Se movieron aqui el 2026-09-06 desde la raiz,
+# donde llevaban dias apareciendo en cada `git status` con riesgo de colarse en un
+# commit. Verificado antes de moverlos que no habia nada unico: h1/h2 son copias
+# identicas del HTML de la app, y los torre_* no tienen NI UNA entrada que
+# produccion no siga teniendo. Borrable cuando se quiera.
+_scratch/
