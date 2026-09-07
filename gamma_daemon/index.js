@@ -315,7 +315,31 @@ async function runCycle() {
           in_32: fuerzaCall,
           in_33: fuerzaPut,
         });
-        const anyPaneUpdated = tvWindows.some((w) => w.results?.some((r) => r.updated));
+        // Un pane que NO verifico ya no pasa callado (2026-09-06). Antes bastaba
+        // con que UN pane dijera `updated` para dar el push por bueno, y `updated`
+        // solo significaba "se encontro el estudio y se intento escribir". Asi
+        // estuvo dias el pane de 2m de la ventana de SPX con muros ~70 puntos por
+        // debajo de los reales, mientras el ciclo reportaba normalidad.
+        const panes = tvWindows.flatMap((w) => (w.results || []).map((r) => ({ ...r, win: w.targetId })));
+        const fallidos = panes.filter((r) => !r.updated);
+        const conAusentes = panes.filter((r) => r.ausentes?.length);
+
+        for (const r of fallidos) {
+          console.warn(`[tv] pane ${r.index} (${r.symbol}) de ${String(r.win).slice(0, 8)} NO quedo actualizado: ${r.reason || 'sin motivo'}`);
+        }
+        // Inputs que el estudio de ese pane ni siquiera tiene: es un Pine viejo,
+        // no un fallo de escritura. Se dice una vez por ciclo y se deja en el
+        // status, que es donde se mira cuando el grafico "se ve raro".
+        for (const r of conAusentes) {
+          console.warn(`[tv] pane ${r.index} (${r.symbol}) no tiene ${r.ausentes.join(', ')} — su indicador esta en una version vieja del Pine`);
+        }
+        saveStatus({
+          tvPanes: panes.map((r) => ({ win: String(r.win).slice(0, 8), pane: r.index, symbol: r.symbol,
+                                       ok: !!r.updated, ausentes: r.ausentes || null, motivo: r.reason || null })),
+          tvPanesFallidos: fallidos.length,
+        });
+
+        const anyPaneUpdated = panes.some((r) => r.updated);
         if (!anyPaneUpdated) {
           throw new Error(`Ninguna ventana/pane de TradingView se actualizo: ${JSON.stringify(tvWindows)}`);
         }

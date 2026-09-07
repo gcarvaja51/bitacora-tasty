@@ -253,6 +253,26 @@ async function findStudyOnPane(client, paneIndex) {
 
 // paneIndex es obligatorio por la misma razon: tocar el chart ACTIVO sin haberlo
 // activado a proposito es exactamente el bug que dejaba un pane congelado.
+// SE VERIFICA RELEYENDO (2026-09-06). Antes esta funcion daba por escrito todo lo
+// que hubiera coincidido por id y devolvia esa lista como `updated_inputs`. O sea
+// que informaba de la INTENCION, no del resultado — y quien la llamaba no tenia
+// forma de distinguir un push que entro de uno que no.
+//
+// El caso que lo destapo: el 2026-09-06 a las 18:35 un push reporto exito en los
+// DOS panes de la ventana de SPX y el de 2m siguio en sus valores viejos —muros
+// ~70 puntos por debajo de los reales— hasta que el usuario lo vio en pantalla
+// hora y media despues. Ese pane llevaba dias congelado y nada lo dijo.
+//
+// Ahora se relee despues de escribir y se comparan tres cosas distintas, que
+// antes se confundian en una:
+//
+//   aplicados    — el input existe y quedo con el valor pedido
+//   ausentes     — el input NO existe en ese estudio. No es un fallo del push: es
+//                  un estudio en una version vieja del Pine (el de 2m estaba en
+//                  v28, con 32 inputs, sin in_32/in_33). Hay que verlo, no
+//                  tratarlo como error.
+//   discrepantes — el input existe, se escribio, y al releer tiene otro valor.
+//                  Esto SI es el push fallando en silencio.
 async function setStudyInputs(client, entityId, inputs, paneIndex) {
   await activarPane(client, paneIndex);
   const inputsJson = JSON.stringify(inputs);
@@ -262,21 +282,44 @@ async function setStudyInputs(client, entityId, inputs, paneIndex) {
       if (!chart) return { error: 'no hay chart activo' };
       var study = chart.getStudyById(${JSON.stringify(entityId)});
       if (!study) return { error: 'Study not found: ' + ${JSON.stringify(entityId)} };
-      var currentInputs = study.getInputValues();
       var overrides = ${inputsJson};
-      var updatedKeys = {};
+
+      var currentInputs = study.getInputValues();
+      var existentes = {};
       for (var i = 0; i < currentInputs.length; i++) {
+        existentes[currentInputs[i].id] = true;
         if (overrides.hasOwnProperty(currentInputs[i].id)) {
           currentInputs[i].value = overrides[currentInputs[i].id];
-          updatedKeys[currentInputs[i].id] = overrides[currentInputs[i].id];
         }
       }
       study.setInputValues(currentInputs);
-      return { updated_inputs: updatedKeys };
+
+      // Relectura: el valor que de verdad quedo en el estudio.
+      var despues = {};
+      var leidos = study.getInputValues();
+      for (var j = 0; j < leidos.length; j++) despues[leidos[j].id] = leidos[j].value;
+
+      var aplicados = {}, ausentes = [], discrepantes = [];
+      for (var k in overrides) {
+        if (!overrides.hasOwnProperty(k)) continue;
+        if (!existentes[k]) { ausentes.push(k); continue; }
+        var pedido = overrides[k], real = despues[k];
+        // Los precios y el GEX son float: se compara con tolerancia relativa en
+        // vez de por igualdad, que con 1e10 falla por el ultimo bit.
+        var igual;
+        if (typeof pedido === 'number' && typeof real === 'number') {
+          igual = Math.abs(pedido - real) <= Math.max(1e-6, Math.abs(pedido) * 1e-9);
+        } else {
+          igual = (pedido === real);
+        }
+        if (igual) aplicados[k] = real;
+        else discrepantes.push({ id: k, pedido: pedido, real: real });
+      }
+      return { aplicados: aplicados, ausentes: ausentes, discrepantes: discrepantes };
     })()
   `);
   if (result && result.error) throw new Error(result.error);
-  return result.updated_inputs;
+  return result;
 }
 
 // Empuja los inputs a un pane ya enfocado de un client ya conectado. Devuelve el
@@ -307,16 +350,28 @@ export async function pushGammaLevels(inputs) {
   try {
     for (const p of panes) {
       const r = await pushToPane(client, p);
-      if (r.updated) {
-        const updatedInputs = await setStudyInputs(client, r.entity_id, inputs, p.index);
-        r.updated_inputs = updatedInputs;
-      }
+      if (r.updated) await anotarVerificacion(r, await setStudyInputs(client, r.entity_id, inputs, p.index));
       results.push(r);
     }
   } finally {
     await client.close();
   }
   return { targetId, results };
+}
+
+// Traduce el resultado de setStudyInputs al resultado del pane. `updated` pasa a
+// significar VERIFICADO —el valor se releyo y coincide— y no "se intento": era
+// justamente esa ambiguedad la que dejaba pasar un pane congelado como si
+// estuviera al dia.
+function anotarVerificacion(r, v) {
+  r.updated_inputs = v.aplicados;                       // se conserva el nombre de siempre
+  r.updated = Object.keys(v.aplicados).length > 0 && v.discrepantes.length === 0;
+  if (v.ausentes.length) r.ausentes = v.ausentes;       // inputs que ese estudio no tiene (Pine viejo)
+  if (v.discrepantes.length) {
+    r.discrepantes = v.discrepantes;
+    r.reason = 'escrito pero no verificado: ' +
+      v.discrepantes.map((d) => `${d.id} pedido=${d.pedido} real=${d.real}`).join(', ');
+  }
 }
 
 // Empuja los inputs a TODAS las ventanas de TradingView que tengan SPX cargado en
@@ -352,10 +407,7 @@ export async function pushGammaLevelsToAllWindows(inputs) {
       const results = [];
       for (const p of panes) {
         const r = await pushToPane(client, p);
-        if (r.updated) {
-          const updatedInputs = await setStudyInputs(client, r.entity_id, inputs, p.index);
-          r.updated_inputs = updatedInputs;
-        }
+        if (r.updated) await anotarVerificacion(r, await setStudyInputs(client, r.entity_id, inputs, p.index));
         results.push(r);
       }
       windows.push({ targetId: t.id, results });
