@@ -157,6 +157,25 @@ Los muros quedan en 0 hasta el próximo push. Correr `gamma_daemon/push_gdv_now.
 después de editar el Pine. Y el editor puede abrir por default una **versión histórica** sin
 avisar más que un banner chico — verificar `Version history…` antes de editar.
 
+Con el mercado cerrado **no hay "próximo push"**: el daemon no corre, así que los muros se
+quedan en blanco hasta la apertura siguiente. Orden seguro para editar el Pine:
+
+```
+node gamma_daemon/inputs_dump_restore.mjs dump      # guarda los 34 in_NN a disco
+node gamma_daemon/_abrir_pine.mjs                   # OJO: pisa live_source.txt con la fuente viva
+node gamma_daemon/_aplicar_pine.mjs                 # escribe la fuente editada
+node gamma_daemon/_guardar_pine.mjs                 # aborta solo si hay errores de compilación
+node gamma_daemon/inputs_dump_restore.mjs restore   # devuelve los valores si se resetearon
+node gamma_daemon/inputs_dump_restore.mjs check     # avisa si algo quedó en cero
+```
+
+⚠️ `_abrir_pine.mjs` **sobrescribe `live_source.txt`** con lo que hay en el editor. Editar
+primero y abrir después pierde el trabajo — copiar antes.
+
+Y los **IDs son posicionales**: cualquier `input.*` nuevo va **al final del archivo**, o corre
+`in_21..in_33` y el daemon escribe los muros en el input equivocado. Un parámetro de aspecto
+(la separación de las etiquetas, por ejemplo) va como constante en el código, no como input.
+
 ### 10. Mobile: nunca usar `padding`/`margin` shorthand en `.panel`/`.content`/`.sidebar`
 El shorthand resetea las 4 esquinas y pisa el ajuste de `env(safe-area-inset-top)` del
 notch de iOS. Había **3 reglas `.panel` duplicadas** en distintos `@media`.
