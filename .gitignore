@@ -101,3 +101,9 @@ spx_30m_*.png
 # Copia de seguridad de un cambio en curso. Misma razon que `*.bak_20*`: la buena
 # es la que esta versionada.
 *.bak_rueda_*
+
+# Copia LOCAL del historial de niveles de Sigma. En produccion este fichero vive
+# en el volumen de Railway (DATA_DIR); el de la raiz solo lo crea el servidor
+# local, y desde 2026-09-06 tambien el humo de POST de scripts/pruebas.js, que
+# manda una lectura de prueba y la borra. Es residuo, no dato.
+sigma_terminal_levels.json

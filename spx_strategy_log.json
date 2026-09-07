@@ -1,5 +1,73 @@
 [
  {
+  "timestamp": "2026-09-04T14:30:13.824Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_LEJOS_DEL_PIN",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Precio a 23.1 pts del pin 7705; maximo 8",
+  "snapshot": {
+   "spxPrice": 7728.11,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7750,
+    "putWall": 7700,
+    "gammaFlip": 7724,
+    "maxPain": 7705
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-09-03T14:31:09.787Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "TARGET_MUY_CERCA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Objetivo mas lejano (7712) a solo 6.4 pts; minimo 12. Recorrido insuficiente para pagar un debit spread",
+  "snapshot": {
+   "spxPrice": 7705.62,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7720,
+    "putWall": 7675,
+    "gammaFlip": 7667,
+    "maxPain": 7665
+   },
+   "escenario": "alcista"
+  }
+ },
+ {
+  "timestamp": "2026-09-02T14:30:03.381Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_PREMERCADO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "No hay entrada de premercado para 2026-09-02"
+ },
+ {
+  "timestamp": "2026-09-01T14:30:07.142Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_GAMMA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Neutral exige gamma POSITIVO; regimen actual NEGATIVO",
+  "snapshot": {
+   "spxPrice": 7654.58,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7675,
+    "putWall": 7650,
+    "gammaFlip": 7675,
+    "maxPain": 7685
+   },
+   "escenario": null
+  }
+ },
+ {
   "timestamp": "2026-08-31T14:30:12.297Z",
   "strategyFamily": "PREMERCADO",
   "stage": "EXEC_FALLO",
