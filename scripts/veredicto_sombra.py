@@ -148,6 +148,28 @@ PROPUESTAS = [
         "instrumento": None,
     },
     {
+        "id": "DIR-3", "familia": "DIRECCIONAL", "nivel": "alto",
+        "titulo": "El liston tras perdida no mira el tamaño de la perdida",
+        "pregunta": "¿Un trade que sigue a una perdida del dia rinde peor de verdad?",
+        # SIN INSTRUMENTO, y como en DIR-2 no es un olvido: no se puede construir
+        # hacia atras la pregunta directa. Las 69 evaluaciones que el liston de 90
+        # bloqueo esta semana murieron en SCORE_FAIL, ANTES de SIGNAL_BUILT: no
+        # tienen strikes, ni prima, ni resultado. No hay nada que valorar.
+        #
+        # Lo que SI se puede construir, y es la mitad de la propuesta, no usa
+        # contrafactuales: partir las TENDENCIA ya cerradas segun si venian
+        # despues de una perdida del MISMO dia, y por el tamaño de esa perdida
+        # (bandas: <$25, $25-100, >$100). Eso no juzga el umbral — juzga la
+        # PREMISA de la regla, que es "los 4 trades de un dia no son 4 apuestas
+        # independientes". Si los trades posteriores a una perdida no rinden
+        # peor, el problema no es el piso de magnitud sino la regla entera, y la
+        # propuesta cambia de forma antes de aplicarse.
+        #
+        # El dato ya existe en el libro (filledAt, closedAt, pnl, strategyFamily);
+        # falta el script que lo parta, al estilo de sombra_direccion.py.
+        "instrumento": None,
+    },
+    {
         "id": "NEU-2", "familia": "NEUTRAL", "nivel": "medio",
         "titulo": "El piso de credito y el limite de precio son la misma perilla",
         "pregunta": "¿El desacople aplicado el 13-ago esta cumpliendo?",
