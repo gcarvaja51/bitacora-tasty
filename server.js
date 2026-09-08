@@ -5515,7 +5515,7 @@ let ultimoGexPorStrike = null;
 // maxPainPorVencimiento permite dar el max pain del 0DTE — el del día — en vez
 // del "más cercano" a secas. calcMaxPain es O(n²) sobre ~250 strikes; por 4
 // vencimientos son ~250k sumas, unos pocos ms.
-function guardarRejillasGex(enrichedExps, spxPrice, byStrike) {
+function guardarRejillasGex(enrichedExps, spxPrice, byStrike, fuenteSpot = 'cadena') {
   if (!byStrike?.length) return false;
   const porVencimiento = {};
   const maxPainPorVencimiento = {};
@@ -5527,7 +5527,7 @@ function guardarRejillasGex(enrichedExps, spxPrice, byStrike) {
     if (mp) maxPainPorVencimiento[exp.expiry] = mp;
   }
   ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike, porVencimiento, maxPainPorVencimiento };
-  anotarRejillaAbs(enrichedExps, spxPrice);
+  anotarRejillaAbs(enrichedExps, spxPrice, fuenteSpot);
   return true;
 }
 
@@ -5559,6 +5559,17 @@ function guardarRejillasGex(enrichedExps, spxPrice, byStrike) {
 // BEST-EFFORT ESTRICTO. Va dentro de guardarRejillasGex, que esta en la ruta que
 // decide la FUERZA de los muros que se dibujan en el grafico. Si esto falla, no
 // puede tumbar eso: todo el cuerpo va en try/catch y no propaga nunca.
+// Una degradacion real tiene que verse en los logs, pero el ciclo corre cada 60
+// segundos: sin freno serian 400 lineas iguales por tarde y nadie las lee.
+const AVISO_SPOT_RESPALDO_CADA_MS = 15 * 60 * 1000;
+let ultimoAvisoSpotRespaldo = 0;
+function avisarSpotDeRespaldo() {
+  if (Date.now() - ultimoAvisoSpotRespaldo < AVISO_SPOT_RESPALDO_CADA_MS) return;
+  ultimoAvisoSpotRespaldo = Date.now();
+  console.warn('[rejilla] /api/option-chain/SPX devolvio underlyingPrice=0 —'
+    + ' se usa el spot de Sigma como respaldo. La rejilla sigue viva.');
+}
+
 const REJILLA_HIST_FILE = path.join(DATA_DIR, 'rejilla_abs_historica.json');
 const REJILLA_HIST_MAX_ENTRIES = 6000;      // ~14 tomas/dia x 4 vtos = ~100 dias
 const REJILLA_SNAPSHOT_CADA_MS = 30 * 60 * 1000;
@@ -5594,7 +5605,7 @@ function mariposaEnStrike(strikes, centro, alas = [10, 15, 20]) {
   return Object.keys(out).length ? { centro, ...out } : null;
 }
 
-function anotarRejillaAbs(enrichedExps, spxPrice) {
+function anotarRejillaAbs(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
   try {
     if (!(spxPrice > 1000)) return;                                  // fuera de rueda la cadena da 0
     if (!calendario.enVentanaET(9 * 60 + 30, 16 * 60)) return;       // solo sesion regular
@@ -5631,6 +5642,7 @@ function anotarRejillaAbs(enrichedExps, spxPrice) {
         expiry: exp.expiry,
         dte: exp.dte,
         spot: Math.round(spxPrice * 100) / 100,
+        fuenteSpot,   // 'cadena' o 'sigma': de donde salio el precio de esta toma
         strike: dom.strike,
         totalM: M(dom.total),
         dominancia:     Math.round(dom.dominancia * 100) / 100,
@@ -5699,8 +5711,42 @@ async function refrescarRejillasGex() {
 
     const r = await fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/SPX`);
     const chainJson = await r.json();
-    const spot = chainJson.underlyingPrice;
-    if (!spot || spot < 1000) return;   // fuera de rueda la cadena devuelve 0
+    // El spot: de la cadena si viene, y si no, del ultimo dato de Sigma.
+    //
+    // POR QUE HAY RESPALDO (2026-09-08). El guard era `if (!spot || spot < 1000)
+    // return;` con el comentario "fuera de rueda la cadena devuelve 0". Cierto,
+    // pero incompleto: /api/option-chain/SPX devuelve `underlyingPrice: 0`
+    // TAMBIEN en plena sesion —medido hoy a las 15:30 ET, tres de tres, con la
+    // cadena por lo demas perfecta (6 vencimientos, 250 strikes)— y SOLO para
+    // SPX: NU y JBLU traian su precio en la misma llamada.
+    //
+    // Con el 0, esta funcion se salia en cada ciclo y la rejilla se quedaba fria
+    // toda la tarde. Lo que cuelga de eso no es poco: los muros del grafico se
+    // quedan SIN palabra de fuerza, el max pain dibujado cae al de Sigma en vez
+    // del propio, y el registro historico de la rejilla no escribe una linea.
+    //
+    // Aparecio al reiniciar el servidor en un despliegue —la rejilla estaba
+    // caliente a las 13:59Z y fria despues—, asi que probablemente sea una
+    // suscripcion de precio que no reconecta. Da igual la causa: esto no puede
+    // depender de un campo que se cae teniendo el precio bueno al lado.
+    //
+    // El respaldo es el spot que el daemon de gamma publica cada 2 minutos: es el
+    // MISMO SPX y trae su propio sello (getFreshSigmaLevels exige <5 min, medido
+    // contra `capturadoEn`, que es cuando el daemon LEYO la pantalla y no cuando
+    // llego el POST — ver la nota del 2026-08-17). Si tampoco hay, ahi si se sale:
+    // sin precio fiable no hay gamma en dolares que valga, y un spot viejo al
+    // cuadrado es peor que no tener nada.
+    let spot = chainJson.underlyingPrice;
+    let fuenteSpot = 'cadena';
+    if (!(spot > 1000)) {
+      const nivelesSigma = getFreshSigmaLevels();
+      if (nivelesSigma && nivelesSigma.spxPrice > 1000) {
+        spot = nivelesSigma.spxPrice;
+        fuenteSpot = 'sigma';
+      }
+    }
+    if (!(spot > 1000)) return;
+    if (fuenteSpot === 'sigma') avisarSpotDeRespaldo();
 
     const enrichedExps = (chainJson.expirations || []).slice(0, 4).map(exp => ({
       expiry: exp.expiry,
@@ -5716,7 +5762,7 @@ async function refrescarRejillasGex() {
     // calcGEX aquí es solo para obtener byStrike; el netGex/gammaFlip de esta
     // llamada no se usa ni se publica — de eso sigue encargándose buildSPXContext.
     const gex = calcGEX(enrichedExps, spot);
-    guardarRejillasGex(enrichedExps, spot, gex.byStrike);
+    guardarRejillasGex(enrichedExps, spot, gex.byStrike, fuenteSpot);
   } catch (e) {
     // Best-effort puro: si falla, la caché envejece y el POST de sigma-levels cae
     // a sus respaldos (max pain de Sigma, muros sin palabra). Nada que dependa de
