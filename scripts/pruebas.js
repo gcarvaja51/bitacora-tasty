@@ -716,6 +716,55 @@ chequear('una accion se pide tal cual', simboloYahoo('F') === 'F');
 // y domingo, asi que el lunes 2026-09-07 (Labor Day) iban a correr todos. La
 // tabla se extrajo a src/calendario_nyse.json y estas pruebas son lo que impide
 // que alguien vuelva a escribir la suya.
+seccion('La rejilla absoluta por strike (src/spx.js)');
+
+const { gexAbsPorStrike, dominanciaRejilla } = require('../src/spx');
+
+// El caso que motivo la funcion: un strike con las DOS patas cargadas. Neteado
+// desaparece; en absoluto es el mayor de la rejilla. Cifras del 0DTE del
+// 8-sep-2026, redondeadas (spot 7690.92): 7700 llevaba 3,74B de calls y 5,88B
+// de puts. gexPorStrike lo daba en -2,14B, uno mas del monton.
+const rejPrueba = [
+  { strike: 7675, call: { gamma: 0.004, oi: 200 }, put: { gamma: 0.004, oi: 200 } },
+  { strike: 7700, call: { gamma: 0.010, oi: 500 }, put: { gamma: 0.010, oi: 800 } },
+  { strike: 7695, call: { gamma: 0.006, oi: 400 }, put: { gamma: 0.002, oi: 300 } },
+];
+const abs = gexAbsPorStrike(rejPrueba, 7690.92);
+chequear('devuelve un strike por fila, ordenado de menor a mayor',
+         abs.length === 3 && abs[0].strike === 7675 && abs[2].strike === 7700,
+         `dio ${abs.map(x => x.strike).join(',')}`);
+chequear('calls y puts van SEPARADOS, no neteados',
+         abs[2].calls > 0 && abs[2].puts > 0 && abs[2].puts > abs[2].calls);
+chequear('total es la suma de los dos lados',
+         Math.abs(abs[2].total - (abs[2].calls + abs[2].puts)) < 1);
+// La razon de ser: un strike simetrico netea cero pero NO desaparece.
+const simetrico = gexAbsPorStrike(
+  [{ strike: 7700, call: { gamma: 0.01, oi: 500 }, put: { gamma: 0.01, oi: 500 } }], 7700);
+chequear('un strike que netea CERO sigue estando, con su gamma bruta',
+         simetrico.length === 1 && simetrico[0].total > 0,
+         `dio ${JSON.stringify(simetrico)}`);
+// Strikes sin gamma ni OI no ensucian la rejilla.
+chequear('los strikes vacios se descartan',
+         gexAbsPorStrike([{ strike: 5000, call: { gamma: 0, oi: 0 }, put: { gamma: 0, oi: 0 } }], 7700).length === 0);
+
+const dom = dominanciaRejilla(abs);
+chequear('la dominancia senala el strike mayor', dom.strike === 7700, `dio ${dom && dom.strike}`);
+chequear('dominancia = mayor / segundo', Math.abs(dom.dominancia - abs[2].total / abs[1].total) < 0.01);
+chequear('la concentracion es una fraccion del total', dom.concentracion > 0 && dom.concentracion < 1);
+// La distincion que evita leer un racimo como un pico: el segundo mayor esta a
+// 5 puntos (7695), asi que la relacion "de zona" tiene que mirar mas lejos.
+// El segundo mayor (7695) esta pegado al dominante: eso es un racimo, no un
+// pico. La relacion "de zona" tiene que saltarselo y medir contra 7675.
+chequear('dominanciaZona ignora al vecino contiguo y mira a >10 pts',
+         dom.segundo === 7695 && dom.segundoLejano === 7675,
+         `segundo ${dom.segundo}, lejano ${dom.segundoLejano}`);
+chequear('...y la relacion de zona sale mayor que la del vecino',
+         dom.dominanciaZona > dom.dominancia,
+         `zona ${dom.dominanciaZona}, vecino ${dom.dominancia}`);
+chequear('con menos de dos strikes no inventa dominancia',
+         dominanciaRejilla([{ strike: 7700, calls: 1, puts: 1, total: 2 }]) === null);
+chequear('con la rejilla vacia devuelve null', dominanciaRejilla([]) === null);
+
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
 
 const cal = require('../src/calendario_nyse');

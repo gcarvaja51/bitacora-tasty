@@ -296,6 +296,68 @@ function medirMuro(rejilla, strike, tolerancia = 5) {
 // `expiry` que manda el daemon) y calcGEX agrega los 4 primeros. Cobrarle a un
 // muro 0DTE la gamma de los otros tres vencimientos infla el número justo en el
 // dato que decide si se etiqueta FUERTE o DÉBIL.
+// Rejilla ABSOLUTA por strike: |calls| y |puts| POR SEPARADO, sin netear.
+//
+// Por que existe, y en que se diferencia de gexPorStrike (2026-09-08, pedido del
+// usuario). gexPorStrike RESTA los puts a los calls: es lo correcto para saber si
+// el dealer esta largo o corto de gamma en ese strike, que es lo que decide un
+// muro. Pero borra justo lo que hace falta para la hipotesis del PIN: un strike
+// con 4B de calls y 4B de puts netea CERO y desaparece de la rejilla, cuando es
+// precisamente el candidato mas fuerte a clavar el precio — las dos patas
+// cargadas es lo que ancla.
+//
+// El 0DTE del 8-sep-2026 es el caso de libro: el strike 7700 tenia 3,74B de calls
+// y 5,88B de puts. Neto salen -2,14B, uno mas de tantos. En absoluto son 9,62B:
+// el 20% de TODA la gamma del vencimiento, repartida en 143 strikes.
+//
+// No sustituye a gexPorStrike: responden preguntas distintas y conviven.
+function gexAbsPorStrike(strikes, spxPrice) {
+  const m = {};
+  for (const s of (strikes || [])) {
+    const c = s.call || {};
+    const p = s.put  || {};
+    const factor = 100 * spxPrice * spxPrice * 0.01;
+    const gc = Math.abs((c.gamma || 0) * (c.oi || 0) * factor);
+    const gp = Math.abs((p.gamma || 0) * (p.oi || 0) * factor);
+    if (!(gc > 0) && !(gp > 0)) continue;
+    if (!m[s.strike]) m[s.strike] = { strike: s.strike, calls: 0, puts: 0 };
+    m[s.strike].calls += gc;
+    m[s.strike].puts  += gp;
+  }
+  return Object.values(m)
+    .map(x => ({ ...x, total: x.calls + x.puts }))
+    .sort((a, b) => a.strike - b.strike);
+}
+
+// Dominancia de la rejilla absoluta: cuanto manda el strike mayor sobre el resto.
+// Es la condicion que el usuario pone a la hipotesis del pin ("la diferencia
+// porcentual entre ese strike y los demas debe ser importante"), puesta en numero
+// para poder contrastarla despues contra lo que hizo el precio.
+//
+//   dominancia    — cuantas veces el mayor supera al SEGUNDO. Es el "2 a 1" suyo.
+//   concentracion — que fraccion del total absoluto se lleva el mayor.
+//   dominanciaZona— idem pero contra el segundo que este a mas de 10 pts, porque
+//                   los dos mayores suelen ser strikes contiguos (7700 y 7695) y
+//                   entonces no hay un pico dominante sino un racimo: la relacion
+//                   contra el vecino de al lado exagera lo aislado que esta.
+function dominanciaRejilla(rejillaAbs) {
+  if (!rejillaAbs || rejillaAbs.length < 2) return null;
+  const orden = rejillaAbs.slice().sort((a, b) => b.total - a.total);
+  const top = orden[0];
+  const total = rejillaAbs.reduce((a, x) => a + x.total, 0);
+  if (!(total > 0) || !(orden[1].total > 0)) return null;
+  const lejano = orden.slice(1).find(x => Math.abs(x.strike - top.strike) > 10);
+  return {
+    strike: top.strike,
+    total,
+    dominancia:     top.total / orden[1].total,
+    dominanciaZona: lejano ? top.total / lejano.total : null,
+    concentracion:  top.total / total,
+    segundo:        orden[1].strike,
+    segundoLejano:  lejano ? lejano.strike : null,
+  };
+}
+
 function gexPorStrike(strikes, spxPrice) {
   const m = {};
   for (const s of (strikes || [])) {
@@ -1008,4 +1070,4 @@ function buildSignalSummary(strategy, strikes, sel, context) {
   };
 }
 
-module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, calcPinState, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexEnStrike, gexPorStrike, medirMuro, bandaAlejandro, UMBRALES_MURO };
+module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, calcPinState, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexEnStrike, gexPorStrike, gexAbsPorStrike, dominanciaRejilla, medirMuro, bandaAlejandro, UMBRALES_MURO };

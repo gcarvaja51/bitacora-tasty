@@ -4606,7 +4606,7 @@ app.post('/api/wheel-trading/adopt', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
-const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexPorStrike, medirMuro, bandaAlejandro, UMBRALES_MURO } = require('./src/spx');
+const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexPorStrike, gexAbsPorStrike, dominanciaRejilla, medirMuro, bandaAlejandro, UMBRALES_MURO } = require('./src/spx');
 const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray, calcCompasMedias5m, calcPOC } = require('./src/spx_indicators');
 // Nota: calcRSI ya existe como funcion local en este archivo (linea ~1243, usada por el
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
@@ -5527,7 +5527,144 @@ function guardarRejillasGex(enrichedExps, spxPrice, byStrike) {
     if (mp) maxPainPorVencimiento[exp.expiry] = mp;
   }
   ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike, porVencimiento, maxPainPorVencimiento };
+  anotarRejillaAbs(enrichedExps, spxPrice);
   return true;
+}
+
+// ── Registro historico de la rejilla ABSOLUTA (2026-09-08) ─────────────────
+//
+// POR QUE EXISTE. `ultimoGexPorStrike` es una variable en memoria que se
+// sobreescribe cada 3 minutos: la rejilla por strike NUNCA se guardaba. El 8-sep
+// se quiso contrastar una hipotesis del usuario —"si un strike concentra mucha
+// mas gamma que los demas, el precio lo busca en el 0DTE"— y no se pudo: no habia
+// ni un dia de historico. Hubo que medir con el MVS y los muros como sustitutos,
+// que no es lo mismo.
+//
+// QUE SE GUARDA Y QUE NO. No la rejilla entera: son ~250 strikes x 4 vencimientos
+// y cada 3 min serian decenas de MB al mes. Se guardan los 12 mayores por gamma
+// absoluta mas los agregados, que es lo que la hipotesis necesita. Las cifras van
+// en MILLONES de dolares (sufijo M en el nombre del campo) redondeadas a un
+// decimal: guardar el dolar exacto triplica el fichero y ningun analisis lo pide.
+//
+// CADA 30 MIN, no cada 3. El open interest —de donde sale todo esto— se actualiza
+// UNA VEZ AL DIA. Lo unico que se mueve intradia es el spot (entra al cuadrado) y
+// la gamma por contrato. Para una relacion ENTRE strikes eso casi se cancela.
+//
+// LA CONFLUENCIA es la otra mitad de la hipotesis ("mas si tenemos confluencias de
+// otros niveles cercanos"): cuantos de los cinco niveles de Sigma —MVS, Call Wall,
+// Put Wall, Gamma Flip, Max Pain— caen a menos de 10 puntos del strike dominante.
+// Se anota AQUI y no se calcula despues porque los niveles de Sigma tambien se
+// mueven: reconstruirla a posteriori daria la confluencia de otro momento.
+//
+// BEST-EFFORT ESTRICTO. Va dentro de guardarRejillasGex, que esta en la ruta que
+// decide la FUERZA de los muros que se dibujan en el grafico. Si esto falla, no
+// puede tumbar eso: todo el cuerpo va en try/catch y no propaga nunca.
+const REJILLA_HIST_FILE = path.join(DATA_DIR, 'rejilla_abs_historica.json');
+const REJILLA_HIST_MAX_ENTRIES = 6000;      // ~14 tomas/dia x 4 vtos = ~100 dias
+const REJILLA_SNAPSHOT_CADA_MS = 30 * 60 * 1000;
+const REJILLA_HIST_TOP = 12;                // strikes guardados por vencimiento
+const REJILLA_CONFLUENCIA_PTS = 10;         // que es "cerca" del strike dominante
+let ultimaAnotacionRejilla = 0;
+
+function loadRejillaHist() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(REJILLA_HIST_FILE, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+
+// Prima (al mid) de un Iron Butterfly centrado en `centro`, para varios anchos de
+// ala: vende call y put del centro, compra las alas. Devuelve credito y riesgo
+// maximo por contrato en dolares. null si a la cadena le falta alguna pata.
+function mariposaEnStrike(strikes, centro, alas = [10, 15, 20]) {
+  const en = (k) => strikes.find((s) => s.strike === k);
+  const c0 = en(centro);
+  if (!c0 || !(c0.call?.mark >= 0) || !(c0.put?.mark >= 0)) return null;
+  const out = {};
+  for (const ala of alas) {
+    const arriba = en(centro + ala), abajo = en(centro - ala);
+    if (!arriba || !abajo) continue;
+    const credito = (c0.call.mark + c0.put.mark) - (arriba.call.mark + abajo.put.mark);
+    if (!(credito > 0)) continue;
+    out['a' + ala] = {
+      credito: Math.round(credito * 100) / 100,          // por accion
+      riesgo:  Math.round((ala - credito) * 100) / 100,   // por accion
+    };
+  }
+  return Object.keys(out).length ? { centro, ...out } : null;
+}
+
+function anotarRejillaAbs(enrichedExps, spxPrice) {
+  try {
+    if (!(spxPrice > 1000)) return;                                  // fuera de rueda la cadena da 0
+    if (!calendario.enVentanaET(9 * 60 + 30, 16 * 60)) return;       // solo sesion regular
+    if (Date.now() - ultimaAnotacionRejilla < REJILLA_SNAPSHOT_CADA_MS) return;
+
+    const niveles = loadSigmaLevelsHistory()[0] || {};
+    const frescos = niveles.updatedAt
+      && Date.now() - new Date(niveles.updatedAt).getTime() <= SIGMA_LEVELS_MAX_AGE_MS;
+    const M = (x) => Math.round(x / 1e6 * 10) / 10;                  // dolares -> millones, 1 decimal
+
+    const nuevas = [];
+    for (const exp of (enrichedExps || [])) {
+      if (!exp.expiry) continue;
+      const rejilla = gexAbsPorStrike(exp.strikes, spxPrice);
+      const dom = dominanciaRejilla(rejilla);
+      if (!dom) continue;
+
+      // Confluencia: niveles de Sigma pegados al strike dominante. Solo si el
+      // dato de Sigma esta fresco — si no, no se inventa un cero que luego
+      // pareceria "no habia confluencia" en vez de "no se sabia".
+      let confluencia = null;
+      if (frescos) {
+        const cerca = [];
+        for (const [nombre, v] of [['mvs', niveles.mvs], ['callWall', niveles.callWall],
+                                   ['putWall', niveles.putWall], ['gammaFlip', niveles.gammaFlip],
+                                   ['maxPain', niveles.maxPain]]) {
+          if (v > 0 && Math.abs(v - dom.strike) <= REJILLA_CONFLUENCIA_PTS) cerca.push(nombre);
+        }
+        confluencia = cerca;
+      }
+
+      nuevas.push({
+        at: new Date().toISOString(),
+        expiry: exp.expiry,
+        dte: exp.dte,
+        spot: Math.round(spxPrice * 100) / 100,
+        strike: dom.strike,
+        totalM: M(dom.total),
+        dominancia:     Math.round(dom.dominancia * 100) / 100,
+        dominanciaZona: dom.dominanciaZona == null ? null : Math.round(dom.dominanciaZona * 100) / 100,
+        concentracion:  Math.round(dom.concentracion * 10000) / 10000,
+        segundo:        dom.segundo,
+        segundoLejano:  dom.segundoLejano,
+        nStrikes:       rejilla.length,
+        confluencia,
+        regime: frescos ? (niveles.regime || null) : null,
+        top: rejilla.slice().sort((a, b) => b.total - a.total).slice(0, REJILLA_HIST_TOP)
+               .map(x => ({ k: x.strike, cM: M(x.calls), pM: M(x.puts) })),
+        // Prima de la mariposa centrada en el strike dominante — solo 0DTE, que
+        // es donde vive la idea. Sin esto la hipotesis NO se puede backtestear:
+        // el precio dice si el trade habria ido bien de direccion, pero no cuanto
+        // se cobraba ni cuanto se arriesgaba, que es lo que decide si el setup
+        // gana dinero. Se guardan tres anchos para no atarse a uno.
+        //
+        // OJO: son MARKS (medios), no bid/ask — la cadena enriquecida no trae las
+        // dos puntas. Cruzar los cuatro spreads costo 15 USD el 8-sep-2026 sobre
+        // 970 de credito; al leer estos datos hay que descontarlo a mano.
+        fly: exp.dte === 0 ? mariposaEnStrike(exp.strikes, dom.strike) : null,
+      });
+    }
+    if (!nuevas.length) return;
+
+    ultimaAnotacionRejilla = Date.now();
+    const hist = loadRejillaHist();
+    hist.unshift(...nuevas);                                          // mas reciente primero, como sigma-levels
+    fs.writeFileSync(REJILLA_HIST_FILE,
+      JSON.stringify(hist.slice(0, REJILLA_HIST_MAX_ENTRIES), null, 1), 'utf8');
+  } catch (e) {
+    console.error('[rejilla-hist] no se pudo anotar:', e.message);
+  }
 }
 
 // ── Ciclo propio de la rejilla (2026-09-06) ────────────────────────────────
@@ -8099,6 +8236,28 @@ app.delete('/api/spx/niveles-historicos', (req, res) => {
   }
   res.json({ ok: true, quitadas: quitadas.length, quedan: hist.length - quitadas.length,
     detalle: quitadas.map((e) => ({ symbol: e.symbol, spot: e.spot, capturadoEn: e.capturadoEn })) });
+});
+
+// GET /api/spx/rejilla-historica — el registro de la rejilla ABSOLUTA por strike.
+//
+// Solo para analisis: NINGUNA estrategia decide con esto. Existe para poder
+// contrastar la hipotesis del pin —strike dominante + confluencia en 0DTE— con
+// muestra propia, que el 8-sep-2026 no se pudo por no haberla guardado nunca.
+//
+// Filtros: ?date=YYYY-MM-DD (dia de la toma), ?expiry=YYYY-MM-DD (vencimiento),
+// ?dte=0 (solo el del dia). Sin filtros devuelve todo, mas reciente primero.
+app.get('/api/spx/rejilla-historica', (req, res) => {
+  let entradas = loadRejillaHist();
+  if (req.query.date)   entradas = entradas.filter(e => (e.at || '').slice(0, 10) === req.query.date);
+  if (req.query.expiry) entradas = entradas.filter(e => e.expiry === req.query.expiry);
+  if (req.query.dte !== undefined) entradas = entradas.filter(e => String(e.dte) === String(req.query.dte));
+  res.json({
+    ok: true,
+    total: entradas.length,
+    unidades: 'totalM, cM y pM en MILLONES de dolares de gamma por 1% de movimiento',
+    nota: 'Solo para analisis. Ninguna estrategia decide con esto.',
+    entradas,
+  });
 });
 
 app.get('/api/spx/sigma-levels', (req, res) => {
