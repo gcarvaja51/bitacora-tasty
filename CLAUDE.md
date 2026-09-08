@@ -545,10 +545,42 @@ comparar:
   dos filas — las aperturas de posiciones vivas y los rolls no existían para la pantalla.
   Las filas de `Apertura` y `Roll` van **sin P&L y no suman a la casilla**.
 
-**El resumen del mes** (arriba a la derecha del Calendario, y en la PWA del iPhone) trae tres
-números: **Ejecutado** (realizado que cerró en el mes), **Abierto** (`abiertoByDay` — de lo que
-se abrió ese mes, lo que **sigue abierto hoy**, valorado a lo que costó con todo lo que se le
-sumó rolando) y **Total**. Solo del mes que se mira, sin acumular otros meses.
+**El resumen del mes** (arriba a la derecha del Calendario, y en la PWA del iPhone) trae
+**solo lo realizado**: **Ejecutado** (lo que cerró ese mes) más los días + y –. Nada más.
+
+> ### ⚠️ Lo que sigue ABIERTO no va en el Calendario — decisión del usuario 2026-09-07
+>
+> Hasta esa fecha la cabecera traía también **Abierto** y **Total**, con `abiertoByDay`
+> repartido por el **mes de apertura** de cada campaña. Eso cargaba meses ya cerrados con
+> capital que sigue puesto: **mayo cerró GANANDO $564,67 y la cabecera decía −$2.579,57**,
+> porque le colgaba la asignación de GAP (29-may, −$2.705) y las acciones de JBLU, que
+> siguen en la cuenta. Julio, sin nada vivo, daba $0 — correcto, pero ilegible al lado.
+>
+> *"no entiendo por qué aparecen valores abiertos de mayo, junio, julio... son meses más
+> que cerrados, con ganancias o pérdidas"*.
+>
+> Se revisaron **cinco bitácoras de pago** y ninguna reparte lo abierto hacia meses
+> pasados: Tradervue, TradeZella, TraderSync, TradesViz y Wingman Tracker muestran en el
+> calendario **solo realizado** y mandan lo abierto a su propia pantalla, **a precio de
+> mercado**. TradeZella lo dice literal: *"el P&L no realizado no se muestra y no se
+> incluye en ninguna estadística"*.
+>
+> **Dónde vive ahora cada pregunta:**
+>
+> | Pregunta | Dónde |
+> |---|---|
+> | ¿Cómo me fue en mayo? | Calendario / Desglose Mensual — **Ejecutado**, y no se mueve porque una posición siga abierta |
+> | ¿Qué tengo puesto ahora? | **Posiciones** — apertura, precio actual y P&L no realizado, a mercado |
+> | ¿Cuadra con el bróker? | **Reportes → Conciliación de caja** |
+>
+> No re-proponer meterlo de vuelta en el calendario.
+
+**`abiertoByDay` sigue vivo en `src/metrics.js`** — lo que cambió es dónde se enseña, no el
+cálculo. Lo consume la **Conciliación de caja** de Reportes, que rinde la invariante del
+libro entero: `Σ(realizado) + Σ(abierto) = la caja real`. Va sobre `data.metrics` (**libro
+completo**) y **no** sobre el `m` recortado por el filtro de fechas/familia: con un filtro
+activo la suma no cierra y el número mentiría. Medido el 2026-09-07: −$897,91 realizado
++ −$4.843,80 abierto = −$5.741,71 de caja.
 
 ⚠️ **`abiertoByDay` NO es la suma de la caja diaria.** `openByDay` solo descuenta los cierres
 del MISMO día, así que sumado por mes cuenta entera la prima de una posición abierta y cerrada
@@ -556,8 +588,7 @@ dentro del mes: febrero daría **+$3.158 de "abierto" sin tener ni una pata viva
 **valor de las patas que quedan en el inventario**, fechado en la apertura original de la
 campaña — y no una fracción del neto de la orden, porque en una cadena de rolls la pata viva
 carga el arrastre de toda la campaña. Con el valor real, **la suma de todos los meses da
-exactamente el costo de lo abierto**, y por tanto `Σ(Ejecutado) + Σ(Abierto) = la caja real`.
-Hay test.
+exactamente el costo de lo abierto**. Hay test (`pruebas.js`, bloque (f)).
 
 El detalle del día va en **dos bloques con su propio subtotal**, porque son dos preguntas
 distintas: **CERRADO** (lo que dejó resultado — su subtotal es exactamente la casilla del

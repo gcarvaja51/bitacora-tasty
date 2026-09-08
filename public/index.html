@@ -223,9 +223,10 @@
             <option value="OTRO">Sin clasificar</option>
           </select>
           <div class="cal-resumen">
+            <!-- Solo realizado. Lo que sigue abierto NO va acá: vive en Posiciones,
+                 valorado a mercado, y la conciliación de caja en Reportes.
+                 Ver CLAUDE.md § El resumen del mes. -->
             <span title="Resultado realizado: lo que cerró en el mes">Ejecutado <strong id="cal-month-pnl">—</strong></span>
-            <span title="De lo que se abrió en el mes, lo que sigue abierto hoy — valorado a lo que costó">Abierto <strong id="cal-month-caja">—</strong></span>
-            <span class="cal-resumen-total" title="Ejecutado + Abierto: todo lo que este mes movió de la cuenta">Total <strong id="cal-month-total">—</strong></span>
             <span class="dim cal-resumen-dias">|</span>
             <span class="cal-resumen-dias">Días +: <strong class="pos" id="cal-pos-days">—</strong></span>
             <span class="cal-resumen-dias">Días -: <strong class="neg" id="cal-neg-days">—</strong></span>
@@ -489,6 +490,16 @@
             <tbody id="monthly-tbody"></tbody>
           </table>
         </div>
+      </div>
+      <!-- Conciliación de caja — va sobre el LIBRO ENTERO y NO se recorta con el
+           filtro de fechas: la invariante solo cierra completa. Es el destino de
+           lo que antes salía como "Abierto" en la cabecera del Calendario. -->
+      <div class="card" style="margin-top:16px;">
+        <div class="card-header">
+          Conciliación de caja
+          <span class="dim" style="font-weight:400;font-size:11px;margin-left:8px;">libro completo — no depende del filtro de fechas</span>
+        </div>
+        <div class="card-body" id="rep-conciliacion"></div>
       </div>
     </div>
 
@@ -1663,24 +1674,22 @@ function renderCalendar() {
   let moTotal=0, moPos=0, moNeg=0;
   const prefix = `${y}-${String(mo+1).padStart(2,'0')}`;
   Object.entries(cal).forEach(([d,v])=>{ if(d.startsWith(prefix)){moTotal+=v;if(v>0)moPos++;else if(v<0)moNeg++;} });
-  /* "Abierto" = de lo que se abrió ESE mes, lo que sigue abierto hoy, valorado a
-     lo que costó (con todo lo que se le sumó rolando). Solo del mes que se está
-     mirando: no acumula nada de otros meses.
-     No es la suma de la caja diaria: esa cuenta entera la prima de una posición
-     abierta y cerrada dentro del mismo mes, y febrero daría +$3.158 de "abierto"
-     cuando de febrero no queda ni una pata viva. */
-  const abiertos = m?.abiertoByDay || {};
-  let moCaja = 0;
-  Object.entries(abiertos).forEach(([d, v]) => { if (d.startsWith(prefix)) moCaja += v; });
-  moCaja = +moCaja.toFixed(2);
-  const moSuma = moTotal + moCaja;
+  /* El resumen del mes es SOLO realizado.
+     Lo que se abrió ese mes y sigue vivo hoy YA NO va acá. Fechado en el mes de
+     apertura, cargaba meses cerrados con capital que sigue puesto: mayo cerró
+     GANANDO $564,67 y la cabecera decía -$2.579,57, porque le colgaba la
+     asignación de GAP y las acciones de JBLU, que siguen en la cuenta. El
+     usuario lo reportó el 2026-09-07: "no entiendo por qué aparecen valores
+     abiertos de mayo, junio, julio... son meses más que cerrados".
+     Ninguna bitácora de pago lo hace: Tradervue, TradeZella, TraderSync,
+     TradesViz y Wingman muestran en el calendario SOLO lo realizado y mandan lo
+     abierto a su propia pantalla, a precio de mercado. Acá esa pantalla es
+     Posiciones (costo, precio actual y P&L no realizado).
+     `abiertoByDay` sigue vivo en src/metrics.js: lo consume la Conciliación de
+     caja de Reportes, y su invariante tiene test — pruebas.js bloque (f). */
 
   $('cal-month-pnl').textContent  = f$(moTotal);
   $('cal-month-pnl').className    = cc(moTotal);
-  $('cal-month-caja').textContent = f$(moCaja);
-  $('cal-month-caja').className   = cc(moCaja);
-  $('cal-month-total').textContent= f$(moSuma);
-  $('cal-month-total').className  = cc(moSuma);
   $('cal-pos-days').textContent   = moPos;
   $('cal-neg-days').textContent   = moNeg;
 
@@ -2718,6 +2727,44 @@ async function loadReports(forceRefresh) {
         <td><span class="badge ${pnl>=0?'badge-green':'badge-red'}">${pnl>=0?'Positivo':'Negativo'}</span></td>
       </tr>`;
     }).join('');
+
+    /* ── Conciliación de caja ──────────────────────────────────────────────
+       La invariante del libro entero: caja = P&L realizado + valor de las patas
+       que siguen vivas. Vive acá y no en el Calendario porque es una comprobación
+       CONTABLE, no un informe de rendimiento — repartida por mes hacía que un mes
+       ya cerrado pareciera abierto.
+       Va sobre `data.metrics` (libro completo), NUNCA sobre `m`, que está
+       recortado al rango y a la familia: con un filtro activo la suma no cierra y
+       el número mentiría. Test: scripts/pruebas.js bloque (f). */
+    const mAll        = data.metrics || {};
+    const realizadoTot = +Object.values(mAll.stratByDay   || {}).reduce((a,b)=>a+b, 0).toFixed(2);
+    const abiertoTot   = +Object.values(mAll.abiertoByDay || {}).reduce((a,b)=>a+b, 0).toFixed(2);
+    const cajaTot      = +(realizadoTot + abiertoTot).toFixed(2);
+    const nAbiertas    = Object.keys(mAll.abiertoByDay || {}).length;
+    $('rep-conciliacion').innerHTML = `
+      <table style="width:100%;">
+        <tbody>
+          <tr>
+            <td class="td-bright">P&amp;L realizado <span class="dim">— todo lo que cerró, desde el primer día</span></td>
+            <td class="td-mono ${cc(realizadoTot)}" style="text-align:right;font-weight:700;">${f$(realizadoTot)}</td>
+          </tr>
+          <tr>
+            <td class="td-bright">Valor de lo que sigue abierto <span class="dim">— a lo que costó, con el arrastre de los rolls</span></td>
+            <td class="td-mono ${cc(abiertoTot)}" style="text-align:right;font-weight:700;">${f$(abiertoTot)}</td>
+          </tr>
+          <tr style="border-top:1px solid var(--border2);">
+            <td class="td-bright" style="font-weight:700;">= Caja movida por el libro</td>
+            <td class="td-mono ${cc(cajaTot)}" style="text-align:right;font-weight:700;">${f$(cajaTot)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5;">
+        Cuadre contra el bróker, no resultado. Lo abierto está a <strong>costo</strong> y sale
+        de ${nAbiertas} día${nAbiertas===1?'':'s'} de apertura con patas todavía vivas — su
+        valor <strong>a precio de hoy</strong> está en <strong>Posiciones</strong>, junto al
+        P&amp;L no realizado. El resultado de cada mes es la columna «P&amp;L Realizado» de
+        arriba, y no se mueve porque una posición siga abierta.
+      </div>`;
 
   } catch(e) { console.error('loadReports error:', e); }
 }

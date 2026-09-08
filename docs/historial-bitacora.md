@@ -19,6 +19,90 @@
 
 ---
 
+## "Abierto" sale del Calendario (2026-09-07)
+
+**Síntoma, en palabras del usuario:** *"en los resúmenes de cada mes aparece un valor
+ejecutado y un valor abierto. no entiendo porqué aparecen valores abiertos de mayo, junio,
+julio... son meses más que cerrados, con ganancias o pérdidas."*
+
+No era un bug. `abiertoByDay` calculaba exactamente lo que decía calcular, y su invariante
+cerraba con test. El problema era **dónde se enseñaba**.
+
+### Qué mostraba, y por qué confundía
+
+La cabecera del Calendario traía tres números —Ejecutado, Abierto, Total— y el Abierto se
+fechaba en **el mes en que nació la campaña**, no en hoy. Así que mayo cargaba con todo lo
+que se abrió en mayo y sigue vivo:
+
+| Mes | Ejecutado | Abierto | Qué quedaba vivo |
+|---|---:|---:|---|
+| feb / mar / abr | +626,32 / −1.530,75 / −547,43 | **0,00** | nada |
+| **may** | +564,67 | **−3.144,24** | JBLU 100 acc. (27 el 21-may + 73 el 27-may) −528,08 · GAP 100 acc. asignadas 29-may −2.705,00 · call JBLU $5 10-16 +88,84 |
+| **jun** | −424,16 | **−2.179,36** | NU 200 acc. asignadas 03-jun −2.605,00 · call GAP $20 09-25 +239,10 · put SOFI $17,5 09-25 +208,35 · calls NU $14 11-20 ×2 −21,81 |
+| **jul** | −53,54 | **0,00** | nada |
+
+Mayo **cerró ganando $564,67** y la cabecera decía **−$2.579,57**. El "Total" sumaba un
+resultado con una salida de caja de cuatro meses atrás. El 93% del abierto de mayo y junio
+eran las tres asignaciones de La Rueda, que son **compras de acciones** — plata que salió,
+no una pérdida. A precio de hoy: NU costó 2.600 y vale 3.074 (+474), GAP costó 2.700 y vale
+2.243 (−457), JBLU costó 528 y vale 463 (−65).
+
+Y las calls NU $14 11-20 figuraban en **−21,81**: una call vendida con valor negativo. No
+es error — en una cadena de rolls la pata viva carga el arrastre de toda la campaña, y esa
+había pagado más en rolls de lo que cobró al abrir.
+
+### Qué hacen las bitácoras de pago
+
+Se revisaron cinco antes de decidir. **Ninguna reparte lo abierto hacia meses pasados.**
+
+| Plataforma | Calendario | Lo abierto |
+|---|---|---|
+| Tradervue | P&L en la fecha en que se **realiza**; los reportes de detalle *"solo incluyen trades cerrados"* | pestaña Overview |
+| TradeZella | *"el P&L no realizado (abierto o flotante) no se muestra y no se incluye en ninguna estadística"* | no lo muestran |
+| TraderSync | realizado y parcial-realizado | no hay no realizado |
+| TradesViz | *"P&L realizado por día, con base en ejecuciones cerradas"* | pestaña **Open Trades Summary** |
+| Wingman Tracker | reportes de cerrado | página **Open Positions**, modo P/L a mercado |
+
+Las tres reglas que comparten: el calendario es **solo realizado**; lo abierto tiene **su
+propia pantalla**; y cuando lo muestran, es **a precio de mercado**, no a lo que costó.
+TradesViz explica el porqué: *"la mayoría de bitácoras responden '¿cómo operé ayer?', pero
+si mantienes posiciones días o meses, tus preguntas importantes son sobre AHORA."*
+
+### Lo que se hizo
+
+Se le presentaron al usuario tres opciones y eligió la del estándar:
+
+- **A (elegida)** — la cabecera queda con Ejecutado y los días +/−. Lo abierto vive en
+  **Posiciones**, que ya traía apertura, precio actual y P&L no realizado a mercado: no
+  hubo que construir nada. La invariante se mudó a una tarjeta nueva, **Reportes →
+  Conciliación de caja**.
+- **B** — un renglón global fijo ("Capital abierto hoy −$4.843,80"), igual en todos los
+  meses. Mataba el retro-fechado sin perder el número de vista.
+- **C** — renombrar y valorar a mercado, conservando el fechado por mes. Descartada: deja
+  vivo justo el defecto que se quería quitar, y obliga a decidir la convención de signo de
+  las patas cortas.
+
+La Conciliación de caja va sobre `data.metrics` (**libro completo**) y nunca sobre el `m`
+recortado por el filtro de fechas/familia: con un filtro activo la suma no cierra y el
+número mentiría. Medido el 2026-09-07: **−$897,91 realizado + −$4.843,80 abierto =
+−$5.741,71 de caja**.
+
+### Lo que NO se tocó, a propósito
+
+- **`abiertoByDay` en `src/metrics.js`** — el cálculo no tenía nada malo. Cambió dónde se
+  enseña, no cómo se computa.
+- **El test de la invariante** (`pruebas.js`, bloque (f)) — corre sobre `buildMetrics`, no
+  sobre el frontend, así que sobrevivió intacto sin editarlo.
+- **`public/tradier.html`** — su cabecera de calendario es otra ("Mes:" a secas) y nunca
+  tuvo Abierto ni Total.
+- **`.cal-resumen-total` en `public/shared.css`** — quedó sin referencias. Se dejó por la
+  norma de confirmar antes de borrar.
+
+210 pruebas en verde (`--local`). Verificado en pantalla con el servidor local en
+`MODO_PRUEBAS=1`: mayo 2026 muestra *"EJECUTADO +$564.67 | DÍAS +: 14 DÍAS -: 5"*.
+
+---
+
 ## Siete guards de día de mercado y un solo calendario (2026-09-06)
 
 **Síntoma, en palabras del usuario:** *"veo que el bot trabaja en horarios donde el mercado
