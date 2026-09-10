@@ -363,6 +363,23 @@ dato). Si el bundle de hoy existe, **usarlo directamente y saltar el Paso 0 y la
 en vivo de Sigma Terminal por completo** — es más confiable que pelear con la conexión en
 el momento.
 
+**Antes de usar `sigma`, mirar `sigma.rancio` (2026-09-09).** El bundle trae ahora tres
+campos de procedencia además de `asOf`:
+
+| campo | qué dice |
+|---|---|
+| `fuente` | `premercado` (lectura de las 08:15–09:00 ET, la buena) o `ultimo_ciclo_operacion` |
+| `antiguedadMin` | minutos entre la lectura y el momento del recolector |
+| `rancio` | `true` si pasa de 45 min — el dato **no** es de hoy |
+
+Si `rancio` es `true`, los muros son de una sesión anterior y **no pueden escribirse en el
+informe como los niveles de hoy**: hay que decirlo explícitamente en el documento (qué
+sello tienen y de qué vencimiento es la cadena) o leer Sigma Terminal en vivo. Esto no es
+teórico — hasta el 2026-09-09 el recolector leía siempre el cierre del día anterior y lo
+anunciaba como `[sigma] OK`, así que el informe llevaba semanas dando por buenos muros
+viejos. Ese día la diferencia era Put Wall 7675 (ayer) contra 7630 (real) y una cadena ya
+vencida. Un `OK` no vuelve a ser suficiente: se mira `rancio`.
+
 Si el bundle de hoy NO existe (corrida manual/interactiva fuera del horario del disparo
 automático, o el colector falló), correrlo a mano antes de intentar cualquier otra cosa:
 ```

@@ -95,6 +95,47 @@ if ($mcpMuertos -gt 0) {
     Start-Sleep -Seconds 6
 }
 
+# 4.4) Puerto CDP de TradingView (2026-09-09, nuevo) -- corre ANTES del recolector.
+#      El recolector y base_sp500.js leen el chart por el puerto 9223, y ese puerto
+#      solo existe si TradingView se lanzo con --remote-debugging-port=9223. Nada en
+#      el arranque de Windows lo hace, asi que cuando el usuario abre TradingView a
+#      mano la app queda sin puerto y las DOS lecturas fallan a la vez -- fue lo que
+#      paso el 09-09 ("[tv] FALLO: fetch failed" + "Base SP500: FALLO (exit 1)").
+#      Peor todavia: a las 09:00 el gamma_daemon encuentra el puerto muerto y hace
+#      taskkill de TradingView por su cuenta, dejando al usuario sin ventana en la
+#      apertura (incidente del 2026-08-06). Este paso adelanta ese relanzamiento a
+#      una hora en la que no molesta, y si el puerto ya responde no toca nada.
+#      Best-effort: si no lo consigue, el gate sigue -- el informe puede escribirse
+#      solo con Sigma, como ya hacia.
+Write-Log "Verificando el puerto CDP de TradingView antes del recolector..."
+Push-Location "C:\Users\gcarv\bitacora-tasty\premercado_collector"
+try {
+    $tvOut  = Join-Path $logDir "premercado_tv_preflight_salida.txt"
+    $tvproc = Start-Process -FilePath "node" -ArgumentList 'asegurar_tradingview.mjs' `
+        -NoNewWindow -PassThru -RedirectStandardOutput $tvOut `
+        -RedirectStandardError (Join-Path $logDir "premercado_tv_preflight_stderr.txt")
+    # Sin esto .ExitCode queda en $null (ver bloque 5): el 2026-09-10 el preflight
+    # dijo "listo" y el gate igual escribio "NO se pudo ... (exit )".
+    $null = $tvproc.Handle
+    if (-not $tvproc.WaitForExit(180000)) {
+        try { Stop-Process -Id $tvproc.Id -Force -ErrorAction SilentlyContinue } catch { }
+        Write-Log "TradingView: TIMEOUT (>3 min) en el chequeo del puerto. Se sigue igual."
+    } else {
+        foreach ($linea in (Get-Content $tvOut -ErrorAction SilentlyContinue)) {
+            if ($linea.Trim()) { Write-Log "  [tv-preflight] $linea" }
+        }
+        if ($tvproc.ExitCode -eq 0) {
+            Write-Log "TradingView: listo para ser leido."
+        } else {
+            Write-Log "TradingView: NO se pudo dejar el puerto 9223 utilizable (exit $($tvproc.ExitCode)). El recolector va a fallar la parte de TV."
+        }
+    }
+} catch {
+    Write-Log "TradingView: error en el chequeo del puerto: $($_.Exception.Message). Se sigue igual."
+} finally {
+    Pop-Location
+}
+
 # 4.5) Recolector de datos (2026-08-01, nuevo) -- corre ANTES que claude.cmd para
 #      dejar ya en disco la captura del chart de 30min + valores de estudios de
 #      TradingView, y el ultimo snapshot de Sigma Terminal (via gamma_daemon/status.json,

@@ -58,7 +58,9 @@ Start-Sleep -Seconds 1
 Try-Start "TradingView" {
     $pkg = Get-AppxPackage -Name "*TradingView*"
     if ($pkg) {
-        Start-Process -FilePath ($pkg.InstallLocation + "\TradingView.exe") -ArgumentList "--remote-debugging-port=9222"
+        # 9223, NO 9222: el 9222 es de tastytrade, y el gamma_daemon y el recolector
+        # del premercado solo miran el 9223 (sin el puerto el daemon hace taskkill).
+        Start-Process -FilePath ($pkg.InstallLocation + "\TradingView.exe") -ArgumentList "--remote-debugging-port=9223"
     }
 }
 Start-Sleep -Seconds 2

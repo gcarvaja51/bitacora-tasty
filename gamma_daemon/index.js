@@ -131,6 +131,110 @@ function isMarketWindow() {
   return calendario.enVentanaET(9 * 60, 16 * 60 + 5);
 }
 
+// ── Fase de PREMERCADO, solo lectura (2026-09-09) ─────────────────────────────
+//
+// POR QUE. El recolector del premercado (premercado_collector/collect.js) corre a
+// las 08:30 ET y lee los muros de este status.json. Pero la ventana de arriba
+// empieza a las 09:00, o sea que a las 08:30 el daemon lleva toda la noche
+// SALTANDO ciclos y lastLevels sigue siendo el cierre de AYER. No es que fallara
+// un dia: fallaba TODOS. Comprobado en los logs del colector -- 09-09 leyo el
+// dato del 08-09, el 09-08 leyo el del 09-04, el 09-04 el del 09-03 -- y encima
+// lo anunciaba como "[sigma] OK", asi que nadie lo noto. El 09-09 la diferencia
+// entre el dato rancio y el real era Put Wall 7675 vs 7630 y Call Wall 7680 vs
+// 7700, con la cadena de otro vencimiento.
+//
+// POR QUE NO SE AMPLIA isMarketWindow() A SECAS. Porque runCycle() hace POST a
+// PROD_BASE, y ese servidor es el que OPERA LA CUENTA REAL. Ampliar la ventana
+// le meteria niveles de premercado --con la cadena a medio formar y sin volumen--
+// al sistema que decide entradas, 45 minutos antes de que exista mercado. El
+// premercado necesita LEER a Sigma, no necesita que Sigma llegue al robot.
+//
+// QUE HACE ESTA FASE. Entre 08:15 y 09:00 ET lee Sigma y escribe el resultado en
+// una clave APARTE (`premercado`), sin tocar lastLevels ni lastSuccessAt, sin
+// POST al servidor, sin push ni guardado a TradingView y sin escribir en
+// history.json (que alimenta los deltas de GEX/DEX/Vanna). El camino que opera
+// queda intacto, byte por byte: lo unico que cambia es que a las 08:30 hay un
+// dato fresco esperando al recolector.
+//
+// El vigilante no se entera y no hace falta tocarlo: watchdog.ps1 exige exitos
+// con Test-HorarioDeMercadoNYSE (la campana), no con esta ventana, asi que a las
+// 08:15 no espera nada.
+const PREMERCADO_DESDE_MIN = 8 * 60 + 15;
+function isPremarketWindow() {
+  // recortarMedioDia:false a proposito. Ese recorte existe para adelantar el
+  // CIERRE en las medias sesiones (16:05 -> 13:05), y se aplica restando 180 min
+  // al final de la ventana sea cual sea. Sobre una ventana que termina a las
+  // 09:00 la deja en 08:15-06:00, o sea VACIA: el 27-nov-2026 (viernes de Accion
+  // de Gracias, media sesion) el premercado se habria quedado sin dato fresco sin
+  // que nadie lo notara. La campana suena a las 09:30 tambien en media sesion, asi
+  // que esta franja no se mueve. Cubierto en la prueba de abajo.
+  return calendario.enVentanaET(PREMERCADO_DESDE_MIN, 9 * 60, {
+    finInclusivo: false,
+    recortarMedioDia: false,
+  });
+}
+
+// Ciclo reducido de premercado. Deliberadamente sin try/catch propio de reintento:
+// si Sigma no responde a esta hora (posibilidad real, la terminal puede no servir
+// datos tan temprano), se anota el motivo y se vuelve a intentar en 30s. Un fallo
+// aca NO cuenta como consecutiveFailures -- no deja sin precio a nadie, porque
+// nadie opera con esto.
+async function runPremarketCycle() {
+  try {
+    const levels = await sigma.readLevels();
+
+    // CERROJO: que Sigma responda no prueba que Sigma se haya despertado.
+    //
+    // A las 08:15 la terminal puede seguir mostrando la pantalla congelada de la
+    // sesion anterior. Si eso se guardara con un `leidoEn` de ahora, el dato viejo
+    // saldria del otro lado marcado como recien nacido -- que es precisamente el
+    // agujero que este trabajo vino a tapar, y el mismo error que el guard de
+    // feriados del 2026-09-06 ya tuvo que arreglar aguas arriba (210 ciclos
+    // sellando numeros muertos como frescos en Labor Day).
+    //
+    // El delator barato es el vencimiento: Sigma muestra la cadena del 0DTE, asi
+    // que `expiry` es la fecha de HOY en cuanto la terminal cambia de dia. Mientras
+    // siga diciendo la de ayer, lo que hay en pantalla es de ayer. Verificado con
+    // lecturas reales: 08-sep 15:52 ET -> expiry 2026-09-08; 09-sep 09:01 ET ->
+    // expiry 2026-09-09.
+    //
+    // Cuando no cuadra NO se escribe `premercado`. Asi el recolector se cae solo a
+    // `lastLevels` y lo marca RANCIO, que es ruidoso y correcto; guardarlo seria
+    // silencioso y mentira.
+    const hoyET = calendario.fechaET();
+    if (levels.expiry && levels.expiry !== hoyET) {
+      saveStatus({
+        lastCycleAt: new Date().toISOString(),
+        lastSkipReason: 'premercado_solo_lectura',
+        premercadoError: {
+          mensaje: `Sigma todavia muestra la cadena del ${levels.expiry} (hoy es ${hoyET}):`
+            + ' la terminal no ha cambiado de dia, el dato en pantalla es de la sesion anterior',
+          en: new Date().toISOString(),
+        },
+      });
+      console.warn(`[premercado] Sigma sigue en la cadena del ${levels.expiry} (hoy ${hoyET})`
+        + ' -- no se guarda: seria el cierre de ayer con sello de hoy');
+      return;
+    }
+
+    levels.capturadoEn = new Date().toISOString();
+    saveStatus({
+      lastCycleAt: new Date().toISOString(),
+      lastSkipReason: 'premercado_solo_lectura',
+      premercado: { levels, leidoEn: levels.capturadoEn },
+    });
+    console.log(`[premercado] Sigma OK -- Call ${levels.callWall}, Put ${levels.putWall},`
+      + ` Flip ${levels.gammaFlip}, vto ${levels.expiry}`);
+  } catch (e) {
+    saveStatus({
+      lastCycleAt: new Date().toISOString(),
+      lastSkipReason: 'premercado_solo_lectura',
+      premercadoError: { mensaje: e.message, en: new Date().toISOString() },
+    });
+    console.error('[premercado] Sigma no respondio (%s) -- se reintenta en el proximo ciclo', e.message);
+  }
+}
+
 async function ntfy(message, { priority = 'default', title } = {}) {
   try {
     await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
@@ -169,6 +273,12 @@ async function pushToTradingViewWithRetry(inputs) {
 
 async function runCycle() {
   if (!isMarketWindow()) {
+    // Antes de darse por dormido: si estamos en la franja de premercado, hay un
+    // trabajo reducido que hacer (leer Sigma para el informe, ver arriba).
+    if (isPremarketWindow()) {
+      await runPremarketCycle();
+      return;
+    }
     // El motivo real, no un 'fuera_de_horario' que no distingue las 3 de la
     // madrugada de un domingo de Labor Day. Es lo primero que se mira en
     // status.json cuando el daemon "no hace nada".

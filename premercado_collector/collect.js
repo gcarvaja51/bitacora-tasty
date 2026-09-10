@@ -24,6 +24,7 @@
 // que corre un ciclo dentro de horario de mercado, que es exactamente el dato que hace
 // falta ("el ultimo disponible") sin necesidad de tocar el navegador para nada.
 import { connectToSpxWindow } from '../gamma_daemon/tv.js';
+import { elegirSigma } from './elegir_sigma.mjs';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { spawn } from 'child_process';
 import path from 'path';
@@ -60,6 +61,11 @@ const TV_CONNECT_MS = Number(process.env.TV_CONNECT_MS || 60000);
 // Cinturon final: pase lo que pase, este proceso no vive mas de 5 minutos. unref() para
 // que este temporizador no sea lo que mantenga vivo el event loop cuando todo salio bien.
 const HARD_KILL_MS = Number(process.env.COLLECTOR_HARD_KILL_MS || 300000);
+// Cuanto puede tener el dato de Sigma antes de que deje de valer como "de hoy".
+// 45 min cubre con holgura la fase de premercado del daemon (empieza 08:15, el
+// colector corre 08:30) y sigue delatando al instante una lectura del cierre
+// anterior, que son ~17 HORAS.
+const SIGMA_MAX_ANTIGUEDAD_MIN = Number(process.env.SIGMA_MAX_ANTIGUEDAD_MIN || 45);
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -241,11 +247,19 @@ async function getStudyValues(client) {
 async function collectFromTradingView(outDir) {
   // NO se relanza TradingView desde aca. Antes, si la conexion inicial fallaba, esto
   // llamaba a launchTv({ killExisting: true }) -- es decir taskkill /F /IM TradingView.exe.
-  // Relanzar TradingView es potestad EXCLUSIVA del gamma_daemon (ver CLAUDE.md): hacerlo
-  // desde el colector deja al usuario sin poder operar en plena preapertura y ademas
-  // levanta una ventana que puede quedar en otro layout o simbolo, con la que despues
-  // pelea el daemon. Si no hay ventana usable, este colector se resigna y devuelve el
-  // error: el informe ya tiene fallback para el chart (datos de Yahoo + niveles).
+  // Relanzar TradingView en mitad de una recoleccion deja al usuario sin poder operar en
+  // plena preapertura y ademas levanta una ventana que puede quedar en otro layout o
+  // simbolo, con la que despues pelea el daemon. Si no hay ventana usable, este colector
+  // se resigna y devuelve el error: el informe ya tiene fallback para el chart (datos de
+  // Yahoo + niveles).
+  //
+  // (2026-09-09) Donde SI se relanza es en asegurar_tradingview.mjs, que el gate corre
+  // como paso aparte ANTES que este colector. La diferencia no es cosmetica: alli el
+  // relanzamiento es la primera decision que se toma --con la ventana todavia sin usar--,
+  // usa el mismo tv.launch() del daemon, y no se da por bueno hasta confirmar que volvio
+  // una ventana con SPCFD:SPX. Aqui dentro seguiria siendo lo de antes: matar la app a
+  // mitad de faena por un fetch fallido. La regla real no es "solo el daemon relanza",
+  // es "relanzar es un paso explicito y verificado, nunca el catch de otra cosa".
   const conn = await withTimeout(connectToSpxWindow(), TV_CONNECT_MS, 'connectToSpxWindow');
 
   const { client, panes } = conn;
@@ -360,7 +374,8 @@ async function main() {
 
   try {
     bundle.tradingview = await collectFromTradingView(outDir);
-    log(`[tv] OK -- pane ${bundle.tradingview.paneIndex}, ${bundle.tradingview.studyValues.length} estudios leidos, captura guardada`);
+    log(`[tv] OK -- pane ${bundle.tradingview.paneIndex}, ${bundle.tradingview.studyValues.length} estudios leidos, `
+      + (bundle.tradingview.chartPng ? 'captura guardada' : 'SIN captura (se dibuja con Yahoo)'));
   } catch (e) {
     bundle.errors.push(`tradingview: ${e.message}`);
     log(`[tv] FALLO: ${e.message}`);
@@ -368,9 +383,34 @@ async function main() {
 
   try {
     const status = JSON.parse(readFileSync(GAMMA_STATUS_PATH, 'utf8'));
-    if (!status.lastLevels) throw new Error('status.json de gamma_daemon no tiene lastLevels todavia');
-    bundle.sigma = { ...status.lastLevels, asOf: status.lastSuccessAt };
-    log(`[sigma] OK (ultimo dato del gamma_daemon, ${status.lastSuccessAt}) -- Call Wall ${bundle.sigma.callWall}, Put Wall ${bundle.sigma.putWall}, Gamma Flip ${bundle.sigma.gammaFlip}`);
+
+    // Cual de las dos lecturas de status.json vale, y si sirve como dato de hoy:
+    // vive en elegir_sigma.mjs, con sus pruebas (elegir_sigma.test.mjs). Se saco de
+    // aqui porque este archivo llama a main() al importarse y no habia forma de
+    // probar la regla sin lanzar el recolector entero contra TradingView -- y era
+    // justo la regla que llevaba semanas equivocandose callada.
+    const elegido = elegirSigma(status, Date.now(), SIGMA_MAX_ANTIGUEDAD_MIN);
+
+    bundle.sigma = {
+      ...elegido.levels,
+      asOf: elegido.asOf,
+      fuente: elegido.fuente,
+      antiguedadMin: elegido.antiguedadMin,
+      rancio: elegido.rancio,
+    };
+
+    const resumen = `Call Wall ${bundle.sigma.callWall}, Put Wall ${bundle.sigma.putWall},`
+      + ` Gamma Flip ${bundle.sigma.gammaFlip}, vto ${bundle.sigma.expiry}`;
+    if (bundle.sigma.rancio) {
+      // A errors[] a proposito: es lo que hace que el gate escriba "TERMINO CON
+      // ERRORES" en premercado_auto_launch.log en vez de dejarlo pasar callado.
+      const msg = `dato RANCIO de ${elegido.antiguedadMin ?? '?'} min (fuente ${elegido.fuente}, sello ${elegido.asOf})`
+        + ` -- el informe NO debe presentarlo como muros de hoy`;
+      bundle.errors.push(`sigma: ${msg}`);
+      log(`[sigma] RANCIO: ${msg} -- ${resumen}`);
+    } else {
+      log(`[sigma] OK (fuente ${elegido.fuente}, ${elegido.antiguedadMin} min de antiguedad) -- ${resumen}`);
+    }
   } catch (e) {
     bundle.errors.push(`sigma: ${e.message}`);
     log(`[sigma] FALLO: ${e.message}`);
