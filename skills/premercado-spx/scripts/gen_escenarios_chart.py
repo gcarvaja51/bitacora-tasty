@@ -81,10 +81,26 @@ def main():
     # Si el MVS cae en el mismo strike que el Call Wall, se rotulan juntos en una sola
     # linea -- si no, la rama de abajo omite el MVS por completo y el nivel desaparece
     # del diagrama sin dejar rastro (bug real, 2026-08-04).
-    call_wall_label = "Call Wall / MVS" if abs(call_wall - niveles["mvs"]) < 1 else "Call Wall"
+    # Etiquetas opcionales (2026-09-08): los cuatro niveles del diagrama son
+    # POSICIONALES -- put_wall y call_wall son los bordes de las tres zonas, no
+    # necesariamente los muros. Hay dias en que el corredor operativo lo fijan otros
+    # niveles (p.ej. el Gamma Flip y el disparador bajista, con los muros reales a 150
+    # puntos de distancia): rotularlos "Put Wall"/"Call Wall" seria mentir en el
+    # grafico. Con label_* en el spec se rotula lo que de verdad es cada linea; sin
+    # ellos el comportamiento es identico al de siempre.
+    lbl_cw = niveles.get("label_call_wall")
+    lbl_pw = niveles.get("label_put_wall")
+    lbl_gf = niveles.get("label_gamma_flip", "Gamma Flip")
+    lbl_mvs = niveles.get("label_mvs", "MVS")
+
+    call_wall_label = lbl_cw or ("Call Wall / MVS" if abs(call_wall - niveles["mvs"]) < 1 else "Call Wall")
     level_line(call_wall, call_wall_label, color=GREEN)
-    level_line(niveles["gamma_flip"], "Gamma Flip", color=INK_SEC, ls="--", lw=1.3)
-    if abs(put_wall - niveles["mvs"]) < 1:
+    level_line(niveles["gamma_flip"], lbl_gf, color=INK_SEC, ls="--", lw=1.3)
+    if lbl_pw:
+        level_line(put_wall, lbl_pw, color=RED)
+        if abs(niveles["mvs"] - put_wall) >= 1 and abs(niveles["mvs"] - call_wall) >= 1:
+            level_line(niveles["mvs"], lbl_mvs, color=RED, ls=":", lw=1.4)
+    elif abs(put_wall - niveles["mvs"]) < 1:
         # Put Wall y MVS cayeron en el mismo strike hoy -- una sola linea/etiqueta
         # combinada en vez de dos superpuestas e ilegibles (bug real, 2026-07-21).
         level_line(put_wall, "Put Wall / MVS", color=RED)
@@ -94,8 +110,8 @@ def main():
         pass
     else:
         level_line(put_wall, "Put Wall", color=RED)
-        level_line(niveles["mvs"], "MVS", color=RED, ls=":", lw=1.4)
-    if abs(put_wall - niveles["mvs"]) >= 1 and abs(call_wall - niveles["mvs"]) < 1:
+        level_line(niveles["mvs"], lbl_mvs, color=RED, ls=":", lw=1.4)
+    if not lbl_pw and abs(put_wall - niveles["mvs"]) >= 1 and abs(call_wall - niveles["mvs"]) < 1:
         level_line(put_wall, "Put Wall", color=RED)
 
     # -- Spot de referencia (linea solida gruesa + marcador) --
