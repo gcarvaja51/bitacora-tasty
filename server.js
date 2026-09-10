@@ -5434,6 +5434,11 @@ function hasLocalOpenSPXWPosition() {
   return executions.some(e => {
     if (e.status !== 'submitted' && e.status !== 'filled') return false;
     if (e.strategyFamily === 'REVERSION') return false;
+    // El IC 1DTE no se cruza con nadie, en NINGUN sentido (bug, 2026-09-10: "el
+    // IC 1DTE no entra en el cruce, puede convivir sin problema"). Desde el 10-ago
+    // nadie lo bloqueaba al entrar, pero vivo hasta las 10:30 del dia siguiente
+    // seguia frenando al direccional y al IC 0DTE en la primera hora de sesion.
+    if (e.expType === '1DTE') return false;
     if (e.closeOrderSentAt &&
         (Date.now() - new Date(e.closeOrderSentAt).getTime()) > CIERRE_ENVIADO_GRACIA_SPXW_MS) {
       return false;   // el cierre se mando hace rato: ya no cuenta como abierta
@@ -5442,31 +5447,33 @@ function hasLocalOpenSPXWPosition() {
   });
 }
 
-// ¿TODO lo que Tradier tiene abierto en SPXW se explica como patas de una
-// Reversion nuestra? (2026-08-09, ver el bloque del Iron Condor.)
+// ¿TODO lo que Tradier tiene abierto en SPXW se explica como patas de algo que
+// NO bloquea? Hoy son dos cosas: una Reversion nuestra (2026-08-09, ver el bloque
+// del Iron Condor) y un IC 1DTE nuestro (2026-09-10, ver hasLocalOpenSPXWPosition).
+// Se llamaba todoLoAbiertoEsReversion hasta que el 1DTE entro en la lista.
 //
 // Se compara contra las patas REALES, no contra un conteo: si el broker tiene
-// una posicion que no figura como pata de ninguna Reversion abierta —una abierta
-// a mano, por ejemplo— devuelve false y el IC se bloquea. Un heuristico del tipo
+// una posicion que no figura como pata de ninguna de esas ejecuciones —una abierta
+// a mano, por ejemplo— devuelve false y se bloquea. Un heuristico del tipo
 // "todas mis ejecuciones abiertas son reversiones" no cubriria ese caso, porque
 // una posicion manual no esta en nuestro registro.
 //
 // Ante cualquier fallo devuelve false: sin poder verificar, se bloquea.
-async function todoLoAbiertoEsReversion() {
+async function todoLoAbiertoConvive() {
   try {
     const posList = await tradier.getPositions();
     const spxw = (posList || []).filter(p => (p.symbol || '').startsWith('SPXW'));
     if (!spxw.length) return true;                 // el broker no tiene nada que explicar
 
-    const patasRev = new Set();
+    const patasLibres = new Set();
     for (const e of loadTradierExecutions()) {
-      if (e.strategyFamily !== 'REVERSION') continue;
+      if (e.strategyFamily !== 'REVERSION' && e.expType !== '1DTE') continue;
       if (e.status !== 'submitted' && e.status !== 'filled') continue;
-      for (const s of Object.values(e.legs || {})) if (typeof s === 'string') patasRev.add(s);
+      for (const s of Object.values(e.legs || {})) if (typeof s === 'string') patasLibres.add(s);
     }
-    const huerfanas = spxw.filter(p => !patasRev.has(p.symbol));
+    const huerfanas = spxw.filter(p => !patasLibres.has(p.symbol));
     if (huerfanas.length) {
-      console.log(`[SPX-IC] Posiciones SPXW que no son de ninguna Reversión: ${huerfanas.map(p => p.symbol).join(', ')}`);
+      console.log(`[SPX-IC] Posiciones SPXW que no son ni de una Reversión ni de un IC 1DTE: ${huerfanas.map(p => p.symbol).join(', ')}`);
       return false;
     }
     return true;
@@ -6743,7 +6750,7 @@ async function checkDirectionalAutonomous() {
     //
     // Lo que SI sigue bloqueando: otra direccional abierta, o un IC 0DTE (que
     // comparte ventana horaria y no debe coexistir con una direccional). Eso lo
-    // resuelve todoLoAbiertoEsReversion(): compara las posiciones reales del
+    // resuelve todoLoAbiertoConvive(): compara las posiciones reales del
     // broker contra las patas de las Reversiones registradas, asi que una
     // posicion que no sea de Reversion —de cualquier origen, incluso abierta a
     // mano— bloquea igual.
@@ -6768,10 +6775,10 @@ async function checkDirectionalAutonomous() {
                   'todavia no asento (ver la gracia en hasLocalOpenSPXWPosition).' });
       }
     }
-    const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoEsReversion() : true;
+    const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoConvive() : true;
     if (localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta)) return; // hay algo abierto que NO es una Reversion
     if (tradierDiceAbierto && soloRevAbierta) {
-      console.log('[SPX] Hay una Reversión abierta — no bloquea la direccional: son independientes.');
+      console.log('[SPX] Lo abierto es una Reversión o un IC 1DTE — no bloquea la direccional.');
     }
 
     const { bars2m, closes15m, fuenteBarras, edad2mSeg, edad15mSeg } = await fetchCaminoBBars();
@@ -7409,11 +7416,11 @@ async function processDirectionalEntry(direction, meta = {}) {
       }
         }
         // Misma regla que el gate de evaluacion: una Reversion abierta no cuenta.
-        const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoEsReversion() : true;
+        const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoConvive() : true;
         const yaHayTradeAbierto = localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta);
         if (yaHayTradeAbierto) {
-          signal.tradierOrder = { skipped: true, reason: 'Ya hay un trade abierto en Tradier (no es una Reversión) — se espera a que cierre.' };
-          console.log('[Tradier] ⏳ Señal omitida — hay un trade SPXW abierto que no es una Reversión.');
+          signal.tradierOrder = { skipped: true, reason: 'Ya hay un trade abierto en Tradier (no es una Reversión ni un IC 1DTE) — se espera a que cierre.' };
+          console.log('[Tradier] ⏳ Señal omitida — hay un trade SPXW abierto que no es una Reversión ni un IC 1DTE.');
         } else {
           const order = await tradier.placeSpreadOrder({
             strategy:       signal.strategy,
@@ -8596,17 +8603,17 @@ async function checkIronCondor() {
     // (2026-07-16: Tradier no detecto una posicion genuinamente abierta): si el
     // broker ve algo que nuestro registro NO puede explicar como una reversion
     // nuestra —una posicion abierta a mano, por ejemplo— se bloquea igual.
-    const soloReversion = tradierDiceAbiertoIC ? await todoLoAbiertoEsReversion() : true;
+    const soloReversion = tradierDiceAbiertoIC ? await todoLoAbiertoConvive() : true;
     const yaHayTradeAbierto = localDiceAbiertoIC || (tradierDiceAbiertoIC && !soloReversion);
     if (yaHayTradeAbierto) {
       const motivo = localDiceAbiertoIC
-        ? 'Ya hay un trade SPXW abierto/en curso (no es una Reversión) — se pausa para evitar apilar posiciones.'
-        : 'Tradier reporta una posición SPXW que no corresponde a ninguna pata de una Reversión abierta — se bloquea por precaución.';
+        ? 'Ya hay un trade SPXW abierto/en curso (no es una Reversión ni un IC 1DTE) — se pausa para evitar apilar posiciones.'
+        : 'Tradier reporta una posición SPXW que no corresponde a ninguna pata de una Reversión ni de un IC 1DTE abiertos — se bloquea por precaución.';
       logStrategyEvent({ strategyFamily: 'NEUTRAL', dte, etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`, stage: 'POSITION_OPEN', passed: false, reason: motivo });
       return;
     }
     if (tradierDiceAbiertoIC && soloReversion) {
-      console.log(`[SPX-IC ${dte}] Hay una Reversión abierta — no bloquea: el IC es independiente (PIN + gamma positivo).`);
+      console.log(`[SPX-IC ${dte}] Lo abierto es una Reversión o un IC 1DTE — no bloquea al IC ${dte}.`);
     }
     }   // fin del bloque de exclusividad, que el 1DTE se saltea entero
 

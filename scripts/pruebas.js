@@ -398,6 +398,7 @@ const GRACIA_MS = 90 * 1000;
 function bloquea(e) {
   if (e.status !== 'submitted' && e.status !== 'filled') return false;
   if (e.strategyFamily === 'REVERSION') return false;
+  if (e.expType === '1DTE') return false;
   if (e.closeOrderSentAt && (Date.now() - new Date(e.closeOrderSentAt).getTime()) > GRACIA_MS) return false;
   return true;
 }
@@ -410,6 +411,13 @@ chequear('una Reversion abierta NO bloquea a la direccional',
   bloquea({ status: 'filled', strategyFamily: 'REVERSION' }) === false);
 chequear('una cerrada no bloquea',
   bloquea({ status: 'closed', strategyFamily: 'TENDENCIA' }) === false);
+// El IC 1DTE no se cruza con nadie (bug del 2026-09-10): vivo hasta las 10:30 del
+// dia siguiente frenaba al direccional y al IC 0DTE en la primera hora.
+chequear('un IC 1DTE abierto NO bloquea',
+  bloquea({ status: 'filled', strategyFamily: 'NEUTRAL', strategy: 'IRON_CONDOR', expType: '1DTE' }) === false);
+// ...pero el 0DTE si: neutral y direccional del mismo dia no conviven.
+chequear('un IC 0DTE abierto SI bloquea',
+  bloquea({ status: 'filled', strategyFamily: 'NEUTRAL', strategy: 'IRON_CONDOR', expType: '0DTE' }) === true);
 // El caso de los 61 bloqueos en 10 dias: el cierre ya se mando y la
 // reconciliacion (cada 5 min) todavia no cambio la etiqueta.
 chequear('con el cierre ya mandado hace rato, deja de bloquear',

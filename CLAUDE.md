@@ -868,6 +868,25 @@ entrar. Ídem `maxDebitPrice` para el débito. Las que no llenan las limpia
 Ambas variantes comparten `strategyFamily: 'NEUTRAL'` y el mismo dedup — no pueden dispararse
 las dos el mismo día para el mismo `dte`.
 
+### Quién convive con quién (posiciones abiertas)
+
+| Si está abierto… | Direccional (Camino B) | Reversión | IC 0DTE | IC 1DTE |
+|---|---|---|---|---|
+| **IC 0DTE** | bloqueado | entra ⚠️ | — | entra |
+| **IC 1DTE** | entra | entra | entra | — |
+| **Direccional** | — | entra | bloqueado | entra |
+| **Reversión** | entra | — | entra ⚠️ | entra |
+
+- **El IC 1DTE no se cruza con nadie, en ningún sentido** (2026-08-10 al entrar; 2026-09-10
+  mientras sigue vivo hasta las 10:30 del día siguiente, que era un **bug**: frenaba al
+  direccional y al IC 0DTE en la primera hora). `hasLocalOpenSPXWPosition()` excluye
+  `expType === '1DTE'` y REVERSION; `todoLoAbiertoConvive()` (antes
+  `todoLoAbiertoEsReversion`) acepta como explicadas en el broker las patas de las dos. Una
+  posición que no sea de ninguna —abierta a mano, por ejemplo— **sigue bloqueando**.
+- ⚠️ **Reversión ↔ IC 0DTE conviven hoy, y está decidido cambiarlo**: `SUGERENCIAS.md` punto
+  7 (exclusión total neutral/direccional, decisión del usuario del 2026-09-10). Pendiente de
+  aplicar un viernes o sábado.
+
 ### ⚠️ MODO CAPTURA del 1DTE — la única condición que bloquea es el GEX
 > *"entremos sin condiciones… pongamos solo como restricción de entrada estar en gamma
 > positivo, solo eso"* · *"nada debe bloquear el IC 1DTE"*
