@@ -14,6 +14,7 @@ const { esIndice, sectorDe, simboloYahoo }              = require('./src/indices
 // del premercado, el collector de muros y el viejo isWeekdayET) solo
 // sabian de sabados y domingos. Ver la cabecera de src/calendario_nyse.js.
 const calendario = require('./src/calendario_nyse');
+const pinDominante = require('./src/pin_dominante');   // MODO SOMBRA: no opera, ver vigilarPinSombra
 const isMarketHours     = calendario.enHorarioDeMercado;   // 9:30-16:00 ET (13:00 en medio dia), sin fines de semana ni feriados
 const esDiaDeMercadoET  = calendario.esDiaDeMercado;       // solo el dia: habil y no feriado
 const esMedioDiaNYSE    = calendario.esMedioDia;
@@ -5528,6 +5529,7 @@ function guardarRejillasGex(enrichedExps, spxPrice, byStrike, fuenteSpot = 'cade
   }
   ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike, porVencimiento, maxPainPorVencimiento };
   anotarRejillaAbs(enrichedExps, spxPrice, fuenteSpot);
+  vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot);
   return true;
 }
 
@@ -5679,6 +5681,119 @@ function anotarRejillaAbs(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
   }
 }
 
+// ── PIN por strike dominante, en MODO SOMBRA (2026-09-10) ──────────────────
+//
+// NO OPERA. Ver src/pin_dominante.js para la regla y el porque. Corre cada vez
+// que se refresca la rejilla (≥ cada 3 min en sesion) sobre el 0DTE: apunta si
+// el setup habria entrado y, desde ese momento, el precio REAL de la mariposa
+// —mid y natural— hasta la salida. El registro cada 30 min de anotarRejillaAbs
+// no alcanza para eso: entre toma y toma habia que interpolar con un modelo.
+//
+// El estado del dia (desde cuando manda el strike, la mariposa abierta) vive en
+// el FICHERO y no en memoria: un despliegue a media sesion reinicia el servidor,
+// y con el estado en memoria se perderia la estabilidad del dominante —la regla
+// pide 30 min— o, peor, una mariposa a medio seguir.
+const PIN_SOMBRA_FILE = path.join(DATA_DIR, 'pin_dominante_sombra.json');
+const PIN_SOMBRA_MAX_DIAS = 250;
+const PIN_SOMBRA_CADA_MS = 150 * 1000;
+let ultimaVigiliaPin = 0;
+
+function loadPinSombra() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(PIN_SOMBRA_FILE, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+
+function vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
+  try {
+    if (!(spxPrice > 1000)) return;
+    if (!calendario.enHorarioDeMercado()) return;
+    if (Date.now() - ultimaVigiliaPin < PIN_SOMBRA_CADA_MS) return;
+    const exp = (enrichedExps || []).find((e) => e.dte === 0);
+    if (!exp) return;
+    ultimaVigiliaPin = Date.now();
+
+    const ahora = new Date();
+    const nowIso = ahora.toISOString();
+    const fecha = calendario.fechaET(ahora);
+    const minET = calendario.minutosET(ahora);
+    const r2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
+    const spot = r2(spxPrice);
+
+    const dias = loadPinSombra();
+    let dia = dias.find((d) => d.fecha === fecha);
+    if (!dia) {
+      dia = { fecha, regla: pinDominante.REGLA, evaluaciones: 0, dominante: null,
+              mejorIntento: null, ultima: null, trade: null };
+      dias.unshift(dia);
+    }
+
+    const dom = dominanciaRejilla(gexAbsPorStrike(exp.strikes, spxPrice));
+    if (dom && (!dia.dominante || dia.dominante.strike !== dom.strike)) {
+      dia.dominante = { strike: dom.strike, desde: nowIso };
+    }
+    const minEstable = dia.dominante ? (Date.now() - Date.parse(dia.dominante.desde)) / 60000 : 0;
+    const t = dia.trade;
+
+    if (!t) {
+      const fly = dom ? pinDominante.precioMariposa(exp.strikes, dom.strike) : null;
+      const ev = pinDominante.evaluarEntrada({ dom, minEstable, spot, minET, fly });
+      dia.evaluaciones++;
+      const lectura = {
+        at: nowIso, spot, fuenteSpot, strike: dom?.strike ?? null,
+        dominancia: r2(dom?.dominancia), dominanciaZona: r2(dom?.dominanciaZona),
+        concentracion: dom ? Math.round(dom.concentracion * 10000) / 10000 : null,
+        minEstable: Math.round(minEstable), flyMid: fly?.mid ?? null,
+        checks: ev.checks, motivo: ev.motivo,
+      };
+      dia.ultima = lectura;
+      const n = ev.checks ? Object.values(ev.checks).filter(Boolean).length : 0;
+      if (!dia.mejorIntento || n > dia.mejorIntento.n) dia.mejorIntento = { n, ...lectura };
+
+      if (ev.ok) {
+        // Confluencia y regimen, como en anotarRejillaAbs: solo con Sigma fresco.
+        // Se registran, no filtran — el 10-sep el regimen fue NEGATIVO.
+        const niveles = getFreshSigmaLevels();
+        const confluencia = niveles
+          ? [['mvs', niveles.mvs], ['callWall', niveles.callWall], ['putWall', niveles.putWall],
+             ['gammaFlip', niveles.gammaFlip], ['maxPain', niveles.maxPain]]
+              .filter(([, v]) => v > 0 && Math.abs(v - dom.strike) <= REJILLA_CONFLUENCIA_PTS).map(([k]) => k)
+          : null;
+        dia.trade = {
+          estado: 'ABIERTA', abiertoEn: nowIso, centro: dom.strike, ala: fly.ala, spot, fuenteSpot,
+          dominancia: lectura.dominancia, dominanciaZona: lectura.dominanciaZona,
+          concentracion: lectura.concentracion, minEstable: lectura.minEstable,
+          regime: niveles?.regime ?? null, confluencia,
+          creditoMid: fly.mid, creditoNatural: fly.aperturaNatural,
+          riesgoMaxUSD: Math.round((fly.ala - fly.mid) * 100),
+          ...pinDominante.nivelesDeSalida(fly.mid),
+          camino: [], salida: null,
+        };
+        console.log(`[PIN-SOMBRA] ${fecha} ENTRARIA: iron fly ${dom.strike} ala ${fly.ala}, spot ${spot}, ` +
+          `dominancia ${lectura.dominancia}x, credito ${fly.mid} (natural ${fly.aperturaNatural}). No se opera.`);
+      }
+    } else if (t.estado === 'ABIERTA') {
+      const fly = pinDominante.precioMariposa(exp.strikes, t.centro, t.ala);
+      const ev = pinDominante.evaluarSalida(t, { flyMid: fly?.mid ?? null, minET });
+      const pnlNatural = t.creditoNatural != null && fly?.cierreNatural != null
+        ? Math.round((t.creditoNatural - fly.cierreNatural) * 100) : null;
+      t.camino.push({ at: nowIso, spot, mid: fly?.mid ?? null, cierreNatural: fly?.cierreNatural ?? null,
+                      pnlMid: ev.pnlMid, pnlNatural });
+      if (ev.salir) {
+        t.estado = 'CERRADA';
+        t.salida = { at: nowIso, motivo: ev.motivo, spot, flyMid: fly.mid, flyCierreNatural: fly.cierreNatural,
+                     pnlMid: ev.pnlMid, pnlNatural };
+        console.log(`[PIN-SOMBRA] ${fecha} SALDRIA por ${ev.motivo}: P&L mid $${ev.pnlMid}, natural $${pnlNatural}.`);
+      }
+    }
+
+    fs.writeFileSync(PIN_SOMBRA_FILE, JSON.stringify(dias.slice(0, PIN_SOMBRA_MAX_DIAS), null, 1), 'utf8');
+  } catch (e) {
+    console.error('[pin-sombra] no se pudo evaluar:', e.message);
+  }
+}
+
 // ── Ciclo propio de la rejilla (2026-09-06) ────────────────────────────────
 //
 // POR QUE EXISTE. La caché la llenaba SOLO buildSPXContext, y buildSPXContext lo
@@ -5753,8 +5868,9 @@ async function refrescarRejillasGex() {
       dte: exp.dte,
       strikes: (exp.strikes || []).map(s => ({
         strike: s.strike,
-        call: { delta: s.call?.delta || 0, gamma: s.call?.gamma || 0, oi: s.call?.oi || 0, mark: s.call?.mark || 0, iv: s.call?.iv || 0 },
-        put:  { delta: s.put?.delta  || 0, gamma: s.put?.gamma  || 0, oi: s.put?.oi  || 0, mark: s.put?.mark  || 0, iv: s.put?.iv  || 0 },
+        // bid/ask (2026-09-10): solo para el precio NATURAL de la mariposa del PIN en sombra.
+        call: { delta: s.call?.delta || 0, gamma: s.call?.gamma || 0, oi: s.call?.oi || 0, mark: s.call?.mark || 0, iv: s.call?.iv || 0, bid: s.call?.bid || 0, ask: s.call?.ask || 0 },
+        put:  { delta: s.put?.delta  || 0, gamma: s.put?.gamma  || 0, oi: s.put?.oi  || 0, mark: s.put?.mark  || 0, iv: s.put?.iv  || 0, bid: s.put?.bid  || 0, ask: s.put?.ask  || 0 },
       })),
     }));
     if (!enrichedExps.length) return;
@@ -5947,6 +6063,8 @@ async function buildSPXContext() {
             oi:    s.call?.oi    || 0,
             mark:  s.call?.mark  || 0,
             iv:    s.call?.iv    || 0, // necesario para el sweep de Gamma Flip (calcGammaFlipSweep)
+            bid:   s.call?.bid   || 0, // bid/ask: precio NATURAL de la mariposa del PIN en sombra
+            ask:   s.call?.ask   || 0,
           },
           put: {
             delta: s.put?.delta || 0,
@@ -5954,6 +6072,8 @@ async function buildSPXContext() {
             oi:    s.put?.oi    || 0,
             mark:  s.put?.mark  || 0,
             iv:    s.put?.iv    || 0,
+            bid:   s.put?.bid   || 0,
+            ask:   s.put?.ask   || 0,
           },
         }))
       }));
@@ -8303,6 +8423,21 @@ app.get('/api/spx/rejilla-historica', (req, res) => {
     unidades: 'totalM, cM y pM en MILLONES de dolares de gamma por 1% de movimiento',
     nota: 'Solo para analisis. Ninguna estrategia decide con esto.',
     entradas,
+  });
+});
+
+// GET /api/spx/pin-sombra — el detector del PIN por strike dominante, en MODO
+// SOMBRA: que dia habria entrado, por que no entro los demas, y el precio real de
+// la mariposa hasta la salida. ?date=YYYY-MM-DD (dia ET). Ver vigilarPinSombra.
+app.get('/api/spx/pin-sombra', (req, res) => {
+  let dias = loadPinSombra();
+  if (req.query.date) dias = dias.filter((d) => d.fecha === req.query.date);
+  res.json({
+    ok: true,
+    regla: pinDominante.REGLA,
+    nota: 'MODO SOMBRA: no se opera. Regla v0 escrita sobre 3 dias (n=1): muestra, no validacion.',
+    unidades: 'creditoMid/creditoNatural/mid/cierreNatural en precio por accion; objetivoUSD, stopUSD, riesgoMaxUSD y pnl en dolares por contrato',
+    dias,
   });
 });
 

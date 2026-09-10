@@ -765,6 +765,65 @@ chequear('con menos de dos strikes no inventa dominancia',
          dominanciaRejilla([{ strike: 7700, calls: 1, puts: 1, total: 2 }]) === null);
 chequear('con la rejilla vacia devuelve null', dominanciaRejilla([]) === null);
 
+// El PIN por strike dominante (2026-09-10), en MODO SOMBRA. No opera, pero lo que
+// apunta es la muestra con la que se va a decidir si algun dia opera: si la regla
+// o el P&L salen mal aqui, la muestra entera nace torcida. Casos con las cifras
+// reales del 9 y el 10-sep-2026 (estudio: 07_pinning/README.md §6).
+seccion('El PIN por strike dominante, sombra (src/pin_dominante.js)');
+
+const pinD = require('../src/pin_dominante');
+const pata = (mark, bid, ask) => ({ mark, bid, ask });
+const cadenaFly = [
+  { strike: 7585, call: pata(20, 19.8, 20.2), put: pata(3.10, 3.0, 3.2) },
+  { strike: 7600, call: pata(10, 9.9, 10.1),  put: pata(8.00, 7.9, 8.1) },
+  { strike: 7615, call: pata(3.20, 3.1, 3.3), put: pata(21, 20.8, 21.2) },
+];
+const fp = pinD.precioMariposa(cadenaFly, 7600, 15);
+chequear('mariposa: mid = cortas del centro menos alas', fp && fp.mid === 11.7, `dio ${fp && fp.mid}`);
+chequear('mariposa: se cobra MENOS que el mid al abrir cruzando',
+         fp.aperturaNatural === 11.3 && fp.aperturaNatural < fp.mid, `dio ${fp.aperturaNatural}`);   // 9,9+7,9-3,3-3,2
+chequear('mariposa: se paga MAS que el mid al cerrar cruzando',
+         fp.cierreNatural === 12.1 && fp.cierreNatural > fp.mid, `dio ${fp.cierreNatural}`);        // 10,1+8,1-3,1-3,0
+chequear('mariposa: sin un ala no se inventa precio', pinD.precioMariposa(cadenaFly, 7600, 20) === null);
+const sinPuntas = cadenaFly.map((s) => ({ strike: s.strike, call: { mark: s.call.mark }, put: { mark: s.put.mark } }));
+chequear('mariposa: sin bid/ask sale el mid y el natural queda null',
+         pinD.precioMariposa(sinPuntas, 7600, 15).mid === 11.7 && pinD.precioMariposa(sinPuntas, 7600, 15).cierreNatural === null);
+
+// 10-sep 10:20 ET: el caso que origino la regla. Tiene que entrar.
+const dom10 = { strike: 7600, dominancia: 1.82, dominanciaZona: 2.65 };
+let evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 42, spot: 7596.59, minET: 10 * 60 + 20, fly: { mid: 11.81 } });
+chequear('PIN: el 10-sep a las 10:20 entra', evp.ok, evp.motivo);
+// 9-sep manana: el dominante no dominaba (1,04x).
+evp = pinD.evaluarEntrada({ dom: { strike: 7650, dominancia: 1.04, dominanciaZona: 1.04 }, minEstable: 60,
+                            spot: 7649.7, minET: 10 * 60 + 34, fly: { mid: 11.15 } });
+chequear('PIN: el 9-sep por la manana NO entra (sin dominancia)', !evp.ok && !evp.checks.dominancia, evp.motivo);
+// 9-sep 15:18: dominaba 1,80x pero la mariposa ya era gamma de ultima hora.
+evp = pinD.evaluarEntrada({ dom: { strike: 7650, dominancia: 1.8, dominanciaZona: 2.71 }, minEstable: 32,
+                            spot: 7646.18, minET: 15 * 60 + 18, fly: { mid: 6.43 } });
+chequear('PIN: el 9-sep a las 15:18 NO entra (tarde y credito del 43%)',
+         !evp.ok && !evp.checks.ventana && !evp.checks.credito, evp.motivo);
+evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 42, spot: 7606.2, minET: 10 * 60 + 40, fly: { mid: 12 } });
+chequear('PIN: a 6 pts del dominante NO entra (credito con intrinseco)', !evp.ok && !evp.checks.cerca, evp.motivo);
+evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 20, spot: 7600, minET: 10 * 60 + 20, fly: { mid: 12 } });
+chequear('PIN: con el dominante recien cambiado NO entra', !evp.ok && !evp.checks.estable, evp.motivo);
+chequear('PIN: sin rejilla no entra ni revienta', pinD.evaluarEntrada({ dom: null, spot: 7600, minET: 620 }).ok === false);
+
+// Salidas, en dolares por contrato (gotcha 3: el credito va por accion).
+const tp = { creditoMid: 11.81, ...pinD.nivelesDeSalida(11.81) };
+chequear('PIN: el objetivo es el 10% del credito en dolares', tp.objetivoUSD === 118.1, `dio ${tp.objetivoUSD}`);
+let sal = pinD.evaluarSalida(tp, { flyMid: 10.6, minET: 12 * 60 });
+chequear('PIN: recomprar a 10,60 toca el objetivo', sal.salir && sal.motivo === 'OBJETIVO' && sal.pnlMid === 121, `dio ${sal.motivo} ${sal.pnlMid}`);
+sal = pinD.evaluarSalida(tp, { flyMid: 13.4, minET: 12 * 60 });
+chequear('PIN: recomprar a 13,40 salta el stop de $150', sal.salir && sal.motivo === 'STOP', `dio ${sal.motivo} ${sal.pnlMid}`);
+sal = pinD.evaluarSalida(tp, { flyMid: 11.5, minET: 15 * 60 });
+chequear('PIN: a las 15:00 sale por tiempo', sal.salir && sal.motivo === 'TIEMPO');
+sal = pinD.evaluarSalida(tp, { flyMid: 11.5, minET: 12 * 60 });
+chequear('PIN: entre medias sigue abierta', !sal.salir && sal.pnlMid === 31, `dio ${sal.pnlMid}`);
+chequear('PIN: sin precio de la mariposa no se cierra a ciegas', !pinD.evaluarSalida(tp, { flyMid: null, minET: 15 * 60 }).salir);
+chequear('PIN: al vencimiento se paga la distancia al centro',
+         Math.abs(pinD.valorAlVencimiento(7636.36, 7650, 15) - 13.64) < 1e-9);
+chequear('PIN: ...y nunca mas que el ala', pinD.valorAlVencimiento(7600, 7650, 15) === 15);
+
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
 
 const cal = require('../src/calendario_nyse');

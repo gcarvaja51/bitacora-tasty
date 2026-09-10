@@ -1114,6 +1114,23 @@ reciente primero, cap 10000 ≈ 2 semanas).
 `gammaFlip` **interno** — la estrategia no lo usa en su lógica (solo régimen y muros, que sí
 vienen de Sigma), el log engaña pero la decisión no.
 
+### Rejilla absoluta y PIN por strike dominante — SOLO ANÁLISIS, no opera
+Estudio completo en `mentoria alejandro/estrategias automatizadas/07_pinning/README.md`.
+
+| | |
+|---|---|
+| `gexAbsPorStrike` / `dominanciaRejilla` (`src/spx.js`) | Gamma por strike con calls y puts en **valor absoluto**, sin netear. `gexPorStrike` resta y borra justo al candidato a pin |
+| `GET /api/spx/rejilla-historica` | Toma cada 30 min (`rejilla_abs_historica.json`): dominante, dominancia, confluencia, prima de la mariposa. Cifras en **millones** |
+| `GET /api/spx/pin-sombra` | Detector v0 en **modo sombra** (`src/pin_dominante.js`, `vigilarPinSombra`). Cada ≤3 min sobre el 0DTE: si el setup entraría, y desde ahí el mark **y el natural** de la iron fly hasta la salida (10% del crédito / −$150 / 15:00) |
+
+- **No manda órdenes.** La regla v0 sale de 3 días (n=1). Los umbrales viven en
+  `REGLA` dentro del módulo, **no en `spx_config`**: no deciden dinero, y así el gotcha 1
+  no aplica. Pasar a operar exige muestra, el Auditor y el visto bueno del usuario.
+- El régimen de gamma **no filtra**; se registra. El día que la originó (10-sep) fue NEGATIVO.
+- El estado del día vive en `pin_dominante_sombra.json`, **no en memoria**: un despliegue
+  a media sesión no pierde la estabilidad del dominante ni una mariposa abierta.
+- Las cadenas enriquecidas llevan `bid`/`ask` desde el 2026-09-10 solo para esto.
+
 ### IV Rank
 Endpoint correcto: **`GET /market-metrics?symbols=SYMBOL`** (coma, no `symbols[]=`), campo
 `implied-volatility-index-rank` (decimal 0-1, ×100). El viejo

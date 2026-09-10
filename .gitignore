@@ -107,6 +107,10 @@ spx_30m_*.png
 # local, y desde 2026-09-06 tambien el humo de POST de scripts/pruebas.js, que
 # manda una lectura de prueba y la borra. Es residuo, no dato.
 sigma_terminal_levels.json
+# Mismo caso (2026-09-10): el registro de la rejilla absoluta y el del PIN en
+# sombra viven en el volumen de Railway; la copia de la raiz es del servidor local.
+rejilla_abs_historica.json
+pin_dominante_sombra.json
 
 # Volcados de depuracion sueltos. Se movieron aqui el 2026-09-06 desde la raiz,
 # donde llevaban dias apareciendo en cada `git status` con riesgo de colarse en un
