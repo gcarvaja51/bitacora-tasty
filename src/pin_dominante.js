@@ -22,13 +22,18 @@
 // objetivo, stop y P&L en DOLARES por contrato.
 
 const REGLA = {
-  version:          'v0',
+  // v0.1 (2026-09-10, decision del usuario tras el cierre): ala principal 20 en vez de
+  // 15 — "abrir las alas a 20 puntos por lo menos para poder lograr el objetivo mas
+  // rapido; no es bueno quedarse muchas horas en un trade de IB". Y se siguen las
+  // TRES alas a la vez con la misma entrada, para comparar con la misma muestra.
+  version:          'v0.1',
   ventanaEntradaET: [10 * 60, 13 * 60 + 30], // antes: apertura. Despues: gamma de ultima hora (9-sep)
   minDominancia:    1.8,   // mayor / segundo strike
   minDomZona:       2.5,   // mayor / primero a >10 pts — descarta racimos de strikes contiguos
   minMinEstable:    30,    // el mismo strike manda desde hace al menos N minutos
   maxDistPts:       5,     // spot pegado al dominante: el credito es valor temporal, no intrinseco
-  ala:              15,
+  ala:              20,    // ala PRINCIPAL: la que decide el filtro de credito de la entrada
+  alasSeguimiento:  [10, 15, 20], // cada una se sigue como una mariposa propia hasta su salida
   minCreditoAla:    0.70,  // credito >= 70% del ala => riesgo max <= 30% del ala. Filtra lo tardio
   tpPct:            0.10,  // objetivo: 10% del credito (Guillermo)
   stopUSD:          150,

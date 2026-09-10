@@ -1140,7 +1140,7 @@ Estudio completo en `mentoria alejandro/estrategias automatizadas/07_pinning/REA
 |---|---|
 | `gexAbsPorStrike` / `dominanciaRejilla` (`src/spx.js`) | Gamma por strike con calls y puts en **valor absoluto**, sin netear. `gexPorStrike` resta y borra justo al candidato a pin |
 | `GET /api/spx/rejilla-historica` | Toma cada 30 min (`rejilla_abs_historica.json`): dominante, dominancia, confluencia, prima de la mariposa. Cifras en **millones** |
-| `GET /api/spx/pin-sombra` | Detector v0 en **modo sombra** (`src/pin_dominante.js`, `vigilarPinSombra`). Cada ≤3 min sobre el 0DTE: si el setup entraría, y desde ahí el mark **y el natural** de la iron fly hasta la salida (10% del crédito / −$150 / 15:00) |
+| `GET /api/spx/pin-sombra` | Detector en **modo sombra** (`src/pin_dominante.js`, `vigilarPinSombra`). Cada ≤3 min sobre el 0DTE: si el setup entraría, y desde ahí el mark **y el natural** de la iron fly hasta la salida (10% del crédito / −$150 / 15:00). **v0.1** (2026-09-10): el ala **principal es 20** (decide el filtro de crédito) y se siguen **las tres alas, 10/15/20**, cada una como mariposa propia en `trade.alas` con su propia salida |
 
 - **No manda órdenes.** La regla v0 sale de 3 días (n=1). Los umbrales viven en
   `REGLA` dentro del módulo, **no en `spx_config`**: no deciden dinero, y así el gotcha 1

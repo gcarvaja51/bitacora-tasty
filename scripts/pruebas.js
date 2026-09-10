@@ -797,22 +797,29 @@ const sinPuntas = cadenaFly.map((s) => ({ strike: s.strike, call: { mark: s.call
 chequear('mariposa: sin bid/ask sale el mid y el natural queda null',
          pinD.precioMariposa(sinPuntas, 7600, 15).mid === 11.7 && pinD.precioMariposa(sinPuntas, 7600, 15).cierreNatural === null);
 
-// 10-sep 10:20 ET: el caso que origino la regla. Tiene que entrar.
+// 10-sep 10:20 ET: el caso que origino la regla. Tiene que entrar. Desde v0.1 el
+// ala principal es 20: credito de la toma real de las 10:40, 14,75 (74% del ala).
+chequear('PIN: el ala principal es 20 y se siguen 10, 15 y 20',
+         pinD.REGLA.ala === 20 && pinD.REGLA.alasSeguimiento.join() === '10,15,20');
 const dom10 = { strike: 7600, dominancia: 1.82, dominanciaZona: 2.65 };
-let evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 42, spot: 7596.59, minET: 10 * 60 + 20, fly: { mid: 11.81 } });
+let evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 42, spot: 7596.59, minET: 10 * 60 + 20, fly: { mid: 14.75 } });
 chequear('PIN: el 10-sep a las 10:20 entra', evp.ok, evp.motivo);
+// El filtro de credito mira el ala PRINCIPAL: el credito del ala 15 (11,81) es
+// solo el 59% de 20 y no puede colarse como si fuera el de 20.
+evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 42, spot: 7596.59, minET: 10 * 60 + 20, fly: { mid: 11.81 } });
+chequear('PIN: un credito de ala 15 no pasa el filtro del ala 20', !evp.ok && !evp.checks.credito, evp.motivo);
 // 9-sep manana: el dominante no dominaba (1,04x).
 evp = pinD.evaluarEntrada({ dom: { strike: 7650, dominancia: 1.04, dominanciaZona: 1.04 }, minEstable: 60,
-                            spot: 7649.7, minET: 10 * 60 + 34, fly: { mid: 11.15 } });
+                            spot: 7649.7, minET: 10 * 60 + 34, fly: { mid: 13.35 } });
 chequear('PIN: el 9-sep por la manana NO entra (sin dominancia)', !evp.ok && !evp.checks.dominancia, evp.motivo);
-// 9-sep 15:18: dominaba 1,80x pero la mariposa ya era gamma de ultima hora.
+// 9-sep 15:18: dominaba 1,80x pero la mariposa ya era gamma de ultima hora (ala 20: 6,68 = 33%).
 evp = pinD.evaluarEntrada({ dom: { strike: 7650, dominancia: 1.8, dominanciaZona: 2.71 }, minEstable: 32,
-                            spot: 7646.18, minET: 15 * 60 + 18, fly: { mid: 6.43 } });
-chequear('PIN: el 9-sep a las 15:18 NO entra (tarde y credito del 43%)',
+                            spot: 7646.18, minET: 15 * 60 + 18, fly: { mid: 6.68 } });
+chequear('PIN: el 9-sep a las 15:18 NO entra (tarde y credito del 33%)',
          !evp.ok && !evp.checks.ventana && !evp.checks.credito, evp.motivo);
-evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 42, spot: 7606.2, minET: 10 * 60 + 40, fly: { mid: 12 } });
+evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 42, spot: 7606.2, minET: 10 * 60 + 40, fly: { mid: 14.75 } });
 chequear('PIN: a 6 pts del dominante NO entra (credito con intrinseco)', !evp.ok && !evp.checks.cerca, evp.motivo);
-evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 20, spot: 7600, minET: 10 * 60 + 20, fly: { mid: 12 } });
+evp = pinD.evaluarEntrada({ dom: dom10, minEstable: 20, spot: 7600, minET: 10 * 60 + 20, fly: { mid: 14.75 } });
 chequear('PIN: con el dominante recien cambiado NO entra', !evp.ok && !evp.checks.estable, evp.motivo);
 chequear('PIN: sin rejilla no entra ni revienta', pinD.evaluarEntrada({ dom: null, spot: 7600, minET: 620 }).ok === false);
 

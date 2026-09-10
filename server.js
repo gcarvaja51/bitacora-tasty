@@ -5767,32 +5767,46 @@ function vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
              ['gammaFlip', niveles.gammaFlip], ['maxPain', niveles.maxPain]]
               .filter(([, v]) => v > 0 && Math.abs(v - dom.strike) <= REJILLA_CONFLUENCIA_PTS).map(([k]) => k)
           : null;
+        // Una mariposa por ala (v0.1): misma entrada, cada una con su credito, su
+        // objetivo y su salida. La principal (REGLA.ala) es la que paso el filtro.
+        const alas = {};
+        for (const a of pinDominante.REGLA.alasSeguimiento) {
+          const f = pinDominante.precioMariposa(exp.strikes, dom.strike, a);
+          if (!f) continue;
+          alas['a' + a] = {
+            ala: a, estado: 'ABIERTA', creditoMid: f.mid, creditoNatural: f.aperturaNatural,
+            riesgoMaxUSD: Math.round((a - f.mid) * 100),
+            ...pinDominante.nivelesDeSalida(f.mid), salida: null,
+          };
+        }
         dia.trade = {
-          estado: 'ABIERTA', abiertoEn: nowIso, centro: dom.strike, ala: fly.ala, spot, fuenteSpot,
+          estado: 'ABIERTA', abiertoEn: nowIso, centro: dom.strike, alaPrincipal: fly.ala, spot, fuenteSpot,
           dominancia: lectura.dominancia, dominanciaZona: lectura.dominanciaZona,
           concentracion: lectura.concentracion, minEstable: lectura.minEstable,
           regime: niveles?.regime ?? null, confluencia,
-          creditoMid: fly.mid, creditoNatural: fly.aperturaNatural,
-          riesgoMaxUSD: Math.round((fly.ala - fly.mid) * 100),
-          ...pinDominante.nivelesDeSalida(fly.mid),
-          camino: [], salida: null,
+          alas, camino: [],
         };
-        console.log(`[PIN-SOMBRA] ${fecha} ENTRARIA: iron fly ${dom.strike} ala ${fly.ala}, spot ${spot}, ` +
-          `dominancia ${lectura.dominancia}x, credito ${fly.mid} (natural ${fly.aperturaNatural}). No se opera.`);
+        console.log(`[PIN-SOMBRA] ${fecha} ENTRARIA: iron fly ${dom.strike} (alas ${Object.keys(alas).join('/')}), ` +
+          `spot ${spot}, dominancia ${lectura.dominancia}x, credito ala ${fly.ala} ${fly.mid}. No se opera.`);
       }
     } else if (t.estado === 'ABIERTA') {
-      const fly = pinDominante.precioMariposa(exp.strikes, t.centro, t.ala);
-      const ev = pinDominante.evaluarSalida(t, { flyMid: fly?.mid ?? null, minET });
-      const pnlNatural = t.creditoNatural != null && fly?.cierreNatural != null
-        ? Math.round((t.creditoNatural - fly.cierreNatural) * 100) : null;
-      t.camino.push({ at: nowIso, spot, mid: fly?.mid ?? null, cierreNatural: fly?.cierreNatural ?? null,
-                      pnlMid: ev.pnlMid, pnlNatural });
-      if (ev.salir) {
-        t.estado = 'CERRADA';
-        t.salida = { at: nowIso, motivo: ev.motivo, spot, flyMid: fly.mid, flyCierreNatural: fly.cierreNatural,
-                     pnlMid: ev.pnlMid, pnlNatural };
-        console.log(`[PIN-SOMBRA] ${fecha} SALDRIA por ${ev.motivo}: P&L mid $${ev.pnlMid}, natural $${pnlNatural}.`);
+      const punto = { at: nowIso, spot };
+      for (const [k, m] of Object.entries(t.alas || {})) {
+        if (m.estado !== 'ABIERTA') continue;
+        const fly = pinDominante.precioMariposa(exp.strikes, t.centro, m.ala);
+        const ev = pinDominante.evaluarSalida(m, { flyMid: fly?.mid ?? null, minET });
+        const pnlNatural = m.creditoNatural != null && fly?.cierreNatural != null
+          ? Math.round((m.creditoNatural - fly.cierreNatural) * 100) : null;
+        punto[k] = { mid: fly?.mid ?? null, cierreNatural: fly?.cierreNatural ?? null, pnlMid: ev.pnlMid, pnlNatural };
+        if (ev.salir) {
+          m.estado = 'CERRADA';
+          m.salida = { at: nowIso, motivo: ev.motivo, spot, flyMid: fly.mid, flyCierreNatural: fly.cierreNatural,
+                       pnlMid: ev.pnlMid, pnlNatural };
+          console.log(`[PIN-SOMBRA] ${fecha} ala ${m.ala} SALDRIA por ${ev.motivo}: P&L mid $${ev.pnlMid}, natural $${pnlNatural}.`);
+        }
       }
+      t.camino.push(punto);
+      if (Object.values(t.alas || {}).every((m) => m.estado !== 'ABIERTA')) t.estado = 'CERRADA';
     }
 
     fs.writeFileSync(PIN_SOMBRA_FILE, JSON.stringify(dias.slice(0, PIN_SOMBRA_MAX_DIAS), null, 1), 'utf8');
