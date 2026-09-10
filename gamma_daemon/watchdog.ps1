@@ -169,9 +169,25 @@ if (-not $problema) {
 
 $relanzado = $false
 if (-not $vivo) {
-  # La tarea termino: /Run devuelve exactamente una instancia.
-  try { schtasks /Run /TN 'GammaDaemon' | Out-Null; $relanzado = $true; Write-WLog 'GammaDaemon relanzado por el vigilante' }
-  catch { Write-WLog "no se pudo relanzar: $($_.Exception.Message)" }
+  # (2026-09-10) Antes: schtasks /Run 'GammaDaemon'. La tarea lanza start.bat con
+  # consola VISIBLE, asi que cada relanzamiento abria una ventana en plena sesion, y
+  # cerrarla mata el daemon (0xC000013A). Ese dia fue un bucle: ventana, cierre,
+  # daemon muerto, relanzamiento 10 min despues, otra ventana. Ahora se lanza oculto,
+  # igual que el procedimiento manual de CLAUDE.md.
+  # Sin schtasks no hay IgnoreNew que evite duplicados, asi que se mira a mano: si el
+  # bucle de start.bat sigue vivo, node esta en sus ~16s de reinicio y lo relanza el
+  # solo. Lanzar otro dejaria dos daemons.
+  $bucle = Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" -ErrorAction SilentlyContinue |
+           Where-Object { $_.CommandLine -match 'gamma_daemon\\start\.bat' }
+  if ($bucle) { Write-WLog 'node no existe pero el bucle de start.bat esta vivo: se relanza solo, no se lanza otro' }
+  else {
+    try {
+      Start-Process cmd.exe -ArgumentList '/c','C:\Users\gcarv\bitacora-tasty\gamma_daemon\start.bat' `
+        -WorkingDirectory 'C:\Users\gcarv\bitacora-tasty\gamma_daemon' -WindowStyle Hidden
+      $relanzado = $true; Write-WLog 'GammaDaemon relanzado (oculto) por el vigilante'
+    }
+    catch { Write-WLog "no se pudo relanzar: $($_.Exception.Message)" }
+  }
 }
 elseif ($degradado) {
   # Vivo pero inutil. Se mata SOLO el node del daemon y start.bat lo relanza.

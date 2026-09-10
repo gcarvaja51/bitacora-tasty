@@ -1199,6 +1199,19 @@ Start-Process cmd.exe -ArgumentList "/c","<repo>\gamma_daemon\start.bat" -Workin
 ```
 Queda colgado de un `cmd.exe` propio, independiente de la sesión que lo lanzó.
 
+**La consola visible es una trampa (2026-09-10).** La Tarea `GammaDaemon` ejecuta `start.bat`
+directamente, así que abre una consola a la vista, y cerrarla mata el daemon. Ese día el
+vigilante relanzaba por `schtasks /Run` cada 10 min, Guillermo cerraba cada ventana, y el
+daemon pasó dos horas muriendo y reviviendo en pleno mercado. Desde entonces
+`watchdog.ps1` relanza con el `Start-Process ... -WindowStyle Hidden` de arriba (y no lo hace
+si el bucle de `start.bat` sigue vivo, para no duplicar). La Tarea en sí **no se pudo
+cambiar sin administrador**; hasta que alguien lo haga con PowerShell elevado, al iniciar
+sesión sigue apareciendo una ventana:
+```powershell
+$a = New-ScheduledTaskAction -Execute "wscript.exe" -Argument '"C:\Users\gcarv\bitacora-tasty\scripts\oculto.vbs" "C:\Users\gcarv\bitacora-tasty\gamma_daemon\start.bat"' -WorkingDirectory "C:\Users\gcarv\bitacora-tasty\gamma_daemon"
+Set-ScheduledTask -TaskName "GammaDaemon" -Action $a
+```
+
 **En `start.bat` no usar `timeout`** — sin consola interactiva falla al instante ("Input
 redirection is not supported") en vez de esperar, y el bucle de reinicio queda en caliente:
 dejó **128 reinicios en un solo segundo** (`daemon_crash_log.txt`). Usar
