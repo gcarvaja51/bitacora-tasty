@@ -29,6 +29,11 @@ se mueven juntas, no se puede saber cuál funcionó. Regenerar el control de cam
 
 **Anotado:** 2026-08-05 · **Evidencia:** sección dedicada en CLAUDE.md
 
+> **EN ESPERA desde el 2026-09-10 (decisión de Guillermo).** Ese día se arregló el listón
+> tras pérdida (`182c3e2`, Impacto ALTO / DIRECCIONAL), que abre período el 11-sep. DIR-1 no
+> se aplica en la misma ventana para no mover dos cosas de TENDENCIA a la vez: **no antes de
+> la ventana del 18/19-sep**, aunque el Auditor diga MEJORA.
+
 En `entryMode: 'pullback'` la dirección la fija una sola línea (`calcFase15mSimple` en
 `src/camino_b.js`): el marco de 15m decide y el de 2m solo aporta timing. La condición
 `precio > EMA20 && EMA10 > EMA20 && EMA20 subiendo` arrastra **5 horas de memoria**, así

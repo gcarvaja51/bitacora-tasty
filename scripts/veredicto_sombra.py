@@ -127,6 +127,11 @@ PROPUESTAS = [
         # simula: usa trades REALES con su resultado real contra la cadena, y los
         # parte segun el MACD de 15m que habia en el instante de la señal.
         "instrumento": "sombra_direccion",
+        # Decision de Guillermo del 2026-09-10: el liston tras perdida se arreglo
+        # ese dia (182c3e2, Impacto ALTO / DIRECCIONAL) y DIR-1 NO se aplica en la
+        # misma ventana, para no mover dos cosas de TENDENCIA a la vez. Aunque el
+        # veredicto saliera MEJORA, no se aplica antes de esta fecha.
+        "espera": "no se aplica antes de la ventana del 2026-09-18/19 (182c3e2 abrio periodo el 11-sep)",
     },
     {
         "id": "DIR-2", "familia": "DIRECCIONAL", "nivel": "alto",
@@ -326,6 +331,8 @@ def parte(fecha, filas, datos):
         m = (f["detalle"] or {}).get("motivo")
         if m:
             L.append(f"      {m}")
+        if f.get("espera"):
+            L.append(f"      EN ESPERA: {f['espera']}")
     # Un veredicto de MUESTRA INSUFICIENTE no es lo mismo que "no se ve nada". Los
     # numeros que apuntan a algun lado se muestran aparte, marcados como NO
     # concluyentes — sirven para que el Ingeniero de Datos sepa donde seguir
