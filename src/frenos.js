@@ -138,4 +138,30 @@ function frenosDeclarados(cfgReversion = {}) {
   ];
 }
 
-module.exports = { evaluarCircuitoDiario, frenosDeclarados, MAX_DRAWDOWN_POR_DEFECTO };
+/**
+ * El liston tras perdida de TENDENCIA: ¿el ultimo trade de hoy perdio?
+ *
+ * BUG del 2026-09-10 (revision semanal del Ingeniero de Datos, ROJO): la regla
+ * miraba `ultimo.pnl`, los fills del sandbox — el mismo error que este archivo
+ * ya habia corregido para el circuito diario el 22-ago, y que la Fase 0 dio por
+ * cerrado. En 41 cierres desde el 17-ago el signo no coincidia en 15 (37%): vio
+ * 9 de 17 perdidas reales y tomo 7 ganadores como perdidas. El 09-sep 13:06
+ * entro un score 85 porque el sandbox marcaba +$50 en un SL de -$210 reales.
+ *
+ * Se prueba aparte (scripts/pruebas.js) por la misma razon que el circuito: la
+ * version inline leia del disco y no habia forma de verificarla.
+ *
+ * @param cerradosHoy  ejecuciones TENDENCIA cerradas hoy, la mas reciente primero
+ * @returns {{alto:boolean, pnl:number|null, fuente:string|null, pendiente:boolean}}
+ */
+function evaluarListonTrasPerdida(cerradosHoy) {
+  if (!cerradosHoy || !cerradosHoy.length) return { alto: false, pnl: null, fuente: null, pendiente: false };
+  const r = resultadoOficial(cerradosHoy[0]);
+  // Sin resultado todavia: ante la duda frena, como antes. El libro propio se
+  // cierra en el mismo ciclo que manda la orden, asi que esta ventana es MAS
+  // corta que con el pnl del broker, que esperaba a la reconciliacion.
+  if (r.pendiente || r.pnl == null) return { alto: true, pnl: null, fuente: r.fuente, pendiente: true };
+  return { alto: r.pnl < 0, pnl: r.pnl, fuente: r.fuente, pendiente: false };
+}
+
+module.exports = { evaluarCircuitoDiario, frenosDeclarados, evaluarListonTrasPerdida, MAX_DRAWDOWN_POR_DEFECTO };

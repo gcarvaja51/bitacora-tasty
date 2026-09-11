@@ -427,6 +427,27 @@ chequear('con el cierre ya mandado hace rato, deja de bloquear',
 chequear('con el cierre recien mandado sigue bloqueando (gracia de 90s)',
   bloquea({ status: 'filled', strategyFamily: 'TENDENCIA', closeOrderSentAt: reciente }) === true);
 
+// ── 2b-ter. El liston tras perdida ─────────────────────────────────────────
+seccion('El liston tras perdida (evaluarListonTrasPerdida)');
+
+const { evaluarListonTrasPerdida } = require('../src/frenos');
+// El caso real del 09-sep 13:06: SL de -$210 contra la cadena real que el
+// sandbox anotaba +$50. Con la regla vieja entro un score 85; tenia que pedir 90.
+let lt = evaluarListonTrasPerdida([{ status: 'closed', closedAt: '2026-09-09T17:00:00Z', pnl: 50,
+  paperPnl: { bruto: -210, neto: -214.2, confiable: true } }]);
+chequear('perdida real con el sandbox en verde: sube el liston', lt.alto === true && lt.pnl === -210, JSON.stringify(lt));
+// El reves: el sandbox marca perdida y la cadena real gano. No debe frenar.
+lt = evaluarListonTrasPerdida([{ status: 'closed', closedAt: '2026-09-09T17:00:00Z', pnl: -40,
+  paperPnl: { bruto: 95, neto: 90.8, confiable: true } }]);
+chequear('ganancia real con el sandbox en rojo: NO sube el liston', lt.alto === false, JSON.stringify(lt));
+chequear('solo mira el ULTIMO cierre del dia',
+  evaluarListonTrasPerdida([{ status: 'closed', closedAt: '2026-09-09T18:00:00Z', paperPnl: { bruto: 60, confiable: true } },
+                            { status: 'closed', closedAt: '2026-09-09T17:00:00Z', paperPnl: { bruto: -200, confiable: true } }]).alto === false);
+// Sin resultado todavia: ante la duda frena, igual que antes.
+lt = evaluarListonTrasPerdida([{ status: 'closed', closedAt: '2026-09-09T17:00:00Z' }]);
+chequear('sin resultado asentado: frena por precaucion', lt.alto === true && lt.pendiente === true);
+chequear('sin cierres hoy: liston base', evaluarListonTrasPerdida([]).alto === false);
+
 // ── 2b-bis. Los apagones del broker ────────────────────────────────────────
 seccion('Apagones del broker (src/apagon_broker.js)');
 

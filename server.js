@@ -6854,13 +6854,15 @@ function minScoreEfectivoDireccional(cfg) {
       .filter(e => e.strategyFamily === 'TENDENCIA' && e.status === 'closed'
                 && (e.filledAt || '').slice(0, 10) === hoy && e.closedAt)
       .sort((a, b) => b.closedAt.localeCompare(a.closedAt));
-    if (!cerradosHoy.length) return { valor: base, motivo: null };
-    const ultimo = cerradosHoy[0];
-    if (typeof ultimo.pnl !== 'number') {
+    // El resultado sale de la cadena real (resultadoOficial), no de `ultimo.pnl`
+    // del sandbox — ver evaluarListonTrasPerdida en src/frenos.js (bug 2026-09-10).
+    const { evaluarListonTrasPerdida } = require('./src/frenos');
+    const l = evaluarListonTrasPerdida(cerradosHoy);
+    if (l.pendiente) {
       return { valor: alto, motivo: `el trade anterior de hoy todavía no tiene P&L confirmado — se exige ${alto}% por precaución` };
     }
-    if (ultimo.pnl < 0) {
-      return { valor: alto, motivo: `el trade anterior de hoy cerró en $${ultimo.pnl} — se exige ${alto}%` };
+    if (l.alto) {
+      return { valor: alto, motivo: `el trade anterior de hoy cerró en $${l.pnl} (${l.fuente}) — se exige ${alto}%` };
     }
     return { valor: base, motivo: null };
   } catch(e) {

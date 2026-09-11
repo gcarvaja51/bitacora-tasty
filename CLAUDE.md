@@ -39,7 +39,7 @@ Tradier. Node.js/Express + vanilla JS (sin framework frontend).
 | `src/spx_indicators.js` | Scores (`calcPlaybookScore`, `calcReversionScore`), SMA/RSI/POC/estructura |
 | `src/camino_b.js` | Entrada direccional (`calcPullbackEntry`, fase 15m) |
 | `src/impulsos.js` | Conteo de impulsos de 15m → escalera de TP y listón de score |
-| `src/frenos.js` | Circuito diario. **Declara cuáles frenos están realmente activos** |
+| `src/frenos.js` | Circuito diario y listón tras pérdida de TENDENCIA (`evaluarListonTrasPerdida`, lee `resultadoOficial` desde el 2026-09-10 — antes leía el `pnl` del sandbox). **Declara cuáles frenos están realmente activos** |
 | `src/apagon_broker.js` | Detecta los apagones del sandbox de Tradier y **separa su culpa de la nuestra** |
 | `src/impuestos.js` | Hoja fiscal DIAN — **local, no desplegar** |
 | `src/calendario_nyse.js` + `.json` | **¿Hay mercado hoy?** — la única fuente. Feriados, medios días, ventanas. Ver gotcha 12 |
