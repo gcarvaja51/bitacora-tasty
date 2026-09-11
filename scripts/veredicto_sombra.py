@@ -186,25 +186,9 @@ PROPUESTAS = [
         # falta el script que lo parta, al estilo de sombra_direccion.py.
         "instrumento": None,
     },
-    {
-        "id": "REV-8", "familia": "REVERSION", "nivel": "alto",
-        "titulo": "La salida anticipada de la Reversion en 0.6 o en 0.9 (earlyExitPct)",
-        "pregunta": "¿Restaurar earlyExitPct a 0.9 (decidido el 2026-08-02) rinde mejor que el 0.6 aparecido el 2026-08-13?",
-        # Pasada al Auditor por el usuario el 2026-09-10: era una decision
-        # pendiente desde el 13-ago y no se decide sin veredicto. Produccion
-        # sigue en 0.6 mientras tanto.
-        #
-        # OJO con la premisa: e376fea (2026-08-09) dice que el usuario PIDIO bajar
-        # a 0.6 y que una migracion vieja lo devolvia a 0.9. Si es asi, la ultima
-        # decision explicita es 0.6 y "restaurar" seria revertirla. Confirmar con
-        # el usuario antes de juzgar.
-        #
-        # SIN INSTRUMENTO: no hay sombra que reproduzca la salida con otro
-        # porcentaje. Se puede construir hacia atras (entryPrice, smaTarget y
-        # direction estan en las 25 Reversiones cerradas desde el 16-ago, y el
-        # log tiene el spot de cada ciclo): re-simular cada salida con 0.6 y 0.9.
-        "instrumento": None,
-    },
+    # REV-8 (earlyExitPct 0.6 vs 0.9) RETIRADA el 2026-09-10: Guillermo confirmo
+    # que 0.6 es su decision del 09-ago (e376fea). La premisa "restaurar 0.9"
+    # estaba invertida. Ver SUGERENCIAS.md, propuesta 8.
     {
         "id": "NEU-2", "familia": "NEUTRAL", "nivel": "medio",
         "titulo": "El piso de credito y el limite de precio son la misma perilla",

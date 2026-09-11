@@ -365,7 +365,13 @@ el resultado de la Reversión.
 
 ---
 
-### 8. La salida anticipada de la Reversión en 0.6 o en 0.9 — REVERSION, impacto ALTO
+### ~~8. La salida anticipada de la Reversión en 0.6 o en 0.9 — REVERSION, impacto ALTO~~
+
+> **RETIRADA el 2026-09-10.** Guillermo confirmó que **0.6 es su decisión** (la del 09-ago,
+> `e376fea`). La premisa «restaurar 0.9» estaba invertida: el 13-ago no apareció una
+> corrupción, se quedó por fin el valor pedido. Sale de `PROPUESTAS` del Auditor. Queda
+> anotado, para quien vuelva sobre la salida de la Reversión, que los datos apuntan al
+> límite de tiempo (`TIME_STOP` 17 de 25), no a este porcentaje.
 
 **Anotado:** 2026-09-10 · **Origen:** decisión pendiente desde el 2026-08-13, pasada al Auditor
 por el usuario el 2026-09-10 · **Código:** `checkAlejamientoSMATPSL`, `server.js`
@@ -1939,7 +1945,8 @@ y el parte no distingue una cosa de la otra.
 
 - ~~**`smaReversion.earlyExitPct` está en 0.6**~~ **CERRADA como pregunta el 2026-09-10 —
   pasa al Auditor como propuesta.** Es la **propuesta 8** de Pendientes (`REV-8` en
-  `scripts/veredicto_sombra.py`). No se toca el valor hasta el veredicto: sigue en 0.6. El
+  `scripts/veredicto_sombra.py`). **Retirada ese mismo día: 0.6 es la decisión vigente del
+  usuario (09-ago, `e376fea`).** No se toca el valor: sigue en 0.6. El
   usuario lo había subido explícitamente a **0.9** el 2026-08-02. Apareció en 0.6 el
   2026-08-13 junto con el `minScore` en 0, que sí se confirmó como config corrupta y se
   restauró. Ver la sección "Config de producción a la deriva" en CLAUDE.md.

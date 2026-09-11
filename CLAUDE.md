@@ -1045,10 +1045,9 @@ weights.regimen_gex: 0
 weights.compas_medias_5m: 15
 ```
 
-`earlyExitPct` **0.6 no está decidido**: el usuario lo había puesto en 0.9 el 2026-08-02 y
-figura como aparecido en 0.6 con la config corrupta del 2026-08-13 — aunque `e376fea`
-(2026-08-09) registra que el usuario **pidió** bajarlo a 0.6. Se declara como corre hoy; 0.6
-contra 0.9 es la propuesta 8 de `SUGERENCIAS.md` (`REV-8`), que juzga el Auditor.
+`earlyExitPct` **0.6 es decisión del usuario** (09-ago, `e376fea`; confirmada el 2026-09-10).
+El 0.9 fue la decisión anterior (02-ago). El 0.6 del 13-ago NO fue parte de la corrupción de
+ese día: era el valor pedido, que por fin se quedaba.
 
 Los que derivaron, para que no se vuelvan a marcar como sospechosos:
 
@@ -1819,15 +1818,12 @@ caso del 8 de julio, 2m confirmó a las 11:04, 5m a las 11:25, 10m a las 12:20 y
 fórmula de la fase, es que cualquier promedio de 15 min reacciona demasiado lento para un
 rebote en V.
 
-### `earlyExitPct` en 0.6
-El usuario lo había subido a 0.9 y apareció en 0.6 tras una corrupción de config (junto con
-`smaReversion.minScore` en 0, que sí se restauró a 75 — con `minScore: 0` la Reversión
-ejecutaba **cualquier** señal; hoy es 72 por `171152f`). **La causa raíz de la corrupción no
-se identificó**: ningún código escribe un 0 ahí, salió de un `POST /api/spx/config` contra el
-volumen. **Pendiente de decidir** — desde el 2026-09-10 es la propuesta 8 de
-`SUGERENCIAS.md` y la juzga el Auditor (restaurar 0.9 vs. dejar 0.6). Ojo: `e376fea`
-(2026-08-09) dice que el usuario pidió bajar el take profit a 60% y que una migración vieja
-lo devolvía a 0.9 en cada carga — o sea que el 0.6 pudo ser decisión, no corrupción.
+### `earlyExitPct` en 0.6 — DECIDIDO
+**Cerrado el 2026-09-10: 0.6 es decisión del usuario.** Historia: 0.9 el 02-ago, 0.6 pedido el
+09-ago (`e376fea`, que eliminó la migración que lo devolvía a 0.9 en cada carga). El 13-ago
+se lo vio en 0.6 junto con `smaReversion.minScore` en 0 —eso sí fue corrupción, y la causa
+raíz nunca se identificó (salió de un `POST /api/spx/config` contra el volumen)— y se lo
+anotó como sospechoso por error. No volver a marcarlo.
 
 ### DEX en el score
 `regimen_institucional` pesa 10 y solo mira el signo del GEX. El framework de Alejandro pide
