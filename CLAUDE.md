@@ -997,9 +997,16 @@ del hold.
 
 **El GEX ya no es gate duro.** Lo fue entre el 2026-07-14 y el 2026-07-21, y bloqueó **4 días
 completos** (240/240 chequeos en `GEX_NOT_POSITIVE` cada día, sin llegar nunca a calcular el
-score) por una discrepancia entre nuestro cálculo interno y Sigma Terminal. Hoy GEX negativo
-hace fallar el check `regimen_gex` (resta su 10%) pero **no anula la entrada** — decisión
-explícita: *"que le baje puntos pero que no anule la entrada"*.
+score) por una discrepancia entre nuestro cálculo interno y Sigma Terminal. Del 2026-08-19
+(`6084471`) al 2026-08-24 el GEX negativo hacía fallar el check `regimen_gex` y restaba su
+peso de 10 sin anular la entrada (*"que le baje puntos pero que no anule la entrada"*).
+**Esa decisión quedó reemplazada el 2026-08-24** (`171152f`, decisión del usuario): hoy
+`weights.regimen_gex` pesa **0** — el GEX no suma ni resta — y sus 10 puntos pasaron a
+`alejamiento_sma8` (45 → 55), con `minScore` 75 → 72. Como el alejamiento es puerta, darle
+más peso no premia el estiramiento: lo saca de la canasta que puntúa y **baja el umbral
+efectivo** (de 54,5% a 37,8%). Motivo: una reversión alcista nace de una caída que el
+Weinstein 5m y el compás leen en contra, y con el GEX negativo dando 5 de 10 el techo
+alcanzable (45,5%) quedaba debajo del mínimo (54,5%) — era matemáticamente imposible entrar.
 
 **Fuera de alcance:** el cierre de gap en apertura y la "regla de los segundos" (entrar en
 los últimos 15-30s de formación de la vela) no son implementables con polling — se opera
@@ -1026,18 +1033,31 @@ extBandMaxPct: 0.30
 requiereGammaPositivo: false
 alejamientoEsPuerta: true
 puertasBinarias: true
-minScore: 75
+minScore: 72
 earlyExitPct: 0.6
 stopMinPts: 20
 maxDailyDrawdownPct: 3.5
+weights.alejamiento_sma8: 55
+weights.patron_confirmacion: 20
+weights.rsi: 0
+weights.fase_weinstein: 10
+weights.regimen_gex: 0
+weights.compas_medias_5m: 15
 ```
 
-Los dos que derivaron, para que no se vuelvan a marcar como sospechosos:
+`earlyExitPct` **0.6 no está decidido**: el usuario lo había puesto en 0.9 el 2026-08-02 y
+figura como aparecido en 0.6 con la config corrupta del 2026-08-13 — aunque `e376fea`
+(2026-08-09) registra que el usuario **pidió** bajarlo a 0.6. Se declara como corre hoy; 0.6
+contra 0.9 es la propuesta 8 de `SUGERENCIAS.md` (`REV-8`), que juzga el Auditor.
+
+Los que derivaron, para que no se vuelvan a marcar como sospechosos:
 
 | Parámetro | Cambio | Commit |
 |---|---|---|
 | `extBandMinPct` | 0.13 → 0.10 | `075945c` «la banda de alejamiento baja a 0.10% — estaba cerrada de hecho». Con 0.13 el setup moría por centésimas: 77 de 112 evaluaciones de un día quedaban entre −0.09% y −0.12% |
 | `requiereGammaPositivo` | true → false | `6084471` «el gamma vuelve a ponderar en vez de vetar» |
+| `minScore` | 75 → 72 | `171152f` «el gamma sale del score y su peso va al alejamiento» (2026-08-24, aplicado por POST). El manual siguió diciendo 75 hasta el 2026-09-10: 12 días de «revisar en el manual» en cada parte |
+| `weights.regimen_gex` / `weights.alejamiento_sma8` | 10 → 0 / 45 → 55 | `171152f`, el mismo día. Ni el canario ni este bloque declaraban pesos: fue el cambio más grande y el único invisible para los tres vigilantes. Desde el 2026-09-10 `deriva.py` y el canario los comparan |
 
 ⚠️ **`riskPctPerTrade` y `maxStopsPerDay` siguen guardados en `spx_config.json` con valores
 que parecen protecciones (1 y 2) y NO frenan nada** — ver `src/frenos.js`. No están en este
@@ -1802,9 +1822,12 @@ rebote en V.
 ### `earlyExitPct` en 0.6
 El usuario lo había subido a 0.9 y apareció en 0.6 tras una corrupción de config (junto con
 `smaReversion.minScore` en 0, que sí se restauró a 75 — con `minScore: 0` la Reversión
-ejecutaba **cualquier** señal). **La causa raíz de la corrupción no se identificó**: ningún
-código escribe un 0 ahí, salió de un `POST /api/spx/config` contra el volumen. **Pendiente de
-decidir.**
+ejecutaba **cualquier** señal; hoy es 72 por `171152f`). **La causa raíz de la corrupción no
+se identificó**: ningún código escribe un 0 ahí, salió de un `POST /api/spx/config` contra el
+volumen. **Pendiente de decidir** — desde el 2026-09-10 es la propuesta 8 de
+`SUGERENCIAS.md` y la juzga el Auditor (restaurar 0.9 vs. dejar 0.6). Ojo: `e376fea`
+(2026-08-09) dice que el usuario pidió bajar el take profit a 60% y que una migración vieja
+lo devolvía a 0.9 en cada carga — o sea que el 0.6 pudo ser decisión, no corrupción.
 
 ### DEX en el score
 `regimen_institucional` pesa 10 y solo mira el signo del GEX. El framework de Alejandro pide

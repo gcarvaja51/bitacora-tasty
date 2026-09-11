@@ -7604,6 +7604,20 @@ async function processDirectionalEntry(direction, meta = {}) {
     const successReason = `Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}${signal.tradierOrder?.orderId ? ' — auto-ejecutada en Tradier' : (signal.tradierOrder?.skipped ? ` — sugerencia (Tradier omitido: ${signal.tradierOrder.reason})` : '')}`;
     console.log(`[SPX] ✅ ${successReason}`);
     logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
+    // El gate de Credito/Riesgo decide DESPUES de construir la señal, asi que el
+    // embudo la contaba como construida y ahi se acababa el rastro: el 26-ago mato
+    // 14 de 16 y no figuraba en ninguna etapa (decision del usuario 2026-09-10:
+    // que tenga etapa propia). SIGNAL_BUILT se deja como estaba a proposito — la
+    // señal SI se construyo, y sombra_direccion.py (DIR-1) juzga la direccion de
+    // todas las construidas, llegaran o no a orden. Esta fila dice cuales no
+    // llegaron y por que; misma señal, mismo timestamp de evaluacion.
+    if (signal.tradierOrder?.skipped && /^Crédito\/Riesgo/.test(signal.tradierOrder.reason || '')) {
+      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'GATE_CREDITO_RIESGO', passed: false,
+        reason: signal.tradierOrder.reason,
+        snapshot: buildStrategySnapshot(ctx, { direction, strategy: sel.strategy,
+          creditoRiesgoPct: signal.trading?.creditoRiesgoPct ?? null,
+          minCreditoRiesgoPct: signal.trading?.minCreditoRiesgoPct ?? null }) });
+    }
     return true; // señal construida de verdad
   } catch(e) {
     console.error('[SPX] processDirectionalEntry error:', e.message);
@@ -12207,6 +12221,16 @@ async function checkAlejamientoSMATPSLImpl() {
               `${ex.sombraCierre.tradier.net} (retraso ${ex.sombraCierre.difRetraso})`);
           }
         } catch (e) { console.warn('[SOMBRA-REV] no se pudo capturar el cierre:', e.message); }
+
+        // Trazabilidad del precio que DECIDIO la salida (2026-09-10, decision del
+        // usuario sobre el hallazgo del Ingeniero de Datos del 26-ago: opcion 1).
+        // Los otros dos monitores y el cierre manual escriben estos campos; esta
+        // rama no pasaba por ninguno, y 33 cierres de Reversion quedaron sin forma
+        // de saber si salieron sobre un spot viejo — justo el modo de falla que
+        // "Sin precio fiable los monitores NO actuan" existe para evitar. Aca lo
+        // que decide es el SPX, no las patas, asi que se sella el spot.
+        ex.fuenteCotizacionTPSL  = `spot_${spot.fuente}`;
+        ex.edadCotizacionTPSLSeg = spot.edadSeg;
 
         // Cierre del libro paper — ver cerrarLibroPaper.
         await cerrarLibroPaper(ex, 'PAPER-REV');

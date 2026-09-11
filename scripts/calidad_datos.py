@@ -40,6 +40,34 @@ SALIDA = os.path.join(REPO, "datos")
 SPOT_VIEJO_SEG = 120      # un precio con mas de 2 min no describe el mercado en que se decide
 CORTE_LIBRO    = "2026-08-16"
 
+# Cierres que no consultan cotizacion NINGUNA: pedirles edad/fuente de la
+# cotizacion con que decidieron es un falso positivo. Caso: el 2026-09-03 entro
+# a camposFaltantes un CIERRE_1DTE_HORA_TOPE (1/1) cuya propia razon dice
+# "cierre por tiempo, sin evaluacion de precio". El usuario decidio exceptuarlo
+# el 2026-09-10.
+MOTIVOS_SIN_COTIZACION = {"CIERRE_1DTE_HORA_TOPE"}
+
+# Los cierres por nivel de precio de la Reversion deciden con el SPOT, no con la
+# cotizacion de las patas, y hasta el 2026-09-10 esa rama no escribia la
+# trazabilidad (TIME_STOP 17/17, PRECIO_OBJETIVO 6/6 sin fuente/edad). El
+# usuario eligio el 2026-09-10 la opcion 1: que server.js escriba la fuente
+# ('spot_sigma'/'spot_yahoo') y la edad del spot. Los cierres anteriores ya no
+# se pueden completar: se cuentan aparte como LEGADO, igual que los sin sello de
+# antes del corte, para que el hallazgo mida solo los nuevos. El corte es la
+# hora y no el dia porque los cierres del propio 10-sep salieron ANTES del
+# despliegue (el ultimo, 14:51Z) y siguen sin los campos.
+MOTIVOS_SPOT_TPSL      = {"TIME_STOP", "PRECIO_OBJETIVO", "PRECIO_INVALIDACION",
+                          "CIERRE_PRE_CLOSE_30MIN"}
+CAMPOS_COTIZACION_TPSL = ("edadCotizacionTPSLSeg", "fuenteCotizacionTPSL")
+CORTE_SPOT_TPSL        = "2026-09-10T20:00:00Z"
+
+# Etapa del embudo POSTERIOR a SIGNAL_BUILT: server.js escribe una fila extra
+# (stage GATE_CREDITO_RIESGO, passed false) cuando el gate de Credito/Riesgo
+# omite la orden de una senal ya construida. Caso 2026-08-26: el gate mato 14
+# de 16 senales de TENDENCIA y el embudo las mostraba como construidas, o sea
+# como si hubieran llegado a orden. Desde el 2026-09-10 se muestra aparte.
+ETAPA_POST_SENAL = "GATE_CREDITO_RIESGO"
+
 
 def _get_json(url, timeout=120, reintentos=3):
     from urllib.request import urlopen
@@ -79,13 +107,18 @@ def calidad(ejec, log, desde):
 
     # 3. Campos que faltan segun el motivo de cierre. Un campo que no se escribe
     #    solo para cierto tipo de cierre es un bug, no una casualidad.
+    # El denominador va por (motivo, campo) y no por motivo: desde que hay
+    # exenciones y legado, no todos los cierres de un motivo se examinan para
+    # todos los campos, y "falta en 2 de 17" contra 17 que no se miraron
+    # achicaria el hueco en vez de medirlo.
     faltan = defaultdict(lambda: defaultdict(int))
-    totales_motivo = Counter()
+    examinados = defaultdict(lambda: defaultdict(int))
+    legado_spot = Counter()
     for e in cerr:
-        if (e.get("closedAt") or "")[:10] < CORTE_LIBRO:
+        cerrado = e.get("closedAt") or ""
+        if cerrado[:10] < CORTE_LIBRO:
             continue
         m = e.get("closeReason") or "?"
-        totales_motivo[m] += 1
         campos = ["edadCotizacionTPSLSeg", "fuenteCotizacionTPSL", "paperEntry", "paperExit"]
         # En un cierre manual no hay decision automatica de TP/SL, asi que no hay
         # cotizacion con la que se haya decidido: pedirla es un falso positivo que
@@ -93,12 +126,19 @@ def calidad(ejec, log, desde):
         # cadena con que se valoro la salida, y esa vive en paperExit.
         if e.get("fuenteCotizacionTPSL") == "cierre_manual" or m == "MANUAL_FORZADO":
             campos.remove("edadCotizacionTPSLSeg")
+        if m in MOTIVOS_SIN_COTIZACION:
+            campos = [c for c in campos if c not in CAMPOS_COTIZACION_TPSL]
+        elif m in MOTIVOS_SPOT_TPSL and cerrado < CORTE_SPOT_TPSL:
+            if any(e.get(c) in (None, "", {}) for c in CAMPOS_COTIZACION_TPSL):
+                legado_spot[m] += 1
+            campos = [c for c in campos if c not in CAMPOS_COTIZACION_TPSL]
         for campo in campos:
+            examinados[m][campo] += 1
             if e.get(campo) in (None, "", {}):
                 faltan[m][campo] += 1
     campos_faltantes = [
-        {"motivo": m, "campo": c, "faltan": n, "de": totales_motivo[m],
-         "todos": n == totales_motivo[m]}
+        {"motivo": m, "campo": c, "faltan": n, "de": examinados[m][c],
+         "todos": n == examinados[m][c]}
         for m, cs in faltan.items() for c, n in cs.items()
     ]
     campos_faltantes.sort(key=lambda x: (-x["faltan"], x["motivo"]))
@@ -107,7 +147,9 @@ def calidad(ejec, log, desde):
     #    evaluacion: es el dato que mas veces ha hecho daño en este proyecto.
     edades, por_fuente = [], defaultdict(list)
     for x in log:
-        if dia(x) < desde:
+        # La fila de GATE_CREDITO_RIESGO repite el snapshot de su SIGNAL_BUILT:
+        # contarla seria medir dos veces la misma decision.
+        if dia(x) < desde or x.get("stage") == ETAPA_POST_SENAL:
             continue
         s = x.get("snapshot") or {}
         ed, fu = s.get("spotEdadSeg"), s.get("spotFuente")
@@ -132,6 +174,9 @@ def calidad(ejec, log, desde):
         "sinLibroDespuesDelCorte": {"n": len(sin_libro_nuevo), "corte": CORTE_LIBRO,
                                     "ids": [e.get("id") for e in sin_libro_nuevo][:10]},
         "camposFaltantes": campos_faltantes[:12],
+        "legadoCotizacionTPSL": {"corte": CORTE_SPOT_TPSL, "porMotivo": dict(legado_spot),
+                                 "n": sum(legado_spot.values())},
+        "exentosSinCotizacion": sorted(MOTIVOS_SIN_COTIZACION),
         "frescuraDelSpot": frescura,
     }
 
@@ -148,11 +193,58 @@ def embudo(log, desde, hasta=None):
         por[fam][st] += 1
         if not x.get("passed"):
             razones[f"{fam}|{st}"][(x.get("reason") or "")[:110]] += 1
+    # GATE_CREDITO_RIESGO no es una evaluacion nueva: es la MISMA senal que ya
+    # conto como SIGNAL_BUILT, escribiendo una segunda fila al morir despues. Por
+    # eso se resta de las construidas para decir cuantas llegaron de verdad a
+    # orden, y no se suma a las evaluaciones.
+    llegan = {}
+    for fam, c in por.items():
+        if c.get(ETAPA_POST_SENAL):
+            llegan[fam] = {"signalBuilt": c.get("SIGNAL_BUILT", 0),
+                           "gateCreditoRiesgo": c[ETAPA_POST_SENAL],
+                           "llegaronAOrden": max(0, c.get("SIGNAL_BUILT", 0) - c[ETAPA_POST_SENAL])}
     return {
-        "evaluaciones": len(ventana),
+        "evaluaciones": len(ventana) - sum(c.get(ETAPA_POST_SENAL, 0) for c in por.values()),
         "porFamilia": {f: dict(c.most_common()) for f, c in por.items()},
         "razones": {k: dict(c.most_common(3)) for k, c in razones.items()},
+        "senalesQueLleganAOrden": llegan,
     }
+
+
+def horas_de_sesion(desde_iso, hasta_iso):
+    """Horas de SESION (9:30-16:00 ET, lun-vie) entre dos instantes UTC. Las de
+    reloj exagerarian el hueco con noches y fines de semana. Aproximado: no
+    descuenta feriados y usa ET = UTC-4, como el resto del script."""
+    a = datetime.fromisoformat(desde_iso.replace("Z", "+00:00"))
+    b = datetime.fromisoformat(hasta_iso.replace("Z", "+00:00"))
+    total, d = 0.0, a.date()
+    while d <= b.date():
+        if d.weekday() < 5:
+            ini = datetime(d.year, d.month, d.day, 13, 30, tzinfo=timezone.utc)
+            fin = datetime(d.year, d.month, d.day, 20, 0, tzinfo=timezone.utc)
+            lo, hi = max(ini, a), min(fin, b)
+            if hi > lo:
+                total += (hi - lo).total_seconds() / 3600
+        d += timedelta(days=1)
+    return round(total, 1)
+
+
+def ventana_recortada(log, desde):
+    """El log de produccion tiene tope de 5000 filas y descarta las viejas. Si la
+    ventana pedida arranca antes que la fila mas vieja, los conteos de esa
+    ventana salen bajos y NADIE lo decia. Caso 2026-08-27: el log estaba en 5000
+    justas, el 14-ago conservaba 171 filas desde las 17:22Z y todos los
+    "(antes n)" del parte semanal exageraban el aumento sin avisar."""
+    ts = sorted(x.get("timestamp") for x in log if x.get("timestamp"))
+    if not ts:
+        return None
+    mas_vieja = ts[0]
+    # desde es un dia ET: arranca a las 04:00Z (medianoche ET = UTC-4)
+    inicio = f"{desde}T04:00:00Z"
+    if mas_vieja <= inicio:
+        return None
+    return {"desde": desde, "logArranca": mas_vieja, "filasEnLog": len(ts),
+            "horasDeSesionFaltantes": horas_de_sesion(inicio, mas_vieja)}
 
 
 # ── Bloque C: lo que aparece aca pero es de otro ────────────────────────────
@@ -171,10 +263,25 @@ def para_la_torre(log, desde):
     }
 
 
-def parte(fecha, cal, emb, emb_prev, torre, semanal):
+def _hora_et(iso):
+    t = datetime.fromisoformat(iso.replace("Z", "+00:00")) - timedelta(hours=4)
+    return t.strftime("%Y-%m-%d %H:%M ET")
+
+
+def parte(fecha, cal, emb, emb_prev, torre, semanal, recortes=None):
     L = [f"[DATOS] {fecha}"]
 
     alertas = []
+    # La ventana recortada va PRIMERO: si la comparacion esta truncada, todo lo
+    # que viene abajo con "(antes n)" se lee distinto.
+    for nombre, r in (recortes or {}).items():
+        if not r:
+            continue
+        cola = ("los (antes n) van subestimados" if nombre == "anterior"
+                else "los conteos de la ventana van subestimados")
+        alertas.append(f"VENTANA RECORTADA: el log arranca el {_hora_et(r['logArranca'])} "
+                       f"({r['filasEnLog']} filas, tope 5000) y la ventana {nombre} pide desde el "
+                       f"{r['desde']}: faltan ~{r['horasDeSesionFaltantes']} horas de sesion; {cola}")
     f = cal["frescuraDelSpot"]
     if f["n"] and f["sobreUmbral"]:
         pct = round(f["sobreUmbral"] / f["n"] * 100, 1)
@@ -205,13 +312,29 @@ def parte(fecha, cal, emb, emb_prev, torre, semanal):
             L.append(f"  - {a}")
     else:
         L.append("  - sin novedades")
+    leg = cal.get("legadoCotizacionTPSL") or {}
+    if leg.get("n"):
+        L.append(f"  (legado, no cuenta: {leg['n']} cierres "
+                 + "/".join(f"{m} {n}" for m, n in sorted(leg["porMotivo"].items()))
+                 + f" anteriores al {leg['corte'][:10]} sin fuente/edad del spot)")
 
     L.append(f"DONDE MUEREN LAS DECISIONES ({emb['evaluaciones']} evaluaciones):")
     for fam, etapas in sorted(emb["porFamilia"].items(), key=lambda kv: -sum(kv[1].values())):
-        top = list(etapas.items())[:3]
         prev = (emb_prev or {}).get("porFamilia", {}).get(fam, {})
-        det = " · ".join(f"{k} {v}" + (f" (antes {prev[k]})" if k in prev else "") for k, v in top)
-        L.append(f"  {fam}: {det}")
+        antes = lambda k: f" (antes {prev[k]})" if k in prev else ""
+        top = [(k, v) for k, v in etapas.items() if k != ETAPA_POST_SENAL][:3]
+        partes_ = [f"{k} {v}{antes(k)}" for k, v in top]
+        g = etapas.get(ETAPA_POST_SENAL)
+        if g:
+            # Va pegada a SIGNAL_BUILT: son las mismas senales, no otras.
+            nota = f"de ellas {ETAPA_POST_SENAL} {g}{antes(ETAPA_POST_SENAL)} no llegaron a orden"
+            if any(k == "SIGNAL_BUILT" for k, _ in top):
+                i = [k for k, _ in top].index("SIGNAL_BUILT")
+                partes_[i] += f" · {nota}"
+            else:
+                partes_.append(f"SIGNAL_BUILT {etapas.get('SIGNAL_BUILT', 0)}"
+                               f"{antes('SIGNAL_BUILT')} · {nota}")
+        L.append(f"  {fam}: " + " · ".join(partes_))
 
     t = torre["ordenesRechazadas"]["n"]; m = torre["desacuerdoDePosicion"]["n"]
     if t or m:
@@ -254,15 +377,18 @@ def main():
     emb = embudo(log, desde)
     emb_prev = embudo(log, desde_prev, hasta_prev) if a.semana else None
     torre = para_la_torre(log, desde)
+    recortes = {"actual": ventana_recortada(log, desde),
+                "anterior": ventana_recortada(log, desde_prev) if a.semana else None}
 
     os.makedirs(SALIDA, exist_ok=True)
     doc = {"fecha": fecha, "ventanaDias": dias, "desde": desde, "semanal": bool(a.semana),
            "calidad": cal, "embudo": emb, "embudoPrevio": emb_prev, "paraLaTorre": torre,
+           "ventanaRecortada": recortes,
            "generado": datetime.now().isoformat(timespec="seconds")}
     with open(os.path.join(SALIDA, f"{fecha}.json"), "w", encoding="utf-8") as fh:
         json.dump(doc, fh, ensure_ascii=False, indent=1)
 
-    txt = parte(fecha, cal, emb, emb_prev, torre, a.semana)
+    txt = parte(fecha, cal, emb, emb_prev, torre, a.semana, recortes)
     with open(os.path.join(SALIDA, f"parte_{fecha}.txt"), "w", encoding="utf-8") as fh:
         fh.write(txt + "\n")
     print(txt)

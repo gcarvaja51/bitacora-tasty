@@ -149,8 +149,20 @@ PROPUESTAS = [
     },
     {
         "id": "DIR-3", "familia": "DIRECCIONAL", "nivel": "alto",
-        "titulo": "El liston tras perdida no mira el tamaño de la perdida",
-        "pregunta": "¿Un trade que sigue a una perdida del dia rinde peor de verdad?",
+        "titulo": "El liston tras perdida: ¿la premisa se sostiene? (piso de magnitud retirado)",
+        "pregunta": "¿Un trade que sigue a una perdida REAL del dia (resultadoOficial) rinde peor?",
+        # REFORMULADA 2026-09-10 (revision semanal). El piso de magnitud se RETIRA:
+        # los importes que lo motivaban (-$10, -$125, -$25) eran ex.pnl del
+        # sandbox, que es lo que lee minScoreEfectivoDireccional. Contra
+        # resultadoOficial fueron -$185, -$230 y -$200; la perdida real mas chica
+        # de TENDENCIA desde el 17-ago es -$120 (mediana -$210, n=17), asi que un
+        # piso no tendria nada que separar. Que el gate lea ex.pnl es un BUG
+        # aparte (15 de 41 cierres con signo cruzado) y se arregla sin esperar.
+        #
+        # Lo que queda es la premisa, y el instrumento tiene que partir por el
+        # signo de resultadoOficial del trade anterior, NUNCA por ex.pnl — o
+        # hereda el mismo error que invalido la version anterior.
+        "reformulada": "2026-09-10",
         # SIN INSTRUMENTO, y como en DIR-2 no es un olvido: no se puede construir
         # hacia atras la pregunta directa. Las 69 evaluaciones que el liston de 90
         # bloqueo esta semana murieron en SCORE_FAIL, ANTES de SIGNAL_BUILT: no
@@ -158,8 +170,8 @@ PROPUESTAS = [
         #
         # Lo que SI se puede construir, y es la mitad de la propuesta, no usa
         # contrafactuales: partir las TENDENCIA ya cerradas segun si venian
-        # despues de una perdida del MISMO dia, y por el tamaño de esa perdida
-        # (bandas: <$25, $25-100, >$100). Eso no juzga el umbral — juzga la
+        # despues de una perdida REAL del MISMO dia (sin bandas de tamaño: con el
+        # dato oficial no hay perdidas chicas que separar). Eso no juzga el umbral — juzga la
         # PREMISA de la regla, que es "los 4 trades de un dia no son 4 apuestas
         # independientes". Si los trades posteriores a una perdida no rinden
         # peor, el problema no es el piso de magnitud sino la regla entera, y la
@@ -167,6 +179,25 @@ PROPUESTAS = [
         #
         # El dato ya existe en el libro (filledAt, closedAt, pnl, strategyFamily);
         # falta el script que lo parta, al estilo de sombra_direccion.py.
+        "instrumento": None,
+    },
+    {
+        "id": "REV-8", "familia": "REVERSION", "nivel": "alto",
+        "titulo": "La salida anticipada de la Reversion en 0.6 o en 0.9 (earlyExitPct)",
+        "pregunta": "¿Restaurar earlyExitPct a 0.9 (decidido el 2026-08-02) rinde mejor que el 0.6 aparecido el 2026-08-13?",
+        # Pasada al Auditor por el usuario el 2026-09-10: era una decision
+        # pendiente desde el 13-ago y no se decide sin veredicto. Produccion
+        # sigue en 0.6 mientras tanto.
+        #
+        # OJO con la premisa: e376fea (2026-08-09) dice que el usuario PIDIO bajar
+        # a 0.6 y que una migracion vieja lo devolvia a 0.9. Si es asi, la ultima
+        # decision explicita es 0.6 y "restaurar" seria revertirla. Confirmar con
+        # el usuario antes de juzgar.
+        #
+        # SIN INSTRUMENTO: no hay sombra que reproduzca la salida con otro
+        # porcentaje. Se puede construir hacia atras (entryPrice, smaTarget y
+        # direction estan en las 25 Reversiones cerradas desde el 16-ago, y el
+        # log tiene el spot de cada ciclo): re-simular cada salida con 0.6 y 0.9.
         "instrumento": None,
     },
     {

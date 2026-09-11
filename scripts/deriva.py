@@ -60,7 +60,10 @@ def leer_canario():
     if not m:
         return {}, "no se encontro ESPERADO_REVERSION"
     out = {}
-    for k, v in re.findall(r'"([A-Za-z_]+)"\s*:\s*([^,\n#]+)', m.group(1)):
+    # Claves con punto y digitos: desde el 2026-09-10 el canario declara los
+    # pesos como "weights.alejamiento_sma8". Con [A-Za-z_]+ esas claves no se
+    # leian y un cambio de peso seguia siendo invisible.
+    for k, v in re.findall(r'"([A-Za-z0-9_.]+)"\s*:\s*([^,\n#]+)', m.group(1)):
         v = v.strip()
         if v in ("True", "False"):
             out[k] = (v == "True")
@@ -92,7 +95,7 @@ def leer_manual():
         return {}, ("el manual no tiene el bloque `parametros-vigentes-reversion`: "
                     "sin el, la comparacion contra el manual seria adivinanza")
     out = {}
-    for k, v in re.findall(r"^\s*([A-Za-z_]+)\s*:\s*(\S+)\s*$", m.group(1), re.M):
+    for k, v in re.findall(r"^\s*([A-Za-z0-9_.]+)\s*:\s*(\S+)\s*$", m.group(1), re.M):
         v = v.strip()
         if v.lower() in ("true", "false"):
             out[k] = (v.lower() == "true")
@@ -111,10 +114,33 @@ VIGILADOS = ["extBandMinPct", "extBandMaxPct", "minScore", "earlyExitPct",
              "requiereGammaPositivo", "maxStopsPerDay", "maxDailyDrawdownPct",
              "riskPctPerTrade", "stopMinPts", "alejamientoEsPuerta", "puertasBinarias"]
 
+# Los pesos del score de Reversion. Hasta el 2026-09-10 no los miraba nadie: el
+# cambio mas grande de 171152f (24-ago: regimen_gex 10 -> 0, alejamiento_sma8
+# 45 -> 55) fue invisible para produccion, canario y manual durante 17 dias.
+# Se comparan aplanados ("weights.<clave>"), y un peso nuevo que aparezca en
+# produccion se vigila solo aunque no este en esta lista.
+PESOS_REVERSION = ["weights.alejamiento_sma8", "weights.patron_confirmacion",
+                   "weights.rsi", "weights.fase_weinstein", "weights.regimen_gex",
+                   "weights.compas_medias_5m"]
+
+
+def aplanar(d, prefijo=""):
+    """{"weights": {"rsi": 0}} -> {"weights.rsi": 0}, que es como lo declaran el
+    canario y el manual."""
+    out = {}
+    for k, v in (d or {}).items():
+        if isinstance(v, dict):
+            out.update(aplanar(v, f"{prefijo}{k}."))
+        else:
+            out[f"{prefijo}{k}"] = v
+    return out
+
 
 def comparar(prod, canario, manual):
     filas = []
-    for k in VIGILADOS:
+    pesos = PESOS_REVERSION + sorted(k for k in prod
+                                     if k.startswith("weights.") and k not in PESOS_REVERSION)
+    for k in VIGILADOS + pesos:
         p, c, m = prod.get(k, "—"), canario.get(k, "—"), manual.get(k, "—")
         # La DERIVA la decide produccion contra el canario: las dos son fuentes
         # legibles por maquina y sin ambiguedad. El manual se lee con un regex
@@ -171,7 +197,7 @@ def main():
 
     cfg = _get_json(f"{PROD}/api/spx/config")
     c = cfg.get("config") or cfg
-    prod = (c.get("trading") or {}).get("smaReversion") or {}
+    prod = aplanar((c.get("trading") or {}).get("smaReversion") or {})
     canario, err_c = leer_canario()
     manual, err_m = leer_manual()
 

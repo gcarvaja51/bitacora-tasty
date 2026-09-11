@@ -232,6 +232,15 @@ perfecto. Que la explicación sea convincente no la hace cierta.
 
 ### 6. El listón tras pérdida no mira el tamaño de la pérdida — DIRECCIONAL, impacto ALTO
 
+> ⚠️ **2026-09-10 — EL PISO DE MAGNITUD SE RETIRA: la evidencia de abajo estaba mal medida.**
+> Los importes que cita (−$10, −$125, −$25) son el `ex.pnl` **del sandbox**, que es lo que lee
+> `minScoreEfectivoDireccional`. Contra `resultadoOficial` esas pérdidas fueron **−$185,
+> −$230 y −$200**. Desde el 17-ago la pérdida real más chica de TENDENCIA es **−$120** y la
+> mediana **−$210** (17 pérdidas): no hay pérdidas «de ruido» que un piso pudiera separar. Lo
+> que queda en pie es la pregunta de la **premisa** (¿rinde peor un trade que sigue a una
+> pérdida real del día?), y el defecto de fondo es un **bug**, no un ajuste — ver la revisión
+> semanal del 2026-09-10 (bis), punto (a). DIR-3 queda reformulada en `PROPUESTAS`.
+
 **Anotado:** 2026-09-03 (revisión semanal del jueves) · **Evidencia:** 3.099 evaluaciones,
 28-ago a 3-sep · **Código:** `minScoreEfectivoDireccional`, `server.js:6336`
 
@@ -351,6 +360,47 @@ el resultado de la Reversión.
 
 ---
 
+### 8. La salida anticipada de la Reversión en 0.6 o en 0.9 — REVERSION, impacto ALTO
+
+**Anotado:** 2026-09-10 · **Origen:** decisión pendiente desde el 2026-08-13, pasada al Auditor
+por el usuario el 2026-09-10 · **Código:** `checkAlejamientoSMATPSL`, `server.js`
+(`objetivoAjustado = entryPrice + (smaTarget − entryPrice) × earlyExitPct`)
+
+**La propuesta:** restaurar `smaReversion.earlyExitPct` a **0.9**, decidido por el usuario el
+2026-08-02, contra el **0.6** que apareció el 2026-08-13 con la config corrupta (junto con
+`minScore: 0`, que sí se restauró). Con 0.6 la Reversión cierra por `PRECIO_OBJETIVO` al
+recorrer el 60% de la distancia a la SMA8; con 0.9, al 90%. Menos recorrido = más TP y más
+chicos; más recorrido = menos TP, más `TIME_STOP`, y ganancias más grandes cuando llega.
+
+⚠️ **Evidencia en contra de la premisa, encontrada al anotarla:** el commit `e376fea`
+(2026-08-09) dice *«Guillermo pidio bajar el take profit a 60%»*: el 0.6 no fue solo corrupción,
+fue **pedido** el 09-ago, y no se sostenía porque una migración vieja lo devolvía a 0.9 en cada
+carga (esa migración se eliminó ese mismo día). Si es así, la última decisión explícita del
+usuario es **0.6**, no 0.9, y lo del 13-ago sería que el valor por fin se quedó. **Hay que
+confirmar con el usuario cuál de las dos es la decisión vigente antes de que el Auditor la
+juzgue** — no es lo mismo «restaurar lo decidido» que «revertir lo decidido».
+
+**Qué se espera que cambie:** hoy `TIME_STOP` ya es **17 de 25** cierres de la Reversión desde
+el 16-ago y `PRECIO_OBJETIVO` 6. Subir a 0.9 alarga el recorrido exigido un 50%: se esperan
+**menos** `PRECIO_OBJETIVO` y **más** `TIME_STOP`, con ganancia media por TP más alta. Si la
+pérdida media (hoy **−$96,88**, 24 trades de `024e6795`) no baja, el win rate cae sin
+compensación.
+
+**Instrumento: no existe (`instrumento: None`).** No hay sombra que reproduzca la salida con
+otro `earlyExitPct`. Se puede construir hacia atrás con lo que ya hay —las 25 Reversiones
+cerradas desde el 16-ago guardan `entryPrice`, `smaTarget`, `direction` y la hora de
+entrada/cierre, y el log tiene el spot
+minuto a minuto (5.000 filas, ~2 semanas)—: re-simular la salida de cada Reversión cerrada con
+0.6 y con 0.9 y comparar. Construirlo es parte de la propuesta; hasta entonces el Auditor va
+a devolver SIN INSTRUMENTO, y ese es el veredicto correcto.
+
+⚠️ **Choca con la cadencia:** sería la **tercera** ALTO abierta sobre REVERSION (con la 2 y la
+3, más la 7 que también la toca). Cambia la salida y el `algoVersion` de la familia (la huella
+incluye `earlyExitPct`): abre período de medición nuevo y la muestra de `024e6795` (24 de 30)
+se corta ahí.
+
+---
+
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
 
 ### 2026-09-03 (bis) · revisión SEMANAL del jueves, 28-ago a 3-sep
@@ -445,6 +495,197 @@ saberlo.
 - **Los 4 cierres «sin libro propio» se explican:** 3 son `MANUAL_FORZADO` (cerrados a mano,
   fuera de los monitores — por definición no hay libro) y 1 es un TP del 26-ago. Todos previos
   al 28-ago. **Ninguno esta semana.**
+
+### 2026-09-10 (bis) · revisión SEMANAL del jueves, 4 a 10 sep
+
+2.066 evaluaciones contra 2.934. ⚠️ **Las dos ventanas no se comparan en crudo**: esta tiene
+**4 sesiones** (el 7-sep fue Labor Day) y la previa **4,6** — el log arranca el 28-ago a las
+**11:12 ET** porque está en el tope de 5.000 filas, así que la mañana del 28 no existe.
+
+**Propuestas nuevas esta semana: ninguna, en ninguna familia.** Lo que sí hay es un **bug**
+en TENDENCIA que además **invalida la evidencia de la propuesta nº 6 (DIR-3)**, y eso se
+corrige en vez de proponer encima.
+
+---
+
+**a) BUG — el listón tras pérdida decide con el P&L del sandbox, no con el oficial.**
+`minScoreEfectivoDireccional` (`server.js:6847`) lee `ultimo.pnl` (`ex.pnl`, el fill de
+Tradier). Es justo lo que la norma de `src/pnl_oficial.js` prohíbe (*«nadie más lee `ex.pnl`
+salvo para auditar la diferencia»*), y **`src/frenos.js` ya se migró a `resultadoOficial`**:
+el arreglo existe a un archivo de distancia.
+
+Sobre las **41 TENDENCIA comparables desde el 17-ago**, el signo del sandbox y el oficial
+**no coinciden en 15 (37%)**:
+
+| | n |
+|---|---|
+| Pérdidas reales (`resultadoOficial < 0`) | 17 |
+| … que el listón **vio** | 9 |
+| … que el listón **no vio** (sandbox ≥ 0 en un `SL`) | **8** |
+| «Pérdidas» del sandbox que eran **ganadoras** reales (un `TP` con `pnl` negativo) | **7** |
+
+O sea: el listón acierta a la pérdida real **la mitad de las veces**. Esta semana hubo 5
+cruces de signo en 11 cierres. El que tuvo consecuencia: **09-09 12:54**, `SL` con sandbox
+**+$50** y real **−$210** → el listón se quedó en 80 → **a las 13:06 entró un Bear Put con
+score 85** que la regla, leída con el dato bueno, exigía 90. *(Su resultado es del Contador;
+acá solo importa que la decisión se tomó con un dato inválido — por eso el parte va ROJO.)*
+El 09-10 10:26 pasó lo mismo (`SL`, sandbox +$150, real −$200), sin efecto porque la familia
+quedó muda desde las 10:35 (punto c).
+
+**Al arreglarlo, la conducta de TENDENCIA cambia**: el listón empieza a disparar tras las
+pérdidas que hoy no ve y deja de disparar tras ganadores. Conviene que el commit declare
+`Impacto: ALTO` / `Estrategia: DIRECCIONAL`, y **no aplicar DIR-1 en la misma ventana**, o
+no se sabrá qué movió el resultado.
+
+**b) DIR-3 (propuesta nº 6) se reformula: el piso de magnitud se retira.** Toda su evidencia
+salía de los importes que cita el `reason`, que son el sandbox. Con el dato oficial:
+
+| El log decía | Real | Día |
+|---|---|---|
+| −$10 | **−$185** | 01-sep |
+| −$125 | **−$230** | 02-sep |
+| −$90 | **−$240** | 04-sep |
+| −$320 | −$290 | 08-sep |
+| −$25 | **−$200** | 08-sep |
+
+Las **136 evaluaciones** que el listón bloqueó en las dos semanas vinieron **todas** después
+de una pérdida real de $185 o más: **ninguna** tras un «scratch». La pérdida real más chica de
+TENDENCIA desde el 17-ago es **−$120** (mediana −$210, n=17): un piso de magnitud no tendría
+nada que separar. Mi premisa del 03-sep —*«una pérdida de $10 está dentro del ruido del
+cruce»*— era falsa porque los $10 no existieron. Queda viva solo la pregunta de la premisa, y
+debe medirse sobre `resultadoOficial`.
+
+**c) El embudo de TENDENCIA cayó por calendario y por un silencio, no por mercado.**
+`NO_PULLBACK_2M` 1.469 → 799 y filas totales 1.814 → 1.117. Descompuesto:
+- Tiempo en **posición propia** (la familia calla, por diseño): **343 min** esta semana
+  contra **347** la previa — idéntico.
+- Una sesión menos (Labor Day).
+- **205 min mudos el 09-10** (10:35 → 14:00), el `return` sin log de `server.js:6793` ya
+  escalado en la diaria de hoy. Es el **único** hueco de la semana que no explica una
+  posición propia: los otros siete (09-04 ×2, 09-08 ×2, 09-09 ×3) calzan minuto a minuto
+  con un trade TENDENCIA abierto.
+
+Como proporción de las filas de la familia, `NO_PULLBACK_2M` bajó de **81%** a **72%** y
+`SCORE_FAIL` de 11,2% a 8,5%. `SIGNAL_BUILT` 27 → 51 **no es más señal**: 28 de los 51 son
+reconstrucciones de la misma señal tras un `ORDEN_RECHAZADA` del broker, ciclo tras ciclo.
+
+**d) REVERSION produce las mismas señales que la semana pasada; el resto era reintento.**
+`SIGNAL_BUILT` 63 → 22 parece un desplome, pero sin las reconstrucciones tras rechazo quedan
+**8 → 9**. Plano. `NO_STRIKES` 44 → 9 acompaña a los rechazos (55 → 13).
+
+**e) REVERSION — por qué NO se propone, con número.**
+- **Banda (REV-3):** 596 `SIN_ALEJAMIENTO`, mediana **0,03%**, p90 **0,07%**, contra un piso
+  de **0,10%**. Solo 52 (8,7%) llegan a 0,08%. El mercado no se estiró; bajar la puerta sería
+  no tener puerta. Misma lectura que el 27-ago.
+- **Score (REV-4):** 66 `SCORE_FAIL`, y en **61** fallan **los tres** checks vivos a la vez
+  (patrón + fase 5m + compás); en los otros 5 pasa solo el compás. `patron_confirmacion`
+  falló **66 de 66**. Es la pregunta de REV-4, que **ya tiene instrumento**
+  (`reversion-sombra.porCheck`): no se duplica.
+- **Salida:** `TIME_STOP` **17 de 25** cierres desde el 16-ago (6 de 9 esta semana),
+  `PRECIO_INVALIDACION` **0**. Es la hipótesis de la diaria (c): con el ancla en 5m el reloj
+  decide. **n=25, bajo 30.** Se anota, no se propone.
+
+**f) NEUTRAL — por qué NO se propone.** **0 señales en la semana.** `GATE_FAIL` 66: **57**
+«Gamma régimen NEGATIVO», 7 buffer del Gamma Flip, 2 sin PIN. El **1DTE no entró ningún día
+(4 de 4 `GATE_FAIL`)**, que es la única condición que el usuario dejó viva en MODO CAPTURA. Es
+régimen, no calibración. `POSITION_OPEN` 55 → 82: 54 son posiciones direccionales (bloqueo
+por diseño) y 28 la posición sin dueño del 09-10 (Torre).
+
+**g) Observación para la sugerencia 5, no propuesta (n=11).** Los 11 TENDENCIA cerrados de la
+semana fueron **todos bajistas y de débito**. Con aire al Put Wall **≥19 pts: 3 de 3 `TP`**;
+con menos de 13 pts: **1 de 8**. El veto en sombra (que compara aire contra los puntos del TP)
+dijo «vetaría» en 3: 2 `SL` y 1 `TP`. Una semana, un régimen, 11 trades: no es evidencia, es
+dónde mirar cuando el Auditor tenga muestra.
+
+---
+
+#### Calidad del dato
+
+- **Frescura: sana.** Mediana **19s** (previa 16s), p90 **35s**, máximo 171s. **5 de 1.048**
+  sobre 120s (0,5%, igual que la previa), **las 5 de Sigma y las 5 de REVERSION**. Una sola
+  decidió algo: la entrada del 09-10 10:24 con **132s**, dentro del límite de 180 del sistema.
+  Yahoo cayó de 17% a **11%** de las lecturas: menos failover que la semana pasada.
+- **Sellos: sanos.** Las **23 ejecuciones de la ventana, selladas las 23**. El «127 sin sello»
+  es julio. El chequeo sigue sin acotarse a la ventana (anotado el 03-sep).
+- **Libro propio:** los mismos 4 ids de siempre; ninguno nuevo. Las 3 `ORDEN_ATASCADA` del
+  09-10 no tienen `paperExit` porque nunca llenaron: no es hueco.
+- **Campos por nivel de precio:** `TIME_STOP` 17/17 y `PRECIO_OBJETIVO` 6/6 siguen naciendo
+  sin fuente/edad de cotización (**9 nuevos esta semana**). La pregunta del 27-ago —sellar el
+  spot que decidió la salida, o eximir esos motivos— sigue sin decidir.
+- **La comparativa semanal sigue truncada** por el tope de 5.000 filas (arranca el 28-ago
+  11:12 ET). Anotado el 27-ago; sin cambio.
+
+**Para la Torre (se pasa, no se dictamina):** 41 órdenes rechazadas (`Tradier API 500`: 28
+TENDENCIA, 13 REVERSION), 3 apagones con inicio y fin registrados, 25
+`POSITION_CHECK_MISMATCH` (23 TENDENCIA, 2 NEUTRAL), 3 `ORDEN_ATASCADA_SIN_LLENAR` seguidas el
+09-10 10:06–10:08, y la posición SPXW sin dueño del 09-10 10:40–12:55 (28 bloqueos de NEUTRAL
+y, por el `return` mudo, 205 min de TENDENCIA).
+
+### 2026-09-10 · corrida diaria, 316 evaluaciones
+
+**a) La caída del embudo de TENDENCIA no es mercado: la familia estuvo 3h15m sin evaluar y sin
+dejar rastro.** `NO_PULLBACK_2M` **119 → 58**, `SIGNAL_BUILT` **18 → 6**, evaluaciones totales
+**435 → 316**. La última línea de TENDENCIA en el log es de las **10:44 ET**; de ahí a las 14:00
+(fin de su ventana) hay **cero**. Ayer registró todas las horas hasta las 13h. En paralelo,
+NEUTRAL anotó **28 veces** entre 10:40 y 12:55 *«Tradier reporta una posición SPXW que no
+corresponde a ninguna pata de una Reversión abierta»*. Es el mismo chequeo
+(`todoLoAbiertoConvive`) en las dos familias, pero la direccional sale por
+`server.js:6779` con un `return` **mudo** — NEUTRAL escribe `POSITION_OPEN`, TENDENCIA no escribe
+nada. **Es un defecto de instrumento (bug), no un ajuste**: una decisión que el embudo no puede
+ver, y hoy se comió la mitad del día. No se sabe qué habría hecho la direccional en esas horas,
+y ese es el problema.
+
+**b) El pin del día explica el tramo de las 11 a las 13, y NEUTRAL no pudo verlo.** De 11:00 a
+13:00, **117 de 120** evaluaciones de REVERSION fueron `SIN_ALEJAMIENTO` con alejamiento
+**0% / 0.01% / 0.03%**: precio pegado a la SMA8, que es el pin del 10-sep que ya registró el
+detector en sombra (`025486f`). El IC estaba bloqueado por la posición de (a), pero **muy
+probablemente no costó nada**: los **7 de 7** `GATE_FAIL` que sí corrieron (10:00–10:35 y 15:48)
+dieron «Gamma régimen NEGATIVO», quinto día seguido.
+
+**c) REVERSION — anotación para el jueves: el time stop se volvió el stop de facto.** Desde el
+16-ago, **25 cierres, los 25 con `stopTimeframe: 5m`**: `TIME_STOP` **17 (68%)**, `PRECIO_OBJETIVO`
+**6 (24%)**, `MANUAL_FORZADO` 2, y `PRECIO_INVALIDACION` **0**. Hoy 2 de 3 por tiempo. Antes del
+cambio a 5m el reparto era 77% invalidación / 22% objetivo: **los aciertos por objetivo no
+subieron (22% → 24%); lo que antes era stop por ruido ahora es stop por reloj.** Hipótesis, no
+dato: con `stopMinPts` 20 y el ancla en 5m, en un hold de 2–10 min el stop por precio casi no
+puede alcanzarse, y `maxCandlesTimeStop` decide la salida. Muestra **23 automáticas, bajo 30**:
+no alcanza para proponer. El resultado en plata de esos cierres es del Contador.
+
+**d) Veto de muro en sombra (solo BEARISH): hoy 0 de 2 en trades reales.** Seis evaluaciones,
+tres «vetaría». La de las **09:50** decía *«solo hay 1.71 pts hasta el Put Wall (7600)»* y esa
+entrada tocó **TP en 6 minutos** atravesando el muro. La de las **10:16** pasó con 2.82 pts de
+margen (Put Wall ya en **7575**) y cerró por **SL**. El muro se corrió **25 puntos en 16
+minutos** con gamma negativo. n=2, no concluye nada; queda para cruzar con la sugerencia 5 el
+jueves: en régimen negativo el muro se mueve con el precio y la distancia al momento de
+entrar puede no describir nada.
+
+**e) Frescura: primer hueco de Sigma de la semana, con el failover funcionando.** Sigma
+mediana **30.5s** (ayer 19.0s), 4 lecturas de **121–132s** entre 10:14 y 10:58, y de **10:58 a
+~12:00 las 60 decisiones salieron de Yahoo** (mediana 4s); mixto hasta el cierre de ventana. Coincide
+con el daemon muriendo y reviviendo (`a748885`, de la Torre). Mediana global **10s**, p90 41s,
+**4 de 187 sobre 120s** (ayer 0 de 252). Una sola de las cuatro decidió algo: la **entrada de
+REVERSION de las 10:24** (bear call 7600/7610) se armó con spot Sigma de **132s**. Está dentro del
+`MAX_EDAD_SIGMA_SPOT_SEG` de 180 del sistema, así que el dato **era válido** y el día no es rojo.
+Anotación para el jueves: el umbral de calidad del motor (120s) y el del sistema (180s) no
+coinciden, y para una familia con hold de 2–10 min 132s es una fracción grande del trade. n=1.
+
+**f) Sellos y libro, sanos por quinto día.** `sinSello` clavado en **127** con el denominador
+**236 → 241**: los **5 cierres nuevos entraron sellados**. `sinLibroDespuesDelCorte` en los mismos
+4 ids de siempre. Los campos `edadCotizacionTPSLSeg`/`fuenteCotizacionTPSL` siguen naciendo
+vacíos en los cierres por nivel (`TIME_STOP` 15 → 17, `PRECIO_OBJETIVO` 5 → 6) — la pregunta de
+ayer (i) sigue abierta, no se repite el argumento.
+
+**g) Confirmado que no es defecto:** el «mínimo 37.8%» del `SCORE_FAIL` es el listón reescalado
+(anotación de ayer, a), y hoy apareció por primera vez un score distinto de 0: **33.3%** (5 de
+14). Se corta la serie de «0.0% en el 100% de los `SCORE_FAIL`» del 09-sep (b).
+
+**Para la Torre (se pasa, no se dictamina):** la posición SPXW que el broker reportó sin dueño
+de 10:40 a 12:55 apareció entre las 10:35 y las 10:40, justo después del `TIME_STOP` de la
+Reversión de las 10:23 (cerrada 10:36); no hay ningún IC 1DTE en el registro que la explique.
+Tres aperturas de TENDENCIA a las **10:06, 10:07 y 10:08** terminaron `ORDEN_ATASCADA_SIN_LLENAR`
+en el mismo minuto, y cada cancelación liberó el gate para la siguiente. Apagón del broker
+09:47–09:51 (2 setups de REVERSION perdidos) y 2 `POSITION_CHECK_MISMATCH` a las 09:57, tras
+el TP de las 09:56.
 
 ### 2026-09-09 · corrida diaria, 435 evaluaciones
 
@@ -1610,7 +1851,9 @@ y el parte no distingue una cosa de la otra.
   días con «0% clavado, 15 veces» (01 y 02-sep). El 03-sep la misma función produjo **0%,
   33.3%, 44.4%, 55.6%, 96% y 100%** en una sola sesión. El 0% era mercado, no instrumento.
 
-- **¿El motor debería exceptuar `CIERRE_1DTE_HORA_TOPE` del chequeo de `camposFaltantes`?**
+- ~~**¿El motor debería exceptuar `CIERRE_1DTE_HORA_TOPE` del chequeo de `camposFaltantes`?**~~
+  **CERRADA el 2026-09-10 — sí, se exceptúa.** `scripts/calidad_datos.py` lo lista en
+  `MOTIVOS_SIN_COTIZACION` y ya no le pide `edadCotizacionTPSLSeg`/`fuenteCotizacionTPSL`.
   (nuevo, 2026-09-03). Hoy entró a la lista con 1/1 en `edadCotizacionTPSLSeg` y
   `fuenteCotizacionTPSL`, pero su propia razón dice *«cierre por tiempo, sin evaluacion de
   precio»*: no consulta cotización, así que no tiene ninguna que sellar. **Es un falso positivo
@@ -1618,7 +1861,11 @@ y el parte no distingue una cosa de la otra.
   real de `TIME_STOP`/`PRECIO_OBJETIVO` hasta hacerlo ver más grande de lo que es. Es la misma
   disyuntiva de la pregunta de abajo, opción 2, aplicada a otro motivo. **Sí o no.**
 
-- **¿NEUTRAL debería tener cupo propio de posición, como ya lo tiene REVERSION?** (nuevo,
+- ~~**¿NEUTRAL debería tener cupo propio de posición, como ya lo tiene REVERSION?**~~
+  **CERRADA el 2026-09-10 — la pregunta previa se contestó: el IC 1DTE heredado NO bloquea.**
+  Tratado como bug y resuelto en `3022dfc` («El IC 1DTE seguia frenando al direccional y al
+  0DTE la manana siguiente»): `hasLocalOpenSPXWPosition()` excluye `expType === '1DTE'`. Lo
+  que queda de convivencia entre neutral y direccional es la propuesta 7 de Pendientes. (nuevo,
   2026-09-03). Hoy el GEX giró a positivo por primera vez en cinco sesiones —el régimen que el
   Iron Condor necesita— y **29 de sus 39 evaluaciones murieron en `POSITION_OPEN`**, con el
   cupo SPXW tomado por el 1DTE de ayer (hasta las 10:30) y después por dos direccionales. Solo
@@ -1627,7 +1874,13 @@ y el parte no distingue una cosa de la otra.
   contestar sin más muestra: **¿un IC 1DTE heredado de la noche anterior debería contar como
   posición que bloquea al 0DTE de la mañana siguiente?** Sí o no.
 
-- **¿Un cierre por `TIME_STOP` está dejando de escribir la trazabilidad de su cotización?**
+- ~~**¿Un cierre por `TIME_STOP` está dejando de escribir la trazabilidad de su cotización?**~~
+  **CERRADA el 2026-09-10 — opción 1: se escribe la fuente/edad del spot.** Desde el despliegue
+  del 10-sep, `TIME_STOP`, `PRECIO_OBJETIVO`, `PRECIO_INVALIDACION` y `CIERRE_PRE_CLOSE_30MIN`
+  de la Reversión escriben `fuenteCotizacionTPSL = 'spot_<fuente>'` (`spot_sigma`/`spot_yahoo`)
+  y `edadCotizacionTPSLSeg` = edad del spot. Los cierres anteriores no se pueden completar:
+  `calidad_datos.py` los cuenta aparte como **legado** (corte `2026-09-10T20:00:00Z`, porque
+  los del propio 10-sep salieron antes del despliegue) y el hallazgo mide solo los nuevos.
   (anotado 2026-08-24). Aparece un motivo nuevo en `camposFaltantes`: `TIME_STOP` sin
   `fuenteCotizacionTPSL` **ni** `edadCotizacionTPSLSeg`, en **1 de 1 (`todos: true`)**. No
   estaba el 22-ago. Si el camino de código no escribe esos campos nunca, es un **bug** —es
@@ -1662,16 +1915,38 @@ y el parte no distingue una cosa de la otra.
   > La primera arregla el dato; la segunda arregla el reporte. Hacer ninguna deja el hallazgo
   > repitiéndose todos los días sin significar nada. **Pregunta de sí o no: ¿1 o 2?**
 
-- **El gate de Crédito/Riesgo no deja rastro en el embudo** (nuevo, 2026-08-26). Hoy mató 14 de
+- ~~**El gate de Crédito/Riesgo no deja rastro en el embudo**~~ **CERRADA el 2026-09-10 — sí,
+  etapa propia `GATE_CREDITO_RIESGO`.** `processDirectionalEntry` sigue escribiendo el
+  `SIGNAL_BUILT` (DIR-1/`sombra_direccion.py` juzga la dirección de todas las construidas) y,
+  si el gate omite la orden, escribe una segunda fila `stage: 'GATE_CREDITO_RIESGO'`,
+  `passed: false`, con `creditoRiesgoPct`/`minCreditoRiesgoPct` en el snapshot.
+  `calidad_datos.py` la muestra pegada a `SIGNAL_BUILT` («de ellas N no llegaron a orden») y
+  no la suma como evaluación nueva. (nuevo, 2026-08-26). Hoy mató 14 de
   16 señales de TENDENCIA y no figura como etapa: se aplica después de `SIGNAL_BUILT`, así que
   el embudo reporta esas 14 como señales construidas. No es un error de decisión —el gate hizo
   lo correcto— sino que **la última etapa del embudo no significa lo que parece**. ¿Se agrega
   una etapa al log para los descartes posteriores a `SIGNAL_BUILT`, o se deja y se documenta?
 
-- **`smaReversion.earlyExitPct` está en 0.6** y el usuario lo había subido explícitamente a
-  **0.9** el 2026-08-02. Apareció en 0.6 el 2026-08-13 junto con el `minScore` en 0, que sí se
-  confirmó como config corrupta y se restauró. Este quedó sin decidir: ¿se devuelve a 0.9 o se
-  deja en 0.6? Ver la sección "Config de producción a la deriva" en CLAUDE.md.
+- ~~**`smaReversion.earlyExitPct` está en 0.6**~~ **CERRADA como pregunta el 2026-09-10 —
+  pasa al Auditor como propuesta.** Es la **propuesta 8** de Pendientes (`REV-8` en
+  `scripts/veredicto_sombra.py`). No se toca el valor hasta el veredicto: sigue en 0.6. El
+  usuario lo había subido explícitamente a **0.9** el 2026-08-02. Apareció en 0.6 el
+  2026-08-13 junto con el `minScore` en 0, que sí se confirmó como config corrupta y se
+  restauró. Ver la sección "Config de producción a la deriva" en CLAUDE.md.
+
+- ~~**¿Se arregla la apertura de NEUTRAL para que estampe `paperEntry`?**~~ **CERRADA el
+  2026-09-10 — no era un bug vivo.** Verificado en `/api/tradier/executions`: las 3 aperturas
+  del IC desde el 27-ago (`tex-1787860158036`, `tex-1788378380541`, `tex-1788465025648`)
+  traen `paperEntry` y `paperPnl` confiables. El caso que lo disparó, `tex-1787774500000`
+  (abierto el 26-ago, TP el 27-ago), es una ejecución **reconstruida a mano** —id redondo
+  `...00000`, no pasó por el camino de apertura—; el otro sin marca, `tex-1786736895624`
+  (14→17-ago), es anterior. Sin cambio de código. (anotado 2026-08-27, revisión semanal).
+
+- ~~**¿El motor avisa cuando la ventana de comparación arranca antes que la fila más vieja del
+  log?**~~ **CERRADA el 2026-09-10 — sí.** `calidad_datos.py` (`ventana_recortada`) pone
+  primero en HALLAZGOS «VENTANA RECORTADA: el log arranca el X … faltan ~N horas de sesión;
+  los (antes n) van subestimados» cuando la ventana actual o la anterior pide más de lo que
+  el tope de 5.000 filas conserva. (anotado 2026-08-27, revisión semanal).
 
 ---
 

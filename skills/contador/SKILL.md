@@ -54,7 +54,10 @@ El parte que genera el script es correcto pero literal. Abre `cierres/<fecha>.js
   contra el broker (por trade o acumulada del día).
 - **`trades[]`** — `costoCruce`, `deslizEntrada` (lo que costó cruzar el spread en vez de
   llenarse al mid), `edadCotizacionSeg`, `edadEntradaSeg` / `edadSalidaSeg`.
-- **`versionVigente`** — cuántos trades lleva la huella actual y cuántos faltan para 30.
+- **`versionVigentePorFamilia`** — por cada familia (TENDENCIA, REVERSION, NEUTRAL), la
+  huella vigente, cuántos trades lleva medidos contra la cadena real y cuántos faltan para
+  30. La huella es por familia: desde el 2026-09-10 ya no hay una sola «versión vigente»
+  que salte según quién operó ese día.
 
 ## Paso 3 — el parte
 

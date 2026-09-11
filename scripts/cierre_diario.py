@@ -182,6 +182,44 @@ def acumulado_version(todas, huella, hasta):
     return r
 
 
+FAMILIAS = ("TENDENCIA", "REVERSION", "NEUTRAL")
+
+
+def huella_vigente(todas, familia, hasta):
+    """La huella con la que la familia opero por ultima vez hasta `hasta`. La
+    huella es POR FAMILIA (src/algo_version.js sella solo los parametros de la
+    familia), asi que una sola huella para el dia no significa nada."""
+    ult = None
+    for e in todas:
+        h = (e.get("algoVersion") or {}).get("huella")
+        if not h or e.get("strategyFamily") != familia:
+            continue
+        t = e.get("filledAt") or e.get("timestamp") or e.get("closedAt") or ""
+        if t[:10] > hasta:
+            continue
+        if ult is None or t > ult[0]:
+            ult = (t, h)
+    return ult[1] if ult else None
+
+
+def linea_version(fam, acum):
+    if not acum:
+        return f"  {fam:<9} sin sello: ninguna ejecucion con huella hasta hoy"
+    if not acum["trades"]:
+        # Distinto de "0 trades": puede haber cierres, pero ninguno medido contra
+        # la cadena real, y entonces no hay numero que se pueda comparar.
+        extra = (f" ({acum['legadoTrades']} cierres medidos con el broker, no cuentan)"
+                 if acum["legadoTrades"] else "")
+        return f"  {fam:<9} {acum['huella']}: sin medicion contra cadena real{extra}"
+    v = "suficiente" if acum["muestraSuficiente"] else f"faltan {acum['faltan']} para {MUESTRA_MINIMA}"
+    return (f"  {fam:<9} {acum['huella']}: {acum['trades']} trades"
+            + (f" · WR {acum['winRate']}%" if acum["winRate"] is not None else "")
+            + f" · ${acum['pnl']}"
+            + (f" · perdida media ${acum['perdidaMedia']}" if acum["perdidaMedia"] is not None else "")
+            + (f" · ganancia media ${acum['gananciaMedia']}" if acum["gananciaMedia"] is not None else "")
+            + f" · muestra {v}")
+
+
 def parte(fecha, res, estado, rojo, ambar, acum, filas):
     """El bloque [CONTADOR] tal como entra al acta. Si no paso nada, una linea."""
     L = [f"[CONTADOR] {fecha}", f"ESTADO: {estado}"]
@@ -210,13 +248,13 @@ def parte(fecha, res, estado, rojo, ambar, acum, filas):
     if not rojo and not ambar:
         L.append("  - sin novedades")
 
-    if acum:
-        v = "suficiente" if acum["muestraSuficiente"] else f"faltan {acum['faltan']} para {MUESTRA_MINIMA}"
-        L.append(f"VERSION VIGENTE {acum['huella']}: {acum['trades']} trades"
-                 + (f" · WR {acum['winRate']}%" if acum["winRate"] is not None else "")
-                 + f" · ${acum['pnl']}"
-                 + (f" · perdida media ${acum['perdidaMedia']}" if acum["perdidaMedia"] is not None else "")
-                 + f" · muestra {v}")
+    # Una linea por familia, siempre las tres. Antes era UNA huella, la del
+    # ultimo trade del dia, y saltaba de familia segun quien habia operado:
+    # f85c9f8e (TENDENCIA) un dia, 024e6795 (REVERSION) el siguiente, y la serie
+    # no se podia leer como la marcha de ninguna version. Cambiado el 2026-09-10.
+    L.append("VERSION VIGENTE (por familia):")
+    for fam in FAMILIAS:
+        L.append(linea_version(fam, (acum or {}).get(fam)))
 
     L.append("PENDIENTE DE DECISION:")
     if rojo:
@@ -234,15 +272,12 @@ def correr(fecha, todas):
     res    = resumir(filas)
     estado, rojo, ambar = revisar(filas)
 
-    huella = None
-    for f in sorted(filas, key=lambda x: x["hora"], reverse=True):
-        if f["huella"]:
-            huella = f["huella"]; break
-    acum = acumulado_version(todas, huella, fecha)
+    acum = {fam: acumulado_version(todas, huella_vigente(todas, fam, fecha), fecha)
+            for fam in FAMILIAS}
 
     os.makedirs(SALIDA, exist_ok=True)
     doc = {"fecha": fecha, "estado": estado, "resumen": res, "rojo": rojo,
-           "ambar": sorted(set(ambar)), "versionVigente": acum, "trades": filas,
+           "ambar": sorted(set(ambar)), "versionVigentePorFamilia": acum, "trades": filas,
            "generado": datetime.now().isoformat(timespec="seconds"),
            "regla": "cadena real de TastyTrade (src/pnl_oficial.js)"}
     with open(os.path.join(SALIDA, f"{fecha}.json"), "w", encoding="utf-8") as fh:
