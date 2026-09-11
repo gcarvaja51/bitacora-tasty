@@ -6723,6 +6723,32 @@ async function fetchCaminoBBars() {
 // Chequeo autonomo de Camino B (2026-07-27) — corre solo, sin depender de que
 // TradingView mande nada. Reemplaza al gate viejo de calcWeinstein como unica
 // fuente de la decision de entrada del direccional.
+// POSITION_OPEN de la direccional (2026-09-10, decision de Guillermo sobre la
+// revision semanal del Ingeniero de Datos). Este gate hacia `return` sin anotar
+// nada, a diferencia de NEUTRAL y REVERSION: el 09-10 una posicion SPXW sin
+// dueño dejo 205 min muda a TENDENCIA y el embudo no podia distinguir "no hubo
+// pullback" de "ni siquiera evaluo".
+//
+// A diferencia de las otras dos, NO se anota cada ciclo: la direccional corre
+// cada 30s y una posicion de 3h serian ~400 filas en un log topado en 5000 que
+// ya se recorta (ver VENTANA RECORTADA en calidad_datos.py). Una fila al
+// empezar el bloqueo y otra cada 5 min mientras dure, con los ciclos que se
+// saltaron desde la anterior y desde cuando lleva bloqueada.
+const posAbiertaDir = { desde: null, ultimaFila: 0, ciclos: 0 };
+const POS_ABIERTA_DIR_CADA_MS = 5 * 60 * 1000;
+function anotarPosicionAbiertaDireccional(et, motivo) {
+  const ahora = Date.now();
+  posAbiertaDir.ciclos++;
+  if (!posAbiertaDir.desde) { posAbiertaDir.desde = new Date(ahora).toISOString(); posAbiertaDir.ultimaFila = 0; }
+  if (ahora - posAbiertaDir.ultimaFila < POS_ABIERTA_DIR_CADA_MS) return;
+  logStrategyEvent({ strategyFamily: 'TENDENCIA', etTime: `${et.hour}:${String(et.min).padStart(2,'0')}`,
+    stage: 'POSITION_OPEN', passed: false, reason: motivo,
+    snapshot: { bloqueadaDesde: posAbiertaDir.desde, ciclosDesdeUltimaFila: posAbiertaDir.ciclos,
+                cadaSeg: POS_ABIERTA_DIR_CADA_MS / 1000 } });
+  posAbiertaDir.ultimaFila = ahora;
+  posAbiertaDir.ciclos = 0;
+}
+
 async function checkDirectionalAutonomous() {
   try {
     // Guard de dia habil/feriado (2026-08-05). Antes esta funcion solo miraba la
@@ -6790,7 +6816,14 @@ async function checkDirectionalAutonomous() {
       }
     }
     const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoConvive() : true;
-    if (localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta)) return; // hay algo abierto que NO es una Reversion
+    if (localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta)) {
+      // hay algo abierto que NO es una Reversion ni un IC 1DTE
+      anotarPosicionAbiertaDireccional(et, localDiceAbierto
+        ? 'Ya hay un trade SPXW abierto/en curso (no es una Reversión ni un IC 1DTE) — se pausa para evitar apilar posiciones.'
+        : 'Tradier reporta una posición SPXW que no corresponde a ninguna pata de una Reversión ni de un IC 1DTE abiertos — se bloquea por precaución.');
+      return;
+    }
+    posAbiertaDir.desde = null; posAbiertaDir.ciclos = 0;
     if (tradierDiceAbierto && soloRevAbierta) {
       console.log('[SPX] Lo abierto es una Reversión o un IC 1DTE — no bloquea la direccional.');
     }

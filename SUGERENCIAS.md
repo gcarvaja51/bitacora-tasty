@@ -569,6 +569,11 @@ debe medirse sobre `resultadoOficial`.
   escalado en la diaria de hoy. Es el **único** hueco de la semana que no explica una
   posición propia: los otros siete (09-04 ×2, 09-08 ×2, 09-09 ×3) calzan minuto a minuto
   con un trade TENDENCIA abierto.
+  > **RESUELTO el 2026-09-10 (decisión de Guillermo).** El gate ahora escribe
+  > `POSITION_OPEN` de TENDENCIA, pero **no cada ciclo**: una fila al empezar el bloqueo y
+  > otra cada 5 min, con `bloqueadaDesde` y `ciclosDesdeUltimaFila` en el snapshot. Al
+  > contar filas de esta etapa, **una fila = hasta 10 ciclos de 30s**; la duración real se
+  > lee del snapshot, no del conteo.
 
 Como proporción de las filas de la familia, `NO_PULLBACK_2M` bajó de **81%** a **72%** y
 `SCORE_FAIL` de 11,2% a 8,5%. `SIGNAL_BUILT` 27 → 51 **no es más señal**: 28 de los 51 son
