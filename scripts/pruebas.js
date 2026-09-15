@@ -662,6 +662,79 @@ chequear('el iron condor de 4 patas no cambia',
            opc('SPX', '2026-09-18', '.SPX260918C7800', 'Short'),
            opc('SPX', '2026-09-18', '.SPX260918C7900', 'Long')])[0] === 'Iron Condor');
 
+// Las mariposas (2026-09-15). POR QUE EXISTE: ese dia habia cuatro mariposas de
+// puts abiertas en TastyTrade (PFE, PG, SPX, SPY) y las cuatro salian "figura no
+// reconocida (3 patas)", sin link. OptionStrat no tiene slug de mariposa que
+// funcione por URL: `put-butterfly` da "Error 404 Strategy type not found" y
+// `long-put-butterfly` redirige a `/build/custom/` — y ahi SI dibuja la figura
+// bien (SPY 752/755/758: debito $30, perdida max $30, ganancia max $270,
+// breakevens 752.30-757.70). Comprobado en vivo el 2026-09-15. Por eso se dibuja
+// por `custom` y el NOMBRE se pone aqui.
+const FLY_SPY = [
+  opc('SPY', '2026-09-18', '.SPY260918P752', 'Long',  1, 3.83),
+  opc('SPY', '2026-09-18', '.SPY260918P755', 'Short', 2, 4.95),
+  opc('SPY', '2026-09-18', '.SPY260918P758', 'Long',  1, 6.36),
+];
+const flySpy = agruparPosiciones(FLY_SPY);
+chequear('la mariposa de puts ya tiene link (antes: figura no reconocida)', !!flySpy[0]?.url, `motivo ${flySpy[0]?.motivoSinUrl}`);
+chequear('y se llama Long Put Butterfly', flySpy[0]?.figura === 'Long Put Butterfly', `dio ${flySpy[0]?.figura}`);
+chequear('se dibuja por custom, la ruta que OptionStrat acepta, con el precio de cada pata',
+  flySpy[0]?.url === 'https://optionstrat.com/build/custom/SPY/.SPY260918P752@3.83,-.SPY260918P755@4.95,-.SPY260918P755@4.95,.SPY260918P758@6.36',
+  `dio ${flySpy[0]?.url}`);
+chequear('la mariposa de calls tambien se reconoce',
+  figuras([opc('X', '2026-09-18', '.X260918C10', 'Long'),
+           opc('X', '2026-09-18', '.X260918C11', 'Short', 2),
+           opc('X', '2026-09-18', '.X260918C12', 'Long')])[0] === 'Long Call Butterfly');
+// Lo que NO es mariposa no se bautiza: una figura inventada es peor que ninguna.
+// Desde el mismo dia esas figuras llevan link por custom, pero con el nombre
+// neutro "Personalizada", nunca "Butterfly".
+chequear('alas desiguales no se llaman mariposa',
+  figuras([opc('X', '2026-09-18', '.X260918P10', 'Long'),
+           opc('X', '2026-09-18', '.X260918P11', 'Short', 2),
+           opc('X', '2026-09-18', '.X260918P13', 'Long')])[0] === 'Personalizada (3 patas)');
+chequear('1 / -1 / 1 no es mariposa (la corta tiene que ser el doble)',
+  figuras([opc('X', '2026-09-18', '.X260918P10', 'Long'),
+           opc('X', '2026-09-18', '.X260918P11', 'Short'),
+           opc('X', '2026-09-18', '.X260918P12', 'Long')])[0] === 'Personalizada (3 patas)');
+
+// Tradier (2026-09-15). POR QUE EXISTE: la vista de Tradier guardaba el link a
+// mano en el localStorage del navegador, uno por ticker, y ninguno de los 11
+// trades abiertos del sandbox tenia link. Ahora sale de las posiciones reales
+// con el mismo agrupado que TastyTrade. El precio es el del FILL (cost_basis):
+// es lo que de verdad se cobro o pago en esa cuenta.
+const { posicionesTradierAOptionStrat } = require('../src/optionstrat');
+const hoodTr = agruparPosiciones(posicionesTradierAOptionStrat([
+  { symbol: 'HOOD260918C00110000', quantity: -1, cost_basis: -345 },
+  { symbol: 'HOOD260918C00112000', quantity: 1,  cost_basis: 258 },
+]));
+chequear('Tradier: el bear call de HOOD sale con link y el precio del fill',
+  hoodTr[0]?.url === 'https://optionstrat.com/build/bear-call-spread/HOOD/-.HOOD260918C110@3.45,.HOOD260918C112@2.58',
+  `dio ${hoodTr[0]?.url}`);
+const spxTr = agruparPosiciones(posicionesTradierAOptionStrat([
+  { symbol: 'SPXW260918P07485000', quantity: 2,  cost_basis: 4180 },
+  { symbol: 'SPXW260918P07500000', quantity: -4, cost_basis: -9480 },
+  { symbol: 'SPXW260918P07515000', quantity: 2,  cost_basis: 5440 },
+]));
+chequear('Tradier: la mariposa SPXW va bajo SPX con patas .SPXW, como en TastyTrade',
+  spxTr[0]?.url === 'https://optionstrat.com/build/custom/SPX/.SPXW260918P7485@20.9,.SPXW260918P7485@20.9,-.SPXW260918P7500@23.7,-.SPXW260918P7500@23.7,-.SPXW260918P7500@23.7,-.SPXW260918P7500@23.7,.SPXW260918P7515@27.2,.SPXW260918P7515@27.2',
+  `dio ${spxTr[0]?.url}`);
+// Una figura que no reconocemos (dos verticales de puts del mismo dia, como la
+// posicion 0DTE del robot SPX el 2026-09-15) igual lleva link: por custom, con sus
+// patas exactas, y SIN nombre inventado.
+const rara = agruparPosiciones([
+  opc('SPX', '2026-09-15', '.SPXW260915P7570', 'Short', 1, 6.3),
+  opc('SPX', '2026-09-15', '.SPXW260915P7580', 'Long',  1, 11.7),
+  opc('SPX', '2026-09-15', '.SPXW260915P7600', 'Short', 1, 25.3),
+  opc('SPX', '2026-09-15', '.SPXW260915P7610', 'Long',  1, 34),
+]);
+chequear('una figura desconocida tiene link por custom con sus patas exactas',
+  rara[0]?.url === 'https://optionstrat.com/build/custom/SPX/-.SPXW260915P7570@6.3,.SPXW260915P7580@11.7,-.SPXW260915P7600@25.3,.SPXW260915P7610@34',
+  `dio ${rara[0]?.url}`);
+chequear('y se llama Personalizada, no una figura inventada',
+  rara[0]?.figura === 'Personalizada (4 patas)', `dio ${rara[0]?.figura}`);
+chequear('Tradier: una accion suelta no rompe el agrupado',
+  agruparPosiciones(posicionesTradierAOptionStrat([{ symbol: 'JBLU', quantity: 100, cost_basis: 500 }])).length === 0);
+
 // ── 2d-bis. El precio de apertura en la URL de OptionStrat ─────────────────
 
 // POR QUE EXISTE, con nombre y fecha: el 2026-09-04 Guillermo detecto que las

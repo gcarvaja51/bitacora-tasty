@@ -112,6 +112,77 @@ function esPMCC(patas) {
 }
 
 /*
+ * Mariposa larga (2026-09-15): tres strikes equidistantes del MISMO tipo y
+ * vencimiento, las alas compradas y el centro vendido al doble. Devuelve 'P' o
+ * 'C' si lo es, null si no.
+ *
+ * Por qué hace falta: ese día había cuatro mariposas de puts abiertas (PFE, PG,
+ * SPX, SPY) y `detectarSlug` las dejaba en "figura no reconocida (3 patas)", sin
+ * link. Se exige la forma EXACTA —alas iguales, centro al doble— porque una
+ * mariposa de alas rotas o un 1/-1/1 tienen otro riesgo, y un nombre inventado
+ * es peor que ninguno.
+ *
+ * OptionStrat no tiene slug de mariposa que funcione por URL: `put-butterfly`
+ * devuelve "Error 404 Strategy type not found" y `long-put-butterfly` redirige a
+ * `/build/custom/`. En `custom` SÍ dibuja la figura correcta (SPY 752/755/758:
+ * débito $30, pérdida máx $30, ganancia máx $270, breakevens 752.30-757.70),
+ * comprobado en vivo el 2026-09-15. Por eso se dibuja por `custom` y el nombre
+ * se pone aquí.
+ */
+function esMariposa(patas) {
+  if (patas.length !== 3) return null;
+  const tipoPut = patas.every(esPut), tipoCall = patas.every(esCall);
+  if (!tipoPut && !tipoCall) return null;
+  if (new Set(patas.map(expDe)).size !== 1) return null;
+  const [baja, centro, alta] = [...patas].sort((a, b) => strikeDe(a) - strikeDe(b));
+  const q = p => Math.abs(parseFloat(p.quantity || 0));
+  if (esCorta(baja) || !esCorta(centro) || esCorta(alta)) return null;
+  if (q(baja) !== q(alta) || q(centro) !== 2 * q(baja)) return null;
+  if (Math.abs((strikeDe(centro) - strikeDe(baja)) - (strikeDe(alta) - strikeDe(centro))) > 1e-9) return null;
+  return tipoPut ? 'P' : 'C';
+}
+
+/*
+ * Posiciones crudas de Tradier -> la forma de TastyTrade que entiende
+ * `agruparPosiciones` (2026-09-15), para que la vista de Tradier genere sus links
+ * con EXACTAMENTE las mismas reglas de figura.
+ *
+ *   - `streamer-symbol`: se arma del OCC (`HOOD260918C00110000` -> `.HOOD260918C110`).
+ *   - Subyacente: las SPXW van bajo `SPX` con patas `.SPXW`, igual que las
+ *     devuelve TastyTrade (ver el iron condor SPX/SPXW del 2026-08-31).
+ *   - Precio: el del FILL, `cost_basis` por acción. En este link importa lo que de
+ *     verdad se cobró o pagó en esa cuenta, no la cadena real — que es lo que usa
+ *     el P&L de la pantalla de posiciones, otra pregunta.
+ *   - Una acción se pasa como `Equity`: sin ella una covered call se dibujaría
+ *     como call desnuda.
+ */
+function posicionesTradierAOptionStrat(positions = []) {
+  const out = [];
+  for (const p of positions) {
+    const sym = String(p.symbol || '').trim();
+    const qty = parseFloat(p.quantity || 0);
+    if (!sym || !qty) continue;
+    const m = sym.match(/^([A-Z]+)\s*(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+    if (!m) {
+      out.push({ 'instrument-type': 'Equity', 'underlying-symbol': sym, quantity: String(Math.abs(qty)) });
+      continue;
+    }
+    const [, raiz, yy, mm, dd, cp, k8] = m;
+    const precio = Math.abs(parseFloat(p.cost_basis || 0)) / Math.abs(qty) / 100;
+    out.push({
+      'instrument-type': 'Equity Option',
+      'underlying-symbol': raiz === 'SPXW' ? 'SPX' : raiz,
+      'streamer-symbol': `.${raiz}${yy}${mm}${dd}${cp}${parseInt(k8, 10) / 1000}`,
+      quantity: String(Math.abs(qty)),
+      'quantity-direction': qty < 0 ? 'Short' : 'Long',
+      ...(precio > 0 ? { 'average-open-price': String(precio) } : {}),
+      'expires-at': `20${yy}-${mm}-${dd}T20:00:00.000Z`,
+    });
+  }
+  return out;
+}
+
+/*
  * Deduce el slug de OptionStrat a partir de la COMPOSICIÓN de las patas.
  * Devuelve null cuando no reconoce la figura — preferimos no inventar un nombre
  * antes que etiquetar mal un trade de cuenta real.
@@ -258,7 +329,13 @@ function agruparPosiciones(positions = []) {
   }
 
   return fusionarDiagonales([...grupos.values()], acciones).map(g => {
-    const slug = detectarSlug(g.patas, acciones[g.underlying] || 0);
+    // Una mariposa se dibuja por `custom` (ver esMariposa): el slug no dice la
+    // figura, así que el nombre sale de `mariposa`, no de NOMBRE_FIGURA.
+    const mariposa = esMariposa(g.patas);
+    // `slugConocido` es la figura que SÍ reconocemos; `slug` es lo que va en la
+    // URL, y cae a `custom` cuando no hay figura (mariposa o desconocida).
+    const slugConocido = detectarSlug(g.patas, acciones[g.underlying] || 0);
+    const slug = slugConocido || 'custom';
     const pmcc = esPMCC(g.patas);
     // Orden estable: puts antes que calls y por strike. Sin esto la URL cambia
     // según el orden en que TastyTrade devuelva las posiciones, y un link que
@@ -279,7 +356,14 @@ function agruparPosiciones(positions = []) {
       slug,
       // Lo que se lee en pantalla. Un PMCC se DIBUJA como diagonal porque es lo
       // único que OptionStrat entiende, pero se NOMBRA PMCC.
-      figura: pmcc ? 'PMCC' : (NOMBRE_FIGURA[slug] || null),
+      // Sin figura conocida ya no se queda sin link (2026-09-15, pedido de
+      // Guillermo: "cada trade abierto"). Se dibuja por `custom` con las patas
+      // EXACTAS — OptionStrat lo acepta con 4 patas y precio (comprobado ese día)
+      // — y se nombra "Personalizada", que no promete ninguna figura. Lo que
+      // sigue prohibido es ponerle un nombre que no tiene.
+      figura: pmcc ? 'PMCC'
+            : mariposa ? (mariposa === 'P' ? 'Long Put Butterfly' : 'Long Call Butterfly')
+            : (NOMBRE_FIGURA[slugConocido] || `Personalizada (${g.patas.length} patas)`),
       esPMCC: pmcc,
       // El gráfico de una covered call sale SIN las acciones (ver legToken), así
       // que no es el P&L de la posición completa. Se marca para que la bitácora
@@ -297,4 +381,4 @@ function agruparPosiciones(positions = []) {
   }).sort((a, b) => a.clave.localeCompare(b.clave));
 }
 
-module.exports = { agruparPosiciones, detectarSlug, legToken, esPMCC, fusionarDiagonales };
+module.exports = { agruparPosiciones, detectarSlug, legToken, esPMCC, esMariposa, fusionarDiagonales, posicionesTradierAOptionStrat };

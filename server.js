@@ -6,7 +6,7 @@ const fs      = require('fs');
 const { TastytradeClient }                              = require('./src/tastytrade');
 const { TradierClient }                                 = require('./src/tradier');
 const { buildMetrics, buildEquityCurve, buildCalendar } = require('./src/metrics');
-const { agruparPosiciones }                             = require('./src/optionstrat');
+const { agruparPosiciones, posicionesTradierAOptionStrat } = require('./src/optionstrat');
 const { esIndice, sectorDe, simboloYahoo }              = require('./src/indices');
 // El calendario de la NYSE — feriados, medios dias y "hay mercado hoy?". Vive en
 // un modulo propio desde el 2026-09-06 porque esta tabla estaba SOLO aca y los
@@ -1431,6 +1431,47 @@ app.post('/api/optionstrat/:clave', (req, res) => {
   if (url) links[clave] = { url, updatedAt: new Date().toISOString() };
   else delete links[clave];
   saveOsLinks(links);
+  res.json({ ok: true, clave, url: url || null });
+});
+
+/* ── OptionStrat para Tradier (2026-09-15) ──────────────────────
+ *
+ * Hasta hoy la vista de Tradier guardaba el link a mano en el `localStorage` del
+ * navegador, uno por ticker: ninguno de los 11 trades abiertos del sandbox tenia
+ * link, y lo que se pegara no se veia desde el celular. Es el mismo problema que
+ * el de TastyTrade del 2026-08-31, con la misma solucion: el link se calcula al
+ * vuelo desde las posiciones reales y solo se persiste lo que se pone a mano.
+ *
+ * Archivo aparte de `optionstrat_links.json` a proposito: las claves son
+ * `SUBYACENTE|VENCIMIENTO` en los dos brokers y un mismo trade puede estar en
+ * ambos con strikes distintos (el OPEX del 18-sep lo estaba).
+ */
+const OS_FILE_TRADIER = path.join(DATA_DIR, 'optionstrat_links_tradier.json');
+function loadOsLinksTradier()  { try { return JSON.parse(fs.readFileSync(OS_FILE_TRADIER,'utf8')); } catch(e) { return {}; } }
+function saveOsLinksTradier(d) { fs.writeFileSync(OS_FILE_TRADIER, JSON.stringify(d,null,2),'utf8'); }
+
+app.get('/api/optionstrat-tradier', async (req, res) => {
+  try {
+    const manual = loadOsLinksTradier();
+    const positions = await cached('os-positions-tradier', 60, () => tradier.getPositions());
+    const grupos = agruparPosiciones(posicionesTradierAOptionStrat(positions)).map(g => ({
+      ...g,
+      urlAuto:   g.url,
+      urlManual: manual[g.clave]?.url || null,
+      url:       manual[g.clave]?.url || g.url,
+      origen:    manual[g.clave]?.url ? 'manual' : (g.url ? 'auto' : 'ninguno'),
+    }));
+    res.json({ grupos, ts: new Date().toISOString() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/optionstrat-tradier/:clave', (req, res) => {
+  const links = loadOsLinksTradier();
+  const clave = decodeURIComponent(req.params.clave);
+  const url   = String(req.body?.url || '').trim();
+  if (url) links[clave] = { url, updatedAt: new Date().toISOString() };
+  else delete links[clave];
+  saveOsLinksTradier(links);
   res.json({ ok: true, clave, url: url || null });
 });
 
