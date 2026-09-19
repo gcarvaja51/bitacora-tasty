@@ -481,13 +481,23 @@ muestra sí discriminan.
 el orden ya está decidido: **DIR-1 primero** (es la única con instrumento construido). DIR-4
 va detrás de conseguir su sombra, no antes.
 
-✅ **Lo que sí se resolvió el 2026-09-18:** el régimen GEX/DEX ya no se pierde. El
-`gamma_daemon` archiva cada lectura de Sigma en `gamma_daemon/archivo/<día>.jsonl` (commit
-`2056023`). Hasta entonces `history.json` guardaba 35 minutos y nada más, y por eso los
-scores de los 24 trades de arriba salieron en **banda** (70-80, 45-55) en vez de exactos:
-tres ganadores quedaron sin poder decidir si el bot habría entrado, y de esos tres depende
-que la adherencia del bot a la gestión manual sea 33 % o 58 %. De aquí en adelante se puntúa
-con el número exacto. Hacia atrás no se recupera.
+✅ **Lo que sí se resolvió el 2026-09-18/19, en dos frentes.** (a) El régimen GEX/DEX ya no
+se pierde: el `gamma_daemon` archiva cada lectura de Sigma en
+`gamma_daemon/archivo/<día>.jsonl` (commit `2056023`) — antes `history.json` guardaba 35
+minutos y nada más. (b) Las velas del 4 y 5 de agosto, que se habían dado por
+irrecuperables, **sí existen**: Sigma sirve su histórico con un proxy de Polygon
+(`/v2/aggs/ticker/I:SPX/range/<n>/minute/<desde>/<hasta>`) que acepta rangos arbitrarios,
+mientras Yahoo solo llega ~6 semanas atrás y el sandbox de Tradier tiene huecos sueltos.
+Con la serie completa (20-jul a 18-sep, validada contra Yahoo: mediana 0,000) los 24 trades
+se repuntaron enteros y **la adherencia del bot a la gestión manual es 40 % (6/15) a 60 %
+(9/15)** — 28 % a 53 % ponderada por dinero. Los tres que siguen en banda (01-sep, 03-sep,
+11-sep) dependen del régimen, y ese dato solo existe de aquí en adelante.
+
+⚠️ **Un veredicto cambió al usar la serie buena, y conviene saber por qué:** el 07-ago 11:07
+figuraba como "ninguna señal del bot" con datos de Yahoo y pasó a "señal 4 min antes" con
+Polygon. No cambió el mercado: con Yahoo ese día tenía 1,2 días de historia de 2m, menos del
+calentamiento que necesita `calcPullbackEntry`. Era un artefacto de la fuente. Los veredictos
+del patrón estructural —lo que sostiene esta propuesta— **no cambió ninguno de los 24**.
 
 ---
 
