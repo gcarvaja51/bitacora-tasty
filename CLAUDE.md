@@ -1169,6 +1169,25 @@ Estudio completo en `mentoria alejandro/estrategias automatizadas/07_pinning/REA
   a media sesión no pierde la estabilidad del dominante ni una mariposa abierta.
 - Las cadenas enriquecidas llevan `bid`/`ask` desde el 2026-09-10 solo para esto.
 
+**Alas en ATR (2026-09-19).** Un ala de 20 puntos **no es la misma apuesta cada día**:
+medida de 13-ago a 18-sep valía 0,50 ATR en agosto y 0,31 el 17-sep — se fue estrechando
+sola mientras subía la volatilidad, sin que nadie tocara nada. Así que ahora, además de
+las fijas, se siguen **0,25× y 0,5× el ATR(14)** (`REGLA.alasATR`), redondeadas a la
+rejilla de 5, y cada lectura guarda `atr14` y `alaPrincipalEnATR`.
+
+| | |
+|---|---|
+| `calcularATR` / `alaDesdeATR` (`src/pin_dominante.js`) | Puros y probados. Sin ATR devuelven **`null`**, nunca un valor por defecto |
+| `sesionesSpxParaATR` (`server.js`) | Máximo, mínimo y cierre de cada día del historial de Sigma que ya está en disco. **Sin dependencias de red nuevas** |
+
+- **La entrada NO cambia**: el filtro de crédito sigue mirando el ala principal de 20.
+  Las de ATR sólo se siguen.
+- **El día de hoy se excluye del ATR**: un ATR que incluye el rango del propio día mira
+  al futuro dentro de la sesión.
+- Se añaden ahora porque **no se pueden reconstruir después** — no se archiva la cadena,
+  así que el precio de una mariposa que no se pidió ese día no existe nunca. Es la misma
+  lección que costó el registro anterior al 8-sep, aplicada a tiempo. Estudio § 10.
+
 ### IV Rank
 Endpoint correcto: **`GET /market-metrics?symbols=SYMBOL`** (coma, no `symbols[]=`), campo
 `implied-volatility-index-rank` (decimal 0-1, ×100). El viejo

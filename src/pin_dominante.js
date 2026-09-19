@@ -38,7 +38,51 @@ const REGLA = {
   tpPct:            0.10,  // objetivo: 10% del credito (Guillermo)
   stopUSD:          150,
   salidaET:         15 * 60,
+
+  // ALAS EN ATR (2026-09-19). Un ala de 20 puntos NO es la misma apuesta cada dia:
+  // medido de 13-ago a 18-sep valia 0,50 ATR en agosto y 0,31 ATR el 17-sep — se
+  // fue estrechando sola mientras subia la volatilidad, sin que nadie tocara nada.
+  // Estas se siguen ADEMAS de las fijas, con la misma entrada, para comparar con la
+  // misma muestra en vez de con dias distintos.
+  // Estudio: 07_pinning/README.md §10 (scripts/13_alas_atr.js).
+  alasATR:          [0.25, 0.5],
+  atrDias:          14,    // ventana del ATR, la de manual
+  atrMinDias:       5,     // con menos sesiones no se publica ATR: queda null
+  pasoStrike:       5,     // el SPX cotiza de 5 en 5; el ala se redondea a la rejilla
 };
+
+/**
+ * ATR de `n` sesiones. `sesiones` va de antigua a reciente y cada una es
+ * { alto, bajo, cierre }; el rango verdadero de la primera no se puede calcular
+ * —no hay cierre anterior— y se descarta.
+ *
+ * Devuelve null si no hay al menos `minDias` rangos: mas vale sin ATR que con un
+ * ATR de dos dias, que es justo lo que un ala dinamica NO debe usar.
+ */
+function calcularATR(sesiones, n = REGLA.atrDias, minDias = REGLA.atrMinDias) {
+  if (!Array.isArray(sesiones) || sesiones.length < 2) return null;
+  const rangos = [];
+  for (let i = 1; i < sesiones.length; i++) {
+    const s = sesiones[i], previo = sesiones[i - 1];
+    if (!(s.alto >= s.bajo) || !(previo.cierre > 0)) continue;
+    rangos.push(Math.max(s.alto - s.bajo,
+                         Math.abs(s.alto - previo.cierre),
+                         Math.abs(s.bajo - previo.cierre)));
+  }
+  if (rangos.length < minDias) return null;
+  const ultimos = rangos.slice(-n);
+  return Math.round((ultimos.reduce((a, b) => a + b, 0) / ultimos.length) * 100) / 100;
+}
+
+/**
+ * Ala de `k` veces el ATR, redondeada a la rejilla de strikes. Sin ATR no hay ala:
+ * devuelve null en vez de caer a un valor por defecto, que seria inventarse el dato.
+ */
+function alaDesdeATR(atr, k, paso = REGLA.pasoStrike) {
+  if (!(atr > 0) || !(k > 0)) return null;
+  const ala = Math.round((atr * k) / paso) * paso;
+  return ala >= paso ? ala : null;
+}
 
 // Precio de un Iron Butterfly: vende call y put del centro, compra las alas.
 //   mid            — credito al medio
@@ -113,4 +157,5 @@ function valorAlVencimiento(spot, centro, ala) {
   return Math.min(Math.abs(spot - centro), ala);
 }
 
-module.exports = { REGLA, precioMariposa, evaluarEntrada, nivelesDeSalida, evaluarSalida, valorAlVencimiento };
+module.exports = { REGLA, precioMariposa, evaluarEntrada, nivelesDeSalida, evaluarSalida,
+                   valorAlVencimiento, calcularATR, alaDesdeATR };

@@ -5753,6 +5753,37 @@ function loadPinSombra() {
   } catch (e) { return []; }
 }
 
+// ── Sesiones para el ATR, de la propia serie de Sigma ──────────────────────
+//
+// No hace falta pedirle barras diarias a nadie: el historial de Sigma
+// (SIGMA_LEVELS_FILE, ~10.000 lecturas de 1-2 min ≈ 16 sesiones) ya trae el spot,
+// y de ahi salen maximo, minimo y cierre de cada dia. Es una aproximacion de la
+// barra diaria — no la barra oficial— pero es la MISMA fuente con la que se midio
+// el estudio, y no anade ninguna dependencia de red al ciclo.
+//
+// El dia de HOY se excluye a proposito: un ATR que incluye el rango del propio dia
+// mira al futuro dentro de la sesion.
+function sesionesSpxParaATR(fechaHoy) {
+  const porDia = new Map();
+  for (const e of loadSigmaLevelsHistory()) {
+    const sello = e?.capturadoEn || e?.updatedAt;
+    const spot = Number(e?.spxPrice);
+    if (!sello || !(spot > 1000)) continue;
+    const fecha = calendario.fechaET(new Date(sello));
+    if (fecha >= fechaHoy) continue;
+    const m = calendario.minutosET(new Date(sello));
+    if (m < 9 * 60 + 30 || m > 16 * 60) continue;
+    const d = porDia.get(fecha);
+    if (!d) porDia.set(fecha, { fecha, alto: spot, bajo: spot, cierre: spot, ultimo: m });
+    else {
+      if (spot > d.alto) d.alto = spot;
+      if (spot < d.bajo) d.bajo = spot;
+      if (m >= d.ultimo) { d.cierre = spot; d.ultimo = m; }
+    }
+  }
+  return [...porDia.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
 function vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
   try {
     if (!(spxPrice > 1000)) return;
@@ -5782,6 +5813,10 @@ function vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
       dia.dominante = { strike: dom.strike, desde: nowIso };
     }
     const minEstable = dia.dominante ? (Date.now() - Date.parse(dia.dominante.desde)) / 60000 : 0;
+    // El ATR del dia no cambia dentro de la sesion (solo usa dias cerrados): se
+    // calcula una vez y se guarda en el dia para no rehacerlo en cada evaluacion.
+    if (dia.atr14 === undefined) dia.atr14 = pinDominante.calcularATR(sesionesSpxParaATR(fecha));
+    const atr = dia.atr14;
     const t = dia.trade;
 
     if (!t) {
@@ -5793,6 +5828,9 @@ function vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
         dominancia: r2(dom?.dominancia), dominanciaZona: r2(dom?.dominanciaZona),
         concentracion: dom ? Math.round(dom.concentracion * 10000) / 10000 : null,
         minEstable: Math.round(minEstable), flyMid: fly?.mid ?? null,
+        // El ala principal expresada en ATR: es el numero que dice si 20 puntos hoy
+        // son una apuesta ancha o estrecha. Sin ATR queda null, no un valor inventado.
+        alaPrincipalEnATR: atr > 0 ? Math.round((pinDominante.REGLA.ala / atr) * 100) / 100 : null,
         checks: ev.checks, motivo: ev.motivo,
       };
       dia.ultima = lectura;
@@ -5808,14 +5846,22 @@ function vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
              ['gammaFlip', niveles.gammaFlip], ['maxPain', niveles.maxPain]]
               .filter(([, v]) => v > 0 && Math.abs(v - dom.strike) <= REJILLA_CONFLUENCIA_PTS).map(([k]) => k)
           : null;
-        // Una mariposa por ala (v0.1): misma entrada, cada una con su credito, su
-        // objetivo y su salida. La principal (REGLA.ala) es la que paso el filtro.
+        // Una mariposa por ala: misma entrada, cada una con su credito, su objetivo
+        // y su salida. La principal (REGLA.ala) es la que paso el filtro. Van las
+        // FIJAS (10/15/20, v0.1) y las de ATR (0,25x y 0,5x, 2026-09-19); estas
+        // ultimas no se pueden reconstruir despues —no se archiva la cadena— asi
+        // que si no se piden aqui, ese dato no existe nunca.
+        const aSeguir = pinDominante.REGLA.alasSeguimiento.map((a) => ({ clave: 'a' + a, ala: a, kATR: null }));
+        for (const k of pinDominante.REGLA.alasATR) {
+          const a = pinDominante.alaDesdeATR(atr, k);
+          if (a) aSeguir.push({ clave: 'atr' + String(k).replace('.', ''), ala: a, kATR: k });
+        }
         const alas = {};
-        for (const a of pinDominante.REGLA.alasSeguimiento) {
+        for (const { clave, ala: a, kATR } of aSeguir) {
           const f = pinDominante.precioMariposa(exp.strikes, dom.strike, a);
           if (!f) continue;
-          alas['a' + a] = {
-            ala: a, estado: 'ABIERTA', creditoMid: f.mid, creditoNatural: f.aperturaNatural,
+          alas[clave] = {
+            ala: a, kATR, estado: 'ABIERTA', creditoMid: f.mid, creditoNatural: f.aperturaNatural,
             riesgoMaxUSD: Math.round((a - f.mid) * 100),
             ...pinDominante.nivelesDeSalida(f.mid), salida: null,
           };
@@ -5824,6 +5870,7 @@ function vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
           estado: 'ABIERTA', abiertoEn: nowIso, centro: dom.strike, alaPrincipal: fly.ala, spot, fuenteSpot,
           dominancia: lectura.dominancia, dominanciaZona: lectura.dominanciaZona,
           concentracion: lectura.concentracion, minEstable: lectura.minEstable,
+          atr14: atr, alaPrincipalEnATR: lectura.alaPrincipalEnATR,
           regime: niveles?.regime ?? null, confluencia,
           alas, camino: [],
         };

@@ -933,6 +933,36 @@ chequear('PIN: al vencimiento se paga la distancia al centro',
          Math.abs(pinD.valorAlVencimiento(7636.36, 7650, 15) - 13.64) < 1e-9);
 chequear('PIN: ...y nunca mas que el ala', pinD.valorAlVencimiento(7600, 7650, 15) === 15);
 
+// Alas en ATR (2026-09-19). Un ala de 20 puntos valia 0,50 ATR en agosto y 0,31 el
+// 17-sep sin que nadie tocara nada: el ATR existe para que la apuesta sea la misma
+// en los dos regimenes. Lo que se prueba es que el ATR no se invente con dos dias
+// y que el ala caiga siempre en la rejilla de strikes.
+const sesATR = [
+  { alto: 7700, bajo: 7650, cierre: 7680 },   // sin cierre anterior: su rango no cuenta
+  { alto: 7710, bajo: 7660, cierre: 7700 },   // TR = 50
+  { alto: 7730, bajo: 7690, cierre: 7720 },   // TR = 40
+  { alto: 7740, bajo: 7700, cierre: 7710 },   // TR = 40
+  { alto: 7760, bajo: 7730, cierre: 7750 },   // TR = 50
+  { alto: 7770, bajo: 7740, cierre: 7760 },   // TR = 30
+];
+chequear('ATR: promedia los rangos verdaderos y descarta el primer dia',
+         pinD.calcularATR(sesATR) === 42, `dio ${pinD.calcularATR(sesATR)}`);
+chequear('ATR: con menos de 5 rangos devuelve null, no un ATR de dos dias',
+         pinD.calcularATR(sesATR.slice(0, 4)) === null);
+chequear('ATR: sin sesiones no revienta', pinD.calcularATR([]) === null && pinD.calcularATR(null) === null);
+// El hueco manda cuando es mayor que el rango del dia: cierre 7500 y al dia
+// siguiente 7600/7580 -> TR = |7600-7500| = 100, no los 20 del rango.
+chequear('ATR: el hueco contra el cierre anterior manda sobre el rango del dia',
+         pinD.calcularATR([{ alto: 7510, bajo: 7490, cierre: 7500 },
+                           { alto: 7600, bajo: 7580, cierre: 7590 }], 14, 1) === 100);
+chequear('ATR: el ala de 0,5x con ATR 50 son 25 puntos', pinD.alaDesdeATR(50, 0.5) === 25);
+chequear('ATR: el ala se redondea a la rejilla de 5', pinD.alaDesdeATR(47, 0.25) === 10,
+         `dio ${pinD.alaDesdeATR(47, 0.25)}`);   // 11,75 -> 10
+chequear('ATR: sin ATR no hay ala dinamica', pinD.alaDesdeATR(null, 0.5) === null && pinD.alaDesdeATR(0, 0.5) === null);
+chequear('ATR: un ala que se redondea a 0 no se publica', pinD.alaDesdeATR(4, 0.25) === null);
+chequear('PIN: las alas en ATR se siguen ADEMAS de las fijas',
+         pinD.REGLA.alasATR.join() === '0.25,0.5' && pinD.REGLA.alasSeguimiento.length === 3);
+
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
 
 const cal = require('../src/calendario_nyse');
