@@ -10,6 +10,10 @@ premercado_auto_log.txt
 gamma_daemon/node_modules/
 gamma_daemon/status.json
 gamma_daemon/history.json
+# Archivo historico de lecturas de Sigma (2026-09-18): un JSONL por dia que
+# crece ~293 KB/dia. Es DATO de runtime, no codigo -- misma familia que las dos
+# lineas de arriba. Lo que se versiona es la funcion que lo escribe.
+gamma_daemon/archivo/
 gamma_daemon/sigma_profile/
 # Perfil propio de la captura de niveles (2026-08-25). Mismo motivo que el de
 # arriba: guarda la SESION de Sigma Terminal. Se creo el 24-ago para separar el

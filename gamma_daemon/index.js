@@ -5,7 +5,7 @@
 // 2026-07-30.
 import * as sigma from './sigma.js';
 import * as tv from './tv.js';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 // El calendario de la NYSE, compartido con el servidor y con los scripts de
@@ -16,6 +16,23 @@ import calendario from '../src/calendario_nyse.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATUS_PATH = path.join(__dirname, 'status.json');
 const HISTORY_PATH = path.join(__dirname, 'history.json');
+// ARCHIVO HISTORICO (2026-09-18). history.json es un buffer circular de 60
+// entradas -- existe solo para calcular el "hace ~6 min" de la tabla de
+// CIARG_V1, y a 35s por ciclo eso son 35 MINUTOS de memoria. Todo lo demas se
+// tiraba: meses de lecturas de Sigma a 35 segundos, perdidas.
+//
+// Se descubrio auditando los 24 direccionales de la cuenta real de agosto y
+// septiembre: el check de Regimen (GEX+DEX, 10 de los 100 puntos del score)
+// no se pudo reconstruir en NINGUNO, asi que los scores salieron en banda
+// (70-80, 45-55) en vez de exactos. Tres trades ganadores quedaron sin poder
+// decidir si el bot habria entrado, y de esos tres depende que la adherencia
+// sea 33% o 58%. Las velas de precio si estaban (Tradier y Yahoo dan lo mismo
+// al 0,000); el unico dato que no existia hacia atras era este.
+//
+// Un JSONL por dia ET: una linea por lectura, SIN los arrays de velas
+// (velas2m/5m/15m pesan 15 KB por lectura -- 10 MB/dia -- y ya viajan en el
+// push al servidor). Solo los escalares: 428 bytes por linea medidos, ~293 KB/dia.
+const ARCHIVO_DIR = path.join(__dirname, 'archivo');
 // Con el ciclo en 30s hacen falta ~12 entradas para cubrir los 6 min que mira
 // la tabla del indicador; 60 deja ~30 min de margen.
 const HISTORY_CAP = 60;
@@ -80,6 +97,23 @@ function loadHistory() {
     return existsSync(HISTORY_PATH) ? JSON.parse(readFileSync(HISTORY_PATH, 'utf8')) : [];
   } catch {
     return [];
+  }
+}
+
+// Append de UNA linea al archivo del dia. Best-effort y con su propio try:
+// este daemon mata y relanza TradingView cuando un ciclo falla, asi que una
+// escritura a disco jamas puede tumbar el ciclo. Si el disco falla, se pierde
+// una linea del archivo -- no el push de niveles, que es lo critico.
+function archivarLectura(levels, fase) {
+  try {
+    if (!levels) return;
+    if (!existsSync(ARCHIVO_DIR)) mkdirSync(ARCHIVO_DIR, { recursive: true });
+    const { velas5m, velas2m, velas15m, ...sinVelas } = levels;
+    const fila = { fase, ...sinVelas, archivadoEn: new Date().toISOString() };
+    const dia = calendario.fechaET();
+    appendFileSync(path.join(ARCHIVO_DIR, `${dia}.jsonl`), JSON.stringify(fila) + String.fromCharCode(10));
+  } catch (e) {
+    console.warn('[archivo] no se pudo archivar la lectura (%s) -- el ciclo sigue', e.message);
   }
 }
 
@@ -218,6 +252,7 @@ async function runPremarketCycle() {
     }
 
     levels.capturadoEn = new Date().toISOString();
+    archivarLectura(levels, 'premercado');
     saveStatus({
       lastCycleAt: new Date().toISOString(),
       lastSkipReason: 'premercado_solo_lectura',
@@ -297,6 +332,7 @@ async function runCycle() {
     // Sin este sello no hay forma de distinguir "el dato es de ahora" de "el
     // daemon tardo en mandarlo", y esa diferencia decide si la Reversion abre.
     levels.capturadoEn = new Date().toISOString();
+    archivarLectura(levels, 'sesion');
     const prev = recordAndGetPrevious(levels);
 
     // Velas de 5m del SPX, de la misma fuente que el gamma (2026-08-09). Van
