@@ -202,6 +202,38 @@ PROPUESTAS = [
         "aplicada": "2026-08-13",
         "instrumento": "sombra_credito",
     },
+    {
+        "id": "DIR-4", "familia": "DIRECCIONAL", "nivel": "alto",
+        "titulo": "El patron estructural (HL/LH) castiga por tamano, no por acierto",
+        "pregunta": "¿Quitarle el peso al check de HL/LH (20 -> 0) mejora el resultado?",
+        # SIN INSTRUMENTO, y el motivo ES el hallazgo. SIGNAL_BUILT si guarda los
+        # checks con su ok, asi que parecia haber sombra. No la hay: en las 296
+        # senales que el bot construyo (29-jul a 17-ago) patrones_estructurales
+        # paso en 296 de 296. Cero contraejemplos.
+        #
+        # No es casualidad, es aritmetica: el check vale 20 sobre un umbral de 80,
+        # asi que fallarlo exige que los otros cuatro salgan perfectos. Nunca
+        # ocurrio. El bot no puede auditar este check con sus propios datos porque
+        # nunca opero sin el. Y el lado rechazado tampoco sirve: hay 1 solo
+        # SCORE_FAIL en todo el log (el gate de entrada mata casi todo antes de
+        # llegar a puntuar).
+        #
+        # La evidencia que levanta la hipotesis son los 24 verticales
+        # direccionales de la cuenta REAL de Tastytrade (4-ago a 18-sep),
+        # puntuados con el score del bot en el instante de cada entrada: el check
+        # PASA en 14 (WR 64%, -103.32 USD) y FALLA en 10 (WR 60%, +171.20 USD), y
+        # la direccion aguanta en las dos mitades. Pero el win rate casi no cambia
+        # -- toda la diferencia esta en el TAMANO -- y es la poblacion MANUAL, no
+        # la del bot. Sirve para abrir la pregunta, no para cerrarla.
+        #
+        # Prerequisito, y es la mitad de la propuesta: un libro sombra que puntue
+        # cada pullback CON y SIN este check y registre que hizo el indice
+        # despues, no solo los que llegaron a orden.
+        "instrumento": None,
+        # Cuarta ALTO abierta sobre DIRECCIONAL. DIR-1 va primero: es la unica con
+        # instrumento construido. DIR-4 va detras de conseguir su sombra.
+        "espera": "necesita libro sombra propio; DIR-1 se aplica antes",
+    },
 ]
 
 

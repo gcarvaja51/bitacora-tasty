@@ -412,6 +412,85 @@ se corta ahí.
 
 ---
 
+### 10. El patrón estructural (HL/LH) castiga por tamaño, no por acierto — DIRECCIONAL, impacto ALTO
+
+**Anotado:** 2026-09-19 · **Evidencia:** los 24 verticales direccionales de SPXW de la
+cuenta REAL de Tastytrade, 4-ago a 18-sep, puntuados uno a uno con el score del bot en el
+instante exacto de cada entrada
+
+`patrones_estructurales` vale **20 de los 100 puntos** y exige Higher-Low (alcista) o
+Lower-High (bajista) sobre los dos últimos fractales de Williams de 15m
+(`calcSwingStructure`, `src/spx_indicators.js:141`).
+
+Reconstruí el score del bot en el momento de cada una de las 24 entradas manuales y lo
+partí por este check:
+
+| `patrones_estructurales` | n | WR | P&L | Por trade |
+|---|---|---|---|---|
+| **PASA** | 14 | 64 % | **−103,32** | −7,38 |
+| **FALLA** | 10 | 60 % | **+171,20** | **+17,12** |
+
+Aguanta el test de las dos mitades — ago: −0,33 contra +6,37 por trade; sep: −33,21 contra
++24,29 — que es lo que descarta el sobreajuste de un día raro.
+
+**El matiz importa más que el titular.** El win rate casi no cambia (64 % contra 60 %): la
+diferencia entera está en el **tamaño**, no en la frecuencia. El check no acierta menos,
+acierta parecido y pierde más grande. Eso es bastante más frágil que decir que está
+invertido, y conviene no decirlo.
+
+**Caso concreto del 18-sep**, que es lo que destapó esto: el SPX hizo +19 puntos desde las
+14:00 ET. El gatillo de pullback disparó a las 14:33 y el score quedó en **70/100** — los
+30 que faltaban eran este check (20) y el régimen (10). El patrón no estaba equivocado: los
+dos últimos pisos de 15m eran 7.618,44 (10:15) y 7.610,52 (12:15), un Lower-Low de verdad.
+El precio subía y la estructura todavía no lo confirmaba. Es un veto estricto y correcto en
+sus términos — la pregunta es si esos términos valen 20 puntos.
+
+**Cálculo verificado contra producción.** Los veredictos de arriba se recalcularon con
+`calcFractals` de `src/wheel_trading.js` —la función que corre en línea— con su ventana real
+de `range=5d` y su serie cruda (producción NO filtra la vela artificial de las 16:00 en
+`q15.high`/`q15.low`; yo sí la filtraba). **Cero discrepancias en 24 de 24.**
+
+**Propuesta:** bajar `patrones_estructurales` de 20 a 0 — peso 0, el check se sigue
+calculando y mostrando. Mismo tratamiento que recibió `volumen_rompimiento` el 2026-07-21.
+Efecto colateral buscado: con 20 puntos menos en juego, el umbral de 80 pasa a ser
+alcanzable por gatillo (45) + EMAs (10) + MACD (15) + régimen (10), que son los que en esta
+muestra sí discriminan.
+
+> ⚠️ **SIN INSTRUMENTO, y el motivo es el hallazgo más fuerte de toda la propuesta.**
+>
+> `SIGNAL_BUILT` **sí** guarda los `checks` con su `ok`, así que parecía haber sombra. No la
+> hay: en las **296 señales que el bot construyó** (29-jul a 17-ago),
+> `patrones_estructurales` pasó en **296 de 296**. Cero contraejemplos.
+>
+> No es casualidad, es aritmética: fallarlo deja el techo en 80 justo, o sea que exige que
+> los otros cuatro checks salgan perfectos. En la práctica nunca ocurrió. **El bot no puede
+> auditar este check con sus propios datos, porque nunca operó sin él.** Y el lado rechazado
+> tampoco sirve: hay 1 solo `SCORE_FAIL` en todo el log — el gate de entrada mata casi todo
+> antes de llegar a puntuar.
+>
+> La evidencia de arriba es de la gestión **manual** de Guillermo, que es una población
+> distinta de la del bot. Sirve para levantar la hipótesis; no para cerrarla.
+>
+> **Prerequisito, y es la mitad de la propuesta:** un libro sombra que puntúe cada pullback
+> con y sin este check y registre qué hizo el índice después — no solo los que llegaron a
+> orden. Recién con eso el Auditor puede dar MEJORA o EMPEORA en vez de SIN INSTRUMENTO.
+>
+> Declarada como **DIR-4** en `PROPUESTAS` con `instrumento: None`.
+
+⚠️ **Cuarta ALTO abierta sobre DIRECCIONAL** (con DIR-1, DIR-2 y DIR-3). Una por ventana, y
+el orden ya está decidido: **DIR-1 primero** (es la única con instrumento construido). DIR-4
+va detrás de conseguir su sombra, no antes.
+
+✅ **Lo que sí se resolvió el 2026-09-18:** el régimen GEX/DEX ya no se pierde. El
+`gamma_daemon` archiva cada lectura de Sigma en `gamma_daemon/archivo/<día>.jsonl` (commit
+`2056023`). Hasta entonces `history.json` guardaba 35 minutos y nada más, y por eso los
+scores de los 24 trades de arriba salieron en **banda** (70-80, 45-55) en vez de exactos:
+tres ganadores quedaron sin poder decidir si el bot habría entrado, y de esos tres depende
+que la adherencia del bot a la gestión manual sea 33 % o 58 %. De aquí en adelante se puntúa
+con el número exacto. Hacia atrás no se recupera.
+
+---
+
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
 
 ### 2026-09-03 (bis) · revisión SEMANAL del jueves, 28-ago a 3-sep
