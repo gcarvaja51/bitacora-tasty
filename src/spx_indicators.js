@@ -274,6 +274,37 @@ function calcPlaybookScore(indicators, config) {
     } else {
       regimen_reason = `Gamma negativo pero precio no confirmó flip (${gammaFlip}) ❌ (sin DEX fresco, fallback GEX-solo)`;
     }
+  } else if (gammaFlip && spxPrice) {
+    // SIN RÉGIMEN (2026-09-20). Hasta hoy las tres ramas de arriba exigían
+    // `regime`; si venía null ninguna se cumplía, no había `else`, y el check
+    // se quedaba en los valores iniciales: 0 puntos y motivo '—'. El registro
+    // no distinguía "el régimen está en contra" de "no sé cuál es el régimen",
+    // y el setup perdía 10 puntos por una falla de dato, no suya.
+    //
+    // Se aplica la MISMA regla del caso NEGATIVO —la más exigente de las
+    // tres— con el Gamma Flip que haya llegado (Sigma, cálculo interno sobre
+    // la cadena, o premercado). No regala puntos: exige que el precio esté del
+    // lado correcto del flip.
+    //
+    // Frecuencia medida antes de escribirlo: sobre 8.940 snapshots del log,
+    // `regime` faltó 1 vez y `gammaFlip` 63. O sea que esta rama es defensiva
+    // — casi nunca entra en producción. Lo que sí falta seguido es el DEX
+    // (87% de las evaluaciones), y eso lo cubre la rama POSITIVO/NEGATIVO.
+    if (dir === 'BULLISH' && spxPrice > gammaFlip) {
+      regimen_ok = true;
+      regimen_points = w2;
+      regimen_reason = `Precio (${spxPrice}) sobre Gamma Flip (${gammaFlip}) ✅ (SIN RÉGIMEN — solo flip)`;
+    } else if (dir === 'BEARISH' && spxPrice < gammaFlip) {
+      regimen_ok = true;
+      regimen_points = w2;
+      regimen_reason = `Precio (${spxPrice}) bajo Gamma Flip (${gammaFlip}) ✅ (SIN RÉGIMEN — solo flip)`;
+    } else {
+      regimen_reason = `Sin régimen GEX; el precio (${spxPrice}) no confirma el flip (${gammaFlip}) ❌`;
+    }
+  } else {
+    // Ni régimen ni flip: el check no es evaluable. Se deja dicho en el
+    // registro en vez del '—' mudo de antes, para poder contarlo después.
+    regimen_reason = `Sin régimen GEX y sin Gamma Flip — check no evaluable (Regime:${regime ?? 'null'} Flip:${gammaFlip ?? 'null'})`;
   }
   checks.push({
     id:      'regimen_institucional',
@@ -282,7 +313,12 @@ function calcPlaybookScore(indicators, config) {
     weight:  w2,
     points:  regimen_points,
     ok:      regimen_ok,
-    value:   `Regime:${regime} Flip:${gammaFlip} DEX:${netDex ?? 'sin dato'}`,
+    // `fuente` agregado el 2026-09-20 junto con la rama SIN RÉGIMEN: sin esto
+    // no se puede medir después si el respaldo acierta tanto como el dato vivo.
+    value:   `Regime:${regime ?? 'sin dato'} Flip:${gammaFlip ?? 'sin dato'} DEX:${netDex ?? 'sin dato'} Fuente:${
+               netDex != null && regime != null ? 'gex+dex'
+               : regime != null ? 'gex-solo'
+               : gammaFlip ? 'solo-flip' : 'sin-dato'}`,
     reason:  regimen_reason,
   });
   score += regimen_points;
