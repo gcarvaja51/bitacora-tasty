@@ -7131,6 +7131,10 @@ async function processDirectionalEntry(direction, meta = {}) {
     // (selectStrategy) y los niveles de Call/Put Wall usados en el stop tecnico
     // y en la propia señal.
     const sigmaLevelsWebhook = getFreshSigmaLevels();
+    // Llave del DEX interno. Se lee aca porque `spxConfig` se carga mas abajo y
+    // effectiveGex la necesita antes. Apagada por defecto: ver el comentario en
+    // la rama `interno` de effectiveGex.
+    const usarDexInterno = loadSPXConfig()?.trading?.usarDexInterno === true;
     // netDex viaja pegado al mismo objeto effectiveGex (mismo origen, misma
     // frescura <5min) en vez de un "effectiveDex" aparte -- si no hay dato de
     // Sigma Terminal fresco, queda undefined y regimen_institucional cae solo
@@ -7153,7 +7157,26 @@ async function processDirectionalEntry(direction, meta = {}) {
           maxPain: sigmaLevelsWebhook.maxPain ?? ctx.gex?.maxPain,
           maxPainFuente: sigmaLevelsWebhook.maxPain != null ? 'sigma' : 'interno',
           source: 'sigma_terminal' }
-      : { regime: ctx.gex?.regime, netDex: undefined, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain, maxPainFuente: 'interno', source: 'interno' };
+      // netDex: hasta el 2026-09-20 esta rama ponia `undefined` a proposito, y
+      // el comentario de arriba decia que sin Sigma no habia DEX. No era cierto:
+      // calcGEX (src/spx.js:111,124-125) YA calcula el netDex sobre la misma
+      // cadena con la que saca el GEX y los muros — delta x OI x 100 x spot,
+      // sumado sobre calls y puts. Se estaba tirando un dato que ya existia.
+      //
+      // Efecto: el cuadrante GEX/DEX de la mentoria (Grind / Short Squeeze /
+      // Rango / Panico) pasa a evaluarse tambien cuando Sigma no manda greeks,
+      // en vez de caer al respaldo GEX-solo. OJO: eso puede QUITAR puntos, no
+      // solo darlos — el cuadrante "Rango lateral" (GEX+/DEX-) da medio puntaje
+      // donde el respaldo daba 10 completos. Por eso va detras de una llave de
+      // config, apagada por defecto: `trading.usarDexInterno`.
+      //
+      // Con la llave apagada el comportamiento es EXACTAMENTE el de antes.
+      // Prender solo despues de que el Auditor lo corra en sombra: cambia el
+      // check en el ~70% de las evaluaciones.
+      : { regime: ctx.gex?.regime,
+          netDex: usarDexInterno ? ctx.gex?.netDex : undefined,
+          netDexFuente: usarDexInterno && ctx.gex?.netDex != null ? "interno" : null,
+          callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall, gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain, maxPainFuente: 'interno', source: 'interno' };
     console.log(`[SPX] Régimen GEX: ${effectiveGex.regime || 'desconocido'} (fuente: ${effectiveGex.source}) DEX: ${effectiveGex.netDex ?? 'sin dato'}`);
 
     // Capital de la cuenta — DEBE ser el de Tradier (donde de verdad se ejecuta la
@@ -8143,12 +8166,42 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   // Guardar los dos permite ademas medir el retraso del propio daemon, que
   // hasta hoy era invisible.
   const recibidoEn = new Date().toISOString();
-  const entry = { netGex, netDex, netVanna, regime, callWall, putWall, gammaFlip, mvs, spxPrice,
+  // GREEKS QUE NO PISAN AL BUENO (2026-09-20). netDex y netVanna estan marcados
+  // `obligatoria: false` en gamma_daemon/sigma.js: si el panel de greeks de Sigma
+  // no llego a montarse, el daemon empuja igual —con los muros, que si estan— y
+  // hasta hoy ese push machacaba el DEX bueno con un undefined.
+  //
+  // Lo que se midio: el 2026-09-16, 196 de 197 evaluaciones del dia tuvieron
+  // `source: sigma_terminal` (o sea, muros frescos de Sigma) y netDex en null.
+  // Sobre el historico entero, el DEX falta en el 87% de las evaluaciones y en
+  // el 70% de las que SI traen muros de Sigma. El daemon, en cambio, lee el DEX
+  // bien: 60 de 60 en el archivo crudo del 18-sep. La perdida estaba aca.
+  //
+  // Ahora una lectura sin greeks conserva el ultimo valor conocido y deja dicha
+  // su edad. No se inventa nada: si nunca hubo DEX, sigue en null.
+  const previo = loadSigmaLevelsHistory()[0] || {};
+  const heredar = (nuevo, viejo, campo) => {
+    if (nuevo != null) return { valor: nuevo, heredado: false };
+    if (viejo == null) return { valor: null, heredado: false };
+    const edadSeg = previo.updatedAt
+      ? Math.round((Date.parse(recibidoEn) - Date.parse(previo.updatedAt)) / 1000) : null;
+    console.warn(`[SIGMA] ${campo} llego vacio — se conserva el anterior (${edadSeg}s de antiguedad)`);
+    return { valor: viejo, heredado: true, edadSeg };
+  };
+  const dex   = heredar(netDex,   previo.netDex,   'netDex');
+  const vanna = heredar(netVanna, previo.netVanna, 'netVanna');
+
+  const entry = { netGex, netDex: dex.valor, netVanna: vanna.valor,
+                  regime, callWall, putWall, gammaFlip, mvs, spxPrice,
                   totalGamma, maxPain, putCallOi, ivPromedio,
                   vix, vix52High, vix52Low,
                   expiry: expiry || null,
                   updatedAt: recibidoEn,
-                  capturadoEn: capturadoEn || null };
+                  capturadoEn: capturadoEn || null,
+                  // Sin estos dos sellos, un DEX heredado es indistinguible de
+                  // uno fresco y cualquier medicion posterior queda envenenada.
+                  netDexHeredado:   dex.heredado ? (dex.edadSeg ?? true) : false,
+                  netVannaHeredado: vanna.heredado ? (vanna.edadSeg ?? true) : false };
   if (capturadoEn) {
     const retrasoSeg = Math.round((Date.parse(recibidoEn) - Date.parse(capturadoEn)) / 1000);
     if (Number.isFinite(retrasoSeg)) {
