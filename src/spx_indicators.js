@@ -138,20 +138,51 @@ function calcRelativeVolume(volumes, currentVol, lookback = 20) {
 // ── Patrones estructurales: Higher-Low (alcista) / Lower-High (bajista) ──
 // A partir del historial de fractales de Williams (15m) — necesita al menos
 // 2 fractales confirmados del tipo relevante para poder comparar.
-function calcSwingStructure(dir, lowsHistory, highsHistory) {
+//
+// TOLERANCIA DE 0.5 ATR (2026-09-20, decision del usuario). Hasta hoy la
+// comparacion era estricta: un fractal 3 puntos "del lado malo" sobre un indice
+// de 7800 mataba el check entero y sus 20 puntos.
+//
+// Lo que se midio sobre los 32 momentos direccionales auditados: de los 4 que
+// fallaban por este check, TRES violaban por menos de medio ATR —0.47, 0.36 y
+// 0.13— o sea ruido de una sola vela, no estructura rota. El cuarto (#155)
+// violaba por 1.46 ATR: ese SI estaba roto y sigue fallando con la tolerancia.
+//
+// El umbral va en ATR y no en puntos por la misma razon que en calcPullbackEntry
+// (src/camino_b.js): la profundidad util cambia con la volatilidad del momento.
+// Los ATR de 15m de esos cuatro casos iban de 6.1 a 11.6 puntos.
+//
+// Si no llega ATR el comportamiento es el estricto de antes (tolerancia 0).
+const SWING_TOL_ATR = 0.5;
+
+function calcSwingStructure(dir, lowsHistory, highsHistory, atr15m) {
+  const tol = Number.isFinite(atr15m) && atr15m > 0 ? SWING_TOL_ATR * atr15m : 0;
+  const cerca = (dif) => tol > 0 && Math.abs(dif) <= tol;   // violo, pero dentro del ruido
   if (dir === 'BULLISH') {
     const lows = (lowsHistory || []).filter(v => v != null);
     if (lows.length < 2) return { ok: false, reason: 'Historial de fractales insuficiente para confirmar Higher-Low' };
     const [prev, last] = lows.slice(-2);
-    const ok = last > prev;
-    return { ok, reason: ok ? `Higher-Low confirmado (${prev} → ${last}) ✅` : `Sin Higher-Low (${prev} → ${last}) ❌`, value: `${prev} → ${last}` };
+    const dif = last - prev;                 // positivo = Higher-Low limpio
+    const limpio = dif > 0;
+    const ok = limpio || cerca(dif);
+    return { ok,
+      reason: limpio ? `Higher-Low confirmado (${prev} → ${last}) ✅`
+        : ok ? `Higher-Low dentro de tolerancia: ${dif.toFixed(2)} pts = ${(Math.abs(dif)/atr15m).toFixed(2)} ATR (tope ${tol.toFixed(2)}) ✅`
+        : `Sin Higher-Low (${prev} → ${last}), ${Math.abs(dif).toFixed(2)} pts por debajo — fuera de la tolerancia de ${tol.toFixed(2)} ❌`,
+      value: `${prev} → ${last}` };
   }
   if (dir === 'BEARISH') {
     const highs = (highsHistory || []).filter(v => v != null);
     if (highs.length < 2) return { ok: false, reason: 'Historial de fractales insuficiente para confirmar Lower-High' };
     const [prev, last] = highs.slice(-2);
-    const ok = last < prev;
-    return { ok, reason: ok ? `Lower-High confirmado (${prev} → ${last}) ✅` : `Sin Lower-High (${prev} → ${last}) ❌`, value: `${prev} → ${last}` };
+    const dif = last - prev;                 // negativo = Lower-High limpio
+    const limpio = dif < 0;
+    const ok = limpio || cerca(dif);
+    return { ok,
+      reason: limpio ? `Lower-High confirmado (${prev} → ${last}) ✅`
+        : ok ? `Lower-High dentro de tolerancia: +${dif.toFixed(2)} pts = ${(Math.abs(dif)/atr15m).toFixed(2)} ATR (tope ${tol.toFixed(2)}) ✅`
+        : `Sin Lower-High (${prev} → ${last}), ${dif.toFixed(2)} pts por encima — fuera de la tolerancia de ${tol.toFixed(2)} ❌`,
+      value: `${prev} → ${last}` };
   }
   return { ok: false, reason: 'Sin dirección', value: '—' };
 }
@@ -344,7 +375,9 @@ function calcPlaybookScore(indicators, config) {
   // 3. Patrones estructurales — Higher-Low / Lower-High (fractales 15m)
   const w3 = weights.patrones_estructurales ?? 20;
   totalWeight += w3;
-  const swing = calcSwingStructure(dir, indicators.fractal15m?.lowsHistory, indicators.fractal15m?.highsHistory);
+  // atr15m: lo calcula buildSPXContext (server.js, indicators.atr15m). Si no
+  // llega, calcSwingStructure vuelve sola al criterio estricto de antes.
+  const swing = calcSwingStructure(dir, indicators.fractal15m?.lowsHistory, indicators.fractal15m?.highsHistory, indicators.atr15m);
   checks.push({
     id:      'patrones_estructurales',
     label:   'Patrón Estructural (HL/LH)',

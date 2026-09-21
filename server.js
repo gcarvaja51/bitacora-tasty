@@ -7226,6 +7226,9 @@ async function processDirectionalEntry(direction, meta = {}) {
       m2:          safeM2,
       spy:         safeSpy,
       fractal15m:  ctx.indicators?.fractal15m || {},
+      // Para la tolerancia de 0.5 ATR de patrones_estructurales (2026-09-20).
+      // Si viene null, calcSwingStructure cae sola al criterio estricto de antes.
+      atr15m:      ctx.indicators?.atr15m ?? null,
     }, spxConfig);
 
     // Impulso de 15m (src/impulsos.js). Se calcula ACA, antes del gate de score,
