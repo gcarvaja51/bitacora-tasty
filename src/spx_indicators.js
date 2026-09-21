@@ -249,15 +249,31 @@ function calcPlaybookScore(indicators, config) {
                     : gexPos && !dexPos  ? 'Rango lateral'
                     : 'Pánico/Crash';
     const esRango = gexPos && !dexPos;
+    // SHORT SQUEEZE EN UN CORTO: medio puntaje en vez de cero (2026-09-20,
+    // decision del usuario). Antes solo Rango lateral graduaba; Short Squeeze
+    // era binario y un trade bajista en ese cuadrante se iba a 0.
+    //
+    // Queda dicho que es una decision, no doctrina de la mentoria: la tabla de
+    // Alejandro describe Short Squeeze como un rally violento al alza, o sea el
+    // PEOR entorno para un corto, no uno ambiguo como el Rango. El usuario
+    // decidio igual darle medio punto. Reversible: es esta sola linea.
+    //
+    // Caso que lo motivo: #160 (31-ago 13:15, bajista). GEX-/DEX+ lo mandaba a
+    // 0 y el score quedaba en 75 contra un minimo de 80. Con 5 pasa a 80 y
+    // entra. Es el unico de los 32 momentos auditados que tenia DEX y cambiaba.
+    const esSqueezeEnCorto = !gexPos && dexPos && dir === 'BEARISH';
     const fullMatch = dir === 'BULLISH' ? dexPos : (!gexPos && !dexPos);
-    regimen_points = fullMatch ? w2 : (esRango ? w2 / 2 : 0);
-    regimen_ok = fullMatch; // Rango queda "no ok" para visualizacion (❌), aunque sume medio puntaje
+    const medio = esRango || esSqueezeEnCorto;
+    regimen_points = fullMatch ? w2 : (medio ? w2 / 2 : 0);
+    regimen_ok = fullMatch; // los de medio puntaje quedan "no ok" (❌) aunque sumen
     const signos = `GEX${gexPos ? '+' : '-'}/DEX${dexPos ? '+' : '-'} (${netDex})`;
     regimen_reason = fullMatch
       ? `${quadrant} — ${signos} ✅ (${regimen_points}/${w2} pts)`
       : esRango
         ? `${quadrant} — ${signos}, sin combustible claro para ${dir === 'BULLISH' ? 'alcista' : 'bajista'} — medio puntaje (${regimen_points}/${w2} pts) ⚠️`
-        : `${quadrant} — ${signos}, no confirma ${dir === 'BULLISH' ? 'alcista' : 'bajista'} ❌ (0/${w2} pts)`;
+        : esSqueezeEnCorto
+          ? `${quadrant} — ${signos}, entorno alcista para un corto — medio puntaje (${regimen_points}/${w2} pts) ⚠️`
+          : `${quadrant} — ${signos}, no confirma ${dir === 'BULLISH' ? 'alcista' : 'bajista'} ❌ (0/${w2} pts)`;
   } else if (regime === 'POSITIVO') {
     regimen_ok = true;
     regimen_points = w2;
