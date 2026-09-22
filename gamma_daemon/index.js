@@ -5,6 +5,7 @@
 // 2026-07-30.
 import * as sigma from './sigma.js';
 import * as tv from './tv.js';
+import { crearLectorDeHoy, exigirVencimientoDeHoy } from './vencimiento.js';
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -208,6 +209,14 @@ function isPremarketWindow() {
   });
 }
 
+// Lee Sigma y, si el panel muestra un vencimiento que no es el de HOY, recarga la
+// pestaña y vuelve a leer (2026-09-22). Ver vencimiento.js.
+const leerSigmaDeHoy = crearLectorDeHoy({
+  readLevels: () => sigma.readLevels(),
+  recargar: () => sigma.recargarTerminal(),
+  fechaET: () => calendario.fechaET(),
+});
+
 // Ciclo reducido de premercado. Deliberadamente sin try/catch propio de reintento:
 // si Sigma no responde a esta hora (posibilidad real, la terminal puede no servir
 // datos tan temprano), se anota el motivo y se vuelve a intentar en 30s. Un fallo
@@ -215,7 +224,7 @@ function isPremarketWindow() {
 // nadie opera con esto.
 async function runPremarketCycle() {
   try {
-    const levels = await sigma.readLevels();
+    const levels = await leerSigmaDeHoy();
 
     // CERROJO: que Sigma responda no prueba que Sigma se haya despertado.
     //
@@ -323,7 +332,14 @@ async function runCycle() {
   }
 
   try {
-    const levels = await sigma.readLevels();
+    const levels = await leerSigmaDeHoy();
+    // CERROJO DE VENCIMIENTO EN SESION (2026-09-22). El de premercado ya existia;
+    // aca faltaba, y el 22-sep entre las 09:00 y las 09:11 el servidor y TradingView
+    // recibieron los muros del 0DTE del lunes, ya vencido, con fresh: true. Si ni
+    // recargando aparece la cadena de hoy, NO se empuja nada: el ciclo cuenta como
+    // fallo (avisa al 3ro) y las estrategias caen al respaldo, que es ruidoso y
+    // correcto. Mandarlo seria silencioso y mentira.
+    exigirVencimientoDeHoy(levels, calendario.fechaET());
     // Momento de CAPTURA (2026-08-17). El servidor sellaba `updatedAt` al
     // RECIBIR, asi que un nivel leido hace rato entraba marcado como recien
     // nacido y leerSpotSigma lo daba por fresco. Entre esta linea y el push

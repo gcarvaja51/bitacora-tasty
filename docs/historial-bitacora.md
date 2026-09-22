@@ -19,6 +19,48 @@
 
 ---
 
+## La pestaña de Sigma se quedaba en el vencimiento de ayer (2026-09-22)
+
+**Síntoma.** El premercado automático del 22-sep salió con los muros "RANCIOS" (985 min):
+el colector no encontró lectura de premercado de hoy y cayó al último ciclo del lunes. A
+las 08:34 ET `status.json` decía `premercadoError: "Sigma todavia muestra la cadena del
+2026-09-21"`. Guillermo preguntó por qué el informe decía que no se pudo validar contra
+Sigma.
+
+**Causa.** El terminal elige el chip 0DTE **al cargar la página**. `ensurePage()` reusa la
+misma pestaña mientras responda, y la de ese día se había abierto el lunes a las 12:49 ET
+tras un reinicio. Así que el martes el panel seguía en el vencimiento del lunes. Coincide
+con la serie del colector: los días buenos (15, 16, 18 y 21) son los días en que el
+navegador se había relanzado esa mañana, y los malos (17 y 22), en los que no.
+
+**Lo grave no era el informe.** El cerrojo de vencimiento existía solo en
+`runPremarketCycle`. Desde las 09:00 la fase de sesión leyó la misma pestaña y **empujó
+al servidor y a TradingView los muros del 0DTE vencido** (Call 7.800, Put 7.750, Flip
+7.739, `expiry: 2026-09-21`) con `fresh: true`, de 09:00 a 09:11 ET, hasta que se
+reinició el daemon a mano. Ojo con la lectura de esto: esas cifras de sesión **coinciden**
+con la primera lectura tras el reinicio (vto 22-sep). Puede que a esa hora el panel ya
+mostrara números del día y el rótulo fuera lo único viejo, o que la cadena vieja y la
+nueva coincidieran en esos strikes: con lo archivado no se puede distinguir. Lo seguro es
+que el rótulo decía otro vencimiento y que nada lo comprobaba en sesión. Las lecturas de
+premercado rechazadas no se archivan, así que tampoco se sabe qué mostraba el panel antes
+de las 09:00.
+
+**Arreglo.**
+- `sigma.recargarTerminal()`: `goto` del terminal en la misma pestaña, sin relanzar
+  Chrome.
+- `vencimiento.js` → `crearLectorDeHoy`: si el vencimiento no es el de hoy, recarga y
+  relee. Lo hace como mucho una vez cada 5 minutos, porque a las 08:15 la terminal puede
+  no haber cambiado de día y recargar cada 30 segundos no la apura. Lo usan las dos fases.
+- `exigirVencimientoDeHoy` en la fase de sesión: si ni recargando aparece la cadena de
+  hoy, el ciclo falla (con aviso al tercer fallo) y no se empuja nada. `expiry: null`
+  (rótulo ilegible) no bloquea, igual que antes.
+- `vencimiento.test.mjs`: cinco casos, incluido el del 22-sep.
+
+Ese mismo día se rehízo el premercado del 22-sep con la lectura de las 09:11 ET. Los
+valores previos quedaron en el bloque `actualizacion_0915` del log de hipótesis.
+
+---
+
 ## "Abierto" sale del Calendario (2026-09-07)
 
 **Síntoma, en palabras del usuario:** *"en los resúmenes de cada mes aparece un valor

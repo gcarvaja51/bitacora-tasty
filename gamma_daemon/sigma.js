@@ -30,6 +30,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROFILE_DIR = process.env.SIGMA_PROFILE_DIR || path.join(__dirname, 'sigma_profile');
 const TERMINAL_URL = 'https://web.sigma.trade/terminal/?tab=greeks';
 
+// Espera maxima para que el terminal cargue. El default de puppeteer son 30s y
+// se quedo corto: el 2026-09-18, en el premercado, dos ciclos seguidos murieron
+// con "Navigation timeout of 30000 ms exceeded" sobre un Chrome recien lanzado.
+// La pagina NO estaba caida — abierta a mano en ese mismo navegador cargo bien,
+// solo que tarda mas cuando el perfil viene frio. El tercer ciclo, ya con la
+// pestaña caliente, leyo sin problema. 90s es lo que ya usaba el goto de la
+// pestaña auxiliar (ver abrirPestanaAuxiliar) y lo que espera puppeteer.launch.
+const NAV_TIMEOUT_MS = 90000;
+
 // El panel de Greeks Exposure expone DOCE metricas; se leian ocho (2026-08-09).
 // Las cuatro que faltaban:
 //   Total Gamma  — |calls|+|puts|, lo que Luis llama "gama absoluto" y dice
@@ -144,7 +153,7 @@ export async function ensurePage() {
       if (browser && browser.connected) {
         try {
           page = await browser.newPage();
-          await page.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded' });
+          await page.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
           await new Promise((r) => setTimeout(r, 6000));
           engancharCapturaToken(page);
           return page;
@@ -204,9 +213,24 @@ export async function ensurePage() {
   const pages = await browser.pages();
   page = pages[0] || (await browser.newPage());
   engancharCapturaToken(page);
-  await page.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded' });
+  await page.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
   await new Promise((r) => setTimeout(r, 6000));
   return page;
+}
+
+// Vuelve a cargar el terminal en la MISMA pestaña (2026-09-22).
+//
+// Sigma elige el vencimiento 0DTE solo al cargar la pagina. La pestaña del daemon
+// vive dias (ensurePage la reusa mientras responda), asi que la abierta el lunes
+// seguia el martes en el chip del lunes: el premercado del 22-sep salio con muros
+// de una cadena vencida, y desde las 09:00 la fase de sesion los empujo al
+// servidor y a TradingView como frescos. Lo mismo el 17-sep. Recargar es lo que
+// arreglo el 22-sep a mano (reinicio del daemon) — aca se hace sin relanzar Chrome.
+export async function recargarTerminal() {
+  const p = await ensurePage();
+  await p.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  await new Promise((r) => setTimeout(r, 6000));
+  return p;
 }
 
 function parseMoney(str) {

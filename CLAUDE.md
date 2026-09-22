@@ -1225,6 +1225,13 @@ Railway solo instala el de la raíz, así que nunca se despliega.
   ambos: Neto 7400, Absoluto 7450, mismo momento exacto. `ensureMvsAbsolute()` fuerza el clic
   en cada lectura si no está activo: no se confía en que quede así solo (puede resetear en un
   reload, o si el usuario lo cambia a mano).
+- **Vencimiento de HOY o nada (2026-09-22).** Sigma elige el chip 0DTE **solo al cargar la
+  página**, y la pestaña del daemon vive días. `vencimiento.js` (`crearLectorDeHoy`): si
+  `levels.expiry` ≠ `fechaET()`, recarga el terminal (`sigma.recargarTerminal()`, como mucho
+  una vez cada 5 min) y relee. En sesión, `exigirVencimientoDeHoy` **no empuja nada** si ni
+  así aparece la cadena de hoy: el ciclo cuenta como fallo y las estrategias caen al
+  respaldo. `expiry: null` no bloquea. Pruebas: `node gamma_daemon/vencimiento.test.mjs`.
+  Histórico § *La pestaña de Sigma se quedaba en el vencimiento de ayer*.
 - `tv.js` — CDP crudo (`chrome-remote-interface`) directo contra TradingView Desktop, sin
   pasar por el servidor MCP. **Prueba cada ventana candidata hasta encontrar una con SPX
   cargado de verdad** en vez de conectar a la primera que matchee — esa era la causa raíz del
