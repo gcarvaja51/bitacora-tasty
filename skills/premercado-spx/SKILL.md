@@ -1373,7 +1373,7 @@ ningún otro lado):
 
 Por qué se cambió: el 23-sep el filtro viejo decía "inventarios se descartan" y el informe
 dio el día "sin datos de 3 toros". Ese día Investing marcaba de 3 toros el PMI flash
-(09:45) y el crudo EIA (10:30), así que hubo que corregir el informe a las 09:35: el
+(09:45) y el crudo EIA (10:30), así que hubo que re-correr el informe a las 09:25: el
 favorito pasó de Neutral a Bajista y el día quedó sin trade por D19.
 
 ### Cómo traerlo
