@@ -44,12 +44,24 @@ function Send-Ntfy($message, $title, $priority) {
 # uno cubre EDT y otro EST, y este chequeo descarta el que no corresponde)
 $etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, "Eastern Standard Time")
 
-# 1) Ventana horaria: solo entre 8:15am y 8:45am ET (1 hora antes de la
-#    apertura de 9:30am, con margen para el jitter de Task Scheduler)
+# 1) Ventana horaria: entre 8:15am y 9:05am ET. El disparo normal es a las 8:30.
+#    Incidente real 2026-09-21: el disparo de 8:30 ET no corrio (PC suspendido) y
+#    StartWhenAvailable lo lanzo a las 8:52 ET -- con la ventana vieja (hasta 8:45) se
+#    salto y hubo que correrlo a mano. Ahora un disparo tardio igual corre; el tope de
+#    9:05 deja al menos 10 min de techo antes del limite de 9:15 (ver techo mas abajo).
+#    Los triggers de la temporada equivocada (7:30 y 9:30 ET) siguen quedando fuera.
 $windowStart = New-Object DateTime($etNow.Year, $etNow.Month, $etNow.Day, 8, 15, 0)
-$windowEnd   = New-Object DateTime($etNow.Year, $etNow.Month, $etNow.Day, 8, 45, 0)
+$windowEnd   = New-Object DateTime($etNow.Year, $etNow.Month, $etNow.Day, 9, 5, 0)
 if ($etNow -lt $windowStart -or $etNow -gt $windowEnd) {
-    Write-Log "SKIP - fuera de ventana horaria (ET actual: $($etNow.ToString('HH:mm')), esperado 08:15-08:45). Este es el trigger de la temporada equivocada (EDT/EST) -- normal, no es un error."
+    Write-Log "SKIP - fuera de ventana horaria (ET actual: $($etNow.ToString('HH:mm')), esperado 08:15-09:05). Este es el trigger de la temporada equivocada (EDT/EST) -- normal, no es un error."
+    exit 0
+}
+
+# 1b) Ya hay premercado de hoy: con la ventana ampliada, un disparo tardio de
+#     StartWhenAvailable podria llegar despues de una corrida buena (o de una manual).
+$docxHoy = Join-Path $logDir "..\documentos premercado\$($etNow.ToString('MMddyyyy'))_premercado claude.docx"
+if (Test-Path $docxHoy) {
+    Write-Log "SKIP - ya existe el premercado de hoy ($docxHoy). No se relanza."
     exit 0
 }
 

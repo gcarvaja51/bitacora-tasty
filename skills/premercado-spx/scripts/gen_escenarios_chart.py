@@ -9,12 +9,15 @@ spec.json:
   "spot_referencia": 7457.69,
   "niveles": {"put_wall": 7450, "gamma_flip": 7484, "call_wall": 7500, "mvs": 7400},
   "escenarios": {
-    "alcista":  {"prob": 32, "t1": [7491, 7510], "t2": [7572, 7581]},
-    "bajista":  {"prob": 44, "t1": 7400, "t2": [7300, 7316], "invalidacion": 7431.26},
+    "alcista":  {"prob": 32, "t1": 7510, "t2": 7575},
+    "bajista":  {"prob": 44, "t1": 7400, "t2": 7300, "invalidacion": 7430},
     "neutral":  {"prob": 24}
   },
   "y_min": 7280, "y_max": 7590
 }
+
+Cada target admite un valor (7510, lo normal desde 2026-09-17: el premercado da
+referencias redondas, no franjas) o un par [7491, 7510] (formato viejo).
 
 y_min/y_max: fijar manualmente cubriendo todos los niveles/targets con margen --
 no se auto-calculan, para tener control total del layout dia a dia.
@@ -38,6 +41,21 @@ INK         = "#0b0b0b"
 INK_SEC     = "#52514e"
 INK_MUTED   = "#898781"
 SURFACE     = "#fcfcfb"
+
+def _par(t):
+    """Target como (bajo, alto): un valor suelto es una franja de ancho cero."""
+    return (t[0], t[1]) if isinstance(t, (list, tuple)) else (t, t)
+
+def _banda(ax, t, color):
+    lo, hi = _par(t)
+    if hi - lo < 3:  # valor unico: franja fina alrededor para que se vea
+        lo, hi = (lo + hi) / 2 - 1.5, (lo + hi) / 2 + 1.5
+    ax.axhspan(lo, hi, color=color, zorder=1)
+
+def _rotulo(nombre, t):
+    lo, hi = _par(t)
+    txt = f"{lo:,.0f}" if lo == hi else f"{lo:,.0f}-{hi:,.0f}"
+    return f"{nombre} {txt}".replace(",", ".")
 
 def main():
     out_path = sys.argv[1]
@@ -65,11 +83,11 @@ def main():
 
     # -- Bandas de target (mas saturadas) --
     a = esc["alcista"]
-    ax.axhspan(a["t1"][0], a["t1"][1], color=GREEN_BAND, zorder=1)
-    ax.axhspan(a["t2"][0], a["t2"][1], color=GREEN_BAND, zorder=1)
+    _banda(ax, a["t1"], GREEN_BAND)
+    _banda(ax, a["t2"], GREEN_BAND)
 
     b = esc["bajista"]
-    ax.axhspan(b["t2"][0], b["t2"][1], color=RED_BAND, zorder=1)
+    _banda(ax, b["t2"], RED_BAND)
 
     # -- Lineas de niveles clave (solidas, con etiqueta a la derecha) --
     def level_line(price, label, color=INK, lw=1.6, ls="-", label_color=None):
@@ -133,7 +151,7 @@ def main():
         spot_label_y = spot + _sep if spot >= _cerca else spot - _sep
     else:
         spot_label_y = spot
-    ax.text(8.9, spot_label_y, f"Spot ref.  {spot:,.2f}".replace(",", "."), va="center",
+    ax.text(8.9, spot_label_y, f"Spot ref.  {spot:,.0f}".replace(",", "."), va="center",
              fontsize=9.5, color=INK, fontweight="bold", fontfamily="sans-serif")
 
     # -- Invalidacion bajista (linea fina roja punteada, opcional) --
@@ -149,22 +167,23 @@ def main():
 
     # -- Etiquetas de targets (dentro de las bandas -- desplazadas si coinciden
     #    con una linea de nivel nombrada, para no superponerse -- ver gotcha abajo) --
-    t1_mid = sum(a["t1"]) / 2
-    t1_label_y = a["t1"][1] + 3 if abs(t1_mid - call_wall) < 6 else t1_mid
-    ax.text(0.4, t1_label_y, f"T1 {a['t1'][0]:,.0f}-{a['t1'][1]:,.0f}".replace(",", "."),
+    t1_mid = sum(_par(a["t1"])) / 2
+    t1_label_y = _par(a["t1"])[1] + 3 if abs(t1_mid - call_wall) < 6 else t1_mid
+    ax.text(0.4, t1_label_y, _rotulo("T1", a["t1"]),
              fontsize=8, color=GREEN, fontweight="bold", va="bottom", fontfamily="sans-serif")
-    ax.text(0.4, sum(a["t2"]) / 2, f"T2 {a['t2'][0]:,.0f}-{a['t2'][1]:,.0f}".replace(",", "."),
+    ax.text(0.4, sum(_par(a["t2"])) / 2, _rotulo("T2", a["t2"]),
              fontsize=8, color=GREEN, fontweight="bold", va="center", fontfamily="sans-serif")
-    if all(abs(b["t1"] - lvl) >= 3 for lvl in (niveles["mvs"], put_wall, niveles["gamma_flip"])):
+    b_t1 = sum(_par(b["t1"])) / 2
+    if all(abs(b_t1 - lvl) >= 3 for lvl in (niveles["mvs"], put_wall, niveles["gamma_flip"])):
         # Solo dibujar la etiqueta T1 si es un nivel distinto de MVS, Put Wall o Gamma
         # Flip (este ultimo agregado 2026-08-04, mismo sintoma con el target bajista
         # apoyado justo en el flip) --
         # si coincide con cualquiera de los dos (caso tipico: el primer target bajista
         # ES el Put Wall), la etiqueta de la derecha ya lo cubre y dibujar T1 encima
         # de la linea de nivel deja el texto tachado e ilegible (bug real, 2026-08-01).
-        ax.text(0.4, b["t1"], f"T1 {b['t1']:,.0f}".replace(",", "."),
+        ax.text(0.4, b_t1, _rotulo("T1", b["t1"]),
                  fontsize=8, color=RED, fontweight="bold", va="center", fontfamily="sans-serif")
-    ax.text(0.4, sum(b["t2"]) / 2, f"T2 {b['t2'][0]:,.0f}-{b['t2'][1]:,.0f}".replace(",", "."),
+    ax.text(0.4, sum(_par(b["t2"])) / 2, _rotulo("T2", b["t2"]),
              fontsize=8, color=RED, fontweight="bold", va="center", fontfamily="sans-serif")
 
     # -- Rotulo grande de escenario + probabilidad, centrado en cada zona --

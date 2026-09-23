@@ -412,6 +412,89 @@ se corta ahí.
 
 ---
 
+### 9. La ventana de delta ±0.02 decide por la rejilla, no por la tesis — REVERSION, impacto ALTO
+
+**Propuesta del jueves 2026-09-17** · **Evidencia:** 2.844 evaluaciones del 11 al 17 de
+septiembre · **Código:** `findStrikesByDelta`, `src/spx.js:790-791`
+
+`findStrikesByDelta` acepta un strike solo si su delta cae en `targetDelta ± 0.02`, y **ese
+±0.02 está fijo en el código**, no en `spx_config.json` — como el `maxATR` de DIR-2, no se
+puede mover sin tocar el fuente. Si ninguno cae adentro devuelve `null` y la señal muere en
+`NO_STRIKES`, aunque el strike de al lado esté a dos centésimas.
+
+La tolerancia es **absoluta** mientras el objetivo va de 0.10 (IC) a 0.50 (Reversión). O sea
+que la ventana más estrecha en términos relativos se aplica justo donde la escalera de delta
+es más empinada: **en el dinero**, que es donde apunta la Reversión.
+
+**El número de la semana.** De los intentos que **ya pasaron el score**:
+
+| | delta objetivo | `NO_STRIKES` | intentos | % |
+|---|---|---|---|---|
+| **REVERSION** | 0.50 | **28** | 58 | **48.3%** |
+| TENDENCIA | 0.30 | 22 | 100 | 22.0% |
+
+Misma cadena, misma semana, mismo ±0.02. La familia que apunta al dinero falla **2,2 veces
+más**.
+
+**Y esta vez no es el broker.** Era el confundido que impidió concluir el 10-sep (*«el log no
+distingue "no hay strike en la tolerancia" de "la cadena vino vacía"»*). Esta semana los
+rechazos del sandbox **bajaron de 13 a 10** mientras `NO_STRIKES` **se triplicó de 9 a 28**, y
+**22 de los 28 cayeron en días con ≤1 rechazo** (11-sep: 5 y 0; 15-sep: 13 y 1; 17-sep: 4 y 0).
+
+**La causa es la rejilla de 5 puntos, y se mide.** Distancia del spot al strike más cercano:
+
+| | n | mediana | ≤1.0 pt | ≥1.5 pts |
+|---|---|---|---|---|
+| `SIGNAL_BUILT` (pasó) | 30 | **1.05 pts** | 15 (50%) | 13 |
+| `NO_STRIKES` (murió) | 28 | **1.86 pts** | **3 (11%)** | 17 |
+
+Y las **9 entradas reales de la semana tienen `shortDelta` entre 0.491 y 0.518** — todas
+pegadas al centro de la ventana. El setup entra cuando el índice casualmente está parado
+encima de un strike y no entra cuando quedó en medio de dos. **Eso no tiene nada que ver con
+la tesis de reversión.** El 17-sep a las 10:09 y 10:10 murieron ahí dos señales con **score
+100**.
+
+**Qué se espera que pase, en magnitud:** recuperar los 28 rechazos (~12 setups distintos, el
+resto son reintentos del mismo) lleva las señales de **30 a ~58 por semana**. Señales no son
+órdenes: con la proporción de esta semana (30 señales → 9 entradas) son **3 a 6 entradas
+reales más por semana**, aproximadamente el doble de la familia.
+
+**Qué más se puede mover sin querer.**
+- Una corta menos ATM **cambia el carácter del trade, no solo su frecuencia**: menos
+  exposición al regreso a la SMA8 y menos ganancia cuando la tesis acierta. `sizeContractsByRisk`
+  ya usa el delta real, así que el tamaño se adapta solo; lo que no se adapta es
+  `stopMinPts` ni `earlyExitPct`, que se miden contra la SMA8 y no contra el delta.
+- ⚠️ **`findStrikesByDelta` es compartida por las cuatro estrategias.** Mover la constante
+  toca también TENDENCIA (delta 0.3, 22 `NO_STRIKES` esta semana) y el IC (delta 0.1) **en la
+  misma ventana** — tres familias ALTO a la vez, que es justo lo que la cadencia prohíbe. Por
+  eso la tolerancia tiene que quedar **por familia**, no como constante global. Esto es parte
+  de la propuesta, no un detalle de implementación.
+- Duplicar las entradas recorta la muestra de la huella `024e6795` y abre período nuevo.
+
+> ⚠️ **El instrumento es la mitad de la propuesta, y falta una mitad exacta.**
+>
+> **Lo que ya existe:** `strikes.shortDelta` se guarda en cada ejecución (verificado: las 9
+> de esta semana lo traen). Los trades reales **sí** se pueden partir por qué tan lejos del
+> objetivo entraron.
+>
+> **Lo que falta:** la fila de `NO_STRIKES` escribe *«No se encontraron strikes con delta
+> 0.5»* **y nada más**. La cadena vacía y la rejilla desalineada son la misma frase, y sin el
+> **delta disponible más cercano y su strike** no se puede saber cuánto habría que ensanchar
+> ni cuántos casos rescata cada valor. Los números de arriba salieron de reconstruir la
+> distancia a la rejilla desde el `spxPrice` del snapshot — sirve para ver que el fenómeno
+> existe, no para calibrar el umbral.
+>
+> Declarada como **REV-9** en `PROPUESTAS` con `instrumento: None`. El Auditor va a devolver
+> `SIN INSTRUMENTO`, y ese es el veredicto correcto.
+
+⚠️ **Es la tercera ALTO abierta sobre REVERSION** (con la 2 y la 3, más la 7 que también la
+toca). Solo se aplica una por ventana. Y el orden se decide solo: REV-3 y REV-4 cambian
+*cuántos setups existen*; esta cambia *cuántos de los que ya existen se pueden expresar como
+spread*. Son puertas distintas, pero las tres mueven el conteo de entradas de la misma
+familia — moverlas juntas hace ilegible la medición de las tres.
+
+---
+
 ### 10. El patrón estructural (HL/LH) castiga por tamaño, no por acierto — DIRECCIONAL, impacto ALTO
 
 **Anotado:** 2026-09-19 · **Evidencia:** los 24 verticales direccionales de SPXW de la
@@ -502,6 +585,102 @@ del patrón estructural —lo que sostiene esta propuesta— **no cambió ningun
 ---
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
+
+### 2026-09-17 (bis) · revisión SEMANAL del jueves, 11 a 17 de septiembre
+
+2.844 evaluaciones contra 2.066. ⚠️ **Las dos ventanas no se comparan en crudo**: esta tiene
+**5 sesiones** y la previa **4** (Labor Day) — pero **el 16-sep TENDENCIA y NEUTRAL estuvieron
+bloqueadas la sesión entera** por una posición SPXW sin dueño (9:45 → 13:54 ET, 49 y 36 filas
+de `POSITION_OPEN`, cero evaluaciones útiles), así que **para esas dos familias son 4 contra
+4**. REVERSION sí tiene 5, porque tiene su propio slot.
+
+**Una sola propuesta esta semana** (la nº 9, REVERSION). TENDENCIA y NEUTRAL **no reciben
+propuesta**, y el motivo está abajo con su número.
+
+---
+
+**a) La semana fue un RANGO, y lo dicen tres instrumentos independientes.** No es una
+impresión: el **GEX estuvo POSITIVO el 42% del tiempo** (6% la semana previa); el marco de
+15m quedó **fuera de Fase 2/4 en 257 de 1.133** `NO_PULLBACK_2M` (22,7%, contra 45 de 799 =
+5,6%); y el IC llegó **por primera vez a sus puertas finas** — 28 rechazos por distancia al
+PIN contra 2. Los **3 ganadores de TENDENCIA son los 3 del 17-sep**, el único día con
+tendencia clara.
+
+**b) BUG VIVO — la Reversión volvió a mandar dos órdenes por el mismo setup.** Anotado el
+11-sep como bug a escalar; **no hay commit que lo arregle** y repitió el **14-sep**:
+`SIGNAL_BUILT` a las 15:36:59 y 15:37:57 (57,5 s), la misma `BEAR_CALL_SPREAD 7620/7630`, las
+dos llenaron y las dos cerraron por `TIME_STOP`. Lo nuevo es que el log lo muestra con
+precisión: **entre las dos, a las 15:37:51, otro ciclo escribió «Ya hay una Reversión
+abierta»**. El guard funcionó en un ciclo y falló en el otro **con 5,4 segundos de
+diferencia** — dos evaluaciones casi simultáneas, cada una con su propia foto de
+`executions`. El mismo patrón el 11-sep (14:40:44 / 14:41:44, con el `POSITION_OPEN` a las
+14:41:38 en medio).
+**Efecto sobre la muestra: de las 9 entradas de REVERSION de la semana, 4 son 2 pares
+duplicados — el n independiente es 7, no 9.** La parte de proceso va a la Torre.
+
+**c) TENDENCIA — evidencia limpia para DIR-3, por primera vez.** Es la primera semana
+completa con el listón leyendo `resultadoOficial` (`182c3e2`). De los **79 `SCORE_FAIL`, 62
+son el listón tras pérdida**, y **52 de ellos con score exactamente 85** contra un mínimo de
+90: los 52 habrían pasado el listón normal de 80. Los otros: 9 con score 75 (listón normal) y
+7 por la escalera de impulsos. **El veredicto es del Auditor, no mío** — acá solo queda la
+muestra, ya medida sobre el dato oficial, que es lo que la versión anterior de DIR-3 no tenía.
+
+**d) TENDENCIA — por qué NO se propone.** Los dos números grandes de la familia **ya tienen
+dueño**: los 1.133 `NO_PULLBACK_2M` se reparten entre **DIR-1** (257, el marco sin fase) y
+**DIR-2** (876, la geometría del retroceso), y los 62 `SCORE_FAIL` por listón son **DIR-3**.
+**DIR-1 sale de espera mañana** (ventana 18/19-sep) y es la única de las tres con instrumento:
+abrir una cuarta ALTO sobre la misma familia le quitaría la ventana sin traer un número nuevo.
+El único candidato propio es el gate de Crédito/Riesgo — `GATE_CREDITO_RIESGO` pasó de **0 a
+10**, con ratios de 11,7% a 19,8% contra el mínimo de 20% — pero **8 de las 10 filas son la
+misma vertical reintentada** el 17-sep entre las 13:06 y las 13:16 ET. Son 2 setups distintos.
+No alcanza, y además no es una puerta que muerda: es un setup que el mercado no pagó.
+
+**e) REVERSION — REV-3 (la banda) sigue sin número que la sostenga.** 731 `SIN_ALEJAMIENTO`,
+**mediana 0,040%, p90 0,080%** contra un piso de **0,10%**. Igual que la semana previa
+(0,030 / 0,070) y que el 27-ago: el mercado no se estiró, bajar la puerta sería no tener
+puerta. Lo único nuevo es chico y va para el otro lado: **23 cayeron por ENCIMA del tope
+0,30%** (1 la semana previa), todos en estirones de apertura.
+**REV-4** tampoco recibe número nuevo, recibe confirmación: de los **98 `SCORE_FAIL`, 84 son
+score 0%** (86%, contra 61 de 66 = 92% la semana previa) — los tres checks vivos en contra a
+la vez. Ya tiene instrumento y le toca al Auditor.
+
+**f) NEUTRAL — por qué NO se propone, con número.** El **IC 0DTE lleva 5 sesiones con 0
+señales**; las 2 `SIGNAL_BUILT` de la semana son los 1DTE de las 15:48 y 15:49. De los 95
+`GATE_FAIL`, **52 son gamma negativo** (55%, contra 86% la semana previa — el régimen cambió)
+y **28 son distancia al PIN**: mediana **7,85 pts contra un máximo de 5**, solo 3 de 28 por
+debajo de 6, y 15 de 28 se rescatarían con un máximo de 8. **Hay distribución pero no hay ni
+un resultado**: cero muestra de IC 0DTE en esas puertas, esta semana y en el histórico. Mover
+`pinMaxDistPts` sobre conteos de rechazo sería una corazonada. Esa pregunta la contesta
+`pin-sombra`, que lleva **n=1 día**.
+
+---
+
+#### Calidad del dato
+
+- **Frescura: sana, con dos rozaduras.** n=1.377, mediana **18 s**, p90 34 s, máximo **165 s**.
+  **8 decisiones sobre 120 s y 0 sobre el umbral de validez de 180 s**, así que ninguna
+  posición se abrió con precio inválido — por eso **ámbar y no rojo**. De las 8, dos son
+  `SIGNAL_BUILT`: 17-sep 13:08 ET (134 s, murió en el gate de crédito) y **14-sep 10:14 ET
+  (145 s, la orden salió y el broker la rechazó)**. Fuentes: Sigma 1.173 (mediana 21 s) /
+  Yahoo 204 (mediana 2,0 s).
+- **Sellos y libro: sanos en la ventana.** **19 de 19 ejecuciones selladas**, todas
+  `cadena_real` y `comparable`. El «127 de 259» del motor es deuda de julio y **sigue sin
+  acotarse a la ventana** — abierto desde el 03-sep, y va a pintar ámbar para siempre.
+  `sinLibroDespuesDelCorte` clavado en los mismos 4 ids, ninguno nuevo.
+- **Completitud:** lo único que falta es lo que por definición no existe — `MANUAL_FORZADO`
+  sin `fuenteCotizacionTPSL` (3 de 9), `paperExit` (2 de 9) y `paperEntry` (1 de 9): son
+  cierres a mano, fuera de los monitores. Más un `paperEntry` faltante en 28 `TP`.
+
+**Para la Torre (se pasa, no se dictamina):**
+- 51 órdenes rechazadas (Tradier API 500): 41 TENDENCIA, 10 REVERSION. 3 apagones con inicio y
+  fin declarados.
+- 15 `POSITION_CHECK_MISMATCH` (14 TENDENCIA, 1 NEUTRAL).
+- **El 16-sep, posición SPXW sin dueño toda la sesión** (9:45 → 13:54 ET): bloqueó TENDENCIA y
+  NEUTRAL por completo. **Segunda vez en dos semanas** (el 10-sep fue 10:40 → 12:55). Esa
+  sesión no sirve de muestra para esas dos familias.
+- La parte de proceso del doble envío de la Reversión (b): dos evaluaciones a 5,4 s una de
+  otra, una ve la posición y la otra no.
+
 
 ### 2026-09-03 (bis) · revisión SEMANAL del jueves, 28-ago a 3-sep
 
@@ -595,6 +774,72 @@ saberlo.
 - **Los 4 cierres «sin libro propio» se explican:** 3 son `MANUAL_FORZADO` (cerrados a mano,
   fuera de los monitores — por definición no hay libro) y 1 es un TP del 26-ago. Todos previos
   al 28-ago. **Ninguno esta semana.**
+
+### 2026-09-11 · corrida diaria, 637 evaluaciones
+
+**a) BUG — Reversión manda dos órdenes por el mismo setup, un tick de ciclo aparte.** Hoy dos
+veces: **10:40:43 y 10:41:42** (BPS 7660/7650) y **11:34:39 y 11:35:41** (BCS 7675/7685). Las
+cuatro llenaron y las cuatro cerraron por `TIME_STOP`. No es de hoy: **09-01** (55s) y **09-04**
+(54s), mismo strike, las dos llenas. La separación es siempre **54–62s, un tick del ciclo de
+60s**, y en el log, dentro del mismo minuto, una evaluación escribe *«Ya hay una Reversión
+abierta»* y otra arma la señal. Hipótesis, no verificada en ejecución: `cicloDeTrading` es un
+`setInterval` sin guard contra solapamiento (`server.js:47`), `checkAlejamientoSMA` carga
+`executions` al principio (`server.js:11368`) y después hace `await` al broker antes del gate de
+exclusividad (`server.js:11379` → `11427`). Si un ciclo tarda más de 60s, el siguiente decide
+con una foto de las ejecuciones que todavía no tiene la orden nueva. **Es una orden que no
+debía mandarse → bug, se escala hoy.** Los pares de julio (≈300s, strikes distintos) y los de
+agosto (atascadas) son otro patrón.
+Efecto sobre la muestra: de los **30 cierres de Reversión desde el 16-ago, 8 son 4 pares**. El
+n independiente es **~26**, no 30.
+
+**b) El listón tras pérdida leyó el dato oficial y esta vez cambió la decisión.** Es el primer
+día completo con `182c3e2`. En el `SL` de las **12:20** el oficial fue **−$120** y el sandbox
+**+$15**, con signo contrario. Con el código de anteayer el listón se habría quedado en 80. Con
+el de hoy exigió 90 y bloqueó **45 evaluaciones (12:35–13:53, ~12 tandas)** con score **85**, en
+las que solo fallaba `macd_cruce_pendiente`. El otro `SL` (10:35) coincidía de signo (−$160
+oficial / −$50 sandbox). **Para el jueves:** es evidencia fresca para la propuesta nº 6, ya
+medida sobre `resultadoOficial`. Si el bloqueo ahorró o costó lo dice una sombra, no el embudo.
+
+**c) Primer día de gamma POSITIVO de la semana, y la direccional pasó a crédito.** Las 16
+señales fueron Bull Put (IV Rank Sigma **14** > `ivRankCredito` **10**). **No es un defecto**:
+el umbral en escala Sigma es 10 desde el 09-ago (`server.js:4686`). Lo que está desactualizado
+es el manual, que sigue diciendo 30, y esa deriva le toca al Secretario. `GATE_CREDITO_RIESGO`
+mató 3 (19.8% a las 09:53, y 14.9% y 15.9% a las 10:20–10:21). La 19.8% quedó a 0.2 pp. n=3,
+solo se anota.
+
+**d) REVERSION — el reloj sigue decidiendo.** Hoy 4 de 5 cierres por `TIME_STOP`, 1
+`PRECIO_OBJETIVO` y 0 `PRECIO_INVALIDACION`. Desde el 16-ago van **21 de 30 (70%)** por tiempo
+(~26 independientes, ver a). `SIN_ALEJAMIENTO` 126, mediana **0.04%**. **12 cayeron por ENCIMA
+del tope 0.30%** (hasta 0.62%), todos entre las 9:46 y las 10:01, en el estirón de apertura; 11
+quedaron entre 0.08 y 0.10%. `SCORE_FAIL` 16, y en los 16 fallan `patron_confirmacion` y
+`fase_weinstein` (en 4 también el compás).
+
+**e) NEUTRAL — sin gamma negativo, el IC 0DTE llegó a las puertas finas y murió en el PIN.**
+De los 19 `GATE_FAIL`: el precio quedó a **6.6–9.8 pts del call wall (máx 5)** entre las 11:19 y
+las 12:59, hubo rangos de 30 min de 16–24 pts y 5 veces estuvo a menos de 10 pts del Gamma Flip.
+Esa pregunta la contesta `pin-sombra`, no el embudo. El **1DTE entró a las 15:49** (put 7575/7570
+· call 7715/7720, vence el 14-sep); la semana pasada fue 0 de 4.
+
+#### Calidad del dato
+- **Frescura: sana.** 289 decisiones, **100% Sigma**, mediana 23s, p90 35s, máximo 48s, **0 sobre
+  120s**. Yahoo no hizo falta.
+- **Sellos y libro: sanos.** Las 11 ejecuciones de hoy están selladas (`f85c9f8e` TENDENCIA,
+  `024e6795` REVERSION, `df1d910e` NEUTRAL). `sinSello` sigue clavado en 127 (es julio) y
+  `sinLibroDespuesDelCorte` en los mismos 4 ids. Las 2 canceladas no tienen `paperExit` porque
+  nunca llenaron.
+- **Se cierra la pregunta abierta desde el 27-ago:** los 5 cierres por nivel de hoy traen
+  `fuenteCotizacionTPSL: spot_sigma`, con edad de 11–40s. Los 23 del legado son anteriores al
+  corte.
+
+**Para la Torre (se pasa, no se dictamina):**
+- Apagón del broker 10:11–10:28 (17 min, 3 `ORDEN_RECHAZADA`, 3 setups de TENDENCIA perdidos).
+- Dos aperturas atascadas y canceladas: TENDENCIA a las 09:57 y REVERSION a las 10:03.
+- 7 `POSITION_CHECK_MISMATCH`: 12:03–12:04 después del TP y 12:17–12:18 después del SL.
+- **Posición SPXW sin dueño de 10:33 a 11:10**: 16 bloqueos (8 TENDENCIA, 8 NEUTRAL) que el motor
+  **no** mete en `paraLaTorre`. Empezó dos minutos después del primer disparo del SL de
+  `38531970` (4 disparos entre 10:31 y 10:35) y se apagó con el cierre de la Reversión de las
+  11:10.
+- La parte de proceso del doble envío (a).
 
 ### 2026-09-10 (bis) · revisión SEMANAL del jueves, 4 a 10 sep
 

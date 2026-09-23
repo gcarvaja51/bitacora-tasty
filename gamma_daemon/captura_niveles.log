@@ -1018,3 +1018,908 @@ a capturar: SPX, JBLU, BE, ORCL, NU, NIO, META, F, NFLX, ADBE, VIX, GAP, SOFI
 
 [captura] Sigma restaurado a SPX + vencimiento del dia
 [Fri 09/04/2026 15:42:56.46] Terminado con codigo 0 
+[Mon 09/07/2026  9:45:01.88] Iniciando captura de niveles 
+[captura] SALTA — hoy no hay mercado (feriado). Con --forzar se captura igual.
+[Mon 09/07/2026  9:45:26.25] Terminado con codigo 0 
+[Mon 09/07/2026 15:40:01.43] Iniciando captura de niveles 
+[captura] SALTA — hoy no hay mercado (feriado). Con --forzar se captura igual.
+[Mon 09/07/2026 15:40:18.27] Terminado con codigo 0 
+[Tue 09/08/2026  9:45:02.48] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, BE, JBLU, ORCL, NU, NIO, F, NFLX, ADBE, VIX, GAP, SOFI
+
+[SPX]
+   FALLO SPX: el panel muestra "SOFI" y se pidio "SPX" -- no se guarda
+
+[BE]
+   guardado  BE     exp=2026-09-11  maxPain=250  MVS=275  cw=275  pw=250
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-11  maxPain=4.5  MVS=4.5  cw=5  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ORCL]
+   guardado  ORCL   exp=2026-09-11  maxPain=152.5  MVS=175  cw=175  pw=150
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-11  maxPain=15  MVS=15.5  cw=15.5  pw=15
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-11  maxPain=4  MVS=4  cw=4  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-11  maxPain=14  MVS=14  cw=14.5  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-11  maxPain=79  MVS=80  cw=80  pw=76
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ADBE]
+   guardado  ADBE   exp=2026-09-11  maxPain=270  MVS=250  cw=265  pw=250
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-09  maxPain=15  MVS=15  cw=16  pw=15
+   (sin chip de viernes disponible)
+
+[GAP]
+   guardado  GAP    exp=2026-09-11  maxPain=22  MVS=22  cw=23  pw=22
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SOFI]
+   guardado  SOFI   exp=2026-09-11  maxPain=18  MVS=18  cw=19  pw=18
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+ERROR: The process with PID 33944 (child process of PID 24892) could not be terminated.
+Reason: There is no running instance of the task.
+[Tue 09/08/2026  9:48:44.33] Terminado con codigo 1 
+[Tue 09/08/2026  9:48:44.34] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Tue 09/08/2026 15:40:02.21] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, BE, JBLU, ORCL, NU, NIO, F, NFLX, ADBE, VIX, SOFI
+
+[SPX]
+   FALLO SPX: el panel muestra "QQQ" y se pidio "SPX" -- no se guarda
+
+[GAP]
+   guardado  GAP    exp=2026-09-11  maxPain=22  MVS=22  cw=23  pw=22
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-09-11  maxPain=225  MVS=275  cw=280  pw=250
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-11  maxPain=4.5  MVS=4.5  cw=null  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ORCL]
+   guardado  ORCL   exp=2026-09-11  maxPain=150  MVS=175  cw=175  pw=150
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-11  maxPain=15  MVS=15.5  cw=15.5  pw=15
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-11  maxPain=4  MVS=4  cw=4  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-11  maxPain=14  MVS=14  cw=14.5  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-11  maxPain=79  MVS=80  cw=80  pw=76
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ADBE]
+   guardado  ADBE   exp=2026-09-11  maxPain=275  MVS=250  cw=265  pw=250
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-09  maxPain=16  MVS=16  cw=16  pw=15
+   (sin chip de viernes disponible)
+
+[SOFI]
+   guardado  SOFI   exp=2026-09-11  maxPain=18  MVS=18  cw=19  pw=17.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+ERROR: The process with PID 5140 (child process of PID 10688) could not be terminated.
+Reason: There is no running instance of the task.
+[Tue 09/08/2026 15:42:56.40] Terminado con codigo 1 
+[Tue 09/08/2026 15:42:56.41] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Wed 09/09/2026  9:45:01.09] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, BE, JBLU, NU, NIO, F, NFLX, ADBE, VIX, SOFI
+
+[SPX]
+   FALLO SPX: el panel muestra "ADBE" y se pidio "SPX" -- no se guarda
+
+[GAP]
+   guardado  GAP    exp=2026-09-11  maxPain=22  MVS=22  cw=22  pw=21
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-09-11  maxPain=247.5  MVS=275  cw=275  pw=260
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-11  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-11  maxPain=15  MVS=16  cw=16  pw=15
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-11  maxPain=4  MVS=4  cw=4  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-11  maxPain=14  MVS=14  cw=14.5  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-11  maxPain=78  MVS=76  cw=80  pw=76
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ADBE]
+   guardado  ADBE   exp=2026-09-11  maxPain=270  MVS=270  cw=270  pw=250
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-09  maxPain=16  MVS=16  cw=17  pw=16
+   (sin chip de viernes disponible)
+
+[SOFI]
+   guardado  SOFI   exp=2026-09-11  maxPain=18  MVS=18  cw=19  pw=17.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Wed 09/09/2026  9:46:45.73] Terminado con codigo 1 
+[Wed 09/09/2026  9:46:45.75] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Wed 09/09/2026 15:40:01.50] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, QQQ, GAP, BE, JBLU, NU, NIO, F, NFLX, VIX
+
+[SPX]
+   guardado  SPX    exp=2026-09-09  maxPain=7690  MVS=7635  cw=7640  pw=7635
+   guardado  SPX    exp=2026-09-11  maxPain=7710  MVS=7650  cw=7700  pw=7500
+
+[QQQ]
+   guardado  QQQ    exp=2026-09-09  maxPain=719  MVS=717  cw=717  pw=716
+   guardado  QQQ    exp=2026-09-11  maxPain=716  MVS=705  cw=720  pw=705
+
+[GAP]
+   guardado  GAP    exp=2026-09-11  maxPain=22  MVS=21  cw=21.5  pw=21
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-09-11  maxPain=247.5  MVS=275  cw=275  pw=260
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-11  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-11  maxPain=15  MVS=16  cw=16  pw=14.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-11  maxPain=4  MVS=4  cw=4  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-11  maxPain=14  MVS=13.5  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-11  maxPain=78  MVS=76  cw=80  pw=76
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-09  maxPain=16  MVS=18  cw=18  pw=16
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Wed 09/09/2026 15:42:32.56] Terminado con codigo 0 
+[Thu 09/10/2026  9:45:02.11] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, BE, F, GAP, JBLU, NU, NIO, NFLX, VIX
+
+[SPX]
+   FALLO SPX: el panel muestra "JBLU" y se pidio "SPX" -- no se guarda
+
+[BE]
+   guardado  BE     exp=2026-09-11  maxPain=250  MVS=275  cw=275  pw=260
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-11  maxPain=14  MVS=14  cw=14  pw=13.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-09-11  maxPain=22  MVS=21  cw=21  pw=20
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-11  maxPain=4.5  MVS=4.5  cw=4.5  pw=null
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-11  maxPain=15  MVS=16  cw=16  pw=15
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-11  maxPain=4  MVS=3.5  cw=null  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-11  maxPain=78  MVS=76  cw=77  pw=76
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-16  maxPain=18.5  MVS=17  cw=18  pw=17
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+ERROR: The process with PID 21596 (child process of PID 28912) could not be terminated.
+Reason: There is no running instance of the task.
+[Thu 09/10/2026  9:50:11.94] Terminado con codigo 1 
+[Thu 09/10/2026  9:50:11.94] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Thu 09/10/2026 15:40:01.37] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, MU, GAP, BE, F, JBLU, NU, NIO, NFLX, VIX
+
+[SPX]
+   guardado  SPX    exp=2026-09-10  maxPain=7665  MVS=7595  cw=7595  pw=7590
+   guardado  SPX    exp=2026-09-11  maxPain=7720  MVS=7500  cw=7700  pw=7500
+
+[MU]
+   guardado  MU     exp=2026-09-11  maxPain=995  MVS=1000  cw=1000  pw=950
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-09-11  maxPain=22  MVS=21  cw=21  pw=20
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-09-11  maxPain=250  MVS=260  cw=260  pw=250
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-11  maxPain=14  MVS=14  cw=14  pw=13.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-11  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-11  maxPain=15  MVS=16  cw=16  pw=15
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-11  maxPain=4  MVS=3.5  cw=null  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-11  maxPain=78  MVS=76  cw=77  pw=76
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-16  maxPain=18.5  MVS=17  cw=18  pw=17
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+ERROR: The process with PID 34340 (child process of PID 5648) could not be terminated.
+Reason: There is no running instance of the task.
+[Thu 09/10/2026 15:42:32.81] Terminado con codigo 0 
+[Fri 09/11/2026  9:45:02.07] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, MU, GAP, BE, F, JBLU, NU, NIO, NFLX, VIX
+
+[SPX]
+   FALLO SPX: el panel muestra "F" y se pidio "SPX" -- no se guarda
+
+[MU]
+   guardado  MU     exp=2026-09-11  maxPain=990  MVS=1000  cw=1000  pw=975
+   guardado  MU     exp=2026-09-18  maxPain=990  MVS=1000  cw=1000  pw=975
+
+[GAP]
+   guardado  GAP    exp=2026-09-11  maxPain=21.5  MVS=21  cw=21.5  pw=21
+   guardado  GAP    exp=2026-09-18  maxPain=21  MVS=21  cw=22  pw=20
+
+[BE]
+   guardado  BE     exp=2026-09-11  maxPain=250  MVS=275  cw=275  pw=270
+   guardado  BE     exp=2026-09-18  maxPain=232.5  MVS=250  cw=280  pw=260
+
+[F]
+   guardado  F      exp=2026-09-11  maxPain=14  MVS=14  cw=14  pw=13.5
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-11  maxPain=4.5  MVS=4.5  cw=4.5  pw=null
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4.5  cw=4.5  pw=null
+
+[NU]
+   guardado  NU     exp=2026-09-11  maxPain=15  MVS=16  cw=16  pw=14.5
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=15  cw=15  pw=14
+
+[NIO]
+   guardado  NIO    exp=2026-09-11  maxPain=3.5  MVS=4  cw=4  pw=3.5
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=4  cw=4  pw=3.5
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-11  maxPain=77  MVS=76  cw=77  pw=76
+   guardado  NFLX   exp=2026-09-18  maxPain=77  MVS=75  cw=80  pw=75
+
+[VIX]
+   guardado  VIX    exp=2026-09-16  maxPain=18.5  MVS=16  cw=17  pw=16
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Fri 09/11/2026  9:47:29.35] Terminado con codigo 1 
+[Fri 09/11/2026  9:47:29.43] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Fri 09/11/2026 15:40:01.14] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, MU, GAP, BE, F, JBLU, NU, NIO, NFLX, VIX
+
+[SPX]
+   guardado  SPX    exp=2026-09-11  maxPain=7660  MVS=7655  cw=7660  pw=7655
+   guardado  SPX    exp=2026-09-18  maxPain=7500  MVS=7650  cw=7700  pw=7650
+
+[MU]
+   guardado  MU     exp=2026-09-11  maxPain=990  MVS=975  cw=975  pw=970
+   guardado  MU     exp=2026-09-18  maxPain=830  MVS=1000  cw=1000  pw=900
+
+[GAP]
+   guardado  GAP    exp=2026-09-11  maxPain=21.5  MVS=21.5  cw=22  pw=21
+   guardado  GAP    exp=2026-09-18  maxPain=21  MVS=21  cw=22  pw=20
+
+[BE]
+   guardado  BE     exp=2026-09-11  maxPain=250  MVS=275  cw=280  pw=275
+   guardado  BE     exp=2026-09-18  maxPain=232.5  MVS=250  cw=280  pw=260
+
+[F]
+   guardado  F      exp=2026-09-11  maxPain=14  MVS=14  cw=14  pw=13.5
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-11  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4  cw=4.5  pw=4
+
+[NU]
+   guardado  NU     exp=2026-09-11  maxPain=15  MVS=16  cw=16  pw=14.5
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=15  cw=15  pw=14
+
+[NIO]
+   guardado  NIO    exp=2026-09-11  maxPain=3.5  MVS=4  cw=4  pw=3.5
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=4  cw=4  pw=3.5
+
+[NFLX]
+   guardado  NFLX   exp=2026-09-11  maxPain=77  MVS=77  cw=78  pw=77
+   guardado  NFLX   exp=2026-09-18  maxPain=77  MVS=80  cw=80  pw=75
+
+[VIX]
+   guardado  VIX    exp=2026-09-16  maxPain=18.5  MVS=16  cw=17  pw=15.5
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Fri 09/11/2026 15:42:49.27] Terminado con codigo 0 
+[Mon 09/14/2026 10:06:06.92] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+ERROR: The process with PID 32536 (child process of PID 31124) could not be terminated.
+Reason: The operation attempted is not supported.
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:181
+                        ? new Error(`${response.errorText} at ${url}`)
+                          ^
+
+Error: net::ERR_INTERNET_DISCONNECTED at https://web.sigma.trade/terminal/?tab=greeks
+    at navigate (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:181:27)
+    at async Deferred.race (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:33:20)
+    at async CdpFrame.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:147:25)
+    at async CdpPage.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:570:20)
+    at async ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:207:3)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:677:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Mon 09/14/2026 10:07:10.65] Terminado con codigo 1 
+[Mon 09/14/2026 10:07:10.68] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Mon 09/14/2026 15:40:01.14] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, F, BE, JBLU, NU, NIO, VIX
+
+[SPX]
+   guardado  SPX    exp=2026-09-14  maxPain=7665  MVS=7620  cw=7620  pw=7615
+   guardado  SPX    exp=2026-09-18  maxPain=7665  MVS=7620  cw=7620  pw=7615
+
+[GAP]
+   guardado  GAP    exp=2026-09-18  maxPain=21  MVS=21  cw=21  pw=20
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[BE]
+   guardado  BE     exp=2026-09-18  maxPain=240  MVS=250  cw=280  pw=250
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=15  cw=15  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=4  cw=4  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-16  maxPain=18.5  MVS=17  cw=18  pw=17
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Mon 09/14/2026 15:41:59.75] Terminado con codigo 0 
+[Tue 09/15/2026  9:45:01.33] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/@puppeteer/browsers/lib/esm/launch.js:303
+                reject(new Error([
+                       ^
+
+Error: Failed to launch the browser process! undefined
+
+
+TROUBLESHOOTING: https://pptr.dev/troubleshooting
+
+    at ChildProcess.onClose (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/@puppeteer/browsers/lib/esm/launch.js:303:24)
+    at ChildProcess.emit (node:events:521:24)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12)
+
+Node.js v24.15.0
+[Tue 09/15/2026  9:45:09.28] Terminado con codigo 1 
+[Tue 09/15/2026  9:45:09.36] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Tue 09/15/2026 15:40:01.33] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, NVDA, PG, PFE, ABNB, SPY, HOOD, GAP, F, JBLU, NU, NIO, VIX
+
+[SPX]
+   guardado  SPX    exp=2026-09-15  maxPain=7645  MVS=7585  cw=7590  pw=7585
+   guardado  SPX    exp=2026-09-18  maxPain=7500  MVS=7650  cw=7650  pw=7550
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-16  maxPain=212.5  MVS=212.5  cw=215  pw=210
+   guardado  NVDA   exp=2026-09-18  maxPain=205  MVS=210  cw=215  pw=210
+
+[PG]
+   guardado  PG     exp=2026-09-18  maxPain=145  MVS=145  cw=150  pw=145
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[PFE]
+   guardado  PFE    exp=2026-09-18  maxPain=27  MVS=28  cw=28  pw=27
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ABNB]
+   guardado  ABNB   exp=2026-09-18  maxPain=160  MVS=170  cw=170  pw=165
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SPY]
+   guardado  SPY    exp=2026-09-15  maxPain=761  MVS=758  cw=759  pw=758
+   guardado  SPY    exp=2026-09-18  maxPain=755  MVS=750  cw=760  pw=750
+
+[HOOD]
+   guardado  HOOD   exp=2026-09-18  maxPain=105  MVS=110  cw=115  pw=105
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-09-18  maxPain=21  MVS=21  cw=21  pw=20
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=14  cw=15  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=3.5  cw=null  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-16  maxPain=18.5  MVS=17  cw=18  pw=17
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Tue 09/15/2026 15:42:46.83] Terminado con codigo 0 
+[Wed 09/16/2026  9:45:01.36] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, NVDA, PG, PFE, ABNB, SPY, GAP, F, JBLU, NU, NIO, VIX
+
+[SPX]
+   FALLO SPX: el panel muestra "SPY" y se pidio "SPX" -- no se guarda
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-16  maxPain=212.5  MVS=215  cw=217.5  pw=215
+   guardado  NVDA   exp=2026-09-18  maxPain=205  MVS=215  cw=220  pw=210
+
+[PG]
+   guardado  PG     exp=2026-09-18  maxPain=145  MVS=150  cw=150  pw=145
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[PFE]
+   guardado  PFE    exp=2026-09-18  maxPain=27  MVS=28  cw=28  pw=27
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ABNB]
+   guardado  ABNB   exp=2026-09-18  maxPain=160  MVS=170  cw=170  pw=165
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SPY]
+   guardado  SPY    exp=2026-09-16  maxPain=758  MVS=760  cw=765  pw=757
+   guardado  SPY    exp=2026-09-18  maxPain=757  MVS=760  cw=760  pw=750
+
+[GAP]
+   guardado  GAP    exp=2026-09-18  maxPain=21  MVS=21  cw=21  pw=20
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=3.5  cw=null  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[VIX]
+   guardado  VIX    exp=2026-09-16  maxPain=18.5  MVS=16.5  cw=17  pw=16.5
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Wed 09/16/2026  9:48:12.87] Terminado con codigo 1 
+[Wed 09/16/2026  9:48:12.87] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Wed 09/16/2026 15:40:00.91] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, F, NVDA, PG, PFE, ABNB, SPY, GAP, JBLU, NU, NIO
+
+[SPX]
+   guardado  SPX    exp=2026-09-16  maxPain=7645  MVS=7550  cw=7555  pw=7550
+   guardado  SPX    exp=2026-09-18  maxPain=7500  MVS=7550  cw=7600  pw=7550
+
+[F]
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-16  maxPain=212.5  MVS=215  cw=215  pw=212.5
+   guardado  NVDA   exp=2026-09-18  maxPain=205  MVS=210  cw=215  pw=210
+
+[PG]
+   guardado  PG     exp=2026-09-18  maxPain=145  MVS=150  cw=150  pw=145
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[PFE]
+   guardado  PFE    exp=2026-09-18  maxPain=27  MVS=28  cw=28  pw=27
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[ABNB]
+   guardado  ABNB   exp=2026-09-18  maxPain=160  MVS=170  cw=170  pw=165
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SPY]
+   guardado  SPY    exp=2026-09-16  maxPain=758  MVS=754  cw=755  pw=754
+   guardado  SPY    exp=2026-09-18  maxPain=757  MVS=750  cw=755  pw=750
+
+[GAP]
+   guardado  GAP    exp=2026-09-18  maxPain=21  MVS=21  cw=21  pw=20
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NU]
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=3.5  cw=null  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Wed 09/16/2026 15:41:50.57] Terminado con codigo 0 
+[Thu 09/17/2026  9:45:01.34] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, NU, F, NVDA, PG, PFE, SPY, GAP, JBLU, NIO
+
+[SPX]
+   FALLO SPX: el panel muestra "SPY" y se pidio "SPX" -- no se guarda
+
+[NU]
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-18  maxPain=205  MVS=220  cw=220  pw=215
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[PG]
+   guardado  PG     exp=2026-09-18  maxPain=145  MVS=145  cw=150  pw=145
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[PFE]
+   guardado  PFE    exp=2026-09-18  maxPain=27  MVS=28  cw=28  pw=27
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SPY]
+   guardado  SPY    exp=2026-09-17  maxPain=755  MVS=760  cw=762  pw=760
+   guardado  SPY    exp=2026-09-18  maxPain=755  MVS=760  cw=765  pw=760
+
+[GAP]
+   guardado  GAP    exp=2026-09-18  maxPain=21  MVS=21  cw=21  pw=20
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4.5  cw=null  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=3.5  cw=null  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Thu 09/17/2026  9:47:11.40] Terminado con codigo 1 
+[Thu 09/17/2026  9:47:11.41] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Thu 09/17/2026 15:40:00.99] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, NU, F, NVDA, PG, PFE, SPY, GAP, JBLU, NIO
+
+[SPX]
+   guardado  SPX    exp=2026-09-17  maxPain=7600  MVS=7640  cw=7640  pw=7635
+   guardado  SPX    exp=2026-09-18  maxPain=7500  MVS=7650  cw=7650  pw=7625
+
+[NU]
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-18  maxPain=205  MVS=220  cw=220  pw=215
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[PG]
+   guardado  PG     exp=2026-09-18  maxPain=145  MVS=150  cw=150  pw=145
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[PFE]
+   guardado  PFE    exp=2026-09-18  maxPain=27  MVS=28  cw=28  pw=27
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[SPY]
+   guardado  SPY    exp=2026-09-17  maxPain=755  MVS=762  cw=763  pw=762
+   guardado  SPY    exp=2026-09-18  maxPain=755  MVS=760  cw=765  pw=760
+
+[GAP]
+   guardado  GAP    exp=2026-09-18  maxPain=21  MVS=21  cw=21  pw=20
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4.5  cw=4.5  pw=4
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=3.5  cw=null  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Thu 09/17/2026 15:42:08.48] Terminado con codigo 0 
+[Fri 09/18/2026 10:07:21.74] Iniciando captura de niveles 
+[sigma] no se pudo limpiar el perfil (spawnSync powershell.exe ETIMEDOUT) -- se intenta lanzar igual
+a capturar: SPX, NU, F, NVDA, SPY, GAP, JBLU, NIO
+
+[SPX]
+   FALLO SPX: el panel muestra "SPY" y se pidio "SPX" -- no se guarda
+
+[NU]
+   guardado  NU     exp=2026-09-18  maxPain=14  MVS=14  cw=14  pw=13.5
+   guardado  NU     exp=2026-09-25  maxPain=14  MVS=14  cw=14  pw=13.5
+
+[F]
+   guardado  F      exp=2026-09-18  maxPain=14  MVS=13  cw=14  pw=13
+   guardado  F      exp=2026-09-25  maxPain=14  MVS=13.5  cw=13.5  pw=13
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-18  maxPain=205  MVS=220  cw=220  pw=217.5
+   guardado  NVDA   exp=2026-09-25  maxPain=217.5  MVS=220  cw=225  pw=210
+
+[SPY]
+   guardado  SPY    exp=2026-09-18  maxPain=765  MVS=760  cw=760  pw=759
+   guardado  SPY    exp=2026-09-25  maxPain=763  MVS=745  cw=772  pw=745
+
+[GAP]
+   guardado  GAP    exp=2026-09-18  maxPain=20.5  MVS=21  cw=21  pw=20
+   guardado  GAP    exp=2026-09-25  maxPain=20.5  MVS=21  cw=21.5  pw=20.5
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-18  maxPain=5  MVS=4.5  cw=4.5  pw=4
+   guardado  JBLU   exp=2026-09-25  maxPain=4.5  MVS=4.5  cw=4.5  pw=4
+
+[NIO]
+   guardado  NIO    exp=2026-09-18  maxPain=4  MVS=4  cw=4  pw=3.5
+   guardado  NIO    exp=2026-09-25  maxPain=4  MVS=3.5  cw=4  pw=3.5
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Fri 09/18/2026 10:15:44.83] Terminado con codigo 1 
+[Fri 09/18/2026 10:15:44.85] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Fri 09/18/2026 19:31:11.17] Iniciando captura de niveles 
+[sigma] no se pudo limpiar el perfil (spawnSync powershell.exe ETIMEDOUT) -- se intenta lanzar igual
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/node/BrowserLauncher.js:130
+                throw new TimeoutError(error.message);
+                      ^
+
+TimeoutError: Timed out after 90000 ms while waiting for the WS endpoint URL to appear in stdout!
+    at ChromeLauncher.launch (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/node/BrowserLauncher.js:130:23)
+    at async ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:201:13)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:686:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Fri 09/18/2026 19:34:55.00] Terminado con codigo 1 
+[Fri 09/18/2026 19:34:55.00] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Mon 09/21/2026 11:04:35.36] Iniciando captura de niveles 
+[sigma] no se pudo limpiar el perfil (spawnSync powershell.exe ETIMEDOUT) -- se intenta lanzar igual
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57
+            this.#timeoutError = new TimeoutError(opts.message);
+                                 ^
+
+TimeoutError: Navigation timeout of 90000 ms exceeded
+    at new Deferred (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57:34)
+    at Deferred.create (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:18:16)
+    at new LifecycleWatcher (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/LifecycleWatcher.js:66:46)
+    at CdpFrame.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:146:29)
+    at CdpFrame.<anonymous> (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/decorators.js:101:27)
+    at CdpPage.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:570:43)
+    at ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:216:14)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:686:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Mon 09/21/2026 11:08:28.00] Terminado con codigo 1 
+[Mon 09/21/2026 11:08:28.00] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Mon 09/21/2026 15:40:01.56] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, NVDA, NU, F, GAP, JBLU, NIO
+
+[SPX]
+   guardado  SPX    exp=2026-09-21  maxPain=7645  MVS=7765  cw=7765  pw=7760
+   guardado  SPX    exp=2026-09-25  maxPain=7650  MVS=7750  cw=7800  pw=7750
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-21  maxPain=217.5  MVS=227.5  cw=227.5  pw=225
+   guardado  NVDA   exp=2026-09-25  maxPain=220  MVS=230  cw=230  pw=220
+
+[NU]
+   guardado  NU     exp=2026-09-25  maxPain=14  MVS=14  cw=14.5  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[F]
+   guardado  F      exp=2026-09-25  maxPain=13  MVS=13  cw=13.5  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-09-25  maxPain=20.5  MVS=21.5  cw=21.5  pw=21
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-25  maxPain=4.5  MVS=4.5  cw=5  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-25  maxPain=4  MVS=4  cw=4  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Mon 09/21/2026 15:41:45.12] Terminado con codigo 0 
+[Tue 09/22/2026  9:45:01.72] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, NU, NVDA, F, GAP, JBLU, NIO
+
+[SPX]
+   FALLO SPX: el panel muestra "NIO" y se pidio "SPX" -- no se guarda
+
+[NU]
+   guardado  NU     exp=2026-09-25  maxPain=14  MVS=14  cw=14  pw=13.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-23  maxPain=222.5  MVS=230  cw=230  pw=225
+   guardado  NVDA   exp=2026-09-25  maxPain=220  MVS=230  cw=230  pw=220
+
+[F]
+   guardado  F      exp=2026-09-25  maxPain=13  MVS=13  cw=13.5  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-09-25  maxPain=20.5  MVS=21.5  cw=21.5  pw=21
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-25  maxPain=4.5  MVS=4.5  cw=5  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-25  maxPain=3.5  MVS=4  cw=4  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Tue 09/22/2026  9:46:41.72] Terminado con codigo 1 
+[Tue 09/22/2026  9:46:41.76] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Tue 09/22/2026 16:42:46.19] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, NU, NVDA, F, GAP, JBLU, NIO
+
+[SPX]
+   guardado  SPX    exp=2026-09-22  maxPain=7725  MVS=7765  cw=7765  pw=7760
+   guardado  SPX    exp=2026-09-25  maxPain=7725  MVS=7765  cw=7765  pw=7760
+
+[NU]
+   guardado  NU     exp=2026-09-25  maxPain=14  MVS=14  cw=14.5  pw=14
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NVDA]
+   guardado  NVDA   exp=2026-09-23  maxPain=222.5  MVS=230  cw=230  pw=225
+   guardado  NVDA   exp=2026-09-25  maxPain=220  MVS=230  cw=230  pw=220
+
+[F]
+   guardado  F      exp=2026-09-25  maxPain=13  MVS=13  cw=13.5  pw=13
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[GAP]
+   guardado  GAP    exp=2026-09-25  maxPain=20.5  MVS=21.5  cw=21.5  pw=21
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[JBLU]
+   guardado  JBLU   exp=2026-09-25  maxPain=4.5  MVS=4.5  cw=5  pw=4.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[NIO]
+   guardado  NIO    exp=2026-09-25  maxPain=3.5  MVS=4  cw=4  pw=3.5
+   (el vencimiento del dia YA es el viernes: no se duplica)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+ERROR: The process with PID 25176 (child process of PID 23928) could not be terminated.
+Reason: There is no running instance of the task.
+[Tue 09/22/2026 16:44:38.68] Terminado con codigo 0 

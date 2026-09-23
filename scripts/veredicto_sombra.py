@@ -190,6 +190,55 @@ PROPUESTAS = [
     # que 0.6 es su decision del 09-ago (e376fea). La premisa "restaurar 0.9"
     # estaba invertida. Ver SUGERENCIAS.md, propuesta 8.
     {
+        "id": "REV-9", "familia": "REVERSION", "nivel": "alto",
+        "titulo": "La ventana de delta +-0.02 decide por la rejilla, no por la tesis",
+        "pregunta": ("¿Tomar el strike de delta mas cercano, en vez de exigir "
+                     "targetDelta +-0.02, entra igual de bien?"),
+        # Declarada el 2026-09-17 (revision semanal, 11-17 sep).
+        #
+        # findStrikesByDelta (src/spx.js:790) acepta un strike solo si su delta
+        # cae en targetDelta +-0.02, con el +-0.02 FIJO en el codigo — como el
+        # maxATR de DIR-2, no esta en spx_config.json. La tolerancia es ABSOLUTA
+        # mientras el objetivo va de 0.10 (IC) a 0.50 (Reversion): la ventana mas
+        # estrecha en terminos relativos cae justo donde la escalera de delta es
+        # mas empinada, en el dinero, que es adonde apunta la Reversion.
+        #
+        # El numero (11-17 sep), sobre intentos que YA pasaron el score:
+        #   REVERSION delta 0.50: 28 NO_STRIKES de 58 intentos = 48.3%
+        #   TENDENCIA delta 0.30: 22 NO_STRIKES de 100 intentos = 22.0%
+        # Misma cadena, misma semana, mismo +-0.02.
+        #
+        # No es el broker, y eso es lo que rompe el confundido que impidio
+        # concluir el 10-sep: los rechazos del sandbox BAJARON de 13 a 10
+        # mientras NO_STRIKES se triplico de 9 a 28, y 22 de los 28 cayeron en
+        # dias con <=1 rechazo (11-sep 5/0, 15-sep 13/1, 17-sep 4/0).
+        #
+        # La causa es la rejilla de 5 puntos. Distancia del spot al strike mas
+        # cercano: 1.05 pts de mediana cuando la señal se construye (n=30, 15
+        # dentro de 1 pt) contra 1.86 cuando muere (n=28, solo 3 dentro de 1 pt).
+        # Las 9 entradas de la semana traen shortDelta entre 0.491 y 0.518. El
+        # setup entra segun donde caiga el indice dentro de la rejilla, no segun
+        # la tesis. El 17-sep murieron ahi dos señales con score 100.
+        #
+        # OJO AL APLICAR: findStrikesByDelta es COMPARTIDA por las cuatro
+        # estrategias. Mover la constante toca TENDENCIA (delta 0.3, 22
+        # NO_STRIKES esta semana) y el IC (delta 0.1) en la misma ventana — tres
+        # familias de nivel alto a la vez. La tolerancia tiene que quedar POR
+        # FAMILIA, y eso es parte de la propuesta, no un detalle.
+        #
+        # SIN INSTRUMENTO, y falta una mitad exacta. Lo que YA existe:
+        # strikes.shortDelta se guarda en cada ejecucion, asi que los trades
+        # reales se pueden partir por que tan lejos del objetivo entraron. Lo que
+        # falta: la fila de NO_STRIKES escribe "No se encontraron strikes con
+        # delta 0.5" y nada mas — la cadena vacia y la rejilla desalineada son la
+        # misma frase. Sin el delta disponible mas cercano y su strike no se
+        # puede saber cuanto habria que ensanchar ni cuantos casos rescata cada
+        # valor. Los numeros de arriba salen de reconstruir la distancia a la
+        # rejilla desde el spxPrice del snapshot: sirven para ver que el fenomeno
+        # existe, no para calibrar el umbral.
+        "instrumento": None,
+    },
+    {
         "id": "NEU-2", "familia": "NEUTRAL", "nivel": "medio",
         "titulo": "El piso de credito y el limite de precio son la misma perilla",
         "pregunta": "¿El desacople aplicado el 13-ago esta cumpliendo?",

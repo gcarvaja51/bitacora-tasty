@@ -14,7 +14,7 @@ const CDP_PORT = Number(process.env.TV_CDP_PORT || 9223);
 // matchea falsos positivos reales como "OANDA:SPX500USD" (CFD de otro broker,
 // confirmado en vivo 2026-07-31: aparecio con CIARG_V3 aplicado tras un relanzamiento
 // de TradingView y casi recibe los muros por error).
-const SYMBOL_MATCH = /^SPCFD:SPX$/i;
+export const SYMBOL_MATCH = /^SPCFD:SPX$/i;
 // Matchea CUALQUIER version (CIARG_V1, CIARG_V3, etc.) -- las multiples ventanas
 // SPX no estan sincronizadas entre si (ver CLAUDE.md) y pueden quedar temporalmente
 // con nombres distintos tras renombrar el script hasta que el usuario actualice

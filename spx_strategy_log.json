@@ -1,5 +1,278 @@
 [
  {
+  "timestamp": "2026-09-18T14:30:08.412Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_GAMMA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Neutral exige gamma POSITIVO; regimen actual NEGATIVO",
+  "snapshot": {
+   "spxPrice": 7623.85,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7650,
+    "putWall": 7600,
+    "gammaFlip": 7621,
+    "maxPain": 7520
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-09-17T14:30:06.053Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_LEJOS_DEL_PIN",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Precio a 27.8 pts del pin 7600; maximo 8",
+  "snapshot": {
+   "spxPrice": 7627.75,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7650,
+    "putWall": 7610,
+    "gammaFlip": 7648,
+    "maxPain": 7600
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-09-16T14:30:05.566Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_GAMMA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Neutral exige gamma POSITIVO; regimen actual NEGATIVO",
+  "snapshot": {
+   "spxPrice": 7601.2,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7650,
+    "putWall": 7600,
+    "gammaFlip": 7605,
+    "maxPain": 7645
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-09-15T14:30:04.141Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXEC_FALLO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Tradier API 500 /accounts/VA6540433/orders: An error occurred while communicating with the backend.",
+  "snapshot": {
+   "spxPrice": 7586.29,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7600,
+    "putWall": 7580,
+    "gammaFlip": 7631,
+    "maxPain": 7645
+   },
+   "escenario": "bajista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "PUT",
+    "expiry": "2026-09-15",
+    "largaStrike": 7590,
+    "cortaStrike": 7565,
+    "nivelProfit": 7565,
+    "nivelProfitDeclarado": 7550,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 7.9,
+    "limite": 7.9,
+    "maxGanancia": 17.1,
+    "maxPerdida": 7.9,
+    "rr": 2.16,
+    "breakeven": 7582.1,
+    "pctDelAncho": 31.6,
+    "razon": "Larga 7590 (arranque) / corta 7565 (objetivo del escenario bajista). Paga maximo si el precio llega a 7565."
+   }
+  }
+ },
+ {
+  "timestamp": "2026-09-11T15:12:34.537Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "CIERRE_SL",
+  "passed": true,
+  "etTime": "11:12",
+  "reason": "spread vale 5.80 vs debito 12; perdida -6.20 supera el stop de 6.00 (50% de lo pagado)",
+  "snapshot": {
+   "spxPrice": 7661.01,
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-09-11",
+    "largaStrike": 7660,
+    "cortaStrike": 7685,
+    "nivelProfit": 7685,
+    "nivelProfitDeclarado": 7718,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 12,
+    "limite": 12,
+    "maxGanancia": 13,
+    "maxPerdida": 12,
+    "rr": 1.08,
+    "breakeven": 7672,
+    "pctDelAncho": 48,
+    "razon": "Larga 7660 (arranque) / corta 7685 (objetivo del escenario alcista). Paga maximo si el precio llega a 7685."
+   }
+  }
+ },
+ {
+  "timestamp": "2026-09-11T14:30:53.774Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXECUTED",
+  "passed": true,
+  "etTime": "10:30",
+  "reason": "DEBIT_VERTICAL enviado a Tradier: 38532248",
+  "snapshot": {
+   "spxPrice": 7667.76,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7675,
+    "putWall": 7650,
+    "gammaFlip": 7654,
+    "maxPain": 7660
+   },
+   "escenario": "alcista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-09-11",
+    "largaStrike": 7660,
+    "cortaStrike": 7685,
+    "nivelProfit": 7685,
+    "nivelProfitDeclarado": 7718,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 12,
+    "limite": 12,
+    "maxGanancia": 13,
+    "maxPerdida": 12,
+    "rr": 1.08,
+    "breakeven": 7672,
+    "pctDelAncho": 48,
+    "razon": "Larga 7660 (arranque) / corta 7685 (objetivo del escenario alcista). Paga maximo si el precio llega a 7685."
+   },
+   "orderId": 38532248
+  }
+ },
+ {
+  "timestamp": "2026-09-10T14:30:22.580Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXECUTED",
+  "passed": true,
+  "etTime": "10:30",
+  "reason": "DEBIT_VERTICAL enviado a Tradier: 38474338",
+  "snapshot": {
+   "spxPrice": 7602.37,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7640,
+    "putWall": 7600,
+    "gammaFlip": 7634,
+    "maxPain": 7665
+   },
+   "escenario": "bajista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "PUT",
+    "expiry": "2026-09-10",
+    "largaStrike": 7610,
+    "cortaStrike": 7585,
+    "nivelProfit": 7585,
+    "nivelProfitDeclarado": 7580,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 9.2,
+    "limite": 9.2,
+    "maxGanancia": 15.8,
+    "maxPerdida": 9.2,
+    "rr": 1.72,
+    "breakeven": 7600.8,
+    "pctDelAncho": 36.8,
+    "razon": "Larga 7610 (arranque) / corta 7585 (objetivo del escenario bajista). Paga maximo si el precio llega a 7585."
+   },
+   "orderId": 38474338
+  }
+ },
+ {
+  "timestamp": "2026-09-09T14:30:12.329Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_GAMMA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Neutral exige gamma POSITIVO; regimen actual NEGATIVO",
+  "snapshot": {
+   "spxPrice": 7653.36,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7675,
+    "putWall": 7630,
+    "gammaFlip": 7688,
+    "maxPain": 7690
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-09-08T14:30:11.372Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXEC_FALLO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Tradier API 500 /accounts/VA6540433/orders: An error occurred while communicating with the backend.",
+  "snapshot": {
+   "spxPrice": 7683.33,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7700,
+    "putWall": 7650,
+    "gammaFlip": 7692,
+    "maxPain": 7705
+   },
+   "escenario": "bajista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "PUT",
+    "expiry": "2026-09-08",
+    "largaStrike": 7690,
+    "cortaStrike": 7665,
+    "nivelProfit": 7665,
+    "nivelProfitDeclarado": 7650,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 9.6,
+    "limite": 9.6,
+    "maxGanancia": 15.4,
+    "maxPerdida": 9.6,
+    "rr": 1.6,
+    "breakeven": 7680.4,
+    "pctDelAncho": 38.4,
+    "razon": "Larga 7690 (arranque) / corta 7665 (objetivo del escenario bajista). Paga maximo si el precio llega a 7665."
+   }
+  }
+ },
+ {
   "timestamp": "2026-09-04T14:30:13.824Z",
   "strategyFamily": "PREMERCADO",
   "stage": "NEUTRAL_LEJOS_DEL_PIN",
