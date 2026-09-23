@@ -1389,6 +1389,25 @@ Lo que sí corresponde: **si alguna vez un dato de 2 toros descoloca la sesión 
 informe no lo había mencionado, anotarlo en el postmercado de ese día** y acumular esos
 casos. Si aparecen varios, ahí sí vale traerle la evidencia para que reconsidere.
 
+#### ⚠️ Error del 23-sep-2026: los toros se leen del día, NUNCA de memoria
+
+El informe del 23-sep dijo "ningún dato de 3 toros" y descartó el PMI flash (09:45) y el
+crudo EIA (10:30) "porque Investing los marca de baja importancia". **Era falso**: ese día
+Investing marcaba de **3 toros** el PMI manufacturero, el de servicios, el compuesto y los
+inventarios de crudo (verificado por WebFetch a las 09:30 ET). Guillermo lo vio en su
+calendario y hubo que corregir el informe a las 09:35: −6 al Neutral, el favorito pasó de
+Neutral a Bajista y el día quedó SIN TRADE por D19.
+
+Consecuencias para este paso:
+- La calificación de un evento **se toma del fetch de ese día**. No sale de lo que dice este
+  SKILL.md ni de otros días: el 21-ago el PMI flash figuraba con 2 toros y el 23-sep con 3.
+- Si el fetch no devuelve la importancia de un evento conocido de EE.UU. (PMI flash, ISM,
+  EIA, confianza, viviendas), **no descartarlo**: listarlo con "importancia sin confirmar" y
+  decirlo en el texto. Si en realidad era de 3 toros, descartarlo cuesta caro; mostrarlo de
+  más no.
+- **Crudo EIA: miércoles 10:30 ET.** Gas natural EIA: jueves 10:30 ET. Los dos caen después
+  de las 10:15, así que si son de 3 toros activan D19 (día sin trade).
+
 ### Cómo traerlo
 
 `WebFetch` sobre `https://es.investing.com/economic-calendar/`, pidiendo los eventos de
