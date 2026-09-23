@@ -1348,31 +1348,27 @@ tener identificados de antemano los momentos en que el precio se mueve por un da
 la estructura técnica. Hasta ese día el premercado no miraba el calendario económico en
 absoluto — un dato de alto impacto a media sesión llegaba como sorpresa.
 
-### La regla: se lee Investing y se toma lo que dice (2026-09-23)
+### La regla: solo lo que Investing marca con 3 estrellas (2026-09-23)
 
-⚠️ **Decisión de Guillermo del 2026-09-23**, que reemplaza el filtro del 25-ago: "no
-entiendo por qué se definen noticias 3 estrellas o se descartan, simplemente léelo de
-investing y toma lo que dice... no es más".
+⚠️ **Decisión de Guillermo del 2026-09-23**, en dos mensajes seguidos: "simplemente léelo
+de investing y toma lo que dice... no es más" y "las noticias que se toman solamente de 3
+estrellas... no más". Reemplaza el filtro del 25-ago y cualquier otro criterio propio.
 
-- La tabla lleva **los eventos de EE.UU. del día tal como los muestra Investing**, cada uno
-  con **la importancia que Investing le pone ese día**. Sin filtro propio y sin
-  reclasificar nada.
-- **Nunca se descarta un evento** por considerarlo menor, ni se le cambia la importancia
-  con lo que diga este archivo u otro día. Lo que dice Investing hoy es lo que vale.
-- Si el fetch no trae la importancia o la hora de un evento, se escribe "sin confirmar";
-  el evento se lista igual.
-- Los discursos sin calificación (Fed, Tesoro, Presidente) van con importancia vacía, como
-  vienen.
+- La tabla lleva **únicamente los eventos de EE.UU. que Investing marca con 3 estrellas ese
+  día**. Nada más: ni 2 estrellas, ni 1, ni discursos sin calificación, ni subastas.
+- La importancia **se lee de Investing ese día**. No se reclasifica con lo que diga este
+  archivo, otro día o la intuición. Si Investing dice 3, entra; si no dice 3, no entra.
+- Si hoy no se pudo confirmar la importancia de un evento, **no se da por 3**: queda fuera
+  y se anota en el Excel de control (Detalle), no en el documento.
+- Si no hay ningún evento de 3 estrellas: "Sin catalizadores programados".
 
-**Qué usa la importancia de Investing** (sin cambios, solo que ahora sale de ahí y de
-ningún otro lado):
-- **D19**: un evento que Investing marca de 3 toros, a las 10:15 ET o después → día sin
-  trade.
-- **Ajuste al Neutral**: los eventos de 3 toros de resultado desconocido dentro de la
-  sesión bajan el Neutral (ver abajo).
+**Qué hace un evento de 3 estrellas:**
+- **D19**: si sale a las 10:15 ET o después, el día es sin trade.
+- **Ajuste al Neutral**: si su resultado es desconocido y cae dentro de la sesión, baja el
+  Neutral (ver abajo).
 
 Por qué se cambió: el 23-sep el filtro viejo decía "inventarios se descartan" y el informe
-dio el día "sin datos de 3 toros". Ese día Investing marcaba de 3 toros el PMI flash
+dio el día "sin datos de 3 toros". Ese día Investing marcaba con 3 estrellas el PMI flash
 (09:45) y el crudo EIA (10:30), así que hubo que re-correr el informe a las 09:25: el
 favorito pasó de Neutral a Bajista y el día quedó sin trade por D19.
 
@@ -1431,8 +1427,8 @@ factor de momentum intradía.
 Tabla **"Catalizadores del día"** justo después del Termómetro, con columnas:
 `Hora ET | Evento | Importancia | Pronóstico | Previo | Ventana`. Debajo, dos o tres frases
 sobre cuál es el que de verdad importa y qué le hace a los 3 escenarios. Si no hay ningún
-evento de EE.UU. en Investing ese día, escribir **"Sin catalizadores programados"** de forma
-explícita: es información, no una sección para omitir.
+evento de EE.UU. con 3 estrellas en Investing ese día, escribir **"Sin catalizadores
+programados"** de forma explícita: es información, no una sección para omitir.
 
 En `premercado_hipotesis_log.json`, bloque `catalizadores` de esa fecha:
 
@@ -1443,16 +1439,13 @@ En `premercado_hipotesis_log.json`, bloque `catalizadores` de esa fecha:
    "hora_confirmada": true},
   {"hora_et": "10:00", "evento": "Ventas de viviendas nuevas (Jul)",
    "toros": 3, "pronostico": 620, "previo": 628, "ventana": "09:30-10:30",
-   "hora_confirmada": true},
-  {"hora_et": "19:00", "evento": "Declaraciones de Trump", "toros": null,
-   "pronostico": null, "previo": null, "ventana": "post-cierre",
-   "hora_confirmada": false}
+   "hora_confirmada": true}
 ],
 "ajuste_neutral_por_catalizador": -4
 ```
 
-`toros` es el número que Investing le pone ese día (1, 2 o 3), o `null` si no trae
-calificación, como en los discursos. Se copia tal cual y no se filtra.
+Solo entran eventos con `toros: 3`, que es lo que Investing marca ese día. Un `2`, un
+`1` o un `null` en este bloque significa que se coló algo que no va.
 
 El `ajuste_neutral_por_catalizador` es el descuento en puntos porcentuales que se le aplicó
 al Neutral por el punto anterior. Guardarlo permite revisar más adelante si el descuento
