@@ -23,8 +23,8 @@
 // daemon ya persiste ahi su ultima lectura exitosa (lastLevels/lastSuccessAt) cada vez
 // que corre un ciclo dentro de horario de mercado, que es exactamente el dato que hace
 // falta ("el ultimo disponible") sin necesidad de tocar el navegador para nada.
-import { connectToSpxWindow } from '../gamma_daemon/tv.js';
-import { elegirSigma } from './elegir_sigma.mjs';
+import { connectToSpxWindow, SYMBOL_MATCH } from '../gamma_daemon/tv.js';
+import { esperarSigmaDeHoy, diagnosticoDaemon } from './elegir_sigma.mjs';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { spawn } from 'child_process';
 import path from 'path';
@@ -60,12 +60,19 @@ const TV_STEP_MS = Number(process.env.TV_STEP_MS || 20000);
 const TV_CONNECT_MS = Number(process.env.TV_CONNECT_MS || 60000);
 // Cinturon final: pase lo que pase, este proceso no vive mas de 5 minutos. unref() para
 // que este temporizador no sea lo que mantenga vivo el event loop cuando todo salio bien.
-const HARD_KILL_MS = Number(process.env.COLLECTOR_HARD_KILL_MS || 300000);
+// Subido de 5 a 8 min el 2026-09-23 para darle cabida a la espera de Sigma de abajo
+// (6 min, en paralelo con TradingView). Sigue por debajo del techo de 10 min del gate.
+const HARD_KILL_MS = Number(process.env.COLLECTOR_HARD_KILL_MS || 480000);
 // Cuanto puede tener el dato de Sigma antes de que deje de valer como "de hoy".
 // 45 min cubre con holgura la fase de premercado del daemon (empieza 08:15, el
 // colector corre 08:30) y sigue delatando al instante una lectura del cierre
 // anterior, que son ~17 HORAS.
 const SIGMA_MAX_ANTIGUEDAD_MIN = Number(process.env.SIGMA_MAX_ANTIGUEDAD_MIN || 45);
+// Si a las 08:30 el dato de Sigma no es de hoy, cuanto se espera a que el daemon lo
+// traiga (2026-09-23; ver esperarSigmaDeHoy en elegir_sigma.mjs). Corre en paralelo
+// con TradingView, asi que en un dia normal no suma nada: la primera lectura ya sale OK.
+const SIGMA_ESPERA_MS = Number(process.env.SIGMA_ESPERA_MS || 6 * 60 * 1000);
+const SIGMA_PASO_MS = Number(process.env.SIGMA_PASO_MS || 20000);
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -208,6 +215,17 @@ async function captureChartPng(client, paneIndex, outPath) {
   writeFileSync(outPath, Buffer.from(data, 'base64'));
 }
 
+// El simbolo del chart ACTIVO -- el que de verdad van a tocar setResolution(),
+// captureChartPng() y getStudyValues().
+async function getActiveSymbol(client) {
+  return evalOn(client, `
+    (function() {
+      try { return ${CHART_API}._chartWidget.model().mainSeries().symbol(); }
+      catch (e) { return null; }
+    })()
+  `);
+}
+
 async function getStudyValues(client) {
   const data = await evalOn(client, `
     (function() {
@@ -263,11 +281,55 @@ async function collectFromTradingView(outDir) {
   const conn = await withTimeout(connectToSpxWindow(), TV_CONNECT_MS, 'connectToSpxWindow');
 
   const { client, panes } = conn;
-  const paneIndex = panes.find((p) => !p.error)?.index ?? 0;
-  const originalResolution = await withTimeout(getResolution(client), TV_STEP_MS, 'getResolution').catch(() => null);
+
+  // ELEGIR EL PANE POR SIMBOLO, NUNCA "el primero que no da error" (2026-09-18).
+  // Incidente real de esa manana: connectToSpxWindow() devuelve una VENTANA que tiene
+  // SPX en ALGUN pane -- no garantiza que sea el pane 0. Ese dia el pane 0 era NVDA, y
+  // como aqui se tomaba el primer pane sin error, el colector le cambio la resolucion a
+  // 30 min al chart de NVDA, lo fotografio (chart_30m.png salio siendo NVIDIA) y leyo
+  // sus indicadores -- que ademas vinieron vacios, porque getStudyValues() lee el chart
+  // ACTIVO y el click de focusPane cayo en el pane equivocado. El informe no lo noto:
+  // se fue a Yahoo por el fallback y nadie vio que el dato era de otro activo.
+  // Si no hay pane de SPX, se falla: leer el activo equivocado es peor que no leer nada,
+  // porque el numero malo entra al informe sin dejar rastro.
+  const panesSpx = panes.filter((p) => p.symbol && SYMBOL_MATCH.test(p.symbol));
+  if (panesSpx.length === 0) {
+    const detalle = panes.map((p) => `${p.index}:${p.symbol || p.error || '?'}`).join(', ') || 'sin panes';
+    throw new Error(
+      `La ventana conectada no tiene ningun pane con SPCFD:SPX (panes: ${detalle}). ` +
+      `No se toca ningun chart: cambiarle la resolucion o fotografiar otro activo mete ` +
+      `datos ajenos al informe.`
+    );
+  }
+  const paneIndex = panesSpx[0].index;
+  log(`[tv] pane elegido ${paneIndex} (${panesSpx[0].symbol}) de ${panes.length} pane(s): `
+    + panes.map((p) => `${p.index}:${p.symbol || p.error || '?'}`).join(', '));
+  // La resolucion original se lee DESPUES de enfocar el pane del SPX, no antes
+  // (2026-09-18). getResolution() mira el chart ACTIVO: leerla antes del focus devuelve
+  // la del pane que estuviera activo -- otro pane del mismo layout, u otro activo -- y el
+  // finally se la escribia al chart del SPX al terminar. Con dos panes de SPX abiertos
+  // (15m y 30m, el caso normal de este layout) eso deja el chart de 15 minutos en 30:
+  // justo la temporalidad en la que opera el usuario.
+  let originalResolution = null;
 
   try {
     await withTimeout(focusPane(client, paneIndex), TV_STEP_MS, 'focusPane');
+
+    // Segundo cinturon: confirmar que el chart ACTIVO quedo en el SPX ANTES de tocar
+    // nada. setResolution(), captureChartPng() y getStudyValues() trabajan sobre el
+    // chart activo, no sobre paneIndex -- si el click de focusPane no prendio (pane
+    // oculto, layout cambiado, ventana sin foco), sin esta comprobacion se le cambia la
+    // resolucion al chart de otro activo y se lee su Data Window.
+    const simboloActivo = await withTimeout(getActiveSymbol(client), TV_STEP_MS, 'getActiveSymbol');
+    if (!simboloActivo || !SYMBOL_MATCH.test(simboloActivo)) {
+      throw new Error(
+        `el pane ${paneIndex} es SPCFD:SPX pero el chart activo quedo en ` +
+        `"${simboloActivo || 'desconocido'}": focusPane no prendio. Se aborta sin tocar ` +
+        `la resolucion de un chart ajeno.`
+      );
+    }
+
+    originalResolution = await withTimeout(getResolution(client), TV_STEP_MS, 'getResolution').catch(() => null);
     await withTimeout(setResolution(client, '30'), TV_STEP_MS, 'setResolution 30');
     await withTimeout(setVisibleRangeDays(client, 3), TV_STEP_MS, 'setVisibleRangeDays');
 
@@ -287,7 +349,7 @@ async function collectFromTradingView(outDir) {
     }
 
     const studyValues = await withTimeout(getStudyValues(client), TV_STEP_MS, 'getStudyValues');
-    return { success: true, paneIndex, studyValues, chartPng, chartPngError };
+    return { success: true, paneIndex, paneSymbol: simboloActivo, studyValues, chartPng, chartPngError };
   } finally {
     // Devolver la resolucion original es cortesia, no requisito: si el socket ya murio
     // no se insiste. Esta linea era el primer sintoma visible del cuelgue.
@@ -372,9 +434,22 @@ async function main() {
 
   const bundle = { collectedAt: new Date().toISOString(), tradingview: null, sigma: null, errors: [] };
 
+  // Sigma arranca YA y en paralelo: si hay que esperar al daemon, la espera se solapa
+  // con los ~30-200s de TradingView en vez de sumarse. No lanza: los errores viajan
+  // dentro del resultado y se registran abajo, en su orden de siempre.
+  const sigmaP = esperarSigmaDeHoy({
+    leerStatus: () => JSON.parse(readFileSync(GAMMA_STATUS_PATH, 'utf8')),
+    ahora: () => Date.now(),
+    dormir: (ms) => new Promise((r) => setTimeout(r, ms)),
+    maxAntiguedadMin: SIGMA_MAX_ANTIGUEDAD_MIN,
+    esperaMs: SIGMA_ESPERA_MS,
+    pasoMs: SIGMA_PASO_MS,
+  }).then((r) => ({ r }), (e) => ({ e }));
+
   try {
     bundle.tradingview = await collectFromTradingView(outDir);
-    log(`[tv] OK -- pane ${bundle.tradingview.paneIndex}, ${bundle.tradingview.studyValues.length} estudios leidos, `
+    log(`[tv] OK -- pane ${bundle.tradingview.paneIndex} (${bundle.tradingview.paneSymbol}), `
+      + `${bundle.tradingview.studyValues.length} estudios leidos, `
       + (bundle.tradingview.chartPng ? 'captura guardada' : 'SIN captura (se dibuja con Yahoo)'));
   } catch (e) {
     bundle.errors.push(`tradingview: ${e.message}`);
@@ -382,14 +457,17 @@ async function main() {
   }
 
   try {
-    const status = JSON.parse(readFileSync(GAMMA_STATUS_PATH, 'utf8'));
-
     // Cual de las dos lecturas de status.json vale, y si sirve como dato de hoy:
     // vive en elegir_sigma.mjs, con sus pruebas (elegir_sigma.test.mjs). Se saco de
     // aqui porque este archivo llama a main() al importarse y no habia forma de
     // probar la regla sin lanzar el recolector entero contra TradingView -- y era
     // justo la regla que llevaba semanas equivocandose callada.
-    const elegido = elegirSigma(status, Date.now(), SIGMA_MAX_ANTIGUEDAD_MIN);
+    const s = await sigmaP;
+    if (s.e) throw s.e;
+    const elegido = s.r;
+    const esperaTxt = elegido.intentos > 1
+      ? `, tras esperar ${Math.round(elegido.esperaMs / 1000)}s / ${elegido.intentos} lecturas`
+      : '';
 
     bundle.sigma = {
       ...elegido.levels,
@@ -404,12 +482,13 @@ async function main() {
     if (bundle.sigma.rancio) {
       // A errors[] a proposito: es lo que hace que el gate escriba "TERMINO CON
       // ERRORES" en premercado_auto_launch.log en vez de dejarlo pasar callado.
-      const msg = `dato RANCIO de ${elegido.antiguedadMin ?? '?'} min (fuente ${elegido.fuente}, sello ${elegido.asOf})`
-        + ` -- el informe NO debe presentarlo como muros de hoy`;
+      const msg = `dato RANCIO de ${elegido.antiguedadMin ?? '?'} min (fuente ${elegido.fuente}, sello ${elegido.asOf}${esperaTxt})`
+        + ` -- el informe NO debe presentarlo como muros de hoy`
+        + ` -- causa: ${diagnosticoDaemon(elegido.status, Date.now())}`;
       bundle.errors.push(`sigma: ${msg}`);
       log(`[sigma] RANCIO: ${msg} -- ${resumen}`);
     } else {
-      log(`[sigma] OK (fuente ${elegido.fuente}, ${elegido.antiguedadMin} min de antiguedad) -- ${resumen}`);
+      log(`[sigma] OK (fuente ${elegido.fuente}, ${elegido.antiguedadMin} min de antiguedad${esperaTxt}) -- ${resumen}`);
     }
   } catch (e) {
     bundle.errors.push(`sigma: ${e.message}`);

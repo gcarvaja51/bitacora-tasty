@@ -59,3 +59,60 @@ export function elegirSigma(status, ahoraMs, maxAntiguedadMin) {
     rancio: antiguedadMin == null || antiguedadMin > maxAntiguedadMin,
   };
 }
+
+// ── Esperar a que haya dato de HOY (2026-09-23) ──────────────────────────────
+//
+// POR QUE. Una sola lectura de status.json a las 08:30 era una apuesta: del 11 al
+// 22-sep el colector encontro el dato RANCIO 4 de 9 dias (11, 14, 17 y 22-sep), y
+// en esos dias el informe salio sin muros de hoy. Las causas del lado del daemon son
+// pasajeras -- Sigma todavia en la cadena de ayer, la pagina que no termino de cargar
+// (14-sep), el daemon caido y relanzado por el vigilante a los 10 min (23-sep) -- y
+// el daemon reintenta cada 30s. O sea que muchas veces el dato bueno llega pocos
+// minutos DESPUES de que el colector ya se fue. Esperar un rato cuesta poco (corre en
+// paralelo con TradingView) y convierte un RANCIO en un OK.
+//
+// Todo entra por parametro (leer, reloj, dormir) para poder probarlo sin disco ni
+// esperas reales. Devuelve el ultimo elegido, con `esperaMs` e `intentos`; si al
+// final sigue rancio lo devuelve igual (rancio:true) y el que llama decide.
+export async function esperarSigmaDeHoy({
+  leerStatus, ahora, dormir, maxAntiguedadMin, esperaMs, pasoMs,
+}) {
+  const inicio = ahora();
+  let intentos = 0;
+  let ultimo = null;
+  let ultimoError = null;
+  for (;;) {
+    intentos += 1;
+    try {
+      const status = leerStatus();
+      ultimo = { ...elegirSigma(status, ahora(), maxAntiguedadMin), status };
+      ultimoError = null;
+      if (!ultimo.rancio) break;
+    } catch (e) {
+      // status.json a medio escribir (el daemon lo reescribe cada 30s) o ausente.
+      ultimoError = e;
+    }
+    if (ahora() - inicio + pasoMs > esperaMs) break;
+    await dormir(pasoMs);
+  }
+  if (!ultimo) throw ultimoError || new Error('sin lectura de status.json');
+  return { ...ultimo, esperaMs: ahora() - inicio, intentos };
+}
+
+// Por que no hay dato de hoy, en una linea, para que el log diga la CAUSA y no solo
+// el sintoma. Lee lo que el propio daemon deja en status.json.
+export function diagnosticoDaemon(status, ahoraMs) {
+  const partes = [];
+  const ciclo = status?.lastCycleAt ? Date.parse(status.lastCycleAt) : NaN;
+  if (!Number.isFinite(ciclo)) {
+    partes.push('el daemon no registra ningun ciclo');
+  } else {
+    const min = Math.round((ahoraMs - ciclo) / 60000);
+    partes.push(min > 3
+      ? `el daemon NO cicla hace ${min} min (caido o colgado)`
+      : `el daemon cicla (ultimo hace ${min} min)`);
+  }
+  const err = status?.premercadoError;
+  if (err?.mensaje) partes.push(`ultimo error de premercado (${err.en}): ${err.mensaje}`);
+  return partes.join('; ');
+}

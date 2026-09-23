@@ -82,13 +82,14 @@ editar la Tarea 2 veces al año. El trigger de la temporada "equivocada" tambié
 dispara, pero el script de gate (ver abajo) calcula la hora ET real en vivo
 (`[System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId`, que sí resuelve DST
 automáticamente) y descarta el disparo si no cae dentro de la ventana real
-8:15-8:45am ET — así que de los 2 disparos diarios, exactamente uno hace algo y
+8:15-9:05am ET — así que de los 2 disparos diarios, exactamente uno hace algo y
 el otro se auto-descarta en silencio, sea cual sea la temporada.
 
 **Script de gate**: `scripts/launch_premercado_gate.ps1` (dentro de este skill).
 Antes de lanzar nada, valida en este orden:
-1. Ventana horaria real en ET (8:15-8:45am) — descarta el trigger de la
-   temporada equivocada.
+1. Ventana horaria real en ET (8:15-9:05am; hasta 2026-09-21 cerraba a las 8:45 y un
+   disparo tardío por PC suspendido se saltaba) — descarta el trigger de la
+   temporada equivocada. 1b. Si ya existe el .docx de hoy, no relanza.
 2. Día hábil (defensa en profundidad — la Tarea ya filtra Lun-Vie, pero se
    revalida por si se edita a mano).
 3. **Feriados NYSE** — lista fija de fechas 2026 embebida en el script (Año
@@ -363,6 +364,16 @@ dato). Si el bundle de hoy existe, **usarlo directamente y saltar el Paso 0 y la
 en vivo de Sigma Terminal por completo** — es más confiable que pelear con la conexión en
 el momento.
 
+**Antes de usar `tradingview`, mirar de qué pane salió (2026-09-18).** El bundle trae
+ahora `tradingview.paneSymbol` y el `collector.log` escribe la línea `[tv] pane elegido
+<i> (<símbolo>) de N pane(s)` con el listado completo. Si el símbolo no es `SPCFD:SPX`,
+la captura y los `studyValues` son de otro activo y no sirven — usar las velas de Yahoo.
+El 18-sep el colector eligía "el primer pane que no diera error": ese día el pane 0 era
+NVDA, así que `chart_30m.png` salió siendo un gráfico de NVIDIA y `studyValues` vino
+vacío, sin que el informe se enterara. Corregido en `premercado_collector/collect.js`:
+ahora elige el pane por símbolo, confirma que el chart ACTIVO quedó en el SPX antes de
+tocar la resolución, y si no hay pane de SPX falla en vez de fotografiar otra cosa.
+
 **Antes de usar `sigma`, mirar `sigma.rancio` (2026-09-09).** El bundle trae ahora tres
 campos de procedencia además de `asOf`:
 
@@ -372,7 +383,19 @@ campos de procedencia además de `asOf`:
 | `antiguedadMin` | minutos entre la lectura y el momento del recolector |
 | `rancio` | `true` si pasa de 45 min — el dato **no** es de hoy |
 
-Si `rancio` es `true`, los muros son de una sesión anterior y **no pueden escribirse en el
+**Si `rancio` es `true`, PRIMERO volver a leer Sigma (2026-09-23):**
+```
+cd "C:\Users\gcarv\bitacora-tasty\premercado_collector" && node releer_sigma.mjs
+```
+Espera hasta 3 min a que el gamma_daemon tenga el dato de hoy y, si llega, reemplaza
+`sigma` en el `bundle.json` del día (deja `.bak_antes_releer`). Exit 0 → volver a leer el
+bundle y usarlo normal. Exit 2 → sigue rancio, e imprime la **causa** (daemon caído,
+Sigma todavía en la cadena de ayer, etc.): esa causa va a Incidencias. Existe porque el
+colector lee a las 08:30 y el informe se escribe 5-10 min después; el 23-sep el daemon
+estuvo caído y el vigilante lo relanzó a las 08:36 ET, así que el dato bueno llegó
+después de que el colector ya se había ido. (El colector mismo ya espera hasta 6 min.)
+
+Si después de eso `rancio` sigue en `true`, los muros son de una sesión anterior y **no pueden escribirse en el
 informe como los niveles de hoy**: hay que decirlo explícitamente en el documento (qué
 sello tienen y de qué vencimiento es la cadena) o leer Sigma Terminal en vivo. Esto no es
 teórico — hasta el 2026-09-09 el recolector leía siempre el cierre del día anterior y lo
@@ -1237,7 +1260,8 @@ los backtests en este proyecto.
   la captura del chart: colapsar de nuevo la leyenda expandida (clic en el chevron `⌄`/`^` junto al contador de
   indicadores) y limpiar el crosshair (tecla `Escape` + clic en una zona vacía del chart) ANTES de la captura,
   o queda un tooltip de precio flotante sobre la imagen.
-- **Fractal intradía** (marco de 30 o 15 min): mismo concepto que el semanal/diario
+- **Fractal intradía** (marco de 30 min para la sección "Estructura Intradía 30 Min";
+  el de 15 min solo en los trades): mismo concepto que el semanal/diario
   pero de corto plazo — zona de liquidez donde ya se sabe que el precio puede
   pivotear (ejemplo real: *"zona del fractal 7,450"*, usada como target/zona de
   reacción si el Call Wall se corre hacia arriba).
@@ -1502,22 +1526,22 @@ prosa del `.docx` no le sirve: necesita niveles.
     "prob": 36,
     "activa":   {"tipo": "cierre_15m_sobre", "nivel": 7690},
     "invalida": {"tipo": "cierre_15m_bajo",  "nivel": 7675},
-    "t1": [7696, 7700],
-    "t2": [7708, 7714],
+    "t1": 7700,
+    "t2": 7710,
     "nota": "Call Wall 7690 + EMA10 diaria 7687,31."
   },
   "bajista": {
     "prob": 34,
-    "activa":   {"tipo": "cierre_15m_bajo",  "nivel": 7662},
+    "activa":   {"tipo": "cierre_15m_bajo",  "nivel": 7665},
     "invalida": {"tipo": "cierre_15m_sobre", "nivel": 7690},
-    "t1": [7657, 7662],
-    "t2": [7638, 7650]
+    "t1": 7655,
+    "t2": 7640
   },
   "neutral": {
     "prob": 30,
-    "activa":   {"tipo": "dentro_corredor",  "min": 7662, "max": 7690},
-    "invalida": {"tipo": "cierre_15m_fuera", "min": 7662, "max": 7690},
-    "corredor": [7662, 7690]
+    "activa":   {"tipo": "dentro_corredor",  "min": 7665, "max": 7690},
+    "invalida": {"tipo": "cierre_15m_fuera", "min": 7665, "max": 7690},
+    "corredor": [7665, 7690]
   }
 }
 ```
@@ -1533,6 +1557,10 @@ Reglas:
   no compra recorrido.
 - Los niveles tienen que ser los mismos que la prosa del documento. Si la tabla dice
   "rompe 7.690" y el JSON dice 7.700, el motor opera algo que el informe no dijo.
+- **Desde el 2026-09-17, `t1` y `t2` van como UN número redondo** (ver "Niveles: un
+  valor redondo, no franjas"), no como par. El motor y `gen_escenarios_chart.py`
+  aceptan las dos formas, así que las entradas viejas con pares siguen valiendo. Los
+  niveles de `activa`/`invalida`/`corredor` son los mismos redondos del documento.
 
 ### Validar SIEMPRE antes de dar el premercado por terminado
 
@@ -1553,8 +1581,8 @@ más traicionero — **un alcista que se activa cayendo** (o el nivel del alcist
 del bajista), que es un error de transcripción invisible a ojo y que el motor ejecutaría
 igual.
 
-⚠️ **El colchón lo aplica el motor, no el premercado.** Escribir el nivel limpio (7.662,
-no 7.659). El motor exige que el cierre lo supere por `bufferNivelPts` (3 por defecto)
+⚠️ **El colchón lo aplica el motor, no el premercado.** Escribir el nivel limpio (7.665,
+no 7.662 ni 7.659 — desde 2026-09-17, múltiplo de 5). El motor exige que el cierre lo supere por `bufferNivelPts` (3 por defecto)
 antes de dar la rotura por buena. Esto salió de probar el propio 25-ago: el bajista se
 activaba con un cierre de 7.661,93 contra un nivel de 7.662 —siete centésimas— y quince
 minutos después el precio ya había vuelto dentro del corredor.
@@ -1732,6 +1760,48 @@ frases el balance de factores que llevó a esos números (no hace falta reproduc
 el scorecard completo en el documento — el detalle numérico vive en el JSON, el
 documento lleva la lectura en lenguaje simple).
 
+## Niveles: un valor redondo, no franjas (pedido del usuario 2026-09-17)
+
+El usuario pidió: *"vamos a escoger un valor y no una franja para que la redacción sea
+más limpia. Busquemos redondear a números redondos para que tengamos una lectura más
+sencilla... ya sabemos que en el mercado no hay ningún dato exacto pero yo sabré que
+estamos hablando de referencias redondeadas"*. Aplica a TODO el documento (portada,
+cuerpo, tablas, posibles trades, diagrama, informe gerencial) y al bloque `escenarios`.
+
+Cómo se redondea:
+- **Niveles y referencias** (disparadores, objetivos T1/T2, stops, muros, Gamma Flip,
+  EMAs, fractales, POC, techos/pisos, confluencias, equivalentes en pantalla de
+  `VANTAGE:SP500`) → **un solo valor, múltiplo de 5** (la grilla de strikes del SPX):
+  7.622 → 7.620, 7.649 → 7.650, 7.546 → 7.545.
+- **De franja a valor**: nunca "7.600-7.608" ni "7.645-7.648". Se toma el nivel que
+  define la franja (el muro, la EMA, el fractal o el punto donde se juntan más
+  referencias) y se redondea: T1 "7.600-7.608" (Call Wall, MVS y Max Pain en 7.600)
+  → 7.600; techo de ayer "7.622-7.627" → 7.625; EMA20 diaria y máximo semanal
+  "7.645-7.648" → 7.645.
+- **Datos de precio observados** (apertura, máximo, mínimo, cierre, apertura
+  implícita, último ES y su equivalente de contado) → **enteros, sin decimales**:
+  "cerró en 7.552", "máximo 7.627". Variaciones en puntos, también enteras (−34).
+  Porcentajes con un decimal (−0,45 %). El ATR, entero.
+- **El neutral** se sigue describiendo por sus dos bordes (es un corredor), pero cada
+  borde es un redondo: "entre 7.620 y 7.650". Es la única franja permitida.
+- **Si el redondeo junta dos niveles distintos** que el análisis necesita separar
+  (por ejemplo, el disparador bajista y el alcista caen en el mismo múltiplo de 5),
+  llevar cada uno al múltiplo de 5 hacia afuera del corredor. Nunca dejar
+  `activa` del alcista ≤ `activa` del bajista, porque el validador lo rechaza.
+- **No se aclara en el documento** que los niveles están redondeados. El usuario ya
+  lo sabe. Ni "≈", ni "aprox.", ni notas al pie. El "≈" solo sigue valiendo para la
+  apertura implícita.
+- **Los datos de trabajo NO se redondean**: `bundle.json`, el cálculo de la base, los
+  registros de Sigma, la sección `max_pain` y la puntuación del postmercado (Paso 8)
+  usan el valor exacto del mercado. Solo se redondea lo que se escribe y los niveles
+  del bloque `escenarios` (que tienen que coincidir con lo escrito).
+
+⚠️ Consecuencia para la Estrategia Premercado: sus disparadores ahora son múltiplos
+de 5, y el colchón de 3 puntos (`bufferNivelPts`) lo sigue aplicando el motor sobre
+ese valor redondo. Desde el 2026-09-17 los niveles pueden moverse hasta 2,5 puntos
+respecto del cálculo fino. Si el Auditor compara muestras de antes y después, esa es
+la fecha de corte.
+
 ## Formato del documento final (esquema fijado 2026-07-21)
 
 ⚠️ **El usuario reescribió a mano la estructura completa del documento del
@@ -1802,13 +1872,41 @@ Secciones en este orden exacto:
    (sin contenido propio debajo, solo el título).
 3. **Chart 30 minutos** — ver subsección de capturas más abajo (cambió de 3
    capturas a 1 sola).
+🚨 **Cada temporalidad habla solo de su temporalidad (Guillermo, 2026-09-16: "que cada
+temporalidad hable de esa temporalidad, no enredemos").** Marco Semanal → solo datos
+semanales. Marco Diario → solo diarios (nada de POC, EMAs ni fractales intradía: el
+16-sep traía "POC de 15 minutos" dentro del diario y se sacó). Estructura Intradía 30 Min
+→ solo 30m. Si un dato de otra temporalidad parece importante, va en SU sección, nunca
+prestado en otra. La única temporalidad que puede aparecer fuera de su marco es la de
+**15m**, y solo donde se opera: disparadores de "Conclusiones Los 3 Escenarios",
+"Posibles trades", "Recordatorio de Gestión" y la hoja del Informe Gerencial.
+
 4. **Marco Semanal** (sin cambios de contenido/lógica, Paso 1).
 5. **Marco Diario** (sin cambios de contenido/lógica, Paso 2).
-6. **Estructura Intradía 30 Min** — antes "Intradía/Futuros/VIX" (Paso 4),
-   mismo contenido (POC 30/60/120/240, momentum 15m, VIX, nota de horario),
-   pero termina con una bullet nueva: **"Conclusión intradía: [síntesis de
-   2-3 líneas de esta capa específica]"** — llenar con contenido real, no
-   dejar el placeholder de "x" repetidas.
+6. **Estructura Intradía 30 Min** — antes "Intradía/Futuros/VIX" (Paso 4).
+   Contenido: EMAs 10/20/50, MACD, fractales, POC y ATR **todos de 30 minutos**,
+   más VIX y nota de horario, y termina con una bullet: **"Conclusión intradía:
+   [síntesis de 2-3 líneas de esta capa específica]"** — llenar con contenido
+   real, no dejar el placeholder de "x" repetidas.
+
+   🚨 **La sección es de 30 minutos, no de 15 (corrección de Guillermo,
+   2026-09-16).** Desde el 2-sep las corridas la venían llenando con EMAs, MACD,
+   fractales y ATR de **15m** bajo el título "30 Min" — la instrucción vieja decía
+   "momentum 15m" y el modelo lo generalizó a toda la sección. El 31-ago todavía
+   salía bien. Reglas:
+   - **Ningún dato de 15m en esta sección.** Si un número no se puede conseguir en
+     30m, se omite; no se sustituye por el de 15m.
+   - **EMAs y MACD**: los de `bundle.json → tradingview.studyValues`, que el
+     colector lee con el pane ya en 30m ("SMA by KGS": EMA-1 = EMA10, EMA-2 = EMA20,
+     EMA-3 = EMA50; `_CM_MacD_Ult_MTF`: MACD/Signal). Son los de la pantalla de
+     TradingView. Si el bundle no los trae, calcularlos con velas de Yahoo
+     `^GSPC?interval=30m&range=1mo`.
+   - **Fractales, POC y ATR(14)**: velas de 30m de Yahoo. ⚠️ Yahoo agrega una vela
+     de las 16:00 con O=H=L=C (el tick de cierre): descartarla para ATR y
+     fractales, o el rango cero deforma el ATR (10,9 contra 11,75 medido el 16-sep).
+   - Los **disparadores de los escenarios** siguen siendo cierres de **15m** (es la
+     temporalidad en la que opera Guillermo) — eso vive en "Conclusiones" y
+     "Posibles trades", no acá.
 7. **Greeks / Gamma) - Sigma Terminal, en vivo [hora]** — antes "Capa de
    Derivados (Greeks / Gamma) - Sigma Terminal". El usuario recortó el
    heading dejando el paréntesis de cierre sin el de apertura — replicar tal

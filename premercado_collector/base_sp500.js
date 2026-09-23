@@ -179,7 +179,20 @@ function pendiente(ys) {
 
 async function main() {
   log(`[tv] leyendo ventanas por CDP en el puerto ${CDP_PORT} (solo lectura)...`);
-  const series = await leerSeries();
+  // REINTENTO SI FALTA EL CFD (2026-09-23). TradingView carga cada pestaña recien
+  // cuando le toca: justo despues de un relanzamiento solo esta pintado el SPX. Ese
+  // dia asegurar_tradingview.mjs relanzo a las 08:30 y este script leyo 5s despues:
+  // 4 series, todas SPCFD:SPX, y FALLO. Releido a las 09:00 aparecieron las 10, con
+  // VANTAGE:SP500 incluido. Se espera hasta ~50s (el gate le da 2 min).
+  let series = await leerSeries();
+  for (let i = 1; i <= 5; i++) {
+    const hayCfd = series.some((s) => !SPX_MATCH.test(s.symbol) && CFD_MATCH.test(s.symbol));
+    const haySpx = series.some((s) => SPX_MATCH.test(s.symbol));
+    if (hayCfd && haySpx) break;
+    log(`[tv] todavia no aparece ${hayCfd ? 'el SPX' : 'el CFD del SP500'} (intento ${i}/5) -- espero 10s a que carguen las pestañas`);
+    await new Promise((r) => setTimeout(r, 10000));
+    series = await leerSeries();
+  }
   log(`[tv] ${series.length} serie(s) con barras:`);
   for (const s of series) log(`      ${s.symbol}  res=${s.resolution}  ${s.barras.length} barras`);
 

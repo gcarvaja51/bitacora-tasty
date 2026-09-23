@@ -73,3 +73,57 @@ test('justo en el limite de 45 min todavia vale; a los 46 no', () => {
 test('status vacio lanza en vez de devolver niveles inventados', () => {
   assert.throws(() => elegirSigma({}, T0830, MAX), /no tiene ni premercado ni lastLevels/);
 });
+
+// ── esperarSigmaDeHoy (2026-09-23) ──
+import { esperarSigmaDeHoy, diagnosticoDaemon } from './elegir_sigma.mjs';
+
+function relojFalso(t0) {
+  let t = t0;
+  return { ahora: () => t, dormir: async (ms) => { t += ms; } };
+}
+
+test('espera: si el dato fresco llega al tercer intento, devuelve OK', async () => {
+  const r = relojFalso(T0830);
+  let n = 0;
+  const rancio = { lastLevels: nivelesAyer, lastSuccessAt: '2026-09-08T19:52:40Z' };
+  const res = await esperarSigmaDeHoy({
+    leerStatus: () => {
+      n += 1;
+      if (n < 3) return rancio;
+      return { ...rancio, premercado: { levels: nivelesPremercado, leidoEn: new Date(r.ahora()).toISOString() } };
+    },
+    ...r, maxAntiguedadMin: MAX, esperaMs: 240000, pasoMs: 20000,
+  });
+  assert.equal(res.rancio, false);
+  assert.equal(res.fuente, 'premercado');
+  assert.equal(res.intentos, 3);
+});
+
+test('espera: si nunca llega, respeta el tope y devuelve rancio', async () => {
+  const r = relojFalso(T0830);
+  const res = await esperarSigmaDeHoy({
+    leerStatus: () => ({ lastLevels: nivelesAyer, lastSuccessAt: '2026-09-08T19:52:40Z' }),
+    ...r, maxAntiguedadMin: MAX, esperaMs: 240000, pasoMs: 20000,
+  });
+  assert.equal(res.rancio, true);
+  assert.ok(res.esperaMs <= 240000);
+});
+
+test('espera: un status.json a medio escribir no tumba la espera', async () => {
+  const r = relojFalso(T0830);
+  let n = 0;
+  const res = await esperarSigmaDeHoy({
+    leerStatus: () => {
+      n += 1;
+      if (n === 1) throw new SyntaxError('Unexpected end of JSON input');
+      return { premercado: { levels: nivelesPremercado, leidoEn: new Date(r.ahora()).toISOString() } };
+    },
+    ...r, maxAntiguedadMin: MAX, esperaMs: 240000, pasoMs: 20000,
+  });
+  assert.equal(res.rancio, false);
+});
+
+test('diagnostico: daemon parado se dice con su antiguedad', () => {
+  const d = diagnosticoDaemon({ lastCycleAt: '2026-09-09T12:20:00Z' }, T0830);
+  assert.match(d, /NO cicla hace 10 min/);
+});
