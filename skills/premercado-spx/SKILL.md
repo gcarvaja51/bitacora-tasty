@@ -1996,6 +1996,10 @@ Call/Put Wall, POC diario/semanal) en los 3 párrafos, no como una lista aparte.
 
 El usuario guarda cada premercado como un Word en:
 `premercados alejandro\documentos premercado\<MMDDAAAA>_premercado claude.docx`
+
+🚫 **SOLO WORD, NUNCA PDF (instrucción explícita del usuario, 2026-09-23):** "no generes
+pdf, solo word está bien... creamos pdf cuando lo necesite". En `documentos premercado`
+queda únicamente el `.docx`. El PDF se hace solo cuando él lo pida.
 (el nombre de carpeta usa el typo "premercado alejandro" del proyecto — ese SÍ
 se mantiene). ⚠️ **Corregido 2026-07-21**: el nombre de archivo usaba antes el
 typo "permercado" a pedido explícito del usuario en su momento — el usuario
@@ -2151,7 +2155,9 @@ contrato completo de campos.
 1. **Verificar SIEMPRE que quepa en una hoja exportando a PDF**, no a ojo. Con
    Word COM:
    `$d.ExportAsFixedFormat($pdf, 17)` y `$d.ComputeStatistics(2)` para el conteo
-   de páginas. La primera versión se pasaba 2 pulgadas a la hoja 2 y no había
+   de páginas. ⚠️ Ese PDF es solo de verificación: `$pdf` va en `$env:TEMP` (o el
+   scratchpad) y se BORRA al terminar -- nunca en `documentos premercado` (ver
+   "SOLO WORD, NUNCA PDF" arriba). La primera versión se pasaba 2 pulgadas a la hoja 2 y no había
    forma de saberlo sin renderizar.
 2. **"Primera hora" y "Riesgo" van lado a lado, no apilados.** Apilados a lo
    ancho de la hoja se comían 2,5 pulgadas; en dos columnas ocupan 1,4.
