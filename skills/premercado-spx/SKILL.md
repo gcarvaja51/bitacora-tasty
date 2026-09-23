@@ -1355,7 +1355,18 @@ de investing y toma lo que dice... no es más" y "las noticias que se toman sola
 estrellas... no más". Reemplaza el filtro del 25-ago y cualquier otro criterio propio.
 
 - La tabla lleva **únicamente los eventos de EE.UU. que Investing marca con 3 estrellas ese
-  día**. Nada más: ni 2 estrellas, ni 1, ni discursos sin calificación, ni subastas.
+  día**. Nada de 2 o 1 estrellas.
+- **Conferencias y discursos (Fed, Powell, Tesoro, Presidente) entran igual que cualquier
+  dato: si Investing les pone 3 estrellas ese día, van a la tabla** (pedido de Guillermo,
+  2026-09-23). No se excluyen por ser discursos; se miran las estrellas como a todo lo demás.
+- **Fuente fiable: el calendario de Investing en el Chrome de Guillermo** (claude-in-chrome,
+  sesión iniciada, con su filtro de EE.UU. y 3 estrellas ya aplicado). La tabla la arma
+  JavaScript: leerla con `javascript_tool` sobre las filas `table tr`; cada evento de 3
+  estrellas trae tres `svg` en la celda de importancia. **WebFetch NO sirve para las
+  estrellas**: el 23-sep, en tres lecturas seguidas, le puso 3 estrellas al PMI compuesto
+  (no las tenía), a Barr y Goolsbee les puso "sin calificación" y a todo "no especificada".
+  El HTML directo (curl) lo bloquea Cloudflare. Usar WebFetch solo como último recurso, y
+  decirlo en el Excel de control.
 - La importancia **se lee de Investing ese día**. No se reclasifica con lo que diga este
   archivo, otro día o la intuición. Si Investing dice 3, entra; si no dice 3, no entra.
 - Si hoy no se pudo confirmar la importancia de un evento, **no se da por 3**: queda fuera
