@@ -2182,6 +2182,36 @@ Después de generar el análisis del día, actualizar el archivo de control en:
 
 ## Paso 8 — Postmercado (2026-07-21, nuevo — corre DESPUÉS del cierre de mercado)
 
+### 🆕 Se llama "Informe cierre del día" (Guillermo, 2026-09-23)
+
+Guillermo pidió el análisis del cierre "tratando de avanzar en lo que pueda pasar mañana" y
+lo bautizó: **"esto lo llamaremos informe cierre del día"**. Se activa también con
+"informe cierre del día", "el cierre de hoy" o "qué puede pasar mañana" (después de las
+16:00 ET). Desde esa fecha:
+
+- **Va en documento propio**: `documentos premercado\<MMDDAAAA>_informe cierre del dia.docx`
+  (solo Word). Mismo formato que el premercado: Tahoma 11, márgenes de 0,75", justificado.
+  El 23-sep se armó así porque el documento del premercado estaba abierto en Word, y deja
+  a cada documento con un solo propósito. Si él pide que vaya al final del premercado,
+  se hace ahí.
+- **Secciones**, en este orden: "Qué hizo el mercado" (rango, % y camino por horas ET, con
+  lo que hizo el precio en cada catalizador de 3 estrellas), "Escenarios del premercado
+  contra lo que pasó" (tabla), "¿Acertamos?", "Cómo quedó Sigma al cierre" (lectura de
+  status.json de las ~16:05 ET, aclarando que esa cadena ya venció) y **"Qué puede pasar
+  mañana"**, que es lo nuevo y lo principal:
+  - Estructura al cierre por temporalidad, **incluido el cruce EMA10/EMA20 de 15m**, que es
+    su indicador principal: de qué lado está y si se está cerrando.
+  - ES fuera de hora convertido a contado con la base ES-SPX del día (mediana de las
+    velas de 15m pareadas): la apertura implícita provisoria.
+  - Tabla de niveles de mañana, con el equivalente en VANTAGE:SP500 entre paréntesis.
+  - Catalizadores de mañana, **leídos de su calendario de Investing en Chrome** (pestaña
+    "Mañana"), solo 3 estrellas, y si activan la regla D19.
+  - La **llamada de la sesión siguiente** (punto 6 de abajo): dirección, convicción,
+    activa, invalida, T1 y T2, más los argumentos del lado contrario. No se edita
+    después.
+- El log (`resultado` + `llamada_siguiente`) y la fila del Excel se actualizan igual que
+  en el postmercado.
+
 A pedido explícito del usuario: cerrar el círculo del día agregando, al FINAL del
 mismo documento de premercado de esa fecha (no un documento nuevo, no hay que
 esperar al día siguiente), un análisis de qué hizo el mercado de verdad y si los
