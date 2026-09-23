@@ -1348,65 +1348,33 @@ tener identificados de antemano los momentos en que el precio se mueve por un da
 la estructura técnica. Hasta ese día el premercado no miraba el calendario económico en
 absoluto — un dato de alto impacto a media sesión llegaba como sorpresa.
 
-### El filtro: SOLO alto impacto (3 toros) + discursos Fed
+### La regla: se lee Investing y se toma lo que dice (2026-09-23)
 
-⚠️ **Cambiado el 2026-08-25 por decisión explícita de Guillermo** — reemplaza el criterio
-más amplio que rigió del 21 al 25 de agosto. Motivo: la tabla se estaba llenando de
-eventos que él no usa para decidir nada. El caso que lo detonó fue el informe del
-25-ago, con **siete filas** de las cuales solo dos importaban (los dos datos de 3 toros
-de las 10:00); las otras cinco eran una subasta de T-Note, dos datos de 2 toros ya
-publicados antes de la apertura, y un Richmond de 2 toros. Ruido que compite por
-atención con lo que sí mueve el precio.
+⚠️ **Decisión de Guillermo del 2026-09-23**, que reemplaza el filtro del 25-ago: "no
+entiendo por qué se definen noticias 3 estrellas o se descartan, simplemente léelo de
+investing y toma lo que dice... no es más".
 
-El criterio vigente es:
+- La tabla lleva **los eventos de EE.UU. del día tal como los muestra Investing**, cada uno
+  con **la importancia que Investing le pone ese día**. Sin filtro propio y sin
+  reclasificar nada.
+- **Nunca se descarta un evento** por considerarlo menor, ni se le cambia la importancia
+  con lo que diga este archivo u otro día. Lo que dice Investing hoy es lo que vale.
+- Si el fetch no trae la importancia o la hora de un evento, se escribe "sin confirmar";
+  el evento se lista igual.
+- Los discursos sin calificación (Fed, Tesoro, Presidente) van con importancia vacía, como
+  vienen.
 
-1. **Todo evento de 3 toros de EE.UU.**, sin excepción, esté donde esté en el día.
-2. **Discursos y comparecencias sin calificación fija** — Presidente, miembros de la Fed,
-   Tesoro. Investing no les pone toros porque el impacto depende de lo que digan, y son
-   precisamente los que producen los movimientos que no estaban en ningún plan. Esta es
-   la única excepción a la regla de los 3 toros, y existe porque estos eventos **no
-   tienen toros por definición**, no porque tengan pocos.
-3. **Todo lo demás se descarta**: 2 toros (aunque caiga dentro de la ventana operativa),
-   1 toro, subastas de deuda, inventarios. No van a la tabla ni al log.
+**Qué usa la importancia de Investing** (sin cambios, solo que ahora sale de ahí y de
+ningún otro lado):
+- **D19**: un evento que Investing marca de 3 toros, a las 10:15 ET o después → día sin
+  trade.
+- **Ajuste al Neutral**: los eventos de 3 toros de resultado desconocido dentro de la
+  sesión bajan el Neutral (ver abajo).
 
-**Si no hay ningún evento que pase el filtro, escribir "Sin catalizadores programados"** —
-es información, y es el resultado esperado en muchos días. No rellenar con eventos
-menores para que la tabla no quede vacía; una tabla vacía es exactamente la señal de que
-hoy manda la estructura técnica y no el calendario.
-
-#### El caso en contra, registrado a propósito
-
-Esta decisión tiene un costo conocido y conviene no olvidarlo. **El 21-ago-2026 no hubo
-NINGÚN evento de 3 toros en EE.UU.**, y sin embargo los PMI flash — que Investing
-califica con **2 toros** — salían a las 09:45 ET, quince minutos después de la apertura,
-justo encima del rango y dentro de un corsé de 26 puntos. Con el filtro vigente ese día
-el informe diría "sin catalizadores programados" y el PMI llegaría por sorpresa.
-
-Se le ofreció a Guillermo la variante que cubría ese caso (3 toros siempre, más los de 2
-toros solo dentro de 09:30–10:30) y **la descartó a favor del filtro estricto**. Es su
-decisión y está tomada con el contraejemplo delante — no reabrirla por iniciativa propia.
-Lo que sí corresponde: **si alguna vez un dato de 2 toros descoloca la sesión y el
-informe no lo había mencionado, anotarlo en el postmercado de ese día** y acumular esos
-casos. Si aparecen varios, ahí sí vale traerle la evidencia para que reconsidere.
-
-#### ⚠️ Error del 23-sep-2026: los toros se leen del día, NUNCA de memoria
-
-El informe del 23-sep dijo "ningún dato de 3 toros" y descartó el PMI flash (09:45) y el
-crudo EIA (10:30) "porque Investing los marca de baja importancia". **Era falso**: ese día
-Investing marcaba de **3 toros** el PMI manufacturero, el de servicios, el compuesto y los
-inventarios de crudo (verificado por WebFetch a las 09:30 ET). Guillermo lo vio en su
-calendario y hubo que corregir el informe a las 09:35: −6 al Neutral, el favorito pasó de
-Neutral a Bajista y el día quedó SIN TRADE por D19.
-
-Consecuencias para este paso:
-- La calificación de un evento **se toma del fetch de ese día**. No sale de lo que dice este
-  SKILL.md ni de otros días: el 21-ago el PMI flash figuraba con 2 toros y el 23-sep con 3.
-- Si el fetch no devuelve la importancia de un evento conocido de EE.UU. (PMI flash, ISM,
-  EIA, confianza, viviendas), **no descartarlo**: listarlo con "importancia sin confirmar" y
-  decirlo en el texto. Si en realidad era de 3 toros, descartarlo cuesta caro; mostrarlo de
-  más no.
-- **Crudo EIA: miércoles 10:30 ET.** Gas natural EIA: jueves 10:30 ET. Los dos caen después
-  de las 10:15, así que si son de 3 toros activan D19 (día sin trade).
+Por qué se cambió: el 23-sep el filtro viejo decía "inventarios se descartan" y el informe
+dio el día "sin datos de 3 toros". Ese día Investing marcaba de 3 toros el PMI flash
+(09:45) y el crudo EIA (10:30), así que hubo que corregir el informe a las 09:35: el
+favorito pasó de Neutral a Bajista y el día quedó sin trade por D19.
 
 ### Cómo traerlo
 
@@ -1463,8 +1431,8 @@ factor de momentum intradía.
 Tabla **"Catalizadores del día"** justo después del Termómetro, con columnas:
 `Hora ET | Evento | Importancia | Pronóstico | Previo | Ventana`. Debajo, dos o tres frases
 sobre cuál es el que de verdad importa y qué le hace a los 3 escenarios. Si no hay ningún
-evento que pase el filtro, escribir **"Sin catalizadores programados"** de forma explícita
-— es información, no una sección para omitir.
+evento de EE.UU. en Investing ese día, escribir **"Sin catalizadores programados"** de forma
+explícita: es información, no una sección para omitir.
 
 En `premercado_hipotesis_log.json`, bloque `catalizadores` de esa fecha:
 
@@ -1483,9 +1451,8 @@ En `premercado_hipotesis_log.json`, bloque `catalizadores` de esa fecha:
 "ajuste_neutral_por_catalizador": -4
 ```
 
-Los únicos `toros` que pueden aparecer en este bloque son **`3`** y **`null`** (los
-discursos). Un `2` en este campo significa que el filtro se aplicó mal — ver la sección
-del filtro más arriba.
+`toros` es el número que Investing le pone ese día (1, 2 o 3), o `null` si no trae
+calificación, como en los discursos. Se copia tal cual y no se filtra.
 
 El `ajuste_neutral_por_catalizador` es el descuento en puntos porcentuales que se le aplicó
 al Neutral por el punto anterior. Guardarlo permite revisar más adelante si el descuento
