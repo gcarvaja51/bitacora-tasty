@@ -1489,6 +1489,41 @@ rompe hacia abajo?). Estructurar exactamente así, con niveles concretos (no vag
 Cada escenario debe llevar: condición de activación (ligada al gap), nivel de
 invalidación (stop), y target de precio concreto.
 
+### T1 y T2 "mirando a la izquierda" (Guillermo, 2026-09-24)
+
+Pedido: "analicemos con más cuidado los T1, T2 de alcista y bajista... miremos a la izquierda y
+lo valoramos... no es necesario hacer tablas o demás, solo plantearlo y marcarlo en el
+premercado". Origen: el 24-sep señaló que 7.665 tenía mucho interés en el pasado. Medido,
+la zona 7.665-7.675 era la más negociada del tramo desde julio.
+
+Cómo se hace, una vez fijadas las dos activaciones (alcista y bajista):
+
+```
+python scripts/memoria_niveles.py --alcista <activación alcista> --bajista <activación bajista> --hasta <día hábil anterior>
+```
+
+Mide, en las velas de 15m de los últimos 60 días (Yahoo `^GSPC`, sin incluir hoy), cuánto se
+negoció cada múltiplo de 5 más allá de cada activación: pasadas, cierres pegados al nivel y
+giros (mínimos o máximos locales con fecha). Clasifica cada nivel en FUERTE, MEDIA o débil y
+devuelve un **T1 y T2 sugeridos por dirección**. Nunca da como objetivo un nivel a menos de 10
+pts de la activación, porque queda dentro del colchón.
+
+Cómo se usa lo que devuelve:
+- **Si el sugerido coincide (±5) con un nivel de Sigma, una EMA o un fractal** que ya se iba a
+  usar, se toma esa confluencia: es el mejor objetivo del día.
+- **Si no coincide**, manda la memoria del precio. Un muro o una EMA sin historia de precio
+  alrededor no es objetivo por sí solo, salvo que sea un muro de Sigma del día. Si se elige un
+  nivel sin memoria, hay que decir por qué.
+- **En el documento no va ninguna tabla.** Solo una frase dentro del escenario (Conclusiones y
+  Posibles trades), por ejemplo: *"T1 7.650: mirando a la izquierda, siete giros entre el 24-ago
+  y el 14-sep"*. En el log va lo mismo, en la `nota` del escenario.
+- Es una lectura de estructura, no una probabilidad: dice cuánto se discutió un precio antes,
+  no que vaya a llegar.
+
+Contraste con el 24-sep (escrito a mano, antes de la regla): alcista T1 7.720 / T2 7.735
+contra los sugeridos 7.715 / 7.740; bajista T1 7.645 / T2 7.620 contra 7.650 / 7.640. El
+7.620 (EMA50 diaria) tenía memoria débil en 15m.
+
 **Principio de confluencia** (el objetivo final de todo el análisis): cuando el
 POC, una EMA y un muro de Gamma coinciden en el mismo nivel de precio, esa zona
 tiene la mayor probabilidad de reacción — señalar explícitamente en el documento
