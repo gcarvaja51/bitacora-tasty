@@ -1188,6 +1188,29 @@ rejilla de 5, y cada lectura guarda `atr14` y `alaPrincipalEnATR`.
   así que el precio de una mariposa que no se pidió ese día no existe nunca. Es la misma
   lección que costó el registro anterior al 8-sep, aplicada a tiempo. Estudio § 10.
 
+### Iron Butterfly ATM de mediodía — SOLO ANÁLISIS, no opera (2026-09-25)
+Estudio en `07_pinning/README.md` §11 (scripts 14-19). **Independiente del PIN**: otra regla,
+otro fichero, otro endpoint.
+
+| | |
+|---|---|
+| `src/ib_atm_sombra.js` | Puro y probado. Entradas **12:00, 12:30, 13:00 y 13:30 ET**, centro = strike ATM (no el MVS: perdió en 3 de 4 horarios), alas **10/15/20**, objetivos **10/15/20/30%** del crédito mid |
+| `vigilarIbAtmSombra` (`server.js`) | Cuelga de `guardarRejillasGex` como el PIN, cada ≤2,5 min. Estado en `ib_atm_sombra.json` (120 días) |
+| `GET /api/spx/ib-atm-sombra` | Crédito real de cada entrada, **primer toque de cada objetivo en mid y al natural**, foto de las 15:30, vencimiento. `?camino=0` omite el camino |
+
+- **El toque "al natural"** (crédito mid − recompra cruzando los 4 spreads ≥ objetivo) existe
+  porque el usuario reportó que la mariposa toca el 20% y la salida no llena. La distancia
+  entre el toque en mid y el toque al natural es lo que se quiere medir.
+- **Precio propio, no el del PIN**: `precioMariposa` del PIN exige bid > 0 en las cuatro
+  patas y, a última hora, el ala lejana queda en bid 0 → el natural salía `null` justo en
+  la foto de las 15:30. El de este módulo acepta bid 0 en las alas al cerrar.
+- Una entrada solo se abre en `[hora, hora + 15 min]`: con el servidor caído se pierde, no
+  se abre tarde fingiendo ser la de las 12:30.
+- El camino se guarda **una vez por (centro, ala)**, no por entrada: ~19 KB/día.
+- Resultados en dólares **sin comisiones** (se restan al analizar, una vez — gotcha 5).
+- El 3er viernes el 0DTE puede ser el mensual AM ya liquidado: cada entrada guarda `simbolo`
+  para poder separarlo (README 07_pinning §7c).
+
 ### IV Rank
 Endpoint correcto: **`GET /market-metrics?symbols=SYMBOL`** (coma, no `symbols[]=`), campo
 `implied-volatility-index-rank` (decimal 0-1, ×100). El viejo

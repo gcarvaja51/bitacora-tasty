@@ -963,6 +963,51 @@ chequear('ATR: un ala que se redondea a 0 no se publica', pinD.alaDesdeATR(4, 0.
 chequear('PIN: las alas en ATR se siguen ADEMAS de las fijas',
          pinD.REGLA.alasATR.join() === '0.25,0.5' && pinD.REGLA.alasSeguimiento.length === 3);
 
+seccion('Iron Butterfly ATM de mediodia, sombra (src/ib_atm_sombra.js)');
+
+// Estudio del 25-sep (07_pinning, scripts 15-19). Lo que se prueba: que la entrada
+// no se abra fuera de su hora, que el objetivo al NATURAL sea mas dificil que en el
+// mid (es justo lo que se quiere medir), y que las unidades no se crucen (gotcha 3).
+const ibA = require('../src/ib_atm_sombra');
+chequear('IB-ATM: entradas a las 12:00, 12:30, 13:00 y 13:30',
+         ibA.REGLA.entradasET.join() === '720,750,780,810' && ibA.REGLA.alas.join() === '10,15,20');
+chequear('IB-ATM: el centro es el strike de 5 mas cercano', ibA.centroATM(7597.4) === 7595 && ibA.centroATM(7597.6) === 7600);
+chequear('IB-ATM: la entrada de las 12:30 se abre a las 12:31', ibA.tocaAbrir(750, 751, []));
+chequear('IB-ATM: ...no dos veces', !ibA.tocaAbrir(750, 752, [750]));
+chequear('IB-ATM: ...ni antes de su hora', !ibA.tocaAbrir(750, 749, []));
+chequear('IB-ATM: ...ni tarde: con el servidor caido se pierde, no se falsea', !ibA.tocaAbrir(750, 766, []));
+
+// Cadena de juguete: la de las pruebas del PIN (ala 15, mid 11,70, cierre natural 12,10).
+const mA = ibA.abrirMariposa(pinD.precioMariposa(cadenaFly, 7600, 15));
+chequear('IB-ATM: abre con el credito mid y el riesgo en dolares',
+         mA.creditoMid === 11.7 && mA.riesgoMaxUSD === 330 && mA.creditoNatural === 11.3, JSON.stringify(mA));
+chequear('IB-ATM: sin precio no abre', ibA.abrirMariposa(null) === null);
+// A las 14:00 la mariposa vale 9,90 al mid y 10,30 al natural. El 15% de 11,70 son
+// 1,755: el mid ya lo toca (11,70-9,90 = 1,80) pero recomprando al natural no (1,40).
+ibA.actualizarMariposa(mA, { mid: 9.9, cierreNatural: 10.3 }, { minET: 840, at: 't1', spot: 7601 });
+chequear('IB-ATM: el 15% se toca en el mid...', mA.toques['0.15'].mid?.minET === 840);
+chequear('IB-ATM: ...pero NO al natural (la salida que no se da)', mA.toques['0.15'].natural === null);
+chequear('IB-ATM: el 10% si se toca al natural', mA.toques['0.1'].natural?.cierreNatural === 10.3);
+ibA.actualizarMariposa(mA, { mid: 9.0, cierreNatural: 9.4 }, { minET: 900, at: 't2', spot: 7600 });
+chequear('IB-ATM: el primer toque no se pisa con uno posterior', mA.toques['0.15'].mid.minET === 840 && mA.toques['0.15'].natural.minET === 900);
+chequear('IB-ATM: antes de las 15:30 no hay foto de las 15:30', mA.en1530 === null);
+ibA.actualizarMariposa(mA, { mid: 6.0, cierreNatural: 6.5 }, { minET: 931, at: 't3', spot: 7604 });
+ibA.actualizarMariposa(mA, { mid: 3.0, cierreNatural: 3.4 }, { minET: 957, at: 't4', spot: 7603 });
+chequear('IB-ATM: la foto de las 15:30 es la primera lectura desde esa hora', mA.en1530.minET === 931 && mA.en1530.mid === 6);
+const resA = ibA.resultados(mA, 7600);
+chequear('IB-ATM: salir a las 15:30 al natural = (11,70 - 6,50) x 100', resA.a1530 === 520, `dio ${resA.a1530}`);
+chequear('IB-ATM: al vencimiento paga la distancia al centro = (11,70 - 3) x 100', resA.vencimiento === 870, `dio ${resA.vencimiento}`);
+chequear('IB-ATM: el objetivo del 10% cobra lo del natural = (11,70 - 10,30) x 100', resA.objetivo['0.1'] === 140, `dio ${resA.objetivo['0.1']}`);
+// A ultima hora el ala lejana queda en bid 0: la mariposa se cierra igual (se vende
+// el ala a 0). El precio del PIN exige bid > 0 y dejaba el natural en null.
+const cadenaTarde = cadenaFly.map((s) => s.strike === 7600 ? s
+  : { strike: s.strike, call: { ...s.call, bid: s.strike > 7600 ? 0 : s.call.bid }, put: { ...s.put, bid: s.strike < 7600 ? 0 : s.put.bid } });
+chequear('IB-ATM: con el ala en bid 0 el cierre natural existe (el del PIN no)',
+         ibA.precioMariposa(cadenaTarde, 7600, 15).cierreNatural === 18.2 && pinD.precioMariposa(cadenaTarde, 7600, 15).cierreNatural === null,
+         `dio ${ibA.precioMariposa(cadenaTarde, 7600, 15).cierreNatural}`);   // 10,1 + 8,1 - 0 - 0
+chequear('IB-ATM: sin lectura de las 15:55 no se inventa el vencimiento',
+         ibA.resultados({ ...mA, ultimo: { ...mA.ultimo, minET: 940 } }, 7600).vencimiento === null);
+
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
 
 const cal = require('../src/calendario_nyse');

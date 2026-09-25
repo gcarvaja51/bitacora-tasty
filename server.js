@@ -15,6 +15,7 @@ const { esIndice, sectorDe, simboloYahoo }              = require('./src/indices
 // sabian de sabados y domingos. Ver la cabecera de src/calendario_nyse.js.
 const calendario = require('./src/calendario_nyse');
 const pinDominante = require('./src/pin_dominante');   // MODO SOMBRA: no opera, ver vigilarPinSombra
+const ibAtmSombra = require('./src/ib_atm_sombra');    // MODO SOMBRA: no opera, ver vigilarIbAtmSombra
 const isMarketHours     = calendario.enHorarioDeMercado;   // 9:30-16:00 ET (13:00 en medio dia), sin fines de semana ni feriados
 const esDiaDeMercadoET  = calendario.esDiaDeMercado;       // solo el dia: habil y no feriado
 const esMedioDiaNYSE    = calendario.esMedioDia;
@@ -5578,6 +5579,7 @@ function guardarRejillasGex(enrichedExps, spxPrice, byStrike, fuenteSpot = 'cade
   ultimoGexPorStrike = { at: Date.now(), spxPrice, byStrike, porVencimiento, maxPainPorVencimiento };
   anotarRejillaAbs(enrichedExps, spxPrice, fuenteSpot);
   vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot);
+  vigilarIbAtmSombra(enrichedExps, spxPrice, fuenteSpot);
   return true;
 }
 
@@ -5900,6 +5902,89 @@ function vigilarPinSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
     fs.writeFileSync(PIN_SOMBRA_FILE, JSON.stringify(dias.slice(0, PIN_SOMBRA_MAX_DIAS), null, 1), 'utf8');
   } catch (e) {
     console.error('[pin-sombra] no se pudo evaluar:', e.message);
+  }
+}
+
+// ── Iron Butterfly ATM de mediodia, en MODO SOMBRA (2026-09-25) ────────────
+//
+// NO OPERA. Ver src/ib_atm_sombra.js para el porque. En cada hora candidata
+// (12:00, 12:30, 13:00, 13:30 ET) abre en sombra una mariposa ATM de alas 10/15/20
+// y desde ahi apunta, cada <=2,5 min, el mid y el natural de recompra hasta el
+// cierre. Independiente del PIN: otra regla, otro fichero.
+//
+// El camino se guarda UNA vez por (centro, ala) y no por entrada: dos entradas con
+// el mismo centro comparten precios, y el fichero se reescribe entero en cada
+// lectura. Estado en fichero, no en memoria, por la misma razon que el PIN.
+const IB_ATM_FILE = path.join(DATA_DIR, 'ib_atm_sombra.json');
+const IB_ATM_MAX_DIAS = 120;
+const IB_ATM_CADA_MS = 150 * 1000;
+let ultimaVigiliaIbAtm = 0;
+
+function loadIbAtmSombra() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(IB_ATM_FILE, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+
+function vigilarIbAtmSombra(enrichedExps, spxPrice, fuenteSpot = 'cadena') {
+  try {
+    if (!(spxPrice > 1000)) return;
+    if (!calendario.enHorarioDeMercado()) return;
+    if (Date.now() - ultimaVigiliaIbAtm < IB_ATM_CADA_MS) return;
+    const exp = (enrichedExps || []).find((e) => e.dte === 0);
+    if (!exp) return;
+    const R = ibAtmSombra.REGLA;
+    const ahora = new Date();
+    const minET = calendario.minutosET(ahora);
+    if (minET < R.entradasET[0]) return;   // antes de la primera entrada no hay nada que seguir
+    ultimaVigiliaIbAtm = Date.now();
+
+    const at = ahora.toISOString();
+    const fecha = calendario.fechaET(ahora);
+    const spot = Math.round(spxPrice * 100) / 100;
+    const dias = loadIbAtmSombra();
+    let dia = dias.find((d) => d.fecha === fecha);
+    const nuevo = !dia;
+    if (nuevo) dia = { fecha, regla: R, vencimiento: exp.expiry || null, entradas: [], camino: [] };
+
+    // Abrir la(s) entrada(s) que tocan ahora
+    for (const e of R.entradasET) {
+      if (!ibAtmSombra.tocaAbrir(e, minET, dia.entradas.map((x) => x.entradaET))) continue;
+      const centro = ibAtmSombra.centroATM(spxPrice);
+      const alas = {};
+      for (const a of R.alas) {
+        const m = ibAtmSombra.abrirMariposa(ibAtmSombra.precioMariposa(exp.strikes, centro, a));
+        if (m) alas['a' + a] = m;
+      }
+      // El simbolo dice si el 0DTE es el semanal (SPXW, PM) o el mensual (SPX, AM) del
+      // tercer viernes, que a esta hora ya esta liquidado (README 07_pinning §7c).
+      const simbolo = (exp.strikes || []).find((s) => s.strike === centro)?.call?.symbol || null;
+      dia.entradas.push({ entradaET: e, abiertaEn: at, minET, spot, fuenteSpot, centro, simbolo, alas });
+      console.log(`[IB-ATM-SOMBRA] ${fecha} entrada ${Math.floor(e / 60)}:${String(e % 60).padStart(2, '0')}: ` +
+        `iron fly ${centro} (spot ${spot}), credito ala 15 ${alas.a15?.creditoMid ?? '—'}. No se opera.`);
+    }
+    // Un dia sin ninguna entrada abierta (servidor levantado despues de las 13:45) no se
+    // registra: seria un camino de precios de nada.
+    if (!dia.entradas.length) return;
+    if (nuevo) dias.unshift(dia);
+
+    // Precio de cada (centro, ala) abierto, una vez por lectura
+    const precios = {};
+    for (const en of dia.entradas) {
+      for (const m of Object.values(en.alas)) {
+        const clave = `${en.centro}_${m.ala}`;
+        if (!(clave in precios)) precios[clave] = ibAtmSombra.precioMariposa(exp.strikes, en.centro, m.ala);
+        ibAtmSombra.actualizarMariposa(m, precios[clave], { minET, at, spot });
+      }
+    }
+    const fl = {};
+    for (const [k, f] of Object.entries(precios)) fl[k] = f ? [f.mid, f.cierreNatural] : null;
+    dia.camino.push([minET, spot, fl]);
+
+    fs.writeFileSync(IB_ATM_FILE, JSON.stringify(dias.slice(0, IB_ATM_MAX_DIAS)), 'utf8');
+  } catch (e) {
+    console.error('[ib-atm-sombra] no se pudo evaluar:', e.message);
   }
 }
 
@@ -8651,6 +8736,30 @@ app.get('/api/spx/pin-sombra', (req, res) => {
     regla: pinDominante.REGLA,
     nota: 'MODO SOMBRA: no se opera. Regla v0 escrita sobre 3 dias (n=1): muestra, no validacion.',
     unidades: 'creditoMid/creditoNatural/mid/cierreNatural en precio por accion; objetivoUSD, stopUSD, riesgoMaxUSD y pnl en dolares por contrato',
+    dias,
+  });
+});
+
+// GET /api/spx/ib-atm-sombra — Iron Butterfly ATM de mediodia en MODO SOMBRA:
+// credito real en cada entrada (12:00/12:30/13:00/13:30), cuando toca cada objetivo
+// en mid y al natural, la foto de las 15:30 y el vencimiento. ?date=YYYY-MM-DD (ET).
+// ?camino=0 omite el camino de precios (pesado). Ver vigilarIbAtmSombra.
+app.get('/api/spx/ib-atm-sombra', (req, res) => {
+  let dias = loadIbAtmSombra();
+  if (req.query.date) dias = dias.filter((d) => d.fecha === req.query.date);
+  dias = dias.map((d) => ({
+    ...d,
+    camino: req.query.camino === '0' ? undefined : d.camino,
+    entradas: (d.entradas || []).map((en) => ({
+      ...en,
+      resultados: Object.fromEntries(Object.entries(en.alas || {}).map(([k, m]) => [k, ibAtmSombra.resultados(m, en.centro)])),
+    })),
+  }));
+  res.json({
+    ok: true,
+    regla: ibAtmSombra.REGLA,
+    nota: 'MODO SOMBRA: no se opera. Centro = strike ATM en la hora de entrada. Objetivo medido contra el credito mid; "natural" = recomprando cruzando los 4 spreads.',
+    unidades: 'creditoMid/creditoNatural/mid/cierreNatural en precio por accion; riesgoMaxUSD y resultados en dolares por contrato, SIN comisiones. camino = [minET, spot, {"centro_ala": [mid, cierreNatural]}]',
     dias,
   });
 });
