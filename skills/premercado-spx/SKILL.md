@@ -374,6 +374,18 @@ vacío, sin que el informe se enterara. Corregido en `premercado_collector/colle
 ahora elige el pane por símbolo, confirma que el chart ACTIVO quedó en el SPX antes de
 tocar la resolución, y si no hay pane de SPX falla en vez de fotografiar otra cosa.
 
+**EMAs y MACD: SIEMPRE de `tradingview.indicadores` (2026-09-28).** El bundle trae
+`indicadores.W`, `indicadores.D` e `indicadores['30']`, cada uno con `ema10/20/50/100/200`,
+`macd {linea, senal, hist}`, `cierre` y `velaIso` (la vela de la que salen). Se leen de la
+última fila de datos de los estudios del chart SPCFD:SPX y el colector solo los entrega si
+la serie demostró ser la temporalidad pedida y el estudio ya calculó esa vela — son los
+mismos números que Guillermo ve en pantalla. Si falta alguno, el motivo está en
+`indicadoresError[tf]`. **No usar `studyValues` para EMAs**: es la Data Window, que el
+23-sep entregó el semanal como si fuera 30m y el 28-sep valores de ~227.
+Si hay que caer a Yahoo (^GSPC `interval='1wk'`), **no agregar ni repetir la vela de la
+semana en curso**: el 28-sep se contó dos veces la semana del 21 y la EMA10 semanal salió
+7.665 contra 7.648 real. Y decirlo en Incidencias: la fuente no es TradingView.
+
 **Antes de usar `sigma`, mirar `sigma.rancio` (2026-09-09).** El bundle trae ahora tres
 campos de procedencia además de `asOf`:
 
@@ -417,7 +429,12 @@ procedimientos siguen vigentes como respaldo, no se eliminaron.
   patrón ya probado que prueba cada ventana candidata y verifica el símbolo antes de
   usarla, en vez de tomar ciegamente la primera (que es la causa raíz de la mayoría de los
   incidentes de conexión documentados en este skill).
-- Enfoca un pane, guarda su resolución original, cambia a 30min + rango de 3 días, captura
+- **Encuadre de la captura (2026-09-28):** primero valida la serie de 30m (ver
+  `indicadores`), después encuadra las **3 últimas sesiones** (fechas ET, no días
+  calendario: un lunes "3 días" era solo el viernes) y fija la escala de precio a su
+  máximo/mínimo +12% (la escala del pane no está en automático). Al terminar devuelve
+  resolución **y** escala como estaban. Si el 30m no se valida, no hay foto.
+- Enfoca un pane, guarda su resolución original, cambia a 30min, captura
   el PNG (`Page.captureScreenshot` recortado al canvas del chart), lee los valores de todos
   los estudios visibles (`dataSources()` / `dataWindowView()`, el mismo mecanismo que usa
   `data_get_study_values` del MCP), y **restaura la resolución original del pane** antes de

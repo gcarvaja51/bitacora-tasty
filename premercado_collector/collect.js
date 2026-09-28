@@ -130,29 +130,6 @@ async function setResolution(client, timeframe) {
   await new Promise((r) => setTimeout(r, 1500));
 }
 
-async function setVisibleRangeDays(client, days) {
-  const to = Math.floor(Date.now() / 1000);
-  const from = to - days * 86400;
-  await evalOn(client, `
-    (function() {
-      var chart = ${CHART_API};
-      var m = chart._chartWidget.model();
-      var ts = m.timeScale();
-      var bars = m.mainSeries().bars();
-      var startIdx = bars.firstIndex();
-      var endIdx = bars.lastIndex();
-      var fromIdx = startIdx, toIdx = endIdx;
-      for (var i = startIdx; i <= endIdx; i++) {
-        var v = bars.valueAt(i);
-        if (v && v[0] >= ${from} && fromIdx === startIdx) fromIdx = i;
-        if (v && v[0] <= ${to}) toIdx = i;
-      }
-      ts.zoomToBarsRange(fromIdx, toIdx);
-    })()
-  `);
-  await new Promise((r) => setTimeout(r, 800));
-}
-
 async function captureChartPng(client, paneIndex, outPath) {
   // El contenedor `.chart-widget` (referencia _mainDiv del pane) incluye TODAS las
   // sub-panes (precio + indicadores como MACD/volumen), el eje de precio Y el eje de
@@ -262,6 +239,184 @@ async function getStudyValues(client) {
   return data || [];
 }
 
+// EMAs y MACD por temporalidad, leidos de la ULTIMA FILA de datos de cada estudio
+// (2026-09-28). getStudyValues() lee la Data Window, que (a) muestra la vela bajo el
+// cursor, no necesariamente la ultima, y (b) se leia 1,5 s despues de setResolution(),
+// con la serie todavia cargando. Dos incidentes reales, ambos con paneSymbol SPCFD:SPX:
+//   - 23-sep: los "valores de 30m" eran los del SEMANAL (EMA10 7652, EMA200 5908): la
+//     serie aun no habia cambiado de resolucion.
+//   - 28-sep: EMAs de ~227 con volumen de 8 K -- basura a mitad de carga. El informe las
+//     descarto, recalculo con Yahoo y conto dos veces la ultima semana (EMA10 semanal
+//     7665 contra 7648 real).
+// Aqui no se da por buena una lectura hasta que la serie demuestre ser la pedida: simbolo
+// SPX, separacion entre velas igual a la temporalidad, la fila del estudio en la MISMA vela
+// que la ultima del precio, y la EMA corta a menos de un 10% del cierre. Si no lo cumple
+// en el plazo, falla y lo dice, en vez de entregar un numero ajeno.
+const TF_SEG = { W: 7 * 86400, D: 86400, '30': 1800 };
+const TF_ESPERA_MS = Number(process.env.TF_ESPERA_MS || 20000);
+
+async function leerIndicadoresUltimaVela(client) {
+  return evalOn(client, `
+    (function() {
+      var m = ${CHART_API}._chartWidget.model();
+      var ms = m.mainSeries();
+      var b = ms.bars();
+      var li = b.lastIndex();
+      var last = b.valueAt(li);
+      if (!last) return { sym: ms.symbol(), sinBarras: true };
+      var gaps = [];
+      for (var i = li; i > li - 8 && i > b.firstIndex(); i--) {
+        var a = b.valueAt(i), p = b.valueAt(i - 1);
+        if (a && p) gaps.push(a[0] - p[0]);
+      }
+      var out = { sym: ms.symbol(), barTime: last[0], close: last[4], minGap: gaps.length ? Math.min.apply(null, gaps) : null, nBarras: b.size(), estudios: [] };
+      var src = m.model().dataSources();
+      for (var si = 0; si < src.length; si++) {
+        var s = src[si];
+        if (!s.metaInfo || !s.data || s === ms) continue;
+        try {
+          var mi = s.metaInfo();
+          var d = s.data();
+          if (!d || d.lastIndex() == null) continue;
+          var row = d.valueAt(d.lastIndex());
+          if (!row) continue;
+          var vals = {};
+          (mi.plots || []).forEach(function(p, j) {
+            var v = row[j + 1];
+            var st = (mi.styles || {})[p.id];
+            if (typeof v === 'number' && isFinite(v)) vals[(st && st.title) || p.id] = v;
+          });
+          var inputs = null;
+          try { inputs = s.properties().state().inputs; } catch (e) {}
+          if (inputs && inputs.text) delete inputs.text;
+          out.estudios.push({ name: mi.description || mi.shortDescription || '', rowTime: row[0], values: vals, inputs: inputs });
+        } catch (e) {}
+      }
+      return out;
+    })()
+  `);
+}
+
+function validarLectura(tf, r) {
+  if (!r || r.sinBarras) return 'la serie no tiene barras todavia';
+  if (!SYMBOL_MATCH.test(r.sym || '')) return `el chart activo es ${r.sym}, no SPCFD:SPX`;
+  // Semanal: una semana con feriado el lunes abre el martes (6 dias), asi que ahi se
+  // acepta 5-7 dias; lo que importa es descartar la serie diaria o la de 30m.
+  const gapOk = tf === 'W' ? r.minGap >= 5 * 86400 && r.minGap <= 7 * 86400 : r.minGap === TF_SEG[tf];
+  if (!gapOk) return `las velas estan separadas ${r.minGap}s y ${tf} exige ${TF_SEG[tf]}s (la serie no termino de cambiar)`;
+  const kgs = r.estudios.find((e) => /KGS/.test(e.name));
+  if (!kgs) return 'no esta el estudio "SMA by KGS" en el chart';
+  if (kgs.rowTime !== r.barTime) return 'el estudio todavia no calculo la ultima vela';
+  const ema1 = kgs.values['EMA-1'];
+  if (!Number.isFinite(ema1) || Math.abs(ema1 / r.close - 1) > 0.10) {
+    return `EMA-1 ${ema1} no es creible contra el cierre ${r.close}`;
+  }
+  return null;
+}
+
+// Traduce la lectura cruda a { ema10, ema20, ... } con los largos REALES del estudio
+// (inputs in_9..in_13 de "SMA by KGS"), no con largos supuestos.
+function resumirIndicadores(tf, r) {
+  const kgs = r.estudios.find((e) => /KGS/.test(e.name));
+  const out = { tf, velaIso: new Date(r.barTime * 1000).toISOString(), cierre: r.close };
+  for (let k = 1; k <= 5; k++) {
+    const largo = kgs.inputs?.[`in_${8 + k}`];
+    const v = kgs.values[`EMA-${k}`];
+    if (Number.isFinite(v)) out[Number.isFinite(largo) ? `ema${largo}` : `EMA-${k}`] = Math.round(v * 100) / 100;
+  }
+  // /_CM_MacD/ exacto: "CIARG_V3 ... with MACD Slope" tambien contiene MACD y no lo es.
+  const macd = r.estudios.find((e) => /_CM_MacD/.test(e.name));
+  if (macd && Number.isFinite(macd.values.MACD) && Number.isFinite(macd.values.Signal)) {
+    out.macd = {
+      linea: Math.round(macd.values.MACD * 100) / 100,
+      senal: Math.round(macd.values.Signal * 100) / 100,
+      hist: Math.round((macd.values.MACD - macd.values.Signal) * 100) / 100,
+    };
+  }
+  return out;
+}
+
+async function indicadoresEn(client, tf) {
+  await withTimeout(setResolution(client, tf), TV_STEP_MS, `setResolution ${tf}`);
+  const limite = Date.now() + TF_ESPERA_MS;
+  let motivo = 'sin lectura';
+  while (Date.now() < limite) {
+    const r = await withTimeout(leerIndicadoresUltimaVela(client), TV_STEP_MS, `indicadores ${tf}`);
+    motivo = validarLectura(tf, r);
+    if (!motivo) return resumirIndicadores(tf, r);
+    await new Promise((res) => setTimeout(res, 700));
+  }
+  throw new Error(`${tf}: ${motivo}`);
+}
+
+// ENCUADRE DE LA FOTO DE 30m (2026-09-28). La primera captura real en semanas salio
+// inservible: solo el viernes y con la escala de 7.575 a 7.750. Dos causas:
+//   - setVisibleRangeDays(3) cuenta DIAS CALENDARIO: un lunes a las 08:30 ET, "hace 3
+//     dias" es el viernes a las 08:30, asi que entraba una sola sesion.
+//   - La escala de precio del pane no esta en automatico (el usuario la maneja a mano),
+//     asi que la foto heredaba el rango que hubiera quedado.
+// Ahora se cuentan SESIONES (fechas ET distintas en las barras) y se fija el rango de
+// precio al maximo/minimo de esas sesiones con un margen del 12%.
+const API_ESCALA = 'window.TradingViewApi.activeChart().getPanes()[0].getMainSourcePriceScale()';
+
+async function leerEscala(client) {
+  return evalOn(client, `
+    (function() {
+      var ps = ${API_ESCALA};
+      var r = ps.getVisiblePriceRange();
+      return { auto: ps.isAutoScale(), from: r && r.from, to: r && r.to };
+    })()
+  `);
+}
+
+async function restaurarEscala(client, esc) {
+  await evalOn(client, `
+    (function() {
+      var ps = ${API_ESCALA};
+      if (${JSON.stringify(!!esc.auto)}) ps.setAutoScale(true);
+      else if (${Number.isFinite(esc.from) && Number.isFinite(esc.to)}) ps.setVisiblePriceRange({ from: ${esc.from}, to: ${esc.to} });
+      return true;
+    })()
+  `);
+}
+
+async function encuadrarSesiones(client, sesiones) {
+  const r = await evalOn(client, `
+    (function() {
+      var api = window.TradingViewApi.activeChart();
+      var m = ${CHART_API}._chartWidget.model();
+      var ms = m.mainSeries();
+      if (String(api.resolution()) !== '30' || ms.symbol() !== api.symbol()) {
+        return { error: 'activeChart() no es el mismo chart que se valido (' + api.symbol() + ' ' + api.resolution() + ')' };
+      }
+      var b = ms.bars();
+      var li = b.lastIndex(), fi = b.firstIndex();
+      var fecha = function(t) { return new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); };
+      var dias = [], desde = li;
+      for (var i = li; i >= fi; i--) {
+        var v = b.valueAt(i); if (!v) continue;
+        var f = fecha(v[0]);
+        if (dias.indexOf(f) < 0) { if (dias.length === ${sesiones}) break; dias.push(f); }
+        desde = i;
+      }
+      var lo = Infinity, hi = -Infinity;
+      for (var j = desde; j <= li; j++) {
+        var w = b.valueAt(j); if (!w) continue;
+        if (w[3] < lo) lo = w[3]; if (w[2] > hi) hi = w[2];
+      }
+      if (!isFinite(lo) || !isFinite(hi)) return { error: 'sin barras en el rango' };
+      m.timeScale().zoomToBarsRange(desde, li + 2);
+      var pad = Math.max((hi - lo) * 0.12, 5);
+      api.getPanes()[0].getMainSourcePriceScale().setVisiblePriceRange({ from: lo - pad, to: hi + pad });
+      return { sesiones: dias.slice().reverse(), barras: li - desde + 1, min: Math.round(lo * 100) / 100, max: Math.round(hi * 100) / 100 };
+    })()
+  `);
+  if (!r || r.error) throw new Error(`encuadre: ${r ? r.error : 'sin respuesta'}`);
+  if (r.sesiones.length < sesiones) throw new Error(`encuadre: solo ${r.sesiones.length} sesion(es) en el chart`);
+  await new Promise((res) => setTimeout(res, 800));
+  return r;
+}
+
 async function collectFromTradingView(outDir) {
   // NO se relanza TradingView desde aca. Antes, si la conexion inicial fallaba, esto
   // llamaba a launchTv({ killExisting: true }) -- es decir taskkill /F /IM TradingView.exe.
@@ -311,6 +466,7 @@ async function collectFromTradingView(outDir) {
   // (15m y 30m, el caso normal de este layout) eso deja el chart de 15 minutos en 30:
   // justo la temporalidad en la que opera el usuario.
   let originalResolution = null;
+  let escalaOriginal = null;
 
   try {
     await withTimeout(focusPane(client, paneIndex), TV_STEP_MS, 'focusPane');
@@ -330,8 +486,21 @@ async function collectFromTradingView(outDir) {
     }
 
     originalResolution = await withTimeout(getResolution(client), TV_STEP_MS, 'getResolution').catch(() => null);
-    await withTimeout(setResolution(client, '30'), TV_STEP_MS, 'setResolution 30');
-    await withTimeout(setVisibleRangeDays(client, 3), TV_STEP_MS, 'setVisibleRangeDays');
+    escalaOriginal = await withTimeout(leerEscala(client), TV_STEP_MS, 'leerEscala').catch(() => null);
+
+    // ORDEN (2026-09-28): primero el 30m validado (indicadoresEn espera a que la serie
+    // termine de cargar), DESPUES el encuadre y la foto. Antes se fotografiaba 1,5 s
+    // despues de setResolution, con la serie a medio cargar.
+    const indicadores = {};
+    const indicadoresError = {};
+    let studyValues = [];
+    try {
+      indicadores['30'] = await indicadoresEn(client, '30');
+      log(`[tv] 30: ${JSON.stringify(indicadores['30'])}`);
+    } catch (e) {
+      indicadoresError['30'] = e.message;
+      log(`[tv] indicadores 30 NO validos: ${e.message}`);
+    }
 
     // La captura NO es fatal (2026-08-27). Antes un fallo aca abortaba el bloque entero y
     // se perdian tambien los studyValues -- por eso el bundle venia con `tradingview: null`
@@ -340,16 +509,34 @@ async function collectFromTradingView(outDir) {
     // la ventana no impide leerle los numeros.
     let chartPng = false;
     let chartPngError = null;
-    try {
-      await withTimeout(captureChartPng(client, paneIndex, path.join(outDir, 'chart_30m.png')), TV_STEP_MS * 1.5, 'captureChartPng');
-      chartPng = true;
-    } catch (e) {
-      chartPngError = e.message;
-      log(`[tv] sin captura: ${e.message}`);
+    let encuadre = null;
+    if (indicadores['30']) {
+      // studyValues solo si el 30m quedo validado; si no, vacio antes que basura.
+      studyValues = await withTimeout(getStudyValues(client), TV_STEP_MS, 'getStudyValues');
+      try {
+        encuadre = await withTimeout(encuadrarSesiones(client, 3), TV_STEP_MS, 'encuadrarSesiones');
+        log(`[tv] encuadre 30m: ${JSON.stringify(encuadre)}`);
+        await withTimeout(captureChartPng(client, paneIndex, path.join(outDir, 'chart_30m.png')), TV_STEP_MS * 1.5, 'captureChartPng');
+        chartPng = true;
+      } catch (e) {
+        chartPngError = e.message;
+        log(`[tv] sin captura: ${e.message}`);
+      }
+    } else {
+      chartPngError = 'la serie de 30m no quedo validada: no se fotografia un chart a medio cargar';
+      log(`[tv] sin captura: ${chartPngError}`);
     }
 
-    const studyValues = await withTimeout(getStudyValues(client), TV_STEP_MS, 'getStudyValues');
-    return { success: true, paneIndex, paneSymbol: simboloActivo, studyValues, chartPng, chartPngError };
+    for (const tf of ['D', 'W']) {
+      try {
+        indicadores[tf] = await indicadoresEn(client, tf);
+        log(`[tv] ${tf}: ${JSON.stringify(indicadores[tf])}`);
+      } catch (e) {
+        indicadoresError[tf] = e.message;
+        log(`[tv] indicadores ${tf} NO validos: ${e.message}`);
+      }
+    }
+    return { success: true, paneIndex, paneSymbol: simboloActivo, studyValues, indicadores, indicadoresError, chartPng, chartPngError, encuadre };
   } finally {
     // Devolver la resolucion original es cortesia, no requisito: si el socket ya murio
     // no se insiste. Esta linea era el primer sintoma visible del cuelgue.
@@ -359,6 +546,13 @@ async function collectFromTradingView(outDir) {
       }
     } catch (e) {
       log(`[tv] no se pudo restaurar la resolucion original del pane ${paneIndex}: ${e.message}`);
+    }
+    // La escala de precio tambien se devuelve como estaba: el encuadre de la foto fija un
+    // rango de 30m (~100 pts) que, sin esto, se quedaba pegado al chart diario/semanal.
+    try {
+      if (escalaOriginal) await withTimeout(restaurarEscala(client, escalaOriginal), TV_STEP_MS, 'restaurar escala');
+    } catch (e) {
+      log(`[tv] no se pudo restaurar la escala de precio del pane ${paneIndex}: ${e.message}`);
     }
     try { await withTimeout(client.close(), 10000, 'client.close'); } catch { /* noop */ }
   }
