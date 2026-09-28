@@ -74,6 +74,15 @@
   <div class="content">
     <!-- ══ DASHBOARD (placeholder — Etapa 5) ══ -->
     <div id="panel-dashboard" class="panel active">
+      <!-- Interruptores por estrategia — arriba de todo (2026-09-28, pedido del usuario) -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Encendido por Estrategia
+          <span style="color:var(--muted);font-size:10px;margin-left:6px;">apaga solo la ejecución automática; los monitores de las posiciones abiertas siguen corriendo</span>
+        </div>
+        <div class="card-body" id="cmp-switches">
+          <div class="loader"><div class="spinner"></div></div>
+        </div>
+      </div>
       <div class="filters">
         <span class="filter-label">Estrategia</span>
         <select id="dash-familia" onchange="loadDashboardTradier()">
@@ -145,15 +154,6 @@
         </div>
       </div>
 
-      <!-- Interruptores por estrategia -->
-      <div class="card" style="margin-bottom:16px;">
-        <div class="card-header">Encendido por Estrategia
-          <span style="color:var(--muted);font-size:10px;margin-left:6px;">apaga solo la ejecución automática; los monitores de las posiciones abiertas siguen corriendo</span>
-        </div>
-        <div class="card-body" id="cmp-switches">
-          <div class="loader"><div class="spinner"></div></div>
-        </div>
-      </div>
 
       <div class="grid-2b">
         <div class="card">
@@ -4733,14 +4733,14 @@ async function loadSwitchesTradier(){
   try{
     const r = await api('/api/spx/strategies');
     const LBL = { DIRECCIONAL:'📈 Direccional', NEUTRAL:'🦅 Neutral (0DTE y 1DTE)', REVERSION:'🔄 Reversión media mañana (sombra)', REVERSION_APERTURA:'🌅 Reversión de apertura (gap)', PREMERCADO:'🌄 Premercado', MEDIODIA:'🦋 IB Mediodía' };
-    $('cmp-switches').innerHTML = Object.entries(r.estrategias).map(([k,on])=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);">
+    $('cmp-switches').innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;">` + Object.entries(r.estrategias).map(([k,on])=>`
+      <button onclick="toggleEstrategia('${k}',${!on})" title="${on?'Click para pausar':'Click para encender'}"
+        style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:150px;flex:1 1 150px;
+               border:1px solid ${on?'rgba(19,214,143,.45)':'rgba(240,79,90,.45)'};border-radius:7px;padding:8px 12px;cursor:pointer;
+               background:${on?'rgba(19,214,143,.10)':'rgba(240,79,90,.10)'};color:var(--text,#e8edf5);text-align:left;">
         <span style="font-size:12px;">${LBL[k]||k}</span>
-        <button onclick="toggleEstrategia('${k}',${!on})"
-          style="border:none;border-radius:5px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;
-                 background:${on?'rgba(19,214,143,.15)':'rgba(240,79,90,.15)'};color:${on?'#13d68f':'#f04f5a'};">
-          ${on?'ENCENDIDA':'PAUSADA'}</button>
-      </div>`).join('')
+        <span style="font-size:10px;font-weight:700;color:${on?'#13d68f':'#f04f5a'};">${on?'● ENCENDIDA':'○ PAUSADA'}</span>
+      </button>`).join('') + `</div>`
       + `<div style="font-size:10px;color:var(--muted);margin-top:8px;">Los dos Iron Condor comparten interruptor: usan el mismo motor. La Rueda tiene el suyo en su propia pestaña.</div>`;
   }catch(e){ $('cmp-switches').innerHTML=`<div style="color:var(--red);font-size:11px;">Error: ${e.message}</div>`; }
 }
@@ -4754,6 +4754,9 @@ async function toggleEstrategia(nombre, enabled, despues){
 }
 
 async function loadDashboardTradier() {
+  // Los interruptores van arriba de todo: se piden primero y aparte, para que un
+  // fallo del resto del Dashboard no los deje con el spinner.
+  loadSwitchesTradier();
   try {
     const [bp, curveData, txData, posData] = await Promise.all([
       api('/api/bp-dashboard-tradier'),
@@ -4883,7 +4886,6 @@ async function loadDashboardTradier() {
     // Comparativa de estrategias e interruptores (2026-08-08). Van en su propio
     // try: si algo falla aca, el resto del Dashboard ya se pinto y no se pierde.
     try { renderComparativa(); } catch(e) { console.error('renderComparativa:', e); }
-    loadSwitchesTradier();
   } catch(e) {
     console.error('loadDashboardTradier error:', e);
     $('dash-kpis').innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
