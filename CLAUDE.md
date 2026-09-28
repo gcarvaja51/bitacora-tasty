@@ -654,7 +654,8 @@ para los snapshots de NLV, `nextTradingDateET()` (`src/spx.js`) para la expiraci
 | | ventana ET | cadencia |
 |---|---|---|
 | Direccional (TENDENCIA) | 9:45–14:00 | 30s |
-| Reversión (REVERSION) | 9:30–13:00 | 60s |
+| Reversión de apertura (REVERSION, opera) | 9:32–10:20 | 30s |
+| Reversión de media mañana (REVERSION, sombra) | 9:45–13:00 | 60s |
 | Iron Condor 0DTE (NEUTRAL) | 10:00–13:00 | 5 min |
 | Iron Condor 1DTE | 15:45–15:52 | 5 min |
 
@@ -938,7 +939,56 @@ al que aplicarse. Haría falta construir antes un score agregado a partir de sus
 **declinó explícitamente, no re-proponerlo** — y la defensa "lotería" (cerrar solo la pata
 amenazada y dejar la otra como cobertura).
 
-## 3 · Reversión — Alejamiento de SMA (playbook Luis Silva)
+## 3 · Reversión
+
+> ### ⚠️ Desde el 2026-09-28 la familia REVERSION opera SOLO la apertura con gap
+>
+> **Reset decidido por el usuario** tras 48 trades de la versión de media mañana
+> (`024e6795`): 36% de aciertos, −$1.940, y 31 de 48 cerrados por el time stop de 10 min
+> (−$2.355). La geometría no podía ganar: objetivo de ~5,8 pts contra stop de 20.
+> Encendido un **lunes**, como excepción explícita a la norma 2 (el usuario la autorizó).
+>
+> - **Media mañana (§ 3b)** → **SOMBRA**: `smaReversion.tradierAutoExecute: false`. Sigue
+>   evaluando y registrando señales (`SIGNAL_BUILT`) sin mandar órdenes, para comparar.
+> - **Apertura (§ 3a)** → opera, con kill-switch propio `smaReversion.apertura.tradierAutoExecute`.
+>
+> Los trades de la apertura llevan `modo: 'APERTURA'` y una huella nueva (`apertura` entra en
+> la huella de REVERSION): **no se promedian con los de media mañana**.
+
+### 3a · Reversión de apertura con gap (`src/reversion_apertura.js`, `checkReversionApertura`)
+
+Estudio y scripts en `mentoria alejandro/estrategias automatizadas/04_reversion a la media/
+gap_apertura_ema10_2m/` (LEEME.txt). La tesis del usuario: con gap y la apertura lejos de
+las EMAs de 15m, el precio se estira y vuelve a buscar la **EMA 10 de 2m**.
+
+| | Regla |
+|---|---|
+| **Día apto** | \|gap\| ≥ 0,2% contra el cierre previo **y** apertura a ≥ 12 pts de la EMA10 **y** de la EMA20 de 15m, del lado del gap. Se decide una vez con la primera vela de 15m de hoy |
+| **Lado** | Solo contra el gap (`soloContraGap`): gap abajo → largo (bull put), gap arriba → corto (bear call) |
+| **Gatillo** | Sobre la última vela de 2m **cerrada**, con inicio entre 9:30 y 10:14 ET: el extremo de las últimas 5 velas de hoy a ≥ 15 pts de la EMA10 de 2m, y la vela cierra por encima del máximo (largo) / debajo del mínimo (corto) de la anterior |
+| **Objetivo** | Tocar la EMA10 de 2m, **recalculada en vivo** por el monitor (`objetivoMovilEma10_2m`); si la serie no está fresca, la EMA congelada al entrar (`smaTarget`). `earlyExitPct` 1,0 en la ejecución |
+| **Stop** | Extremo de esas 5 velas ± 2 pts (`entryCandleLow`/`High`, nombres históricos) |
+| **Time stop** | 30 min (`timeStopVelas` 15 en la ejecución) |
+| **Instrumento** | El mismo: credit spread 0DTE, `smaReversion.targetDelta` 0,50 / `spreadWidth` 10, 1 contrato |
+| **Cupo** | 1 trade por día (las `canceled` no cuentan: una orden que el sandbox no llenó no gasta el día) |
+
+- **Velas**: Sigma primero (`sigma_velas_2m.json` / `_15m.json`, con sello de tiempo), Yahoo
+  de respaldo. **Nunca Tradier.** La EMA es la de pandas `adjust=False` (semilla en el
+  primer valor), la misma del backtest.
+- **El monitor es el de siempre** (`checkAlejamientoSMATPSL`): lee de la ejecución
+  `earlyExitPct`, `timeStopVelas` y `objetivoMovilEma10_2m` si vienen; si no, la config.
+- **Log**: `APERTURA_DIA_APTO` / `APERTURA_DIA_NO_APTO` una vez al día, `APERTURA_SIN_GATILLO`
+  una vez por vela, `SIGNAL_BUILT` con el snapshot completo del día y la entrada.
+- **Lo que dijo el backtest, sin maquillar** (14-ago a 28-sep): 10 trades, 7 ganan, **+2,25
+  pts de índice por trade**, antes del costo de cruzar el spread. Muestra insuficiente para
+  afirmar ventaja; se opera en sandbox para juntarla. El módulo reproduce **exactamente** los
+  trades del backtest (fecha, vela, lado, precio). Que el precio toque la EMA10 de 2m **no**
+  es la ventaja (pasa 30 de 30 días, con gap o sin él); lo que cambia con gap es el tamaño
+  del rebote. **El gamma no filtra**: en la muestra coincide 100% con la dirección del gap.
+- **El umbral de 12 pts** (y no 15) deja entrar el 28-sep, el día que originó la regla (EMA20
+  a 12,5). Es ajustar al ejemplo: suma 2 trades y casi no mueve el promedio.
+
+### 3b · Reversión de media mañana — Alejamiento de SMA (playbook Luis Silva) — EN SOMBRA
 
 El precio se aleja de la SMA8 ("el imán técnico") pero no puede quedarse lejos, y se opera el
 regreso. **Usa SMA simples** (`calcSMA`/`calcSMAArray`), no EMA como el resto del sistema —
@@ -1028,6 +1078,19 @@ manual dijera que la banda máxima es 0.2.
 canario.** Tres fuentes que dicen lo mismo, o una deriva que alguien tiene que explicar.
 
 ```parametros-vigentes-reversion
+tradierAutoExecute: false
+apertura.activo: true
+apertura.tradierAutoExecute: true
+apertura.gapMinPct: 0.2
+apertura.distEmas15mMinPts: 12
+apertura.soloContraGap: true
+apertura.alejamientoMinPts: 15
+apertura.velasAlejamiento: 5
+apertura.stopBufferPts: 2
+apertura.timeStopMin: 30
+apertura.ventanaDesdeMin: 570
+apertura.ventanaHastaMin: 614
+apertura.maxTradesDia: 1
 extBandMinPct: 0.10
 extBandMaxPct: 0.30
 requiereGammaPositivo: false

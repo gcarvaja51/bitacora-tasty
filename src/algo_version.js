@@ -50,6 +50,10 @@ function parametrosRelevantes(cfg = {}) {
       earlyExitPct:        rev.earlyExitPct ?? null,
       riskPctPerTrade:     rev.riskPctPerTrade ?? null,
       maxDailyDrawdownPct: rev.maxDailyDrawdownPct ?? null,
+      // Reversion de apertura (2026-09-28). Cambia la huella de REVERSION para
+      // todo lo nuevo — a proposito: es un reset de la familia y sus trades no
+      // se pueden promediar con los de la reversion de media manana.
+      apertura:            rev.apertura ?? null,
     },
     NEUTRAL: {
       targetDelta:        ic.targetDelta ?? null,

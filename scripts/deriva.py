@@ -112,7 +112,14 @@ def leer_manual():
 # deje de leer.
 VIGILADOS = ["extBandMinPct", "extBandMaxPct", "minScore", "earlyExitPct",
              "requiereGammaPositivo", "maxStopsPerDay", "maxDailyDrawdownPct",
-             "riskPctPerTrade", "stopMinPts", "alejamientoEsPuerta", "puertasBinarias"]
+             "riskPctPerTrade", "stopMinPts", "alejamientoEsPuerta", "puertasBinarias",
+             # 2026-09-28: reset de la familia. La media manana pasa a sombra y
+             # opera la apertura con gap: los dos interruptores y la regla nueva.
+             "tradierAutoExecute", "apertura.activo", "apertura.tradierAutoExecute",
+             "apertura.gapMinPct", "apertura.distEmas15mMinPts", "apertura.soloContraGap",
+             "apertura.alejamientoMinPts", "apertura.velasAlejamiento",
+             "apertura.stopBufferPts", "apertura.timeStopMin",
+             "apertura.ventanaDesdeMin", "apertura.ventanaHastaMin", "apertura.maxTradesDia"]
 
 # Los pesos del score de Reversion. Hasta el 2026-09-10 no los miraba nadie: el
 # cambio mas grande de 171152f (24-ago: regimen_gex 10 -> 0, alejamiento_sma8

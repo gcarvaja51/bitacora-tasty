@@ -588,6 +588,37 @@ chequear('la lectura de un impulso 3 alcista trae tpPctExigido 15',
 chequear('sin velas suficientes no se toca el TP',
   evaluarImpulso({ velas: [v(7600, 7598)], direction: 'BULLISH' }).tpPctExigido === null);
 
+// ── 2c-bis. La reversion de apertura ───────────────────────────────────────
+seccion('La reversion de apertura (src/reversion_apertura.js)');
+{
+  const RA = require('../src/reversion_apertura');
+  // Viernes 25-sep plano en 7700; lunes 28-sep abre 7680 (gap -0,26%, EDT = UTC-4).
+  const T = (dia, hh, mm) => Date.parse(`2026-09-${dia}T${String(hh + 4).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  const v15 = [];
+  for (let m = 570; m < 960; m += 15) v15.push({ t: T(25, Math.floor(m / 60), m % 60), o: 7700, h: 7701, l: 7699, c: 7700 });
+  v15.push({ t: T(28, 9, 30), o: 7680, h: 7682, l: 7668, c: 7672 });
+  const ahora = T(28, 9, 31);
+  const dia = RA.evaluarDia(v15, ahora, {});
+  chequear('gap abajo de 0,26% a 20 pts de las EMAs: dia apto', dia.apto === true && dia.direccionGap === 'ABAJO', JSON.stringify(dia));
+  chequear('gap de 0,1%: no apto', RA.evaluarDia(v15.map((v, i) => i === v15.length - 1 ? { ...v, o: 7692 } : v), ahora, {}).apto === false);
+
+  // 2m: viernes plano en 7700 (60 velas) y el lunes cae hasta 7672 y gira.
+  const v2 = [];
+  for (let m = 840; m < 960; m += 2) v2.push({ t: T(25, Math.floor(m / 60), m % 60), o: 7700, h: 7701, l: 7699, c: 7700 });
+  const hoy = [[7680, 7681, 7676, 7677], [7677, 7678, 7672, 7673], [7673, 7674, 7671, 7672], [7672, 7679, 7671, 7678]];
+  hoy.forEach(([o, h, l, c], i) => v2.push({ t: T(28, 9, 30 + 2 * i), o, h, l, c }));
+  const cierreGiro = T(28, 9, 38);   // la vela de las 9:36 (la del giro) cierra a las 9:38
+  const e = RA.evaluarEntrada(v2, dia, cierreGiro, {});
+  chequear('alejamiento >=15 + cierre sobre el maximo anterior: entra LARGO', e.entra === true && e.lado === 'LARGO', JSON.stringify(e));
+  chequear('stop en el extremo menos 2', e.entra && e.stop === 7669);
+  chequear('la vela en formacion NO cuenta', RA.evaluarEntrada(v2, dia, cierreGiro - 1000, {}).entra === false);
+  chequear('con gap ARRIBA no se opera el largo', RA.evaluarEntrada(v2, { ...dia, direccionGap: 'ARRIBA' }, cierreGiro, {}).entra === false);
+  chequear('fuera de la ventana no entra', RA.evaluarEntrada(v2, dia, cierreGiro, { ventanaHastaMin: 9 * 60 + 34 }).entra === false);
+  chequear('alejamiento insuficiente no entra', RA.evaluarEntrada(v2, dia, cierreGiro, { alejamientoMinPts: 40 }).entra === false);
+  chequear('la EMA con semilla en el primer valor (como pandas adjust=False)',
+    Math.abs(RA.ema([1, 2, 3], 3).at(-1) - 2.25) < 1e-9);
+}
+
 // ── 2d. La figura de cada posicion abierta ─────────────────────────────────
 seccion('Las figuras de OptionStrat (src/optionstrat.js)');
 

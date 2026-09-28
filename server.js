@@ -4954,6 +4954,10 @@ const SPX_CONFIG_DEFAULTS = {
       maxDesfaseVsSigmaPts: 8,
       extBandMinPct: 0.07,
       extBandMaxPct: 0.14,
+      // Reversion de APERTURA (2026-09-28) — ver checkReversionApertura y
+      // src/reversion_apertura.js. Apagada por defecto: si el volumen pierde el
+      // config, no se enciende sola. Los valores vigentes van por POST.
+      apertura: { activo: false, tradierAutoExecute: false },
     },
   }
 };
@@ -12327,6 +12331,223 @@ async function checkAlejamientoSMA() {
 }
 cicloDeTrading(checkAlejamientoSMA, 60 * 1000); // cada 60s — solo puede confirmar con una vela de 2m ya cerrada
 
+// ── Reversion de APERTURA (2026-09-28, reset de la familia REVERSION) ────────
+//
+// Decision del usuario: la reversion de media manana (checkAlejamientoSMA) pasa
+// a SOMBRA (smaReversion.tradierAutoExecute:false — evalua y registra, no
+// opera) y la familia opera solo esto: dias con gap y la apertura lejos de las
+// EMAs de 15m; se entra en el giro de 2m y se sale al tocar la EMA10 de 2m.
+// Logica pura y su backtest en src/reversion_apertura.js.
+//
+// Mismo instrumento que la reversion anterior (credit spread 0DTE con
+// smaReversion.targetDelta/spreadWidth), mismo monitor de salida
+// (checkAlejamientoSMATPSL), que lee de cada ejecucion su objetivo, su stop y
+// su time stop. Kill-switch propio: smaReversion.apertura.tradierAutoExecute.
+const reversionApertura = require('./src/reversion_apertura');
+
+// Velas CON sello de tiempo — velas2mDeSigma devuelve las barras sin `t`, y aca
+// hace falta saber cuales son de hoy y cuales ya cerraron. Sigma primero (norma
+// 7); si la serie no esta fresca o tiene huecos, Yahoo.
+function velasSigmaConTiempo(archivo, pasoMs, maxEdadSeg) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(archivo, 'utf8')); } catch { return null; }
+  const velas = (doc?.velas || []).filter(v => v && Number.isFinite(v.t));
+  if (velas.length < 30) return null;
+  if (edadDesdeCierre(velas[velas.length - 1], pasoMs) > maxEdadSeg) return null;
+  const diaET = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  for (let i = 1; i < velas.length; i++) {
+    if (velas[i].t - velas[i - 1].t === pasoMs) continue;
+    if (diaET(velas[i].t) !== diaET(velas[i - 1].t)) continue;
+    return null;
+  }
+  return velas.map(v => ({ t: v.t, o: v.o, h: v.h, l: v.l, c: v.c }));
+}
+async function velasYahooConTiempo(intervalo, rango) {
+  const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=${intervalo}&range=${rango}`,
+    { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const j = await r.json();
+  const res = j.chart?.result?.[0];
+  const q = res?.indicators?.quote?.[0] || {};
+  return (res?.timestamp || []).map((ts, i) => ({ t: ts * 1000, o: q.open?.[i], h: q.high?.[i], l: q.low?.[i], c: q.close?.[i] }))
+    .filter(v => [v.o, v.h, v.l, v.c].every(x => x != null));
+}
+async function velasApertura() {
+  let v2 = velasSigmaConTiempo(SIGMA_VELAS2M_FILE, 2 * 60 * 1000, 240), f2 = 'sigma';
+  if (!v2) { try { v2 = await velasYahooConTiempo('2m', '5d'); f2 = 'yahoo'; } catch (e) { v2 = null; } }
+  let v15 = velasSigmaConTiempo(SIGMA_VELAS15M_FILE, 15 * 60 * 1000, 1800), f15 = 'sigma';
+  if (!v15) { try { v15 = await velasYahooConTiempo('15m', '10d'); f15 = 'yahoo'; } catch (e) { v15 = null; } }
+  return { v2: v2 ? v2.slice(-150) : null, v15: v15 ? v15.slice(-100) : null, fuente2m: f2, fuente15m: f15 };
+}
+
+// El filtro del dia se decide una vez (con la primera vela de 15m de hoy) y se
+// registra una vez; la ultima vela evaluada se recuerda para no llenar el
+// strategy log (tope 5000) con la misma evaluacion cada 30s.
+let aperturaDiaMemo = null;
+let aperturaUltimaVelaLog = null;
+
+async function checkReversionApertura() {
+  try {
+    if (!isMarketHours()) return;
+    const et = getETHour();
+    const mins = et.hour * 60 + et.min;
+    if (mins < 9 * 60 + 32 || mins > 10 * 60 + 20) return;
+    const spxConfig = loadSPXConfig();
+    const cfg = (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).smaReversion || SPX_CONFIG_DEFAULTS.trading.smaReversion;
+    const ap = reversionApertura.conDefaults(cfg.apertura);
+    if (!ap.activo) return;
+    const etTime = `${et.hour}:${String(et.min).padStart(2, '0')}`;
+    const hoy = todayStrET();
+
+    const hoyYa = loadTradierExecutions().filter(e =>
+      e.strategyFamily === 'REVERSION' && e.modo === 'APERTURA' &&
+      fechaET(new Date(e.timestamp)) === hoy && e.status !== 'canceled');
+    if (hoyYa.length >= ap.maxTradesDia) return;
+
+    const ahora = Date.now();
+    const { v2, v15, fuente2m, fuente15m } = await velasApertura();
+    if (!v15 || !v2) {
+      if (aperturaUltimaVelaLog !== 'sin-velas') {
+        aperturaUltimaVelaLog = 'sin-velas';
+        logStrategyEvent({ strategyFamily: 'REVERSION', etTime, stage: 'APERTURA_SIN_VELAS', passed: false,
+          reason: `Sin velas utilizables (2m: ${v2 ? 'ok' : 'no'}, 15m: ${v15 ? 'ok' : 'no'}) ni en Sigma ni en Yahoo` });
+      }
+      return;
+    }
+
+    if (!aperturaDiaMemo || aperturaDiaMemo.fecha !== hoy) {
+      const dia = reversionApertura.evaluarDia(v15, ahora, ap);
+      if (!dia.fecha) return;  // todavia no hay vela de 15m de hoy: se reintenta
+      aperturaDiaMemo = { fecha: hoy, dia, fuente15m };
+      console.log(`[SPX-REV-AP] ${dia.apto ? '✅' : '—'} Dia ${dia.apto ? 'APTO' : 'no apto'}: ${dia.motivo}`);
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime, stage: dia.apto ? 'APERTURA_DIA_APTO' : 'APERTURA_DIA_NO_APTO',
+        passed: dia.apto, reason: dia.motivo, snapshot: { ...dia, fuente15m } });
+    }
+    const dia = aperturaDiaMemo.dia;
+    if (!dia.apto) return;
+
+    const ent = reversionApertura.evaluarEntrada(v2, dia, ahora, ap);
+    if (!ent.entra) {
+      if (ent.velaT && ent.velaT !== aperturaUltimaVelaLog) {
+        aperturaUltimaVelaLog = ent.velaT;
+        logStrategyEvent({ strategyFamily: 'REVERSION', etTime, stage: 'APERTURA_SIN_GATILLO', passed: false,
+          reason: ent.motivo, snapshot: { ...ent, fuente2m } });
+      }
+      return;
+    }
+
+    const ctx = await buildSPXContext();
+    if (ctx.spotFiable === false) {
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime, stage: 'SPOT_NO_FIABLE', passed: false,
+        reason: `Spot no fiable: ${ctx.spotFuente || 'sin fuente'} con ${ctx.spotEdadSeg ?? '?'}s — no se abre la reversion de apertura` });
+      return;
+    }
+    const direction = ent.direction;
+    const strategy = direction === 'BULLISH' ? 'BULL_PUT_SPREAD' : 'BEAR_CALL_SPREAD';
+    const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
+    const chainData = await chainRes.json();
+    const strikes = findStrikesByDelta(chainData.expirations || [], strategy, ctx.spxPrice, '0DTE', cfg.targetDelta, cfg.spreadWidth);
+    if (!strikes || !strikes.shortStrike) {
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime, stage: 'NO_STRIKES', passed: false,
+        reason: `Apertura: no se encontraron strikes con delta ${cfg.targetDelta}`, snapshot: { ...ent } });
+      return;
+    }
+    const contracts = 1;
+    const signal = buildSignalSummary(strategy, strikes, {
+      valid: true, strategy, isCredit: true, expType: '0DTE', spreadWidth: cfg.spreadWidth, contracts,
+    }, {
+      direction, spxPrice: ctx.spxPrice, vix: ctx.vix, ivRank: ctx.ivRank,
+      gammaRegime: ctx.gex?.regime, callWall: ctx.gex?.callWall, putWall: ctx.gex?.putWall,
+      gammaFlip: ctx.gex?.gammaFlip, maxPain: ctx.gex?.maxPain,
+      technicalStop: null, technicalStopSource: null, etTime: ctx.etTime,
+    });
+    signal.strategyFamily = 'REVERSION';
+    signal.modo = 'APERTURA';
+    signal.notes = `Reversion de apertura — gap ${dia.direccionGap} ${dia.gapPct}%, ${ent.motivo}, objetivo EMA10 2m ${ent.ema10}`;
+    const successReason = `Apertura: ${strategy} ${strikes.shortStrike}/${strikes.longStrike} — ${ent.motivo}`;
+
+    if (IS_PRODUCTION && ap.tradierAutoExecute) {
+      try {
+        const order = await tradier.placeSpreadOrder({
+          strategy, underlyingRoot: 'SPXW', expiry: strikes.expiry,
+          shortStrike: strikes.shortStrike, longStrike: strikes.longStrike, quantity: contracts,
+          netLimitPrice: limiteDeAperturaVertical(strategy, strikes.premium, spxConfig.trading),
+        });
+        signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
+        anotarOrdenAceptada({ familia: 'REVERSION', ctx });
+        signal.status = 'EXECUTED';
+        signal.actionAt = new Date().toISOString();
+        console.log(`[Tradier-REV-AP] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${strategy} ${strikes.shortStrike}/${strikes.longStrike}`);
+        let sombraApertura = null;
+        try {
+          sombraApertura = await capturarSombraCadena({
+            expiry: strikes.expiry, shortStrike: strikes.shortStrike, longStrike: strikes.longStrike,
+            tipo: strategy === 'BULL_PUT_SPREAD' ? 'P' : 'C', legs: order.legs,
+          });
+        } catch (e) { console.warn('[SOMBRA-REV-AP] no se pudo capturar la apertura:', e.message); }
+        const paperEntry = await marcarPaper(order.legs, 'apertura');
+        await withExecutionsLock(() => {
+          const execs = loadTradierExecutions();
+          execs.unshift({
+            id:             `tex-${Date.now()}`,
+            signalId:       signal.id,
+            timestamp:      signal.timestamp,
+            strategy,
+            strategyFamily: 'REVERSION',
+            modo:           'APERTURA',
+            algoVersion:    sellarVersion(spxConfig, 'REVERSION'),
+            direction,
+            strikes:        signal.strikes,
+            expiry:         strikes.expiry,
+            contracts,
+            orderId:        order.orderId,
+            legs:           order.legs,
+            status:         'submitted',
+            entryFillPrice: null,
+            creditReceived: null,
+            paperEntry, paperExit: null, paperPnl: null,
+            // Lo que lee checkAlejamientoSMATPSL. Los nombres son los historicos
+            // de la familia; aca el stop NO sale de una vela ancla sino del
+            // extremo de las ultimas velas de 2m +/- stopBufferPts.
+            entryPrice:      ent.entrada,
+            entryCandleLow:  direction === 'BULLISH' ? ent.stop : null,
+            entryCandleHigh: direction === 'BEARISH' ? ent.stop : null,
+            stopTimeframe:   '2m',
+            smaTarget:       ent.ema10,      // EMA10 de 2m al entrar — respaldo si el objetivo movil no se puede leer
+            objetivoMovilEma10_2m: true,     // el monitor recalcula la EMA10 de 2m en cada vuelta
+            earlyExitPct:    1.0,            // salida al TOCAR la EMA, no antes
+            timeStopVelas:   Math.round(ap.timeStopMin / 2),
+            apertura:        { dia, entrada: ent, fuente2m, fuente15m: aperturaDiaMemo.fuente15m },
+            gammaFuente:     ctx.gex?.source ?? null,
+            gammaRegimen:    ctx.gex?.regime ?? null,
+            sombraApertura,
+            filledAt:   null,
+            closedAt:   null,
+            closeReason: null,
+            pnl:        null,
+            pnlSource:  null,
+          });
+          saveTradierExecutions(execs);
+        });
+      } catch (e) {
+        signal.tradierOrder = { error: e.message };
+        console.error('[Tradier-REV-AP] ❌ Error enviando orden:', e.message);
+        await anotarFalloDeOrden({ familia: 'REVERSION', error: e, ctx, strikes: signal.strikes });
+      }
+    } else {
+      console.log(`[SPX-REV-AP] (${IS_PRODUCTION ? 'kill-switch apagado' : 'local'}, no ejecuta) ${successReason}`);
+    }
+    const signals = loadSPXSignals();
+    signals.unshift(signal);
+    saveSPXSignals(signals.slice(0, 50));
+    console.log(`[SPX-REV-AP] ✅ ${successReason}`);
+    logStrategyEvent({ strategyFamily: 'REVERSION', etTime, stage: 'SIGNAL_BUILT', passed: true, reason: successReason,
+      snapshot: { modo: 'APERTURA', dia, entrada: ent, fuente2m } });
+  } catch (e) {
+    console.error('[SPX-REV-AP] Error:', e.message);
+  }
+}
+cicloDeTrading(checkReversionApertura, 30 * 1000); // cada 30s: la vela de 2m cierra y se decide en menos de medio ciclo
+
 // ── Monitor de cierre de Alejamiento de SMA — rapido (15-20s, el hold es de
 // minutos) y por PRECIO del SPX, no por % de credito como las otras dos
 // estrategias (decision explicita del usuario, fiel al setup de Luis Silva):
@@ -12426,17 +12647,28 @@ async function checkAlejamientoSMATPSLImpl() {
       // ex.entryPrice no existe en ejecuciones creadas antes de este cambio -- para
       // esas cae al comportamiento anterior (objetivo = smaTarget completo) en vez
       // de romper con un calculo sin ancla real.
-      const earlyExitPct = cfg.earlyExitPct ?? 1.0;
+      // Los parametros de salida viajan en la ejecucion cuando la estrategia que
+      // la abrio los fija (reversion de APERTURA, 2026-09-28: toca la EMA, time
+      // stop de 30 min). Sin ellos, los de config de siempre.
+      const earlyExitPct = ex.earlyExitPct ?? cfg.earlyExitPct ?? 1.0;
+      let objetivo = ex.smaTarget;
+      if (ex.objetivoMovilEma10_2m) {
+        // EMA10 de 2m de la ultima vela cerrada, igual que el backtest. Si la
+        // serie no esta fresca se queda con la EMA congelada al entrar.
+        const v2 = velasSigmaConTiempo(SIGMA_VELAS2M_FILE, 2 * 60 * 1000, 240);
+        const e10 = v2 ? reversionApertura.ema10_2m(v2, Date.now()) : null;
+        if (e10 != null) objetivo = e10;
+      }
       const objetivoAjustado = (ex.entryPrice != null)
-        ? ex.entryPrice + (ex.smaTarget - ex.entryPrice) * earlyExitPct
-        : ex.smaTarget;
+        ? ex.entryPrice + (objetivo - ex.entryPrice) * earlyExitPct
+        : objetivo;
 
       let cerrarPor = null;
       if      (isBullish  && price >= objetivoAjustado)  cerrarPor = 'PRECIO_OBJETIVO';
       else if (!isBullish && price <= objetivoAjustado)  cerrarPor = 'PRECIO_OBJETIVO';
       else if (isBullish  && price < ex.entryCandleLow)  cerrarPor = 'PRECIO_INVALIDACION';
       else if (!isBullish && price > ex.entryCandleHigh) cerrarPor = 'PRECIO_INVALIDACION';
-      else if (candlesElapsed >= (cfg.maxCandlesTimeStop || 5)) cerrarPor = 'TIME_STOP';
+      else if (candlesElapsed >= (ex.timeStopVelas || cfg.maxCandlesTimeStop || 5)) cerrarPor = 'TIME_STOP';
 
       if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
         cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
