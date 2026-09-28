@@ -658,6 +658,7 @@ para los snapshots de NLV, `nextTradingDateET()` (`src/spx.js`) para la expiraci
 | Reversión de media mañana (REVERSION, sombra) | 9:45–13:00 | 60s |
 | Iron Condor 0DTE (NEUTRAL) | 10:00–13:00 | 5 min |
 | Iron Condor 1DTE | 15:45–15:52 | 5 min |
+| IB Mediodía (MEDIODIA) | 12:30–12:45 | 60s |
 
 Verificado que las cuatro caen **enteras** dentro de 9:30–16:00. Si alguna se corre fuera de
 ese rango, revisar el guard primero.
@@ -884,6 +885,9 @@ las dos el mismo día para el mismo `dte`.
   `expType === '1DTE'` y REVERSION; `todoLoAbiertoConvive()` (antes
   `todoLoAbiertoEsReversion`) acepta como explicadas en el broker las patas de las dos. Una
   posición que no sea de ninguna —abierta a mano, por ejemplo— **sigue bloqueando**.
+- **MEDIODIA no se cruza con nadie, en ningún sentido** (decisión del usuario, 2026-09-28):
+  `hasLocalOpenSPXWPosition()` la excluye y `todoLoAbiertoConvive()` acepta sus patas;
+  ella misma no mira ninguna posición abierta. Ver § MEDIODIA.
 - ⚠️ **Reversión ↔ IC 0DTE conviven hoy, y está decidido cambiarlo**: `SUGERENCIAS.md` punto
   7 (exclusión total neutral/direccional, decisión del usuario del 2026-09-10). Pendiente de
   aplicar un viernes o sábado.
@@ -1273,6 +1277,36 @@ otro fichero, otro endpoint.
 - Resultados en dólares **sin comisiones** (se restan al analizar, una vez — gotcha 5).
 - El 3er viernes el 0DTE puede ser el mensual AM ya liquidado: cada entrada guarda `simbolo`
   para poder separarlo (README 07_pinning §7c).
+
+### MEDIODIA — Iron Butterfly de las 12:30 en el MVS — OPERA en el sandbox (2026-09-28)
+> *"un trade neutral a las 12:30 pm en el MVS que me marque los últimos 30 minutos del SPX
+> con alas de 15 puntos… la llamamos mediodía"* · *"en bitácora tradier, solo demo por ahora"*
+
+| | |
+|---|---|
+| `src/mediodia.js` | Puro y probado. `REGLA` (v1), `centroPorMvs`, `enVentana`, `strikesMariposa` |
+| `checkMediodia` (`server.js`) | Cada 60s; actúa solo en **12:30–12:45 ET**, una vez al día. Kill-switch propio `trading.mediodia.tradierAutoExecute` (`KILL_SWITCH.MEDIODIA`); el botón de pánico también lo apaga |
+| **Centro** | **Promedio** del MVS de Sigma (`sigma_levels`, por `capturadoEn`) entre **12:00 y 12:30**, redondeado a 5. Mínimo 5 lecturas; si no, `MEDIODIA_SIN_MVS` y no abre |
+| **Estructura** | Vende call y put en el centro, compra centro ± **15**. 1 contrato. Límite de crédito = `limiteDeAperturaVertical` sobre el **mid de la cadena real** (Tasty) |
+| **Salida** | **TP 20%** del crédito o **cierre a las 15:30**, lo que ocurra primero. **Sin stop** (`slMult: null`) |
+| **Filtros** | Ninguno: ni GEX, ni VIX, ni calendario. Los medios días no abre |
+
+- **Se registra como `strategy: 'IRON_CONDOR'`** con las dos cortas en el mismo strike y
+  `strategyFamily: 'MEDIODIA'`. Es a propósito: `checkIronCondorTPSL` la maneja sin código
+  nuevo (TP contra `baseDePrecio`, sin stop por `slMult === null`, cierre por
+  `cierreForzadoET`) y se cierra como dos verticales, el camino que sí llena. **Cualquier
+  cambio al monitor del IC le afecta también a ella.**
+- No genera señal en `spx_signals.json`: el dedup del IC 0DTE lee señales, así que no se
+  pisan. Su dedup es por `fechaET` en las ejecuciones (una `canceled` no gasta el día).
+- `algoVersion.huella` = `mediodia-v1` a mano, con la `REGLA` en claro; `ex.mediodia`
+  guarda el MVS (promedio, n, min, max), el spot y la distancia al centro al entrar.
+- **Lo que se sabía al encenderla, sin maquillar:** la regla parecida del estudio (07_pinning
+  §11a: **moda** del MVS de la **última hora**) perdió contra centrar en el spot en 3 de 4
+  horarios. Esta (promedio, 30 min) no tiene muestra propia: el 28-sep habría centrado en 7700
+  —el ATM de la sombra puso 7715 en pleno pico— y habría cerrado por TP (crédito **estimado**).
+  Se opera en demo para juntar muestra, y se compara contra la sombra ATM de la misma hora.
+- Encendida un **lunes** (28-sep, primera entrada el martes 29): excepción a la norma 2
+  autorizada por el usuario.
 
 ### IV Rank
 Endpoint correcto: **`GET /market-metrics?symbols=SYMBOL`** (coma, no `symbols[]=`), campo

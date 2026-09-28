@@ -399,6 +399,7 @@ function bloquea(e) {
   if (e.status !== 'submitted' && e.status !== 'filled') return false;
   if (e.strategyFamily === 'REVERSION') return false;
   if (e.expType === '1DTE') return false;
+  if (e.strategyFamily === 'MEDIODIA') return false;
   if (e.closeOrderSentAt && (Date.now() - new Date(e.closeOrderSentAt).getTime()) > GRACIA_MS) return false;
   return true;
 }
@@ -418,6 +419,10 @@ chequear('un IC 1DTE abierto NO bloquea',
 // ...pero el 0DTE si: neutral y direccional del mismo dia no conviven.
 chequear('un IC 0DTE abierto SI bloquea',
   bloquea({ status: 'filled', strategyFamily: 'NEUTRAL', strategy: 'IRON_CONDOR', expType: '0DTE' }) === true);
+// MEDIODIA no bloquea a nadie (decision del usuario, 2026-09-28), aunque sea un
+// IRON_CONDOR 0DTE para el monitor.
+chequear('un MEDIODIA abierto NO bloquea',
+  bloquea({ status: 'filled', strategyFamily: 'MEDIODIA', strategy: 'IRON_CONDOR', expType: '0DTE' }) === false);
 // El caso de los 61 bloqueos en 10 dias: el cierre ya se mando y la
 // reconciliacion (cada 5 min) todavia no cambio la etiqueta.
 chequear('con el cierre ya mandado hace rato, deja de bloquear',
@@ -1038,6 +1043,32 @@ chequear('IB-ATM: con el ala en bid 0 el cierre natural existe (el del PIN no)',
          `dio ${ibA.precioMariposa(cadenaTarde, 7600, 15).cierreNatural}`);   // 10,1 + 8,1 - 0 - 0
 chequear('IB-ATM: sin lectura de las 15:55 no se inventa el vencimiento',
          ibA.resultados({ ...mA, ultimo: { ...mA.ultimo, minET: 940 } }, 7600).vencimiento === null);
+
+seccion('MEDIODIA: IB de las 12:30 en el MVS (src/mediodia.js)');
+
+// Regla del usuario (28-sep): centro = PROMEDIO del MVS de 12:00-12:30, alas 15,
+// TP 20% o 15:30, sin stop. Lecturas en UTC como las guarda el historial de Sigma
+// (EDT = UTC-4: 16:00Z son las 12:00 ET).
+const md = require('../src/mediodia');
+chequear('MEDIODIA: entra a las 12:30 con alas 15, TP 20% y cierre 15:30',
+         md.REGLA.entradaET === 750 && md.REGLA.ala === 15 && md.REGLA.tpPct === 20 && md.REGLA.cierreForzadoET === '15:30');
+const lect = (hhmm, mvs, campo = 'capturadoEn') => ({ [campo]: `2026-09-28T${hhmm}:00.000Z`, mvs });
+// El 28-sep real: 39 lecturas en 7700 y una en 7675 dan 7699,4 -> 7700.
+const dia28 = [...Array.from({ length: 39 }, (_, i) => lect(`16:${String(i % 30).padStart(2, '0')}`, 7700)), lect('16:06', 7675)];
+const c28 = md.centroPorMvs(dia28, '2026-09-28');
+chequear('MEDIODIA: el 28-sep el centro es 7700 (promedio 7699,4)', c28.centro === 7700 && c28.n === 40 && c28.promedio === 7699.38, JSON.stringify(c28));
+// Es el PROMEDIO, no la moda: 3 en 7700 y 3 en 7725 dan 7712,5 -> 7715.
+const mitad = [lect('16:01', 7700), lect('16:05', 7700), lect('16:09', 7700), lect('16:13', 7725), lect('16:17', 7725), lect('16:21', 7725)];
+chequear('MEDIODIA: promedia, no toma la moda', md.centroPorMvs(mitad, '2026-09-28').centro === 7715);
+chequear('MEDIODIA: la ventana es [12:00, 12:30): fuera no cuenta',
+         md.centroPorMvs([...mitad, lect('15:59', 9000), lect('16:30', 9000)], '2026-09-28').centro === 7715);
+chequear('MEDIODIA: otro dia no cuenta', md.centroPorMvs(mitad, '2026-09-29').centro === null);
+chequear('MEDIODIA: con menos de 5 lecturas no abre', md.centroPorMvs(mitad.slice(0, 4), '2026-09-28').centro === null);
+chequear('MEDIODIA: sin capturadoEn usa updatedAt', md.centroPorMvs(mitad.map((l) => ({ updatedAt: l.capturadoEn, mvs: l.mvs })), '2026-09-28').centro === 7715);
+chequear('MEDIODIA: la ventana de entrada es 12:30-12:45', md.enVentana(750) && md.enVentana(765) && !md.enVentana(749) && !md.enVentana(766));
+const sk = md.strikesMariposa(7700, '2026-09-29');
+chequear('MEDIODIA: las dos cortas en el centro y las alas a 15',
+         sk.shortStrike === 7700 && sk.callShortStrike === 7700 && sk.longStrike === 7685 && sk.callLongStrike === 7715);
 
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
 

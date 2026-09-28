@@ -16,6 +16,7 @@ const { esIndice, sectorDe, simboloYahoo }              = require('./src/indices
 const calendario = require('./src/calendario_nyse');
 const pinDominante = require('./src/pin_dominante');   // MODO SOMBRA: no opera, ver vigilarPinSombra
 const ibAtmSombra = require('./src/ib_atm_sombra');    // MODO SOMBRA: no opera, ver vigilarIbAtmSombra
+const mediodia = require('./src/mediodia');            // IB de las 12:30 en el MVS — OPERA en el sandbox, ver checkMediodia
 const isMarketHours     = calendario.enHorarioDeMercado;   // 9:30-16:00 ET (13:00 en medio dia), sin fines de semana ni feriados
 const esDiaDeMercadoET  = calendario.esDiaDeMercado;       // solo el dia: habil y no feriado
 const esMedioDiaNYSE    = calendario.esMedioDia;
@@ -4886,6 +4887,12 @@ const SPX_CONFIG_DEFAULTS = {
         slPct:       50,
       },
     },
+    // MEDIODIA (2026-09-28): Iron Butterfly de las 12:30 centrado en el promedio del
+    // MVS de 12:00-12:30, alas 15, TP 20% o cierre 15:30, sin stop. La regla vive en
+    // src/mediodia.js (REGLA); aca solo el interruptor.
+    mediodia: {
+      tradierAutoExecute: true,
+    },
     // Alejamiento de SMA — reversion a la media (playbook Luis Silva, Sigma Trade).
     // Pipeline independiente, parametros propios (puede ajustarse tras el curso del
     // usuario con Luis Silva, por eso todo vive en config y no hardcodeado).
@@ -4976,6 +4983,12 @@ function loadSPXConfig() {
       console.log('[SPX] Pesos viejos detectados, migrando a pesos Peso de la Evidencia (minScore -> 80)');
       saved.weights = SPX_CONFIG_DEFAULTS.weights;
       saved.minScore = SPX_CONFIG_DEFAULTS.minScore; // regla de Alejandro: 3 Mundos alineados -> >80/100
+      saveSPXConfig(saved);
+    }
+    // MEDIODIA (2026-09-28): misma migracion no destructiva, acotada a su clave.
+    if (saved?.trading && saved.trading.mediodia === undefined) {
+      console.log('[SPX] Sumando config de MEDIODIA (no existia)');
+      saved.trading.mediodia = SPX_CONFIG_DEFAULTS.trading.mediodia;
       saveSPXConfig(saved);
     }
     // Suma el bloque de Alejamiento de SMA si no existe todavia — acotado a esa
@@ -5203,6 +5216,8 @@ const KILL_SWITCH = {
   // ya escribio esa manana -- no comparte motor con ninguna de las otras, asi
   // que apagarla no debe apagar nada mas.
   PREMERCADO:  cfg => cfg.trading.premercado,
+  // MEDIODIA (2026-09-28): una entrada al dia a las 12:30, motor propio.
+  MEDIODIA:    cfg => cfg.trading.mediodia,
 };
 app.get('/api/spx/strategies', (req, res) => {
   const cfg = loadSPXConfig();
@@ -5243,8 +5258,9 @@ app.post('/api/spx/panic', (req, res) => {
   cfg.trading.tradierAutoExecute = enabled;
   cfg.trading.ironCondor.tradierAutoExecute = enabled;
   cfg.trading.smaReversion.tradierAutoExecute = enabled;
+  if (cfg.trading.mediodia) cfg.trading.mediodia.tradierAutoExecute = enabled;
   saveSPXConfig(cfg);
-  console.log(`[SPX] Botón de pánico: ${enabled ? 'REACTIVADO' : 'PAUSADO'} (Direccional + Iron Condor + Alejamiento de SMA)`);
+  console.log(`[SPX] Botón de pánico: ${enabled ? 'REACTIVADO' : 'PAUSADO'} (Direccional + Iron Condor + Alejamiento de SMA + Mediodia)`);
   res.json({ ok: true, enabled, trading: cfg.trading });
 });
 
@@ -5485,6 +5501,8 @@ function hasLocalOpenSPXWPosition() {
     // nadie lo bloqueaba al entrar, pero vivo hasta las 10:30 del dia siguiente
     // seguia frenando al direccional y al IC 0DTE en la primera hora de sesion.
     if (e.expType === '1DTE') return false;
+    // MEDIODIA tampoco (2026-09-28, decision del usuario: "no bloquea a nadie").
+    if (e.strategyFamily === 'MEDIODIA') return false;
     if (e.closeOrderSentAt &&
         (Date.now() - new Date(e.closeOrderSentAt).getTime()) > CIERRE_ENVIADO_GRACIA_SPXW_MS) {
       return false;   // el cierre se mando hace rato: ya no cuenta como abierta
@@ -5513,13 +5531,13 @@ async function todoLoAbiertoConvive() {
 
     const patasLibres = new Set();
     for (const e of loadTradierExecutions()) {
-      if (e.strategyFamily !== 'REVERSION' && e.expType !== '1DTE') continue;
+      if (e.strategyFamily !== 'REVERSION' && e.strategyFamily !== 'MEDIODIA' && e.expType !== '1DTE') continue;
       if (e.status !== 'submitted' && e.status !== 'filled') continue;
       for (const s of Object.values(e.legs || {})) if (typeof s === 'string') patasLibres.add(s);
     }
     const huerfanas = spxw.filter(p => !patasLibres.has(p.symbol));
     if (huerfanas.length) {
-      console.log(`[SPX-IC] Posiciones SPXW que no son ni de una Reversión ni de un IC 1DTE: ${huerfanas.map(p => p.symbol).join(', ')}`);
+      console.log(`[SPX-IC] Posiciones SPXW que no son ni de una Reversión, ni de un IC 1DTE, ni del MEDIODIA: ${huerfanas.map(p => p.symbol).join(', ')}`);
       return false;
     }
     return true;
@@ -9323,6 +9341,147 @@ async function checkIronCondor() {
   }
 }
 cicloDeTrading(checkIronCondor, 5 * 60 * 1000);
+
+// ── MEDIODIA — Iron Butterfly de las 12:30 en el MVS (2026-09-28) ──────────────
+//
+// Regla en src/mediodia.js. Aca la plomeria: a las 12:30-12:45 ET, una vez al dia,
+// promedia el MVS de Sigma de 12:00-12:30, arma la mariposa de alas 15 en ese
+// strike y la manda al SANDBOX de Tradier ("solo demo por ahora").
+//
+// SE REGISTRA COMO strategy 'IRON_CONDOR' con las dos cortas en el mismo strike, a
+// proposito: asi la maneja checkIronCondorTPSL sin una linea nueva —TP sobre la
+// marca de la cadena real (baseDePrecio), sin stop porque slMult va en null, y
+// cierre forzado a las 15:30 por cierreForzadoET—, se cierra por el camino que si
+// llena (cerrarCondorComoDosVerticales) y la bitacora la cuenta igual. Lo que la
+// separa del IC es strategyFamily 'MEDIODIA', que ademas la saca del cruce de
+// posiciones (hasLocalOpenSPXWPosition / todoLoAbiertoConvive): no bloquea a nadie
+// y no la bloquea nadie, porque aca no se mira ninguna posicion abierta.
+//
+// Sin filtros de mercado: ni GEX, ni VIX, ni calendario economico. La unica
+// condicion es tener el MVS (minimo REGLA.minLecturas lecturas en la media hora).
+let mediodiaEnCurso = false;
+async function checkMediodia() {
+  if (!isMarketHours() || mediodiaEnCurso) return;
+  const R = mediodia.REGLA;
+  const ahora = new Date();
+  const minET = calendario.minutosET(ahora);
+  if (!mediodia.enVentana(minET, R)) return;
+  if (esMedioDiaNYSE()) return;   // cierre a la 1pm: la entrada de las 12:30 no tiene tarde que aguantar
+  const cfg = (loadSPXConfig().trading || {}).mediodia || {};
+  if (cfg.tradierAutoExecute === false || !IS_PRODUCTION) return;
+
+  const fecha = calendario.fechaET(ahora);
+  // Una por dia. Una orden que el sandbox no lleno y se cancelo no gasta el dia:
+  // dentro de la ventana se vuelve a intentar en el ciclo siguiente.
+  const yaHoy = loadTradierExecutions().some(e => e.strategyFamily === 'MEDIODIA' &&
+    e.fechaET === fecha && !['canceled', 'rejected', 'expired'].includes(e.status));
+  if (yaHoy) return;
+
+  mediodiaEnCurso = true;
+  const etTime = `${Math.floor(minET / 60)}:${String(minET % 60).padStart(2, '0')}`;
+  const ctx = { etTime };
+  try {
+    const c = mediodia.centroPorMvs(loadSigmaLevelsHistory(), fecha, R);
+    if (c.centro == null) {
+      console.log(`[MEDIODIA] ❌ Sin centro: ${c.motivo}`);
+      logStrategyEvent({ strategyFamily: 'MEDIODIA', etTime, stage: 'MEDIODIA_SIN_MVS', passed: false, reason: c.motivo });
+      return;
+    }
+    const strikes = mediodia.strikesMariposa(c.centro, fecha, R);
+    const sym = (t, k) => tradier.buildOccSymbol('SPXW', fecha, t, k);
+    const legs = { putShortSym: sym('P', c.centro), putLongSym: sym('P', strikes.longStrike),
+                   callShortSym: sym('C', c.centro), callLongSym: sym('C', strikes.callLongStrike) };
+
+    // Credito al medio de la CADENA REAL (TastyTrade), no del sandbox, que va ~15 min atrasado.
+    const cot = await cotizarPatasFresco(Object.values(legs), 'MEDIODIA');
+    if (!cot) {
+      logStrategyEvent({ strategyFamily: 'MEDIODIA', etTime, stage: 'SIN_COTIZACION', passed: false,
+        reason: `Sin cotizacion en vivo de las 4 patas de la mariposa ${c.centro} — se reintenta en el ciclo siguiente.` });
+      return;
+    }
+    const mk = (s) => Number(cot.q[s]?.mark);
+    const credito = +(mk(legs.putShortSym) + mk(legs.callShortSym) - mk(legs.putLongSym) - mk(legs.callLongSym)).toFixed(2);
+    if (!(credito > 0)) {
+      logStrategyEvent({ strategyFamily: 'MEDIODIA', etTime, stage: 'CREDITO_INVALIDO', passed: false,
+        reason: `Credito al medio ${credito} para la mariposa ${c.centro} — no se abre.` });
+      return;
+    }
+    strikes.premium = credito;
+    const spot = await precioSPXFresco({ rapido: true }).catch(() => null);
+    ctx.spxPrice = spot?.price ?? null;
+    const detalle = { centro: c.centro, mvsPromedio: c.promedio, mvsLecturas: c.n, mvsMin: c.min, mvsMax: c.max,
+                      spot: ctx.spxPrice, distanciaAlCentro: ctx.spxPrice ? +(ctx.spxPrice - c.centro).toFixed(2) : null,
+                      creditoMid: credito, regla: R };
+
+    let order;
+    try {
+      order = await tradier.placeIronCondorOrder({
+        underlyingRoot: 'SPXW', expiry: fecha,
+        putShortStrike: c.centro, putLongStrike: strikes.longStrike,
+        callShortStrike: c.centro, callLongStrike: strikes.callLongStrike,
+        quantity: 1,
+        minCreditPrice: limiteDeAperturaVertical('IRON_CONDOR', credito, null, true),
+      });
+    } catch (e) {
+      console.error('[MEDIODIA] ❌ Error enviando orden:', e.message);
+      await anotarFalloDeOrden({ familia: 'MEDIODIA', error: e, ctx, strikes });
+      return;
+    }
+    anotarOrdenAceptada({ familia: 'MEDIODIA', ctx });
+    const paperEntry = await marcarPaper(order.legs, 'apertura');
+
+    await withExecutionsLock(() => {
+      const executions = loadTradierExecutions();
+      executions.unshift({
+        id:             `tex-${Date.now()}`,
+        signalId:       null,
+        timestamp:      new Date().toISOString(),
+        fechaET:        fecha,
+        strategy:       'IRON_CONDOR',          // ver el comentario de arriba: lo maneja el monitor del IC
+        strategyFamily: 'MEDIODIA',
+        direction:      'NEUTRAL',
+        algoVersion:    { huella: `mediodia-${R.version}`, familia: 'MEDIODIA',
+                          commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || null,
+                          sellado: new Date().toISOString(), parametros: R },
+        isCredit:       true,
+        expType:        '0DTE',
+        strikes,
+        expiry:         fecha,
+        contracts:      1,
+        orderId:        order.orderId,
+        legs:           order.legs,
+        status:         'submitted',
+        entryFillPrice: null,
+        creditReceived: null,
+        paperEntry,
+        paperExit:      null,
+        paperPnl:       null,
+        tpPct:          R.tpPct,
+        slMult:         null,                    // SIN STOP (decision del usuario, 28-sep)
+        maxHoldMin:     null,
+        cierre1DTE_ET:  null,
+        cierreForzadoET: R.cierreForzadoET,
+        mediodia:       detalle,
+        filledAt:       null,
+        closedAt:       null,
+        closeReason:    null,
+        pnl:            null,
+        pnlSource:      null,
+      });
+      saveTradierExecutions(executions);
+    });
+    const reason = `Iron Butterfly ${strikes.longStrike}/${c.centro}/${strikes.callLongStrike} — MVS promedio ` +
+      `${c.promedio} (${c.n} lecturas), spot ${ctx.spxPrice ?? '?'}, credito mid ${credito}. Orden ${order.orderId}.`;
+    console.log(`[MEDIODIA] ✅ ${reason}`);
+    logStrategyEvent({ strategyFamily: 'MEDIODIA', etTime, stage: 'SIGNAL_BUILT', passed: true, reason, snapshot: detalle });
+  } catch (e) {
+    console.error('[MEDIODIA] Error:', e.message);
+    logStrategyEvent({ strategyFamily: 'MEDIODIA', etTime, stage: 'ERROR', passed: false, reason: `Excepción no manejada: ${e.message}` });
+  } finally {
+    mediodiaEnCurso = false;
+  }
+}
+cicloDeTrading(checkMediodia, 60 * 1000);
 
 // Verifica que TODAS las patas de una orden multileg se llenaron completas — no
 // solo que el agregado tenga exec_quantity>0. Antes, un fill parcial/desbalanceado

@@ -45,6 +45,8 @@ DESTINOS = {
     "NEUTRAL":     (os.path.join(BASE, "03_neutral"),                "control_cambios_neutral.xlsx"),
     "REVERSION":   (os.path.join(BASE, "04_reversion a la media"),   "control_cambios_reversion.xlsx"),
     "RUEDA":       (os.path.join(BASE, "01_ciclo rueda"),            "control_cambios_rueda.xlsx"),
+    # MEDIODIA (2026-09-28): IB de las 12:30 en el MVS, nacio del estudio de 07_pinning.
+    "MEDIODIA":    (os.path.join(BASE, "07_pinning"),                "control_cambios_mediodia.xlsx"),
     # Las dos bitacoras tambien llevan control (pedido del usuario). No son
     # estrategias, pero un error ahi puede hacer que una estrategia PAREZCA
     # buena o mala sin serlo — se vio el 2026-08-03: 39 de 62 trades tenian el
@@ -142,7 +144,7 @@ def clasificar_familias(msg, archivos=''):
 #   Estrategia: DIRECCIONAL, RUEDA        (varias separadas por coma)
 _TRAILER_IMPACTO = re.compile(r'^\s*impacto\s*:\s*(ALTO|MEDIO|BAJO)\s*$', re.I | re.M)
 _TRAILER_FAMILIA = re.compile(r'^\s*estrategias?\s*:\s*(.+)$', re.I | re.M)
-FAMILIAS_VALIDAS = {"DIRECCIONAL", "NEUTRAL", "REVERSION", "RUEDA",
+FAMILIAS_VALIDAS = {"DIRECCIONAL", "NEUTRAL", "REVERSION", "RUEDA", "MEDIODIA",
                     "BITACORA_TASTY", "BITACORA_TRADIER"}
 
 
@@ -204,6 +206,7 @@ _ALIAS_FAMILIA = {
     "REVERSION": "REVERSION",
     "NEUTRAL": "NEUTRAL",
     "RUEDA": "RUEDA",
+    "MEDIODIA": "MEDIODIA",
     "BITACORA_TASTY": "BITACORA_TASTY",
     "BITACORA_TRADIER": "BITACORA_TRADIER",
 }
@@ -331,7 +334,7 @@ def archivos_commit(sha):
 #   4. Muestra minima para concluir: 30 trades cerrados.
 CORTE_PNL_FIABLE = "2026-08-03"
 MUESTRA_MINIMA = 30
-FAMILIA_A_EJECUCION = {"DIRECCIONAL": "TENDENCIA", "NEUTRAL": "NEUTRAL", "REVERSION": "REVERSION"}
+FAMILIA_A_EJECUCION = {"DIRECCIONAL": "TENDENCIA", "NEUTRAL": "NEUTRAL", "REVERSION": "REVERSION", "MEDIODIA": "MEDIODIA"}
 PROD = "https://web-production-23473.up.railway.app"
 
 
