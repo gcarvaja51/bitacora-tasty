@@ -822,6 +822,16 @@ Cubierto por `scripts/pruebas.js`, bloque *El conteo de impulsos*, incluida una 
 en bajista **nunca** encarece la entrada y otra que fija el listón en 90 exacto, para que
 moverlo obligue a actualizar la prueba. Backtest y robustez: histórico § *Impulsos de 15m*.
 
+### Botón de pánico — apaga TODAS (2026-09-28)
+`POST /api/spx/panic` recorre **`KILL_SWITCH`**, el mismo registro de los interruptores
+individuales (`/api/spx/strategies`): sumar una estrategia ahí la mete sola en el pánico.
+Antes tenía su lista a mano y PREMERCADO, MEDIODIA y la reversión de apertura quedaban fuera.
+
+Al **pausar** guarda la foto de cada interruptor en `cfg.panico.estadoPrevio` (pausar dos veces
+no la pisa); al **reactivar** devuelve esa foto, no enciende todo — la reversión de media
+mañana está en sombra a propósito. Sin foto, enciende todo **menos** `REVERSION`.
+Interruptores individuales: `tradier.html` → Dashboard → tarjeta *Encendido por Estrategia*.
+
 ### Veto de muro
 `evaluarVetoMuroSombra` marca **solo en BEARISH**. En alcista se midió y no predijo nada
 (brecha 3,6 pp; los 4 trades abiertos con el precio ya pasado el Call Wall ganaron los 4).

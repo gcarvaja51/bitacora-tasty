@@ -4991,6 +4991,14 @@ function loadSPXConfig() {
       saved.trading.mediodia = SPX_CONFIG_DEFAULTS.trading.mediodia;
       saveSPXConfig(saved);
     }
+    // REVERSION de apertura (2026-09-28): el bloque nace APAGADO. Sin el, el
+    // interruptor individual REVERSION_APERTURA respondia 500 ("no existe el
+    // bloque") y el panico no tenia nada que apagar. Acotado a esa clave.
+    if (saved?.trading?.smaReversion && saved.trading.smaReversion.apertura === undefined) {
+      console.log('[SPX] Sumando config de la Reversion de apertura (no existia, nace apagada)');
+      saved.trading.smaReversion.apertura = { ...SPX_CONFIG_DEFAULTS.trading.smaReversion.apertura };
+      saveSPXConfig(saved);
+    }
     // Suma el bloque de Alejamiento de SMA si no existe todavia — acotado a esa
     // sola clave, no toca ironCondor/direccionales ya ajustados en produccion.
     if (saved?.trading && saved.trading.smaReversion === undefined) {
@@ -5218,6 +5226,10 @@ const KILL_SWITCH = {
   PREMERCADO:  cfg => cfg.trading.premercado,
   // MEDIODIA (2026-09-28): una entrada al dia a las 12:30, motor propio.
   MEDIODIA:    cfg => cfg.trading.mediodia,
+  // REVERSION_APERTURA (2026-09-28): la reversion de apertura con gap. Su
+  // interruptor vive DENTRO de smaReversion pero es independiente del de media
+  // manana (REVERSION, hoy en sombra). Apagado = evalua y registra, no opera.
+  REVERSION_APERTURA: cfg => cfg.trading.smaReversion?.apertura,
 };
 app.get('/api/spx/strategies', (req, res) => {
   const cfg = loadSPXConfig();
@@ -5249,37 +5261,67 @@ app.post('/api/spx/strategies/:nombre', (req, res) => {
   res.json({ ok: true, estrategia: nombre, enabled });
 });
 
+// El boton de panico apaga TODAS las estrategias de KILL_SWITCH (2026-09-28,
+// pedido del usuario: "el boton de panico debe apagar todas las estrategias").
+//
+// Antes tenia su propia lista a mano (direccional, IC, reversion) y cada
+// estrategia nueva quedaba afuera sin que nadie lo notara: PREMERCADO nunca se
+// apago con el boton, y MEDIODIA y la reversion de apertura nacieron fuera.
+// Ahora recorre el mismo registro que los interruptores individuales: sumar
+// una estrategia a KILL_SWITCH la mete sola en el panico.
+//
+// Y REACTIVAR restaura lo que habia, no enciende todo. Con interruptores
+// individuales, "todo encendido" ya no es el estado normal: la reversion de
+// media manana esta en sombra A PROPOSITO. Encender todo al reactivar la habria
+// puesto a operar. Al pausar se guarda la foto de cada interruptor en
+// `cfg.panico.estadoPrevio`; al reactivar se devuelve esa foto. Pausar dos
+// veces no pisa la foto con todo apagado.
+function estadoInterruptores(cfg) {
+  const out = {};
+  for (const [k, sel] of Object.entries(KILL_SWITCH)) {
+    const o = sel(cfg);
+    if (o) out[k] = o.tradierAutoExecute !== false;    // ausente = habilitado
+  }
+  return out;
+}
 app.post('/api/spx/panic', (req, res) => {
   const { enabled } = req.body || {};
   if (typeof enabled !== 'boolean') {
     return res.status(400).json({ error: 'enabled debe ser true o false' });
   }
   const cfg = loadSPXConfig();
-  cfg.trading.tradierAutoExecute = enabled;
-  cfg.trading.ironCondor.tradierAutoExecute = enabled;
-  cfg.trading.smaReversion.tradierAutoExecute = enabled;
-  if (cfg.trading.mediodia) cfg.trading.mediodia.tradierAutoExecute = enabled;
+  const antes = estadoInterruptores(cfg);
+  let aplicado;
+  if (!enabled) {
+    if (!cfg.panico?.activo) cfg.panico = { activo: true, pausadoEn: new Date().toISOString(), estadoPrevio: antes };
+    aplicado = Object.fromEntries(Object.keys(antes).map(k => [k, false]));
+  } else {
+    // Sin foto (pausado con el boton viejo, o a mano): se enciende todo MENOS la
+    // reversion de media manana, que esta en sombra por decision del 2026-09-28.
+    aplicado = cfg.panico?.estadoPrevio
+      || Object.fromEntries(Object.keys(antes).map(k => [k, k !== 'REVERSION']));
+    delete cfg.panico;
+  }
+  for (const [k, on] of Object.entries(aplicado)) {
+    const destino = KILL_SWITCH[k]?.(cfg);
+    if (destino) destino.tradierAutoExecute = on;
+  }
   saveSPXConfig(cfg);
-  console.log(`[SPX] Botón de pánico: ${enabled ? 'REACTIVADO' : 'PAUSADO'} (Direccional + Iron Condor + Alejamiento de SMA + Mediodia)`);
-  res.json({ ok: true, enabled, trading: cfg.trading });
+  const lista = Object.entries(aplicado).map(([k, on]) => `${k}:${on ? 'on' : 'off'}`).join(' ');
+  console.log(`[SPX] Botón de pánico: ${enabled ? 'REACTIVADO' : 'PAUSADO'} — ${lista}`);
+  res.json({ ok: true, enabled, estrategias: estadoInterruptores(cfg) });
 });
 
 // GET /api/spx/panic — estado actual, para pintar el botón en el dashboard.
-// `!== false` en vez de `=== true` porque asi es como el gating real trata
-// un flag ausente/undefined (ver checkIronCondor/checkAlejamientoSMA/webhook
-// direccional: "tradierAutoExecute !== false" => ausente = habilitado).
+// "Pausado" = el boton se apreto (hay foto guardada) o todo esta apagado.
+// Ya no hay "MIXTO": con interruptores individuales, tener unas encendidas y
+// otras apagadas es lo normal, no una alarma.
 app.get('/api/spx/panic', (req, res) => {
   const cfg = loadSPXConfig();
-  const t = cfg.trading || {};
-  const flags = {
-    directional:  t.tradierAutoExecute !== false,
-    ironCondor:   (t.ironCondor||{}).tradierAutoExecute !== false,
-    smaReversion: (t.smaReversion||{}).tradierAutoExecute !== false,
-  };
-  const values = Object.values(flags);
-  const allOn  = values.every(v => v === true);
-  const allOff = values.every(v => v === false);
-  res.json({ enabled: allOn, mixed: !allOn && !allOff, flags });
+  const flags = estadoInterruptores(cfg);
+  const todoApagado = Object.values(flags).every(v => v === false);
+  const pausado = !!cfg.panico?.activo || todoApagado;
+  res.json({ enabled: !pausado, mixed: false, pausadoEn: cfg.panico?.pausadoEn ?? null, flags });
 });
 
 // GET /api/spx/cotizacion-viva — diagnostico de la fuente de precio (2026-08-16).

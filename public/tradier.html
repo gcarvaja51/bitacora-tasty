@@ -1485,8 +1485,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(loadPanicStatus, 60000); // refleja cambios hechos por afuera (ej. la reactivación automática de mañana)
 });
 
-// ── Botón de pánico (2026-07-29) — pausa/reactiva Direccional + Iron Condor +
-// Alejamiento de SMA con un click, visible desde cualquier pestaña (vive en
+// ── Botón de pánico (2026-07-29; desde 2026-09-28 pausa TODAS las estrategias
+// de /api/spx/strategies y al reactivar restaura el estado previo) — un click, visible desde cualquier pestaña (vive en
 // el sidebar-footer, fuera del switching de paneles). Ver POST/GET
 // /api/spx/panic en server.js — ese endpoint es el único que debería tocar
 // los 3 flags juntos (a mano vía /api/spx/config hay que mandar el objeto
@@ -1536,7 +1536,7 @@ async function togglePanic(next) {
   // Pausar (la dirección "segura") va directo, sin diálogo — un click y listo,
   // es justamente el punto de un botón de pánico. Reactivar sí pide
   // confirmación, porque vuelve a habilitar operaciones reales con dinero.
-  if (next === true && !confirm('¿Reactivar la ejecución automática (Direccional + Iron Condor + Alejamiento de SMA) en Tradier?')) return;
+  if (next === true && !confirm('¿Reactivar la ejecución automática en Tradier? Cada estrategia vuelve al estado que tenía antes de pausar.')) return;
   const btn = $('panic-btn');
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
   try {
@@ -4732,7 +4732,7 @@ function renderComparativa(){
 async function loadSwitchesTradier(){
   try{
     const r = await api('/api/spx/strategies');
-    const LBL = { DIRECCIONAL:'📈 Direccional', NEUTRAL:'🦅 Neutral (0DTE y 1DTE)', REVERSION:'🔄 Reversión' };
+    const LBL = { DIRECCIONAL:'📈 Direccional', NEUTRAL:'🦅 Neutral (0DTE y 1DTE)', REVERSION:'🔄 Reversión media mañana (sombra)', REVERSION_APERTURA:'🌅 Reversión de apertura (gap)', PREMERCADO:'🌄 Premercado', MEDIODIA:'🦋 IB Mediodía' };
     $('cmp-switches').innerHTML = Object.entries(r.estrategias).map(([k,on])=>`
       <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);">
         <span style="font-size:12px;">${LBL[k]||k}</span>
