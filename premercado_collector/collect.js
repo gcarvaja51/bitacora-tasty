@@ -32,7 +32,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GAMMA_STATUS_PATH = path.join(__dirname, '..', 'gamma_daemon', 'status.json');
-const OUT_ROOT = 'C:\\Users\\gcarv\\Documents\\CARPETA PERSONAL\\01. guillermo carvajal\\01_Sigma\\mentoria alejandro\\premercados alejandro\\control premercado\\data_collector';
+const OUT_ROOT = process.env.PREMERCADO_OUT_ROOT || 'C:\\Users\\gcarv\\Documents\\CARPETA PERSONAL\\01. guillermo carvajal\\01_Sigma\\mentoria alejandro\\premercados alejandro\\control premercado\\data_collector';
 const LOG_PATH = path.join(OUT_ROOT, 'collector.log');
 
 // Presupuesto de tiempo para TODA la parte de TradingView. Incidente real 19 y 20 de
@@ -183,13 +183,51 @@ async function captureChartPng(client, paneIndex, outPath) {
       `estado; el chart se genera con datos reales (chart30m.py).`,
     );
   }
-  await client.Page.enable();
-  await client.Page.bringToFront();
-  await new Promise((r) => setTimeout(r, 1200));   // que el compositor pinte al menos un frame
-  // NUNCA capturar sin `clip`: sin recorte, sobre una ventana que no compone, la llamada
-  // no vuelve nunca y no hay timeout de CDP que la rescate.
-  const { data } = await client.Page.captureScreenshot({ format: 'png', clip: { ...bounds, scale: 1 } });
-  writeFileSync(outPath, Buffer.from(data, 'base64'));
+  // (2026-09-29) La foto la saca TradingView, no el compositor. Page.captureScreenshot
+  // siguio colgandose aun con el chart midiendo 1175x562, visibilityState "visible" y la
+  // oclusion nativa ya apagada por Electron (CalculateNativeWinOcclusion): 24, 25, 26-ago,
+  // 28 y 29-sep. clientSnapshot() es la funcion que usa el boton de camara de TradingView:
+  // redibuja el layout desde sus canvas internos a un canvas nuevo, sin pedirle un frame a
+  // Windows. Medido en vivo el 29-sep a las 08:44 ET con la ventana SIN foco: 2,8 s,
+  // 1793x974, con escala, eje de tiempo y los paneles de indicadores. Fotografia los charts
+  // VISIBLES del layout (en "layaout M2K" es uno solo, el pane del SPX).
+  //
+  // VELAS SOLO PARA LA FOTO (pedido del usuario, 2026-09-29): su chart del SPX esta en
+  // linea (chartType 2) y la foto lo copiaba. Se pone en velas (1), se fotografia y se
+  // devuelve el tipo que tenia, pase lo que pase con la foto.
+  const tipoOriginal = await evalOn(client, `${CHART_API}.chartType()`).catch(() => null);
+  try {
+    if (tipoOriginal !== 1) {
+      await evalOn(client, `${CHART_API}.setChartType(1)`);
+      await new Promise((res) => setTimeout(res, 1000));   // que redibuje las velas
+    }
+    await snapshotPng(client, outPath);
+  } finally {
+    if (tipoOriginal != null && tipoOriginal !== 1) {
+      await evalOn(client, `${CHART_API}.setChartType(${Number(tipoOriginal)})`).catch(() => {});
+    }
+  }
+}
+
+async function snapshotPng(client, outPath) {
+  const r = await client.Runtime.evaluate({
+    returnByValue: true,
+    awaitPromise: true,
+    expression: `(async function() {
+      var col = window.TradingViewApi._chartWidgetCollection;
+      var c = await Promise.race([
+        col.clientSnapshot(),
+        new Promise(function(_, j) { setTimeout(function() { j(new Error('clientSnapshot no respondio en 15s')); }, 15000); }),
+      ]);
+      return { w: c.width, h: c.height, url: c.toDataURL('image/png') };
+    })()`,
+  });
+  if (r.exceptionDetails) {
+    throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text || 'clientSnapshot fallo');
+  }
+  const { w, h, url } = r.result.value || {};
+  if (!(w > 0 && h > 0) || !url) throw new Error(`clientSnapshot devolvio un canvas vacio (${w}x${h})`);
+  writeFileSync(outPath, Buffer.from(url.split(',')[1], 'base64'));
 }
 
 // El simbolo del chart ACTIVO -- el que de verdad van a tocar setResolution(),
