@@ -1306,6 +1306,9 @@ otro fichero, otro endpoint.
   nuevo (TP contra `baseDePrecio`, sin stop por `slMult === null`, cierre por
   `cierreForzadoET`) y se cierra como dos verticales, el camino que sí llena. **Cualquier
   cambio al monitor del IC le afecta también a ella.**
+- **En pantalla sale como "IB"**, no como IRON_CONDOR: `tipoCorto()` (`public/tradier.html`) muestra
+  IB si es MEDIODIA o si las dos cortas comparten strike, e IC para el resto de condores. Solo
+  presentacion: el dato guardado sigue siendo `IRON_CONDOR`.
 - No genera señal en `spx_signals.json`: el dedup del IC 0DTE lee señales, así que no se
   pisan. Su dedup es por `fechaET` en las ejecuciones (una `canceled` no gasta el día).
 - `algoVersion.huella` = `mediodia-v1` a mano, con la `REGLA` en claro; `ex.mediodia`

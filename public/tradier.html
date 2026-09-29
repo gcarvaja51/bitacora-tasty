@@ -1571,6 +1571,16 @@ const ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', N
 // SPX (local o inferido para reconciliadas, ver tradier_closed_pnl_adapter.js)
 // pero La Rueda LOCAL nunca lo seteo (se identifica por stratType==='The
 // Wheel', mismo criterio que ya usaba el fallback de origenLabel).
+// Tipo de estructura en corto (2026-09-28, pedido del usuario: "IB" e "IC"). El MEDIODIA
+// se registra como IRON_CONDOR para que lo gestione el monitor del IC, pero es una
+// mariposa: se reconoce por las dos cortas en el mismo strike. Solo presentacion.
+function tipoCorto(s) {
+  if (s.stratType === 'IRON_CONDOR') {
+    const k = s.strikes || {};
+    return (s.strategyFamily === 'MEDIODIA' || (k.shortStrike != null && k.shortStrike === k.callShortStrike)) ? 'IB' : 'IC';
+  }
+  return s.stratType || '—';
+}
 function getFamilia(s) {
   return s.strategyFamily || (s.stratType === 'The Wheel' ? 'RUEDA' : null);
 }
@@ -2855,7 +2865,7 @@ async function loadHistoryTradier() {
               <td class="${s.direction==='BULLISH'?'pos':s.direction==='BEARISH'?'neg':'dim'}">${s.direction||'—'}</td>
               <td style="font-size:11px;">${origenLabel}</td>
               <td class="td-bright">${s.underlying||'—'}</td>
-              <td><span class="badge badge-blue" style="font-size:9px;">${s.stratType||'—'}</span></td>
+              <td><span class="badge badge-blue" style="font-size:9px;">${tipoCorto(s)}</span></td>
               <td class="td-mono">${strikesLabel}</td>
               <td style="font-size:11px;">${cierreLabel}</td>
               <td class="td-mono dim">${durLabel}</td>
@@ -3253,7 +3263,7 @@ async function loadReportsTradier(forceRefresh) {
       <td class="td-mono dim">${s.closeDate||'—'}</td>
       <td class="${s.direction==='BULLISH'?'pos':s.direction==='BEARISH'?'neg':'dim'}">${s.direction||'—'}</td>
       <td style="font-size:11px;">${origenLabel}</td>
-      <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+      <td><span class="badge badge-muted" style="font-size:9px;">${tipoCorto(s)}</span></td>
       <td class="td-bright">${s.underlying||'—'}</td>
       <td class="td-mono">${strikesLabel}</td>
       <td style="font-size:11px;">${cierreLabel}</td>
@@ -3420,7 +3430,7 @@ async function calDayClickTradier(dateStr, pnl) {
         return `<tr style="cursor:pointer;" onclick="calShowTradeDetailTradier('${tkey}')">
           <td><span class="badge badge-gold" style="font-size:9px;">Cierre</span></td>
           <td class="td-bright" style="font-weight:700;">${s.underlying}</td>
-          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${tipoCorto(s)}</span></td>
           <td class="td-mono dim">${s.durationDays===0?'Intradía':s.durationDays+'d'}</td>
           <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
           <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
@@ -3434,7 +3444,7 @@ async function calDayClickTradier(dateStr, pnl) {
         return `<tr style="opacity:.8;cursor:pointer;" onclick="calShowTradeDetailTradier('${tkey}')">
           <td><span class="badge badge-blue" style="font-size:9px;">Apertura</span></td>
           <td class="td-bright" style="font-weight:700;">${s.underlying}</td>
-          <td><span class="badge badge-muted" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td><span class="badge badge-muted" style="font-size:9px;">${tipoCorto(s)}</span></td>
           <td class="td-mono dim">Abierto</td>
           <td class="td-mono pos">${s.openValue?'+'+fa$(Math.abs(s.openValue)):'—'}</td>
           <td class="td-mono dim">En curso</td>
@@ -3463,7 +3473,7 @@ function calShowTradeDetailTradier(tkey) {
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
         <div style="font-size:24px;font-weight:800;color:var(--bright);font-family:var(--mono);">${s.underlying}</div>
         <span class="badge ${s.closeDate?'badge-gold':'badge-blue'}" style="font-size:11px;">${s.closeDate?'Cerrado':'Abierto'}</span>
-        <span class="badge badge-muted" style="font-size:11px;">${s.stratType||'—'}</span>
+        <span class="badge badge-muted" style="font-size:11px;">${tipoCorto(s)}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
         <div style="background:var(--bg);border-radius:8px;padding:10px;">
@@ -3589,7 +3599,7 @@ function renderTodayRowsTradier(list, col, asc) {
         return `<tr>
           <td class="td-mono dim">${s.closeTime}</td>
           <td class="td-bright">${s.underlying}${s.flaggedError?` <span title="${(s.flaggedErrorNote||'Marcado como error de implementación').replace(/"/g,'&quot;')}" style="cursor:help;">⚠️</span>`:''}</td>
-          <td><span class="badge badge-gold" style="font-size:9px;">${s.stratType||'—'}</span></td>
+          <td><span class="badge badge-gold" style="font-size:9px;">${tipoCorto(s)}</span></td>
           <td class="td-mono dim">${dur}</td>
           <td class="td-mono ${cc(s.pnl)}" style="font-weight:700;">${f$(s.pnl)}</td>
           <td>${s.capPct!==null?`<span class="${s.capPct>=0?'pos':'neg'}">${s.capPct>0?'+':''}${s.capPct}%</span>`:'—'}</td>
@@ -4877,7 +4887,7 @@ async function loadDashboardTradier() {
       <div class="stat-row">
         <div>
           <span class="td-bright" style="font-size:12px;">${s.underlying}</span>
-          <span class="dim" style="font-size:10px;margin-left:6px;">${s.stratType||'—'}</span>
+          <span class="dim" style="font-size:10px;margin-left:6px;">${tipoCorto(s)}</span>
           <span class="dim" style="font-size:10px;margin-left:6px;">${s.closeDate}</span>
         </div>
         <div class="${cc(s.pnl)} td-mono" style="font-size:12px;">${f$(s.pnl)}</div>
