@@ -10459,7 +10459,18 @@ async function checkIronCondorTPSL() {
 async function checkIronCondorTPSLImpl() {
   try {
     const executions = loadTradierExecutions();
-    const abiertas = executions.filter(e => ['IRON_CONDOR', 'DEBIT_PUT_CONDOR'].includes(e.strategy) && (e.status === 'submitted' || e.status === 'filled'));
+    // UN REGISTRO ROTO APAGABA EL MONITOR ENTERO (2026-09-29). Un IC del 21-sep
+    // quedo 'submitted' con orderId null; getOrder(null) tira 400 y el throw caia
+    // en el catch de fuera, cortando la vuelta cada 90s ANTES de llegar a los
+    // demas. Asi la MEDIODIA del 29-sep (llenada 12:30) seguia 'submitted' sin TP
+    // ni cierre de las 15:30. Se saltan los que no tienen orden y los de un
+    // vencimiento ya pasado (no hay nada que gestionar; los ve la reconciliacion),
+    // y cada confirmacion de fill va en su propio try.
+    const hoyET = calendario.fechaET(new Date());
+    const abiertas = executions.filter(e => ['IRON_CONDOR', 'DEBIT_PUT_CONDOR'].includes(e.strategy) &&
+      (e.status === 'submitted' || e.status === 'filled') &&
+      e.orderId != null &&
+      !((e.expiry || e.strikes?.expiry) && (e.expiry || e.strikes?.expiry) < hoyET));
     if (!abiertas.length) return;
 
     let cambios = false;
@@ -10469,7 +10480,9 @@ async function checkIronCondorTPSLImpl() {
       // 1. Confirmar fill si aun no se confirmo — esperar al siguiente ciclo para
       // evaluar TP/SL una vez que sepamos el credito/debito real.
       if (ex.status === 'submitted') {
-        const order = await tradier.getOrder(ex.orderId);
+        let order;
+        try { order = await tradier.getOrder(ex.orderId); }
+        catch (e) { console.error(`[Tradier-IC-TPSL] getOrder ${ex.orderId} fallo: ${e.message}`); continue; }
         if (order) {
           const fillCheck = verificarFillPorPata(order, ex.contracts);
           if (fillCheck.completo) {
