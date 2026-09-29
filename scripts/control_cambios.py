@@ -46,7 +46,8 @@ DESTINOS = {
     "REVERSION":   (os.path.join(BASE, "04_reversion a la media"),   "control_cambios_reversion.xlsx"),
     "RUEDA":       (os.path.join(BASE, "01_ciclo rueda"),            "control_cambios_rueda.xlsx"),
     # MEDIODIA (2026-09-28): IB de las 12:30 en el MVS, nacio del estudio de 07_pinning.
-    "MEDIODIA":    (os.path.join(BASE, "07_pinning"),                "control_cambios_mediodia.xlsx"),
+    # Movido a "IB mediodia" el 2026-09-29 junto con todo el analisis del IB.
+    "MEDIODIA":    (os.path.join(BASE, "IB mediodia"),               "control_cambios_mediodia.xlsx"),
     # Las dos bitacoras tambien llevan control (pedido del usuario). No son
     # estrategias, pero un error ahi puede hacer que una estrategia PAREZCA
     # buena o mala sin serlo — se vio el 2026-08-03: 39 de 62 trades tenian el

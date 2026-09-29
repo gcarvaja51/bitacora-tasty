@@ -1266,7 +1266,7 @@ rejilla de 5, y cada lectura guarda `atr14` y `alaPrincipalEnATR`.
   lección que costó el registro anterior al 8-sep, aplicada a tiempo. Estudio § 10.
 
 ### Iron Butterfly ATM de mediodía — SOLO ANÁLISIS, no opera (2026-09-25)
-Estudio en `07_pinning/README.md` §11 (scripts 14-19). **Independiente del PIN**: otra regla,
+Estudio en `estrategias automatizadas/IB mediodia/README.md` §1 (scripts 14-19; antes 07_pinning §11, movido el 29-sep). **Independiente del PIN**: otra regla,
 otro fichero, otro endpoint.
 
 | | |
@@ -1313,7 +1313,7 @@ otro fichero, otro endpoint.
   pisan. Su dedup es por `fechaET` en las ejecuciones (una `canceled` no gasta el día).
 - `algoVersion.huella` = `mediodia-v1` a mano, con la `REGLA` en claro; `ex.mediodia`
   guarda el MVS (promedio, n, min, max), el spot y la distancia al centro al entrar.
-- **Lo que se sabía al encenderla, sin maquillar:** la regla parecida del estudio (07_pinning
+- **Lo que se sabía al encenderla, sin maquillar:** la regla parecida del estudio (IB mediodia §1a, antes 07_pinning
   §11a: **moda** del MVS de la **última hora**) perdió contra centrar en el spot en 3 de 4
   horarios. Esta (promedio, 30 min) no tiene muestra propia: el 28-sep habría centrado en 7700
   —el ATM de la sombra puso 7715 en pleno pico— y habría cerrado por TP (crédito **estimado**).
