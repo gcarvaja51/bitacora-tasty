@@ -15173,7 +15173,7 @@ app.get('/api/transactions-tradier', async (req, res) => {
 app.get('/api/positions-tradier', async (req, res) => {
   try {
     const data = await cached('positions-tradier', 30, async () => {
-      const { groupPositionsTradier } = require('./src/positions_tradier_adapter');
+      const { groupPositionsTradierPorEjecucion } = require('./src/positions_tradier_adapter');
       const positions = await tradier.getPositions();
       const symbols = positions.map(p => p.symbol).filter(Boolean);
       const quotes = symbols.length ? await tradier.getQuotes(symbols) : [];
@@ -15221,8 +15221,12 @@ app.get('/api/positions-tradier', async (req, res) => {
       // pantalla restaba un mark en vivo contra un costo del sandbox diferido, y
       // Posiciones mostraba un P&L distinto del que mostraba Historial para la
       // misma posicion abierta.
+      // Una fila por trade registrado (2026-10-01): el sandbox funde en una sola
+      // posicion las patas que comparten dos estrategias (MEDIODIA y TENDENCIA
+      // en la 7635P) y la fila salia con la entrada de la otra. Ver
+      // groupPositionsTradierPorEjecucion.
       const entradaRealMap = construirEntradaRealMap();
-      const groups = groupPositionsTradier(positions, quotesMap, entradaRealMap);
+      const groups = groupPositionsTradierPorEjecucion(positions, quotesMap, entradaRealMap, loadTradierExecutions());
 
       // Precio del subyacente por grupo — mismo endpoint generico (Yahoo,
       // broker-agnostico) que ya usa loadPositions() de Tasty.

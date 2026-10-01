@@ -365,6 +365,48 @@ chequear('en horario de mercado la fecha no cambia',
 //     eso /api/transactions pide `limit: 0`. La prueba de humo comprueba que el
 //     endpoint devuelve TODOS los round-trips que dice tener.
 
+// ── 1c. Posiciones Tradier: una fila por trade, aunque compartan pata ───────
+// Caso real del 2026-10-01: MEDIODIA y TENDENCIA compraron las dos la 7635P y
+// la fila del IB salia con la entrada de la otra (premium $470 en vez de $1.200).
+seccion('Posiciones Tradier por ejecucion (src/positions_tradier_adapter.js)');
+{
+  const { groupPositionsTradierPorEjecucion } = require('../src/positions_tradier_adapter');
+  const S = k => `SPXW261001${k}000`;
+  const ib = { id: 'ib', status: 'filled', timestamp: '2026-10-01T16:30:25Z', contracts: 1,
+    strategy: 'IRON_CONDOR', strategyFamily: 'MEDIODIA',
+    legs: { putShortSym: S('P07650'), putLongSym: S('P07635'), callShortSym: S('C07650'), callLongSym: S('C07665') },
+    paperEntry: { confiable: true, patas: [
+      { shortSym: S('P07650'), longSym: S('P07635'), shortBid: 15.9, longAsk: 8.6 },
+      { shortSym: S('C07650'), longSym: S('C07665'), shortBid: 8.6, longAsk: 3.9 }] } };
+  const bear = { id: 'bear', status: 'filled', timestamp: '2026-10-01T14:30:36Z', contracts: 1,
+    strategy: 'BEAR_PUT_SPREAD', strategyFamily: 'TENDENCIA',
+    legs: { shortSym: S('P07625'), longSym: S('P07635') },
+    paperEntry: { confiable: true, patas: [{ shortSym: S('P07625'), longSym: S('P07635'), shortBid: 11.1, longAsk: 15.9 }] } };
+  const q = { [S('P07650')]: { mark: 1 }, [S('P07635')]: { mark: 0.3 }, [S('C07650')]: { mark: 24.9 },
+              [S('C07665')]: { mark: 12.2 }, [S('P07625')]: { mark: 0.1 } };
+  const base = [
+    { symbol: S('P07650'), quantity: -1, cost_basis: -2220 },
+    { symbol: S('C07650'), quantity: -1, cost_basis: -610 },
+    { symbol: S('C07665'), quantity: 1,  cost_basis: 275 },
+  ];
+  // Las dos vivas: la 7635P aparece fundida (cantidad 2) en el broker.
+  let g = groupPositionsTradierPorEjecucion(base.concat([
+    { symbol: S('P07635'), quantity: 2, cost_basis: 2840 },
+    { symbol: S('P07625'), quantity: -1, cost_basis: -1190 }]), q, {}, [bear, ib]);
+  const fIb = g.find(x => x.execId === 'ib'), fBear = g.find(x => x.execId === 'bear');
+  chequear('pata compartida: dos filas, una por trade', g.length === 2 && fIb && fBear, `dio ${g.length}`);
+  chequear('el IB cobra su propia prima ($1.200)', fIb && Math.round(fIb.premiumNet) === 1200, `dio ${fIb && fIb.premiumNet}`);
+  chequear('el IB se reconoce como mariposa', fIb && fIb.esButterfly === true);
+  chequear('la vertical se queda con su entrada', fBear && Math.round(fBear.premiumNet) === -480, `dio ${fBear && fBear.premiumNet}`);
+  // TENDENCIA ya cerro en el broker pero el registro sigue 'filled': no reclama nada.
+  g = groupPositionsTradierPorEjecucion(base.concat([{ symbol: S('P07635'), quantity: 1, cost_basis: 1420 }]), q, {}, [bear, ib]);
+  chequear('un registro sin patas en el broker no inventa fila', g.length === 1 && g[0].execId === 'ib', `dio ${g.length}`);
+  chequear('y el IB no hereda la entrada de la otra', Math.round(g[0].premiumNet) === 1200, `dio ${g[0].premiumNet}`);
+  // Lo que no tiene registro (La Rueda) sigue saliendo como antes.
+  g = groupPositionsTradierPorEjecucion([{ symbol: 'ANET260904P00160000', quantity: -1, cost_basis: -300 }], {}, {}, [ib]);
+  chequear('sin registro se agrupa como antes', g.length === 1 && !g[0].execId);
+}
+
 // ── 2. Los frenos ───────────────────────────────────────────────────────────
 seccion('El circuito diario (src/frenos.js)');
 

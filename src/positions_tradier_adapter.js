@@ -137,6 +137,100 @@ function separarPosicionesIndependientes(g) {
   });
 }
 
+// ── Una fila por trade registrado, no por vencimiento (2026-10-01) ──────────
+//
+// El sandbox no sabe de estrategias: si dos trades abiertos comparten un
+// simbolo, el broker los funde en UNA posicion con el costo promediado. Caso
+// real que lo destapo (usuario: "la prima recibida es demasiado baja... deberia
+// haber sido unos 1200 dolares"): la MEDIODIA del 1-oct (IB 7635/7650/7665)
+// compro la 7635P que TENDENCIA ya habia comprado a las 10:30. Al cerrar
+// TENDENCIA quedo una sola 7635P y la pantalla le puso el precio de entrada de
+// la manana (15,90 en vez de 8,60): Premium Rec. $470 en vez de $1.200 y P&L
+// -$850 en vez de ~-$120. La misma posicion salia bien en Historial.
+//
+// Ahora cada ejecucion abierta del registro reclama del broker la cantidad que
+// le toca de cada pata (mas nueva primero) y forma su propia fila, con la
+// entrada de SU paperEntry — el mismo precio que usan Historial y el robot. Lo
+// que nadie reclama (La Rueda, posiciones adoptadas) sigue agrupandose como
+// antes. Una ejecucion cuyas patas ya no estan en el broker (cierre que lleno
+// pero no se registro) no reclama nada: no se inventa una fila para ella.
+function ladoDeLaPata(clave) {
+  if (/shortsym$/i.test(clave)) return -1;
+  if (/longsym$/i.test(clave))  return 1;
+  return 0;
+}
+
+function asignarPorEjecucion(positions = [], ejecuciones = []) {
+  const resto = new Map();
+  for (const p of positions) {
+    const q = parseFloat(p.quantity || 0);
+    if (p.symbol && q) resto.set(p.symbol, { pos: p, libre: q });
+  }
+  const asignadas = [];
+  const abiertas = ejecuciones
+    .filter(ex => ex && ex.status === 'filled' && ex.legs && typeof ex.legs === 'object')
+    .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+
+  for (const ex of abiertas) {
+    const n = Math.abs(parseFloat(ex.contracts || 1)) || 1;
+    const patas = Object.entries(ex.legs).filter(([, s]) => s);
+    if (!patas.length || patas.some(([k]) => ladoDeLaPata(k) === 0)) continue;
+    const alcanza = patas.every(([k, sym]) => {
+      const r = resto.get(sym);
+      return r && Math.sign(r.libre) === ladoDeLaPata(k) && Math.abs(r.libre) >= n;
+    });
+    if (!alcanza) continue;
+
+    const entrada = {};
+    const pe = ex.paperEntry;
+    if (pe?.confiable && Array.isArray(pe.patas)) {
+      for (const pt of pe.patas) {
+        if (pt.shortSym && Number.isFinite(pt.shortBid)) entrada[pt.shortSym] = pt.shortBid;
+        if (pt.longSym  && Number.isFinite(pt.longAsk))  entrada[pt.longSym]  = pt.longAsk;
+      }
+    }
+    const legs = patas.map(([k, sym]) => {
+      const r = resto.get(sym);
+      const total = parseFloat(r.pos.quantity || 0);
+      const cantidad = ladoDeLaPata(k) * n;
+      r.libre -= cantidad;
+      const costo = parseFloat(r.pos.cost_basis || 0) * (cantidad / total);
+      return { pos: { ...r.pos, quantity: cantidad, cost_basis: costo }, entrada: entrada[sym] };
+    });
+    asignadas.push({ ex, legs });
+  }
+
+  const sobrantes = [];
+  for (const { pos, libre } of resto.values()) {
+    if (!libre) continue;
+    const total = parseFloat(pos.quantity || 0);
+    sobrantes.push(libre === total ? pos : { ...pos, quantity: libre, cost_basis: parseFloat(pos.cost_basis || 0) * (libre / total) });
+  }
+  return { asignadas, sobrantes };
+}
+
+function groupPositionsTradierPorEjecucion(positions = [], quotesMap = {}, entradaRealMap = {}, ejecuciones = []) {
+  const { asignadas, sobrantes } = asignarPorEjecucion(positions, ejecuciones);
+  const propias = asignadas.flatMap(({ ex, legs }) => {
+    const entradas = {};
+    legs.forEach(l => { if (Number.isFinite(l.entrada)) entradas[l.pos.symbol] = l.entrada; });
+    const grupos = groupPositionsTradier(legs.map(l => l.pos), quotesMap, entradas);
+    if (legs.some(l => !Number.isFinite(l.entrada))) grupos.forEach(g => { g.entradaFuente = 'tradier_fill'; });
+    return grupos.map(g => {
+      const cortas = g.legs.filter(l => l.isShort);
+      g.execId = ex.id;
+      g.strategyFamily = ex.strategyFamily || null;
+      g.estrategia = ex.strategy || null;
+      g.esButterfly = cortas.length === 2 && cortas[0].strike === cortas[1].strike;
+      if (ex.timestamp) g.openDate = String(ex.timestamp).slice(0, 10);
+      return g;
+    });
+  });
+  return propias
+    .concat(groupPositionsTradier(sobrantes, quotesMap, entradaRealMap))
+    .sort((a, b) => a.underlying.localeCompare(b.underlying));
+}
+
 function strategyTypeTradier(g) {
   if (g.isStock) return 'Acciones';
   const legs = g.legs;
@@ -149,4 +243,4 @@ function strategyTypeTradier(g) {
   return `Spread (${legs.length}p)`;
 }
 
-module.exports = { groupPositionsTradier, strategyTypeTradier };
+module.exports = { groupPositionsTradier, groupPositionsTradierPorEjecucion, asignarPorEjecucion, strategyTypeTradier };

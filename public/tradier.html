@@ -3714,6 +3714,11 @@ function celdaCierreTradier(g) {
 
 function STRAT_TYPE_LABEL(g) {
   if (g.isStock) return 'Acciones';
+  // Fila de un trade registrado (2026-10-01, groupPositionsTradierPorEjecucion):
+  // se dice de que estrategia es, para no confundirla con otra que comparta patas.
+  const fam = g.strategyFamily ? ` · ${g.strategyFamily}` : '';
+  if (g.esButterfly) return 'Iron Butterfly' + fam;
+  if (fam) return STRAT_TYPE_LABEL({ ...g, strategyFamily: null }) + fam;
   const puts = g.legs.filter(l=>l.optType==='P'), calls = g.legs.filter(l=>l.optType==='C');
   if (g.legs.length===1) return (puts.length?'Put':'Call') + (g.legs[0].isShort?' Vendida':' Comprada');
   if (g.legs.length===2 && puts.length===2)  return 'Put Spread';
