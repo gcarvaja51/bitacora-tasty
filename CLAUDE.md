@@ -1365,6 +1365,14 @@ Railway solo instala el de la raíz, así que nunca se despliega.
   así aparece la cadena de hoy: el ciclo cuenta como fallo y las estrategias caen al
   respaldo. `expiry: null` no bloquea. Pruebas: `node gamma_daemon/vencimiento.test.mjs`.
   Histórico § *La pestaña de Sigma se quedaba en el vencimiento de ayer*.
+- **Una lectura fallida no se reintenta sobre la misma pestaña (2026-10-02).**
+  `recuperacion.js`: por cada fallo seguido de *lectura* de Sigma (no del POST) → recargar,
+  recargar, `sigma.descartarNavegador()`, y vuelta a empezar. Sin esto la pestaña trabada se
+  reusaba hasta que el vigilante mataba el proceso (~15–18 min). La consola va a
+  `daemon_stdout.log` con hora ISO por línea — **no editar `start.bat` con el bucle vivo**
+  (cmd lo relee por posición): parar cmd y node, editar, relanzar oculto. Pruebas:
+  `node gamma_daemon/recuperacion.test.mjs`. Histórico § *Una pestaña de Sigma trabada se
+  reusaba…*.
 - `tv.js` — CDP crudo (`chrome-remote-interface`) directo contra TradingView Desktop, sin
   pasar por el servidor MCP. **Prueba cada ventana candidata hasta encontrar una con SPX
   cargado de verdad** en vez de conectar a la primera que matchee — esa era la causa raíz del

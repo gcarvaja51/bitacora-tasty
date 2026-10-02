@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 :loop
-node index.js
+node index.js >> daemon_stdout.log 2>&1
 echo [%date% %time%] index.js termino (posible crash), reiniciando en 15s... >> daemon_crash_log.txt
 rem OJO: no usar "timeout" aca. Sin consola interactiva (que es el caso cuando lo
 rem lanza la Tarea Programada) falla al instante con "Input redirection is not

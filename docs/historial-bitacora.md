@@ -19,6 +19,39 @@
 
 ---
 
+## Una pestaña de Sigma trabada se reusaba hasta que el vigilante mataba el proceso (2026-10-02)
+
+**Síntoma.** El 02-oct, de 09:28 a 09:49 ET (la apertura), el daemon no leyó Sigma. El panel
+de 15m de TradingView siguió hasta las 09:52 con los muros del premercado: Call 7700, Put
+7625, Flip 7678 y GEX **−3.9B**, cuando Sigma ya daba 7750/7700/7690 y GEX **+27.6B**, o sea
+el régimen al revés en el gráfico con el que se opera.
+
+**Secuencia.** 09:28 `Sigma Terminal no devolvio el simbolo tras 10s` ×3 → degradado (ciclo
+de 2 min) → reintentos sobre **la misma pestaña** → 09:46 el vigilante mata node → el Chrome
+recién lanzado también da `Navigation timeout of 90000 ms` (Sigma estaba lento de verdad) →
+09:49 vuelve.
+
+**Causa (la parte nuestra).** `ensurePage()` solo descarta la pestaña si un `evaluate(() =>
+true)` falla. Una página que no termina de pintar el terminal **sí** responde a eso, así que
+el ciclo de error no hacía nada y el siguiente leía la misma pestaña trabada. La única salida
+era el vigilante, ~15–18 min después. El 30-sep (`Runtime.callFunctionOn timed out`, 27 min)
+tiene la misma forma.
+
+**No es de la apertura.** Huecos >5 min en horario de mercado, 18-sep a 02-oct: 4 de 11 días
+entre 09:00 y 10:20 ET, el resto entre 10:44 y 13:48. El daemon no cambia nada a las 09:30.
+
+**Arreglo.** `recuperacion.js` (`crearRecuperador`): por cada fallo seguido de **lectura**
+(no del POST), recargar, recargar, relanzar el navegador (`sigma.descartarNavegador()`, que
+suelta las referencias antes de cerrar para no colgarse con un renderer muerto), y vuelta a
+empezar. Pruebas: `node gamma_daemon/recuperacion.test.mjs`. No arregla un Sigma caído: acorta
+el corte cuando el problema es la pestaña.
+
+**Diagnóstico.** La consola del daemon no se guardaba en ningún lado. Desde hoy `start.bat`
+manda la salida a `daemon_stdout.log` y cada línea lleva hora ISO, para poder separar la
+próxima vez qué parte de un corte fue Sigma y qué parte fuimos nosotros.
+
+---
+
 ## La pestaña de Sigma se quedaba en el vencimiento de ayer (2026-09-22)
 
 **Síntoma.** El premercado automático del 22-sep salió con los muros "RANCIOS" (985 min):

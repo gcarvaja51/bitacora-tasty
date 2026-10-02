@@ -3,9 +3,21 @@
 // (contador de fallos consecutivos, modo degradado), y solo usa codigo determinista --
 // ningun LLM en el loop caliente. Ver notas de diseño en CLAUDE.md / conversacion del
 // 2026-07-30.
+// Hora en cada linea de consola (2026-10-02). start.bat manda la salida a
+// daemon_stdout.log; antes no quedaba en ningun lado y el corte del 02-oct no se
+// pudo reconstruir mas alla de status.json y del vigilante.
+for (const nivel of ['log', 'warn', 'error']) {
+  const orig = console[nivel].bind(console);
+  console[nivel] = (...args) => {
+    if (typeof args[0] === 'string') args[0] = `${new Date().toISOString()} ${args[0]}`;
+    else args.unshift(new Date().toISOString());
+    orig(...args);
+  };
+}
 import * as sigma from './sigma.js';
 import * as tv from './tv.js';
 import { crearLectorDeHoy, exigirVencimientoDeHoy } from './vencimiento.js';
+import { crearRecuperador } from './recuperacion.js';
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -77,6 +89,9 @@ let lastTvSaveAt = 0;          // ultimo guardado del layout a la nube (ver TV_S
 let tvSaveFailures = 0;        // fallos del guardado — solo afectan a lo que ve el celular
 let alerted = false;
 let mode = 'normal';
+// Fallos seguidos de LECTURA de Sigma (no del POST). Manda la escalera de
+// recuperacion: recargar, recargar, relanzar. Ver recuperacion.js (2026-10-02).
+let fallosLecturaSigma = 0;
 let stopped = false;
 
 function loadStatus() {
@@ -217,6 +232,11 @@ const leerSigmaDeHoy = crearLectorDeHoy({
   fechaET: () => calendario.fechaET(),
 });
 
+const recuperarSigma = crearRecuperador({
+  recargar: () => sigma.recargarTerminal(),
+  relanzar: () => sigma.descartarNavegador(),
+});
+
 // Ciclo reducido de premercado. Deliberadamente sin try/catch propio de reintento:
 // si Sigma no responde a esta hora (posibilidad real, la terminal puede no servir
 // datos tan temprano), se anota el motivo y se vuelve a intentar en 30s. Un fallo
@@ -316,6 +336,7 @@ async function pushToTradingViewWithRetry(inputs) {
 }
 
 async function runCycle() {
+  let leyendoSigma = false;
   if (!isMarketWindow()) {
     // Antes de darse por dormido: si estamos en la franja de premercado, hay un
     // trabajo reducido que hacer (leer Sigma para el informe, ver arriba).
@@ -332,7 +353,10 @@ async function runCycle() {
   }
 
   try {
+    leyendoSigma = true;
     const levels = await leerSigmaDeHoy();
+    leyendoSigma = false;
+    fallosLecturaSigma = 0;
     // CERROJO DE VENCIMIENTO EN SESION (2026-09-22). El de premercado ya existia;
     // aca faltaba, y el 22-sep entre las 09:00 y las 09:11 el servidor y TradingView
     // recibieron los muros del 0DTE del lunes, ya vencido, con fresh: true. Si ni
@@ -566,6 +590,14 @@ async function runCycle() {
       lastError: e.message,
     });
     console.error(`[ciclo] fallo #${consecutiveFailures}:`, e.message);
+
+    // La pestaña de Sigma no se reusa trabada (2026-10-02): si lo que fallo fue
+    // la LECTURA, se recarga o se relanza el navegador en vez de esperar ~15 min
+    // a que el vigilante mate el proceso. Ver recuperacion.js.
+    if (leyendoSigma) {
+      fallosLecturaSigma += 1;
+      await recuperarSigma(fallosLecturaSigma);
+    }
 
     // Aviso al 3er fallo y REPETIDO cada 20 despues (2026-08-10).
     //

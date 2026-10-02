@@ -711,6 +711,22 @@ export async function cerrarAuxiliar(aux) {
   try { if (aux && !aux.isClosed()) await aux.close(); } catch (e) { /* ya cerrada */ }
 }
 
+// Descarta el navegador para que el proximo ensurePage() lo relance limpio
+// (2026-10-02, ver recuperacion.js). Las referencias se sueltan ANTES de cerrar:
+// con un renderer colgado browser.close() puede no volver nunca, y si quedaran
+// puestas ensurePage() seguiria reusando ese Chrome. Lo que no cierre a tiempo lo
+// mata limpiarChromiumHuerfano() antes del proximo launch.
+export async function descartarNavegador() {
+  const b = browser;
+  browser = null;
+  page = null;
+  if (!b) return;
+  await Promise.race([
+    b.close().catch(() => {}),
+    new Promise((r) => setTimeout(r, 15000)),
+  ]);
+}
+
 export async function close() {
   if (browser) {
     try { await browser.close(); } catch { /* noop */ }
