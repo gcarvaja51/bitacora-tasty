@@ -90,9 +90,20 @@ if (Test-Path $stateF) {
   } catch {}
 }
 
-# 1) El proceso existe? Se excluye node_modules: los MCP tambien corren un index.js.
+# 1) El proceso existe? Solo cuenta el node index.js cuyo PADRE es el start.bat del
+# gamma_daemon.
+#
+# (2026-10-05) Antes bastaba con que la linea de comando dijera index.js fuera de
+# node_modules. Los MCP de TastyTrade (tastytrade-mcp\dist\index.js) y MEGA
+# (mega-mcp\dist\index.js) cumplen eso: el daemon murio el domingo 17:33 (consola
+# cerrada, 0xC000013A) y el vigilante paso 15 horas creyendolo vivo, escribiendo
+# "existe pero no cicla" sin relanzarlo nunca. El lunes abrio con los muros del viernes.
 $proc = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match 'index\.js' -and $_.CommandLine -notmatch 'node_modules' }
+        Where-Object {
+          if ($_.CommandLine -notmatch 'index\.js') { return $false }
+          $padre = Get-CimInstance Win32_Process -Filter "ProcessId=$($_.ParentProcessId)" -ErrorAction SilentlyContinue
+          $padre -and ($padre.CommandLine -like '*gamma_daemon*start.bat*')
+        }
 $vivo = [bool]$proc
 
 # 2) Sigue ciclando? Y ademas: los ciclos SIRVEN de algo?
