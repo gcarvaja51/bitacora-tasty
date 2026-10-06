@@ -50,7 +50,7 @@ for (const t of targets) {
         try { return { index: i, symbol: c.model().mainSeries().symbol() }; } catch(e) { return { index: i, error: e.message }; }
       })
     `);
-    const hasSpx = panes.some((p) => p.symbol && /^SPCFD:SPX$/i.test(p.symbol));
+    const hasSpx = panes.some((p) => p.symbol && /^CBOE:SPX$/i.test(p.symbol));
     if (!hasSpx) { await client.close(); continue; }
 
     for (const p of panes) {

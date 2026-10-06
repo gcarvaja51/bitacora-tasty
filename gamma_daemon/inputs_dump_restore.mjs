@@ -57,7 +57,7 @@ for (const t of targets) {
     return r.exceptionDetails ? 'EXC ' + (r.exceptionDetails.exception?.description || '').split('\n')[0] : r.result?.value;
   };
   const sym = await ev(`(function(){try{return window.TradingViewApi._activeChartWidgetWV.value().symbol()}catch(e){return '?'}})()`);
-  if (!/SPCFD:SPX/i.test(sym || '')) { await client.close(); continue; }
+  if (!/^CBOE:SPX$/i.test(sym || '')) { await client.close(); continue; }
 
   if (modo === 'restore') {
     if (!fs.existsSync(FILE)) { console.error('no hay respaldo en', FILE); process.exit(1); }

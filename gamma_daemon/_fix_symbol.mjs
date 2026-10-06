@@ -1,11 +1,13 @@
-// Restaura SPCFD:SPX en las ventanas que quedaron con otro ticker de SPX.
-// El daemon exige match exacto /^SPCFD:SPX$/i (tv.js:17); con SP_DLY:SPX no
+// Restaura CBOE:SPX en las ventanas que quedaron con otro ticker de SPX.
+// (2026-10-05: antes era SPCFD:SPX, que TradingView retiro; 10-05 CAPITALCOM:SPX500;
+// desde 2026-10-06 CBOE:SPX.)
+// El daemon exige match exacto /^CBOE:SPX$/i (tv.js); con SP_DLY:SPX no
 // encuentra ninguna ventana valida, entra al catch de pushToTradingViewWithRetry
 // y hace taskkill + relaunch en cada ciclo.
 import CDP from 'chrome-remote-interface';
 
 const PORT = 9223;
-const DESTINO = 'SPCFD:SPX';
+const DESTINO = 'CBOE:SPX';
 const CAMBIAR_DESDE = /^SP_DLY:SPX$/i;   // solo estas; no se tocan BE ni VANTAGE
 
 const resp = await fetch(`http://localhost:${PORT}/json/list`);
@@ -70,7 +72,7 @@ for (const t of t2) {
     returnByValue: true,
   });
   const v = r.result?.value;
-  if (/SPCFD:SPX/i.test(v || '')) ok++;
+  if (/"CBOE:SPX"/i.test(v || '')) ok++;
   console.log(`${t.id.slice(0, 8)}  ${v}`);
   await client.close();
 }

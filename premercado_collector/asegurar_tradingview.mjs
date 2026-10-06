@@ -14,7 +14,7 @@
 // taskkill /F /IM TradingView.exe y relanza -- el incidente del 2026-08-06, que deja
 // al usuario sin ventana justo antes de la apertura. Este script mueve ese mismo
 // relanzamiento a las 08:25, cuando todavia no hay nada en juego, y verifica que la
-// ventana vuelva con SPCFD:SPX. Si el puerto YA responde no toca nada: en el caso
+// ventana vuelva con CBOE:SPX. Si el puerto YA responde no toca nada: en el caso
 // normal esto no cuesta ni un parpadeo.
 import * as tv from '../gamma_daemon/tv.js';
 
@@ -31,7 +31,7 @@ async function cdpVivo() {
 
 // El puerto abierto no basta: la ventana tiene que tener el SPX cargado, que es lo
 // que de verdad va a leer el recolector. healthCheck() de tv.js ya valida las dos
-// cosas (conecta y exige una ventana con SPCFD:SPX).
+// cosas (conecta y exige una ventana con CBOE:SPX).
 async function ventanaUtil() {
   try {
     const h = await tv.healthCheck();
@@ -42,11 +42,11 @@ async function ventanaUtil() {
 }
 
 if (await cdpVivo() && await ventanaUtil()) {
-  console.log(`[tv] listo -- puerto ${PORT} responde y hay ventana con SPCFD:SPX. No se toca nada.`);
+  console.log(`[tv] listo -- puerto ${PORT} responde y hay ventana con CBOE:SPX. No se toca nada.`);
   process.exit(0);
 }
 
-console.log(`[tv] el puerto ${PORT} no responde o no hay ventana con SPCFD:SPX.`);
+console.log(`[tv] el puerto ${PORT} no responde o no hay ventana con CBOE:SPX.`);
 console.log('[tv] relanzando TradingView con la bandera de depuracion (esto CIERRA la ventana actual).');
 
 try {
@@ -61,10 +61,10 @@ try {
 for (let i = 1; i <= 12; i++) {
   await new Promise((res) => setTimeout(res, 5000));
   if (await ventanaUtil()) {
-    console.log(`[tv] OK -- ventana con SPCFD:SPX confirmada tras ${i * 5}s.`);
+    console.log(`[tv] OK -- ventana con CBOE:SPX confirmada tras ${i * 5}s.`);
     process.exit(0);
   }
 }
 
-console.log('[tv] FALLO: TradingView se relanzo pero no aparecio una ventana con SPCFD:SPX en 60s.');
+console.log('[tv] FALLO: TradingView se relanzo pero no aparecio una ventana con CBOE:SPX en 60s.');
 process.exit(1);

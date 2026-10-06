@@ -36,7 +36,11 @@ import calendario from '../src/calendario_nyse.js';
 const CDP = createRequire(new URL('../gamma_daemon/', import.meta.url))('chrome-remote-interface');
 
 const CDP_PORT = Number(process.env.TV_CDP_PORT || 9223);
-const SPX_MATCH = /^SPCFD:SPX$/i;
+// (2026-10-05) TradingView retiro SPCFD:SPX (lo resuelve a SP_DLY:SPX, 10 min retrasado).
+// Ese dia la referencia de contado paso a CAPITALCOM:SPX500. (2026-10-06) Se vuelve a un
+// solo activo, el indice: CBOE:SPX, que ya va en tiempo real. El SPX500, si sigue abierto,
+// vuelve a contar como un CFD mas (matchea CFD_MATCH).
+const SPX_MATCH = /^CBOE:SPX$/i;
 // El CFD que mira Guillermo. Deliberadamente ancho: VANTAGE:SP500, OANDA:SPX500USD,
 // FOREXCOM:SPXUSD y demas variantes de broker. Se excluye SPCFD:SPX aparte, porque
 // /SPX/ suelto tambien lo matchea.
@@ -199,7 +203,7 @@ async function main() {
   const spxs = series.filter((s) => SPX_MATCH.test(s.symbol));
   const cfds = series.filter((s) => !SPX_MATCH.test(s.symbol) && CFD_MATCH.test(s.symbol));
 
-  if (spxs.length === 0) throw new Error('No se encontro ninguna ventana con SPCFD:SPX cargado.');
+  if (spxs.length === 0) throw new Error('No se encontro ninguna ventana con CBOE:SPX cargado.');
   if (cfds.length === 0) {
     throw new Error(
       'No se encontro ninguna ventana con un CFD del SP500. Simbolos vistos: '

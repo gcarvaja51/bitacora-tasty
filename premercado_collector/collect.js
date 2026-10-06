@@ -280,7 +280,7 @@ async function getStudyValues(client) {
 // EMAs y MACD por temporalidad, leidos de la ULTIMA FILA de datos de cada estudio
 // (2026-09-28). getStudyValues() lee la Data Window, que (a) muestra la vela bajo el
 // cursor, no necesariamente la ultima, y (b) se leia 1,5 s despues de setResolution(),
-// con la serie todavia cargando. Dos incidentes reales, ambos con paneSymbol SPCFD:SPX:
+// con la serie todavia cargando. Dos incidentes reales, ambos con paneSymbol CBOE:SPX:
 //   - 23-sep: los "valores de 30m" eran los del SEMANAL (EMA10 7652, EMA200 5908): la
 //     serie aun no habia cambiado de resolucion.
 //   - 28-sep: EMAs de ~227 con volumen de 8 K -- basura a mitad de carga. El informe las
@@ -337,7 +337,7 @@ async function leerIndicadoresUltimaVela(client) {
 
 function validarLectura(tf, r) {
   if (!r || r.sinBarras) return 'la serie no tiene barras todavia';
-  if (!SYMBOL_MATCH.test(r.sym || '')) return `el chart activo es ${r.sym}, no SPCFD:SPX`;
+  if (!SYMBOL_MATCH.test(r.sym || '')) return `el chart activo es ${r.sym}, no CBOE:SPX`;
   // Semanal: una semana con feriado el lunes abre el martes (6 dias), asi que ahi se
   // acepta 5-7 dias; lo que importa es descartar la serie diaria o la de 30m.
   const gapOk = tf === 'W' ? r.minGap >= 5 * 86400 && r.minGap <= 7 * 86400 : r.minGap === TF_SEG[tf];
@@ -468,7 +468,7 @@ async function collectFromTradingView(outDir) {
   // como paso aparte ANTES que este colector. La diferencia no es cosmetica: alli el
   // relanzamiento es la primera decision que se toma --con la ventana todavia sin usar--,
   // usa el mismo tv.launch() del daemon, y no se da por bueno hasta confirmar que volvio
-  // una ventana con SPCFD:SPX. Aqui dentro seguiria siendo lo de antes: matar la app a
+  // una ventana con CBOE:SPX. Aqui dentro seguiria siendo lo de antes: matar la app a
   // mitad de faena por un fetch fallido. La regla real no es "solo el daemon relanza",
   // es "relanzar es un paso explicito y verificado, nunca el catch de otra cosa".
   const conn = await withTimeout(connectToSpxWindow(), TV_CONNECT_MS, 'connectToSpxWindow');
@@ -489,7 +489,7 @@ async function collectFromTradingView(outDir) {
   if (panesSpx.length === 0) {
     const detalle = panes.map((p) => `${p.index}:${p.symbol || p.error || '?'}`).join(', ') || 'sin panes';
     throw new Error(
-      `La ventana conectada no tiene ningun pane con SPCFD:SPX (panes: ${detalle}). ` +
+      `La ventana conectada no tiene ningun pane con CBOE:SPX (panes: ${detalle}). ` +
       `No se toca ningun chart: cambiarle la resolucion o fotografiar otro activo mete ` +
       `datos ajenos al informe.`
     );
@@ -517,7 +517,7 @@ async function collectFromTradingView(outDir) {
     const simboloActivo = await withTimeout(getActiveSymbol(client), TV_STEP_MS, 'getActiveSymbol');
     if (!simboloActivo || !SYMBOL_MATCH.test(simboloActivo)) {
       throw new Error(
-        `el pane ${paneIndex} es SPCFD:SPX pero el chart activo quedo en ` +
+        `el pane ${paneIndex} es CBOE:SPX pero el chart activo quedo en ` +
         `"${simboloActivo || 'desconocido'}": focusPane no prendio. Se aborta sin tocar ` +
         `la resolucion de un chart ajeno.`
       );

@@ -14,7 +14,15 @@ const CDP_PORT = Number(process.env.TV_CDP_PORT || 9223);
 // matchea falsos positivos reales como "OANDA:SPX500USD" (CFD de otro broker,
 // confirmado en vivo 2026-07-31: aparecio con CIARG_V3 aplicado tras un relanzamiento
 // de TradingView y casi recibe los muros por error).
-export const SYMBOL_MATCH = /^SPCFD:SPX$/i;
+//
+// (2026-10-05) TradingView retiro SPCFD:SPX: setSymbol('SPCFD:SPX') vuelve solo a
+// SP_DLY:SPX, que va 10 min retrasado (delay 600). Se paso a CAPITALCOM:SPX500, que
+// va en tiempo real y ese dia marcaba 7753,40 contra 7753,32 del SPX en TastyTrade.
+// (2026-10-06) Guillermo pidio volver a un solo activo, el SPX como la semana
+// pasada: CBOE:SPX ya va en tiempo real (vela de 2m al minuto, 7817,2 vs 7816,9
+// de Yahoo). CAPITALCOM:SPX500 deja de recibir muros.
+// Sigue siendo match EXACTO por la misma razon de arriba.
+export const SYMBOL_MATCH = /^CBOE:SPX$/i;
 // Matchea CUALQUIER version (CIARG_V1, CIARG_V3, etc.) -- las multiples ventanas
 // SPX no estan sincronizadas entre si (ver CLAUDE.md) y pueden quedar temporalmente
 // con nombres distintos tras renombrar el script hasta que el usuario actualice
@@ -158,7 +166,7 @@ export async function disableAutoSaveOnOtherWindows() {
               try { return c.model().mainSeries().symbol(); } catch (e) { return ''; }
             });
           } catch (e) { return { error: e.message }; }
-          if (syms.some(function(s) { return /^SPCFD:SPX$/i.test(s); })) return { skip: 'es la del SPX' };
+          if (syms.some(function(s) { return /^CBOE:SPX$/i.test(s); })) return { skip: 'es la del SPX' };
           try {
             var svc = api._saveChartService;
             if (!svc || typeof svc.setAutoSaveEnabled !== 'function') return { error: 'sin setAutoSaveEnabled' };
