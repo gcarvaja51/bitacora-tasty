@@ -5545,6 +5545,8 @@ function hasLocalOpenSPXWPosition() {
     if (e.expType === '1DTE') return false;
     // MEDIODIA tampoco (2026-09-28, decision del usuario: "no bloquea a nadie").
     if (e.strategyFamily === 'MEDIODIA') return false;
+    // CLIC_TV tampoco (2026-10-12): los clics de Guillermo y el robot van por separado.
+    if (e.strategyFamily === 'CLIC_TV') return false;
     if (e.closeOrderSentAt &&
         (Date.now() - new Date(e.closeOrderSentAt).getTime()) > CIERRE_ENVIADO_GRACIA_SPXW_MS) {
       return false;   // el cierre se mando hace rato: ya no cuenta como abierta
@@ -5573,7 +5575,7 @@ async function todoLoAbiertoConvive() {
 
     const patasLibres = new Set();
     for (const e of loadTradierExecutions()) {
-      if (e.strategyFamily !== 'REVERSION' && e.strategyFamily !== 'MEDIODIA' && e.expType !== '1DTE') continue;
+      if (e.strategyFamily !== 'REVERSION' && e.strategyFamily !== 'MEDIODIA' && e.strategyFamily !== 'CLIC_TV' && e.expType !== '1DTE') continue;
       if (e.status !== 'submitted' && e.status !== 'filled') continue;
       for (const s of Object.values(e.legs || {})) if (typeof s === 'string') patasLibres.add(s);
     }
@@ -7252,6 +7254,12 @@ async function processDirectionalEntry(direction, meta = {}) {
   const tStart = Date.now();
   const source = meta.source || 'CaminoB_autonomo';
   const timeframe = meta.timeframe || '2m';
+  // Clic de Guillermo en TradingView (2026-10-12): la DIRECCION la decide el, no el score. Se saltan el gate de
+  // score, la ventana horaria de selectStrategy y el de credito/riesgo; todo lo demas (spot fiable, estructura
+  // segun gamma/IV, strikes por delta, envio y registro) es el mismo camino que el direccional automatico.
+  // Queda en su propia familia CLIC_TV para no mezclar sus resultados ni sus logs con TENDENCIA.
+  const forzado = !!meta.forzado;
+  const FAM = forzado ? 'CLIC_TV' : 'TENDENCIA';
   try {
     // Obtener contexto de mercado
     const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
@@ -7265,8 +7273,9 @@ async function processDirectionalEntry(direction, meta = {}) {
       const reason = `Spot no fiable: ${ctx.spotFuente || 'sin fuente'} con ${ctx.spotEdadSeg ?? '?'}s ` +
         `(maximo ${MAX_EDAD_SPOT_SEG}s). No se abre con un precio viejo.`;
       console.error(`[SPX] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SPOT_NO_FIABLE', passed: false, reason,
+      logStrategyEvent({ strategyFamily: FAM, stage: 'SPOT_NO_FIABLE', passed: false, reason,
                          snapshot: buildStrategySnapshot(ctx, { direction }) });
+      if (meta.out) meta.out.reason = reason;
       return false;
     }
 
@@ -7425,12 +7434,13 @@ async function processDirectionalEntry(direction, meta = {}) {
       playbookResult.umbralElevadoPor = elegido.motivo;
     }
 
-    if (!playbookResult.passed) {
+    if (!playbookResult.passed && !forzado) {
       const reason = `Score insuficiente: ${playbookResult.score}% (mínimo ${playbookResult.minScore}%)`
         + (playbookResult.umbralElevadoPor ? ` — ${playbookResult.umbralElevadoPor}` : '');
       console.log(`[SPX] ❌ ${reason}`);
       console.log(`[SPX] Detalle checks: ${JSON.stringify(playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })))}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, minScore: playbookResult.minScore, checks: playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })) }) });
+      logStrategyEvent({ strategyFamily: FAM, stage: 'SCORE_FAIL', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, minScore: playbookResult.minScore, checks: playbookResult.checks.map(c => ({ id: c.id, weight: c.weight, ok: c.ok, value: c.value })) }) });
+      if (meta.out) meta.out.reason = reason;
       return false; // no se construyo señal
     }
 
@@ -7458,8 +7468,10 @@ async function processDirectionalEntry(direction, meta = {}) {
       ivRankCredito: ctx.ivRankCredito ?? 30,   // el que corresponde a la fuente que de verdad respondio
       vix:         ctx.vix,
       gammaRegime: effectiveGex.regime,
-      etHour:      ctx.etHour,
-      etMin:       ctx.etMin,
+      // con clic, la ventana 9:45-14:00 no aplica (la hora la decide Guillermo; el endpoint ya limita 9:31-15:15):
+      // se le pasa una hora dentro de la ventana solo para que elija la estructura igual que el automatico
+      etHour:      forzado ? Math.min(13, Math.max(10, ctx.etHour)) : ctx.etHour,
+      etMin:       forzado ? 0 : ctx.etMin,
       capital,
       openingRangeRespected: ctx.openingRangeRespected,
     });
@@ -7467,7 +7479,8 @@ async function processDirectionalEntry(direction, meta = {}) {
     if (!sel.valid) {
       const reason = `Estrategia inválida: ${sel.reason}`;
       console.log(`[SPX] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, checks: checksSnapshot }) });
+      logStrategyEvent({ strategyFamily: FAM, stage: 'STRATEGY_INVALID', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, checks: checksSnapshot }) });
+      if (meta.out) meta.out.reason = reason;
       return false; // no se construyo señal
     }
 
@@ -7499,7 +7512,8 @@ async function processDirectionalEntry(direction, meta = {}) {
     if (!strikes) {
       const reason = `No se encontraron strikes con delta ${targetDelta}`;
       console.log(`[SPX] ❌ ${reason}`);
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
+      logStrategyEvent({ strategyFamily: FAM, stage: 'NO_STRIKES', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
+      if (meta.out) meta.out.reason = reason;
       return false; // no se construyo señal
     }
 
@@ -7576,7 +7590,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     signal.source         = source;
     signal.timeframe      = timeframe;
     signal.tf15m          = direction; // Camino B ya exige que el marco 15m confirme la misma direccion
-    signal.strategyFamily = 'TENDENCIA';
+    signal.strategyFamily = FAM;
 
     // Agregar parámetros de trading y TP/SL calculados
     // Credito/Riesgo minimo 20% (playbook Alejandro). Sin este filtro se podia
@@ -7665,7 +7679,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       console.log(`[IMPULSO] ${signal.strategy}: entrada en impulso tardío que superó el 90 — ${signal.impulso.nota}`);
     }
     logStrategyEvent({
-      strategyFamily: 'TENDENCIA', stage: 'IMPULSO',
+      strategyFamily: FAM, stage: 'IMPULSO',
       passed: true,   // si el impulso hubiera frenado la senal, murio en SCORE_FAIL
       reason: signal.impulso?.nota || signal.impulso?.motivo || 'sin evaluar',
       snapshot: buildStrategySnapshot(ctx, {
@@ -7674,7 +7688,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       }),
     });
     logStrategyEvent({
-      strategyFamily: 'TENDENCIA', stage: 'VETO_MURO_SOMBRA',
+      strategyFamily: FAM, stage: 'VETO_MURO_SOMBRA',
       passed: !signal.vetoMuroSombra?.vetaria,
       reason: signal.vetoMuroSombra?.nota || signal.vetoMuroSombra?.motivo || 'sin evaluar',
       snapshot: buildStrategySnapshot(ctx, {
@@ -7690,12 +7704,13 @@ async function processDirectionalEntry(direction, meta = {}) {
     // manual, nunca llegaban a Tradier. Confirmado con un caso real: senal valida
     // (score 80%) en PENDING toda la sesion por este hueco.
     const tradierEligible = ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD', 'BULL_CALL_SPREAD', 'BEAR_PUT_SPREAD'].includes(signal.strategy);
-    const tradierEnabled  = IS_PRODUCTION && (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).tradierAutoExecute !== false;
+    // el interruptor de auto-ejecucion es del robot; un clic es una orden explicita de Guillermo y no depende de el
+    const tradierEnabled  = IS_PRODUCTION && (forzado || (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).tradierAutoExecute !== false);
     // El gate de Credito/Riesgo minimo es conceptualmente solo para credito (compara
     // prima cobrada contra el riesgo del ancho); para debito ademas tenia un bug
     // latente (credito = signal.credit||signal.maxProfit||0 caia a maxProfit, sin
     // relacion real, dando un ratio sin sentido) — se exime a debito de este gate.
-    const creditoRiesgoOK = !signal.isCredit || creditoRiesgoPct >= MIN_CREDITO_RIESGO_PCT;
+    const creditoRiesgoOK = forzado || !signal.isCredit || creditoRiesgoPct >= MIN_CREDITO_RIESGO_PCT;
     if (tradierEligible && tradierEnabled && !creditoRiesgoOK) {
       signal.tradierOrder = { skipped: true, reason: `Crédito/Riesgo ${creditoRiesgoPct}% por debajo del mínimo ${MIN_CREDITO_RIESGO_PCT}% — prima muy chica para el riesgo del spread.` };
       console.log(`[Tradier] ⏳ Señal omitida — crédito/riesgo ${creditoRiesgoPct}% < ${MIN_CREDITO_RIESGO_PCT}%.`);
@@ -7721,7 +7736,7 @@ async function processDirectionalEntry(direction, meta = {}) {
       // cualquiera dice true)", que dejo de ser cierto con ese mismo cambio —
       // abajo se ve que una Reversion abierta NO bloquea a la direccional.
       if (localDiceAbierto && !tradierDiceAbierto) {
-        logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'POSITION_CHECK_MISMATCH', passed: null,
+        logStrategyEvent({ strategyFamily: FAM, stage: 'POSITION_CHECK_MISMATCH', passed: null,
           reason: 'El registro local cree que hay una posicion abierta y Tradier dice que no. ' +
                   'Se bloquea por precaucion. Suele ser un cierre ya mandado que la reconciliacion ' +
                   'todavia no asento (ver la gracia en hasLocalOpenSPXWPosition).' });
@@ -7729,7 +7744,8 @@ async function processDirectionalEntry(direction, meta = {}) {
         }
         // Misma regla que el gate de evaluacion: una Reversion abierta no cuenta.
         const soloRevAbierta = tradierDiceAbierto ? await todoLoAbiertoConvive() : true;
-        const yaHayTradeAbierto = localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta);
+        // Un clic solo choca con otro clic abierto: no compite con el robot (familias independientes).
+        const yaHayTradeAbierto = forzado ? hayClicTVAbierto() : (localDiceAbierto || (tradierDiceAbierto && !soloRevAbierta));
         if (yaHayTradeAbierto) {
           signal.tradierOrder = { skipped: true, reason: 'Ya hay un trade abierto en Tradier (no es una Reversión ni un IC 1DTE) — se espera a que cierre.' };
           console.log('[Tradier] ⏳ Señal omitida — hay un trade SPXW abierto que no es una Reversión ni un IC 1DTE.');
@@ -7746,7 +7762,7 @@ async function processDirectionalEntry(direction, meta = {}) {
             netLimitPrice:  limiteDeAperturaVertical(signal.strategy, signal.strikes.premium, spxConfig?.trading),
           });
           signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
-          anotarOrdenAceptada({ familia: 'TENDENCIA', ctx });
+          anotarOrdenAceptada({ familia: FAM, ctx });
           signal.status    = 'EXECUTED';
           signal.notes     = 'Auto-ejecutado en Tradier sandbox';
           signal.actionAt  = new Date().toISOString();
@@ -7778,14 +7794,14 @@ async function processDirectionalEntry(direction, meta = {}) {
               signalId:      signal.id,
               timestamp:     signal.timestamp,
               strategy:      signal.strategy,
-              strategyFamily: signal.strategyFamily || 'TENDENCIA',
+              strategyFamily: signal.strategyFamily || FAM,
               // Sello de version (2026-08-04, ver src/algo_version.js). Permite
               // atribuir cada trade a la configuracion bajo la que corrio, sin
               // depender de fechas: un mismo dia puede tener dos versiones. La
               // huella se calcula sola de los parametros que cambian el
               // comportamiento, asi que un ajuste hecho via POST /api/spx/config
               // sin anotarlo en el control de cambios igual queda separado.
-              algoVersion:   sellarVersion(spxConfig, signal.strategyFamily || 'TENDENCIA'),
+              algoVersion:   sellarVersion(spxConfig, signal.strategyFamily || FAM),
               // Sello del MACD de 15m en el instante de la señal (2026-08-22).
               //
               // Es el instrumento de DIR-1, la propuesta mas vieja del backlog:
@@ -7877,13 +7893,13 @@ async function processDirectionalEntry(direction, meta = {}) {
         // trade por plomeria.
         signal.tradierOrder = { error: e.message };
         console.error('[Tradier] ❌ Error enviando orden:', e.message);
-        await anotarFalloDeOrden({ familia: 'TENDENCIA', error: e, ctx, strikes: signal.strikes });
+        await anotarFalloDeOrden({ familia: FAM, error: e, ctx, strikes: signal.strikes });
       }
     } else if (tradierEligible && !tradierEnabled) {
       // Ejecución pausada: se mide en la sombra qué habría pasado con el piso
       // de precio, para poder juzgarlo antes de volver a operar con dinero.
       signal.sombraLimite = await sombraDeLimiteSinEjecutar({
-        familia:     'TENDENCIA',
+        familia:     FAM,
         strategy:    signal.strategy,
         expiry:      signal.strikes?.expiry,
         shortStrike: signal.strikes?.shortStrike,
@@ -7901,7 +7917,7 @@ async function processDirectionalEntry(direction, meta = {}) {
 
     const successReason = `Señal generada: ${signal.strategyName} | ${signal.strikes?.shortStrike}/${signal.strikes?.longStrike}${signal.tradierOrder?.orderId ? ' — auto-ejecutada en Tradier' : (signal.tradierOrder?.skipped ? ` — sugerencia (Tradier omitido: ${signal.tradierOrder.reason})` : '')}`;
     console.log(`[SPX] ✅ ${successReason}`);
-    logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
+    logStrategyEvent({ strategyFamily: FAM, stage: 'SIGNAL_BUILT', passed: true, reason: successReason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
     // El gate de Credito/Riesgo decide DESPUES de construir la señal, asi que el
     // embudo la contaba como construida y ahi se acababa el rastro: el 26-ago mato
     // 14 de 16 y no figuraba en ninguna etapa (decision del usuario 2026-09-10:
@@ -7910,12 +7926,13 @@ async function processDirectionalEntry(direction, meta = {}) {
     // todas las construidas, llegaran o no a orden. Esta fila dice cuales no
     // llegaron y por que; misma señal, mismo timestamp de evaluacion.
     if (signal.tradierOrder?.skipped && /^Crédito\/Riesgo/.test(signal.tradierOrder.reason || '')) {
-      logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'GATE_CREDITO_RIESGO', passed: false,
+      logStrategyEvent({ strategyFamily: FAM, stage: 'GATE_CREDITO_RIESGO', passed: false,
         reason: signal.tradierOrder.reason,
         snapshot: buildStrategySnapshot(ctx, { direction, strategy: sel.strategy,
           creditoRiesgoPct: signal.trading?.creditoRiesgoPct ?? null,
           minCreditoRiesgoPct: signal.trading?.minCreditoRiesgoPct ?? null }) });
     }
+    if (meta.out) meta.out.signal = signal;
     return true; // señal construida de verdad
   } catch(e) {
     console.error('[SPX] processDirectionalEntry error:', e.message);
@@ -7924,6 +7941,78 @@ async function processDirectionalEntry(direction, meta = {}) {
 }
 
 // GET /api/spx/signals — lista de señales pendientes/historial
+// ── Clic en TradingView → vertical 0DTE en Tradier sandbox (Guillermo 2026-10-12) ──
+//
+// El bot local de Polymarket vigila la posicion de BLACKBULL:US500 en el Paper Trading de TradingView:
+// comprado -> abrir alcista, vendido -> abrir bajista, sin posicion -> cerrar. Aca llega esa orden.
+// La estructura y los strikes salen del mismo camino del direccional automatico (selectStrategy +
+// findStrikesByDelta), 1 contrato, familia CLIC_TV. Sin TP/SL: se cierra con el clic o 30 min antes del cierre.
+//
+// Esta API no tiene usuario/contraseña, asi que este endpoint exige su propia clave (CLIC_TOKEN en Railway).
+// Sin CLIC_TOKEN configurado queda apagado.
+function hayClicTVAbierto() {
+  return loadTradierExecutions().some(e => e.strategyFamily === 'CLIC_TV' && (e.status === 'submitted' || e.status === 'filled'));
+}
+function horaETmin() {
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' })
+    .formatToParts(new Date());
+  return +p.find(x => x.type === 'hour').value * 60 + +p.find(x => x.type === 'minute').value;
+}
+app.post('/api/spx/clic', async (req, res) => {
+  const clave = process.env.CLIC_TOKEN;
+  if (!clave) return res.status(503).json({ ok: false, error: 'CLIC_TOKEN no configurado: clics apagados' });
+  const dada = String(req.get('x-clic-token') || '');
+  if (dada.length !== clave.length || !require('crypto').timingSafeEqual(Buffer.from(dada), Buffer.from(clave))) {
+    return res.status(401).json({ ok: false, error: 'clave inválida' });
+  }
+  const { accion } = req.body || {};
+  const direccion = String((req.body || {}).direccion || '').toUpperCase();
+  try {
+    if (accion === 'cerrar') {
+      const marcadas = [];
+      await withExecutionsLock(() => {
+        const execs = loadTradierExecutions();
+        for (const e of execs) {
+          if (e.strategyFamily === 'CLIC_TV' && (e.status === 'submitted' || e.status === 'filled') && !e.cierreClicPedido) {
+            e.cierreClicPedido = new Date().toISOString();
+            marcadas.push(e.id);
+          }
+        }
+        if (marcadas.length) saveTradierExecutions(execs);
+      });
+      if (!marcadas.length) return res.json({ ok: true, nada: true, mensaje: 'no había posición de clic abierta' });
+      await checkDirectionalTPSL();          // cierra ya, sin esperar al ciclo de 30 s
+      const ex = loadTradierExecutions().filter(e => marcadas.includes(e.id));
+      return res.json({ ok: true, cerradas: ex.map(e => ({ id: e.id, status: e.status,
+        closeOrderSentAt: e.closeOrderSentAt || null, closeReason: e.closeReason || null })) });
+    }
+    if (accion !== 'abrir' || !['BULLISH', 'BEARISH'].includes(direccion)) {
+      return res.status(400).json({ ok: false, error: 'accion debe ser abrir (con direccion BULLISH/BEARISH) o cerrar' });
+    }
+    if (!isMarketHours()) return res.json({ ok: false, error: 'mercado cerrado' });
+    const m = horaETmin();
+    if (m < 9 * 60 + 31 || m > 15 * 60 + 15) {
+      return res.json({ ok: false, error: 'fuera de la ventana de clics (9:31-15:15 ET): el seguro cierra a las 15:30' });
+    }
+    const abierta = loadTradierExecutions().find(e => e.strategyFamily === 'CLIC_TV' && (e.status === 'submitted' || e.status === 'filled'));
+    if (abierta) {
+      return res.json({ ok: abierta.direction === direccion, yaAbierta: true, id: abierta.id, direction: abierta.direction,
+        error: abierta.direction === direccion ? undefined : 'hay un clic abierto en la otra dirección: hay que cerrarlo primero' });
+    }
+    const out = {};
+    const hecho = await processDirectionalEntry(direccion, { source: 'CLIC_TV', timeframe: 'clic', forzado: true, out });
+    const sig = out.signal;
+    res.json({ ok: !!(hecho && sig?.tradierOrder?.orderId), local: !IS_PRODUCTION,
+      motivo: out.reason || sig?.tradierOrder?.reason || sig?.tradierOrder?.error || null,
+      estrategia: sig?.strategy,
+      strikes: sig?.strikes ? { corto: sig.strikes.shortStrike, largo: sig.strikes.longStrike, vence: sig.strikes.expiry, prima: sig.strikes.premium } : null,
+      orderId: sig?.tradierOrder?.orderId || null, contratos: sig?.contracts });
+  } catch (e) {
+    console.error('[CLIC_TV] Error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/spx/signals', (req, res) => {
   res.json(loadSPXSignals());
 });
@@ -11457,6 +11546,9 @@ async function checkDirectionalTPSLImpl() {
         }
       } catch(e) { /* la sombra jamas debe romper el monitor real */ }
 
+      // CLIC_TV (2026-10-12, decision de Guillermo): sin TP/SL ni stop tecnico. Sale cuando el queda sin
+      // posicion en TradingView (cierreClicPedido) o, como seguro, 30 min antes del cierre del mercado.
+      if (ex.strategyFamily === 'CLIC_TV') cerrarPor = ex.cierreClicPedido ? 'CIERRE_CLIC_TV' : null;
       if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
         cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
         console.log(`[Tradier-DIR-TPSL] ⏰ Cierre forzado por horario (30 min antes del cierre) — orden ${ex.orderId}`);
