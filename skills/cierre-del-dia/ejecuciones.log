@@ -1,0 +1,277 @@
+[Fri 09/25/2026 15:00:01.58] Iniciando cierre del dia 
+The close-of-day report for Friday 25 September is saved as `documentos premercado\09252026_cierre del dia.docx` (Word only, no PDF). The report time is 16:05 ET.
+
+**Checks**
+- **Market day:** `esDiaDeMercado` says the market was open today, and no report for today existed yet.
+- **Sigma:** I used the newest `lastLevels` reading, from **16:03 ET**. The 16:05 reading wasn't there yet, and the report says so.
+- **Investing, "Hoy" tab:** no 3-star US events today, so this is not a D19 day and it counts toward accuracy.
+- **Investing, Monday 28:** no 3-star events either. The next ones are Tuesday at 10:00 ET (consumer confidence and JOLTS). I used the "Próxima semana" tab because "Mañana" would have shown Saturday.
+
+**Scoring**
+- **Favorite:** Alcista (39%) activated on the 15m close at 12:00 (7,745), reached T1 7,750 at 15:45 (high 7,752) and was never invalidated.
+- **Neutral:** broke out on the upside at 12:00.
+- **Bajista:** never activated. The 10:00 candle closed at 7,699, 2 points above its trigger.
+- **Did we get it right?** Yes.
+
+**Call for Monday 28 September:** bullish, 55% conviction. It activates on a 15m close above 7,755, is invalidated below 7,730, with T1 7,765 and T2 7,780. Conviction is low because the 15m EMA10/EMA20 gap narrowed from +9.0 to +4.7 during the afternoon, and strong positive gamma (+51 B) favors a range.
+
+**Records** (backups made first):
+- `premercado_hipotesis_log.json`: today's entry now has `resultado` and `llamada_siguiente` (for 2026-09-28).
+- `control_premercado.xlsx`: row 68 has the "CIERRE DEL DÍA" note added to Detalle.
+
+**Two things didn't go to plan:**
+- **Script location:** the skill's `scripts\` folder resolves to a path outside the directories I'm allowed to write to, so I couldn't save the new script there. It's at `AppData\Local\Temp\cierre\cierre_09252026.py`. To use it as the template next time, it needs to be copied into `scripts\` by hand.
+- **Run log:** I couldn't write the extra line to `ejecuciones.log` because the scheduled task's redirect had it locked. The task's own output should still be captured there.
+
+Nothing was sent to anyone, and I didn't touch TradingView.
+[Fri 09/25/2026 15:06:14.70] Finalizado (codigo 0) 
+ 
+[Mon 09/28/2026 15:00:02.41] Iniciando cierre del dia 
+Terminé el informe del cierre del día de hoy: `documentos premercado\09282026_cierre del dia.docx`. Es solo Word, sin PDF, y la hora del informe es las 16:06 ET.
+
+**Controles**
+- **Día de mercado:** `esDiaDeMercado` dice que hoy hubo mercado y el informe de hoy no existía. Mañana, martes 29, también hay mercado.
+- **Sigma:** primero escribí el informe con la lectura de las 16:02 ET, porque la de las 16:05 todavía no estaba. Salió un minuto después y reemplacé los datos en el Word, el log y el Excel. Queda la lectura de las 16:05 ET: GEX −27,7 B, régimen NEGATIVO, Put Wall 7.680, Call Wall 7.685 y Flip 7.744. El informe aclara que esa cadena ya venció.
+- **Investing, pestaña "Hoy":** con el filtro EE.UU. de 3 estrellas dice "No hay eventos programados". Las declaraciones de Trump de las 14:00 ET siguen sin aparecer en el calendario. El día queda D19, como lo marcó el premercado, y no suma a la asertividad.
+- **Investing, pestaña "Mañana":** hay dos eventos de 3 estrellas, los dos a las 10:00 ET: la confianza del consumidor (Conference Board) y la encuesta JOLTS. Son antes de las 10:15, así que no activan D19: **mañana se opera**.
+
+**Calificación**
+- **Bajista (32 %):** se validó completo. Se activó a las 10:30 (cierre de 15m en 7.682), cumplió el T1 en esa misma vela y el T2 a las 10:45 (mínimo 7.667). No se invalidó.
+- **¿Acertamos?:** NO. El favorito era el Neutral (37 %).
+- **Llamada del viernes para hoy (ALCISTA):** se invalidó con la apertura sin llegar a activarse.
+
+**Llamada para el martes 29:** BAJISTA con convicción del 55 %. Se activa con un cierre de 15m bajo 7.665 y se invalida con un cierre de 15m sobre 7.705. T1 7.650 y T2 7.640.
+
+**Registros** (hice copias de seguridad `.bak_20260928_cierre` antes de tocar nada):
+- **`premercado_hipotesis_log.json`:** la entrada de hoy ya tiene `resultado` y `llamada_siguiente` (para el 2026-09-29).
+- **`control_premercado.xlsx`:** en la fila 69 agregué la nota "CIERRE DEL DIA" al Detalle.
+
+**Scripts del día:** esta vez sí pude guardarlos en `scripts\` del skill: `cierre_09282026.py`, `datos_09282026.py` y `sigma1605_09282026.py`. Sirven de molde para la próxima vez.
+
+No envié nada a nadie y no toqué TradingView. Cerré la pestaña de Investing que abrí.
+[Mon 09/28/2026 15:07:32.95] Finalizado (codigo 0) 
+ 
+[Tue 09/29/2026 15:08:28.19] Iniciando cierre del dia 
+El informe de hoy quedó hecho a las 16:14 ET: `documentos premercado\09292026_cierre del dia.docx`. Es solo Word, no se envió nada y TradingView no se tocó.
+
+- **Día de mercado:** según `esDiaDeMercado`, hoy sí hubo mercado. El informe de hoy no existía, así que no se sobrescribió nada.
+- **Sigma:** usé la lectura de las **16:05 ET** (20:05:45Z), la más reciente de `status.json`. Ya era la del cierre, así que no hará falta corregirla después.
+- **Investing, pestaña Hoy:** al cierre solo estaban los dos datos de las 10:00 ET que el premercado ya tenía. No salió ningún 3 estrellas a las 10:15 o después, así que hoy no es D19 y el día suma a la asertividad.
+- **Investing, pestaña Mañana:** hay inventarios de crudo de la AIE (3 estrellas) a las **10:30 ET**. Eso activa D19 para mañana, igual que el 23-sep con el mismo dato. El informe lo dice y deja la confirmación al premercado de mañana.
+- **Registro:** hice copias de respaldo del log y del Excel antes de tocarlos. En la entrada de hoy del log llené `resultado` y `llamada_siguiente` (para el 2026-09-30), y en la fila 70 del Excel agregué el "CIERRE DEL DÍA".
+
+**No pude guardar el script en `scripts\` del skill.** No tengo permiso: esa carpeta enlaza a `bitacora-tasty`, que queda fuera de los directorios permitidos. Lo guardé en `control premercado\cierre_09292026.py` y lo anoté en la memoria del cierre para las próximas corridas.
+
+**Para revisar en la pantalla:** según `base_sp500_vs_spx.json`, tu pantalla es ahora **CAPITALCOM:SPX500** con base ~0, no VANTAGE:SP500 como dice el skill. Por eso en la tabla de niveles el número entre paréntesis es igual al del SPX.
+[Tue 09/29/2026 15:15:18.41] Finalizado (codigo 0) 
+ 
+[Wed 09/30/2026 15:00:02.69] Iniciando cierre del dia 
+Listo: el informe de hoy quedó en `documentos premercado\09302026_cierre del dia.docx`, hecho a las 16:08 ET. Es solo Word, no le envié nada a nadie y no toqué TradingView.
+
+**Lo que revisé antes de escribir**
+- **Día de mercado:** `esDiaDeMercado` confirma que hoy hubo mercado, y el informe de hoy todavía no existía. Mañana, jueves 1 de octubre, también hay.
+- **Sigma:** usé la lectura de las **16:05 ET** (20:05:47Z), la más reciente de `status.json`. GEX −53,2 B, el más negativo de la semana. Put Wall, MVS y Max Pain en 7.650, Call Wall en 7.660 y Flip en 7.685. El informe aclara que esa cadena ya venció.
+- **Investing, pestaña Hoy:** están los mismos seis eventos de 3 estrellas que tenía el premercado, sin ninguno nuevo. El crudo de la AIE salió 0,922M contra −0,700M. Hoy sigue siendo D19 y no suma a la asertividad.
+- **Investing, pestaña Mañana:** subsidios a las 08:30, PMI manufacturero a las 09:45 e ISM a las 10:00 ET. Ninguno cae a las 10:15 o después, así que **mañana no es D19: se opera**. El ISM cae en la vela de las 10:00, que es la que se califica.
+
+**Calificación**
+- **Alcista (30 %): se validó completo.** Se activó en la primera vela (cierre en 7.695), llegó al T1 7.700 a las 09:45 y al T2 7.715 a las 10:00.
+- **Bajista (el favorito, 37 %): no se activó.** El cierre de 15m más bajo fue 7.654, a 7 puntos de activarse.
+- **¿Acertamos?: NO**, aunque por ser D19 no cuenta para la asertividad.
+- **La llamada del martes para hoy** se invalidó en la primera vela sin llegar a activarse.
+- **Cierre:** 7.652, el mínimo del día, después de caer 34 puntos en la última vela. Coincidió con el cierre del trimestre y con la ventana de las declaraciones de Trump. El informe no le atribuye la caída a ninguna de las dos.
+
+**Llamada para mañana:** BAJISTA, convicción 53 %. Se activa con un cierre de 15m bajo 7.645 y se invalida con uno sobre 7.680. T1 7.635 y T2 7.625.
+
+**Ojo con la apertura implícita:** el ES que usé es de las **15:58 ET** (Yahoo lo da con 10 minutos de retraso). A esa hora el SPX todavía no había terminado de caer, así que el +14 que sale (7.666) probablemente exagera la apertura. El informe dice la hora, pero ese número vale poco hasta que lo actualice el premercado.
+
+**Registro** (con copias de seguridad `_bak_20260930_cierre`):
+- **`premercado_hipotesis_log.json`:** la entrada de hoy ya tiene `resultado` y `llamada_siguiente` (para el 2026-10-01).
+- **`control_premercado.xlsx`:** en la fila 71 agregué el "CIERRE DEL DÍA" al Detalle.
+
+El script del día quedó en `control premercado\cierre_09302026.py`, porque `scripts\` del skill sigue sin permiso de escritura. Cerré la pestaña de Investing que abrí.
+[Wed 09/30/2026 15:08:34.15] Finalizado (codigo 0) 
+ 
+[Thu 10/01/2026 15:00:02.39] Iniciando cierre del dia 
+El informe de hoy quedó en `documentos premercado\10012026_cierre del dia.docx`, hecho a las 16:08 ET. Es solo Word, no le envié nada a nadie y no toqué TradingView.
+
+**Lo que revisé antes de escribir**
+- **Día de mercado:** `esDiaDeMercado` confirma que hoy hubo mercado, y el informe de hoy no existía. El próximo día de mercado es el viernes 2 de octubre.
+- **Sigma:** usé la lectura de las **16:05 ET** (20:05:55Z), la más reciente de `status.json`. GEX −24,9 B (en el premercado era −12,0 B). Put Wall y MVS en 7.665, Call Wall en 7.670, Max Pain en 7.685 y Flip en 7.705. El informe aclara que esa cadena ya venció.
+- **Investing, pestaña Hoy:** están los mismos tres eventos de 3 estrellas que tenía el premercado, sin ninguno a las 10:15 o después. Hoy no es D19 y suma a la asertividad.
+  - El PMI de S&P salió 55,9 contra 57,0.
+  - El ISM salió 54,5 contra 54,8.
+- **Investing, pestaña Mañana:** nóminas no agrícolas, tasa de desempleo e ingresos medios por hora, los tres a las 08:30 ET. Mañana no es D19, se opera.
+
+**Calificación**
+- **Bajista (el favorito, 37 %): se validó completo.**
+  - Se activó en la primera vela, con cierre en 7.665.
+  - Llegó al T1 7.660 a las 09:45 y al T2 7.650 a las 10:00.
+  - No se invalidó en todo el día.
+- **Neutral y Alcista: no se validaron.** El Neutral se rompió por abajo en la primera vela y el Alcista nunca se activó.
+- **¿Acertamos?: SÍ.**
+- **La llamada del miércoles para hoy** (bajista bajo 7.645) también se cumplió: se activó a las 10:00, llegó al T1 7.635 a las 10:15 y al T2 7.625 a las 11:00.
+- **Después de los objetivos el precio recuperó todo.** Bajó hasta 7.617 y cerró en 7.667, +15 puntos. Quien se quedara en la bajada hasta el cierre devolvió la ganancia; el informe lo dice.
+
+**Llamada para mañana:** ALCISTA, convicción 52 %. Se activa con un cierre de 15m sobre 7.685 y se invalida con uno bajo 7.660. T1 7.700 y T2 7.710, los que sugiere `memoria_niveles`. La sostiene el cruce EMA10/EMA20 de 15m, que se dio vuelta al alza a las 14:15. El lado bajista también pesa: hay tres cierres diarios bajo la EMA20 y el empleo de las 08:30 puede definir todo antes de la campana.
+
+**Apertura implícita:** el ES que usé es de las **15:58 ET** (Yahoo lo da con retraso). Con la base de hoy (56,0) da 7.669, unos +2 sobre el cierre. Es provisoria hasta el dato de empleo.
+
+**Registro** (con copias de seguridad `_bak_20261001_cierre`):
+- **`premercado_hipotesis_log.json`:** la entrada de hoy ya tiene `resultado` y `llamada_siguiente` (para el 2026-10-02).
+- **`control_premercado.xlsx`:** en la fila 72 agregué el "CIERRE DEL DÍA" al Detalle.
+
+El script del día quedó en `control premercado\cierre_10012026.py`, igual que el de ayer, porque `scripts\` del skill sigue sin permiso de escritura. Cerré la pestaña de Investing que abrí.
+[Thu 10/01/2026 15:09:09.01] Finalizado (codigo 0) 
+ 
+[Fri 10/02/2026 15:00:05.54] Iniciando cierre del dia 
+Dejé el informe de hoy en `documentos premercado\10022026_cierre del dia.docx`, hecho a las 16:06 ET. Es solo Word, no le envié nada a nadie y no toqué TradingView.
+
+**Lo que revisé antes de escribir**
+- **Día de mercado:** `esDiaDeMercado` confirma que hoy hubo mercado, y el informe de hoy no existía. El próximo día de mercado es el **lunes 5 de octubre**.
+- **Sigma:** usé la lectura de las **16:05 ET** (20:05:57Z), la más reciente de `status.json`. Cerró en **gamma POSITIVO** después de cuatro cierres en negativo:
+  - GEX +9,6 B (en el premercado era −3,9 B) y DEX +24,3 B.
+  - Put Wall en 7.720, Flip en 7.722, Call Wall y MVS en 7.725, todos pegados al cierre; Max Pain en 7.685.
+  - El informe aclara que es el pin del 0DTE que venció hoy y que no sirve para el lunes.
+- **Investing, pestaña Hoy:** solo están los tres eventos de las 08:30 ET que ya tenía el premercado, y no apareció ninguno a las 10:15 o después. Hoy no es D19, así que suma a la asertividad.
+- **Investing, el lunes:** como mañana es sábado, el lunes lo leí en la pestaña de la próxima semana. Hay PMI de servicios a las 09:45 ET e ISM de servicios a las 10:00 ET. Los dos son antes de las 10:15, así que el lunes no es D19 y se opera.
+
+**Calificación**
+- **Alcista (el favorito, 39 %): NO.** Se activó a las 10:15 con un cierre en 7.750. El máximo fue 7.754,67, a **0,3 puntos del T1** (7.755), y se invalidó a las 11:00 con un cierre en 7.715.
+- **Neutral: NO.** Se rompió por arriba a las 10:15.
+- **Bajista: NO.** Nunca se activó: el cierre de 15m más bajo fue 7.714, sobre 7.712.
+- **¿Acertamos?: NO, y suma a la asertividad.**
+- **La llamada del jueves para hoy** (alcista sobre 7.685) se cumplió en lo mecánico, pero por el gap. El mercado abrió en 7.726, ya por encima del T1 7.700 y del T2 7.710, así que no daba entrada en esos niveles. El informe lo dice así.
+
+**El día:** cerró en 7.723, +56 puntos (+0,7 %), y todo ese avance fue el gap que dejó el dato de empleo flojo. Después hubo cinco horas de lateral entre 7.712 y 7.729.
+
+**Llamada para el lunes:** ALCISTA, convicción 53 %. Se activa con un cierre de 15m sobre 7.730 y se invalida con uno bajo 7.710. T1 7.745 y T2 7.755, los que sugiere `memoria_niveles`.
+- **A favor:** el diario volvió sobre su EMA20, el cruce de 30m es alcista desde las 09:30 y en la tarde los mínimos fueron subiendo.
+- **En contra:** el cruce EMA10/EMA20 de 15m se fue cerrando toda la tarde y quedó apenas en +3,4. La vela diaria no tiene cuerpo y el gap desde 7.666 sigue abierto.
+
+**Apertura implícita:** el ES que usé es de las **15:56 ET** (Yahoo lo da con retraso). Con la base de hoy (54,2) da 7.723, prácticamente plana. Es provisoria, porque falta todo el fin de semana.
+
+**Registro** (con copias de seguridad `_bak_20261002_cierre`):
+- **`premercado_hipotesis_log.json`:** la entrada de hoy ya tiene `resultado` y `llamada_siguiente` (para el 2026-10-05).
+- **`control_premercado.xlsx`:** en la fila 73 agregué el "CIERRE DEL DÍA" al Detalle.
+
+El script del día quedó en `control premercado\cierre_10022026.py`. Una sola corrección después de guardar: el script escribió la apertura implícita como "−0", y en el .docx la cambié a mano por "plana (−0,4 sobre el cierre)". Cerré la pestaña de Investing que abrí.
+[Fri 10/02/2026 15:07:07.29] Finalizado (codigo 0) 
+ 
+[Mon 10/05/2026 15:00:01.55] Iniciando cierre del dia 
+Listo: el informe de cierre de hoy está creado y no se envió nada a nadie.
+
+**Archivo:** `documentos premercado\10052026_cierre del dia.docx`. Es solo Word (sin PDF), con hora del informe 16:04 ET. No había otro con ese nombre, así que no se sobrescribió nada.
+
+**Lo que hice antes de escribirlo:**
+- **Día de mercado:** el calendario NYSE confirmó que hoy hubo mercado y que el próximo día hábil es el martes 6 de octubre.
+- **Sigma:** usé la lectura más reciente de `status.json`, la de las 16:04 ET. La cadena es la de hoy, que ya venció, y así lo dice el informe.
+- **Investing:** en la pestaña Hoy solo aparecen los dos eventos de 3 estrellas de las 09:45 y 10:00 ET, ninguno a las 10:15 o después, así que hoy no es D19. En la pestaña Mañana dice "No hay eventos programados": el martes tampoco es D19.
+- **TradingView:** no lo usé (ni lancé ni cambié el símbolo).
+- **Chrome:** la pestaña que abrí para Investing quedó cerrada.
+
+**Registros actualizados, con backup antes de cada cambio:**
+- `premercado_hipotesis_log.json`: en la entrada del 05-oct quedaron `resultado` y `llamada_siguiente` para el 2026-10-06. Backup: `.bak_20261005_cierre`.
+- `control_premercado.xlsx`: en la fila 74 se añadió el "CIERRE DEL DÍA" al Detalle. Backup: `_bak_20261005_cierre.xlsx`.
+- El script que generó todo quedó en `control premercado\cierre_10052026.py`, igual que en días anteriores.
+
+**Cosas que conviene que sepas:**
+- **Acierto en NO:** el favorito era el Neutral y se invalidó en la primera vela. El escenario que se cumplió entero fue el Alcista. Seguí la regla del skill de calificar sobre el favorito, como en los informes anteriores. Aun así, el informe dice que en el análisis de la tercera vela el Alcista ya estaba activo y con T1 cumplido.
+- **T1 y T2 de la llamada de mañana:** `memoria_niveles.py` no encontró niveles con historia por encima de 7.775. Por eso los objetivos salen de los máximos diarios de agosto y no de esa herramienta, y el informe lo explica.
+- **Pantalla:** el skill pide los niveles en VANTAGE:SP500, pero el archivo de la base y los informes recientes usan CAPITALCOM:SPX500. Usé CAPITALCOM, con la misma base de −0,14, así que los números son iguales.
+[Mon 10/05/2026 15:04:52.41] Finalizado (codigo 0) 
+ 
+[Tue 10/06/2026 15:00:01.46] Iniciando cierre del dia 
+El informe de cierre de hoy está creado, solo en Word: `documentos premercado\10062026_cierre del dia.docx` (16:05 ET).
+
+- **Mercado:** hoy hubo mercado según `esDiaDeMercado`, y no existía un informe anterior que se pudiera sobrescribir.
+- **Sigma:** usé la lectura de las 16:05 ET, la del cierre, que salió mientras armaba el informe; en el documento figura con su hora. La cadena es la del 06-oct, que ya venció, y el informe lo aclara.
+- **Investing, pestaña Hoy:** sigue diciendo «No hay eventos programados». No apareció ningún 3 estrellas a las 10:15 ET o después, así que hoy no es D19 y el día suma a la asertividad.
+- **Investing, pestaña Mañana:** hay dos eventos de 3 estrellas: los inventarios de crudo de la EIA a las 10:30 ET y las actas del FOMC a las 14:00 ET. El miércoles es D19: día sin trade. La llamada se escribió igual y queda para puntuar.
+- **Registros:** guardé `resultado` y `llamada_siguiente` (`para_fecha` 2026-10-07) en `premercado_hipotesis_log.json` y agregué el «CIERRE DEL DÍA» a la fila 75 del Detalle en `control_premercado.xlsx`. Antes hice copia de los dos (`.bak_20261006_cierre`).
+- **Script:** quedó en `control premercado\cierre_10062026.py`, armado sobre el del 05-oct, con las rutas por `os.path.join`.
+
+Hay cuatro cosas que conviene que sepas:
+- **Log de ejecuciones:** no pude agregar la línea con el resumen de la corrida en `ejecuciones.log`. Ese archivo es un enlace a `bitacora-tasty\skills\...`, y el permiso de escritura fue denegado. La tarea programada igual anota ahí el «Finalizado».
+- **Pantalla:** el skill pide VANTAGE:SP500, pero el archivo de la base usa CAPITALCOM:SPX500, igual que los informes anteriores. Usé CAPITALCOM. Con la base de −0,21 los niveles entre paréntesis quedan iguales.
+- **T1 y T2:** salen de `memoria_niveles.py`; los dos niveles tienen memoria fuerte.
+- **ES fuera de hora:** lo tomé a las 15:55 ET, con el retraso de Yahoo. Es provisorio y lo que vale es el dato del premercado.
+
+No envié nada a nadie, no generé PDF y no toqué TradingView ni el premercado. Cerré la pestaña de Chrome que había abierto para leer Investing.
+[Tue 10/06/2026 15:06:14.16] Finalizado (codigo 0) 
+ 
+[Wed 10/07/2026 15:00:05.90] Iniciando cierre del dia 
+El informe de cierre de hoy está creado, solo en Word: `documentos premercado\10072026_cierre del dia.docx` (16:18 ET).
+
+- **Mercado:** según `esDiaDeMercado`, hoy hubo mercado. No había un informe de hoy que se pudiera sobrescribir.
+- **Sigma:** usé la lectura de las 16:05 ET, que ya es la del cierre, y el informe da su hora. La cadena es la del 07-oct, que ya venció, y el informe lo aclara.
+- **Investing, pestaña Hoy:** siguen los mismos tres eventos de 3 estrellas del premercado: la EIA a las 10:30, Trump a las 13:00 y las actas del FOMC a las 14:00 ET. No apareció ninguno nuevo. Hoy ya era D19, así que el día no suma a la asertividad.
+- **Investing, pestaña Mañana:** el único evento de 3 estrellas son los subsidios por desempleo a las 08:30 ET. El jueves no es D19.
+- **Registros:** guardé `resultado` y `llamada_siguiente` (`para_fecha` 2026-10-08) en `premercado_hipotesis_log.json`. En `control_premercado.xlsx` agregué el «CIERRE DEL DÍA» al Detalle de la fila 76. Antes hice copia de los dos (`.bak_20261007_cierre`).
+- **Script:** quedó en `control premercado\cierre_10072026.py`, armado sobre el del 06-oct, con las rutas por `os.path.join`. El de datos quedó al lado, en `datos_10072026.py`.
+
+Hay tres cosas que conviene que sepas:
+- **Pantalla:** el skill pide VANTAGE:SP500, pero el archivo de la base usa CAPITALCOM:SPX500, igual que los informes anteriores. Usé CAPITALCOM. Con la base de −0,21, los niveles entre paréntesis quedan iguales.
+- **T1 y T2 de la llamada de mañana:** `memoria_niveles.py` no encuentra historia por encima de 7.800, solo la sesión del martes. Por eso los objetivos salen de esa sesión, y el informe lo explica.
+- **ES fuera de hora:** lo tomé a las 16:08 ET, con el retraso de Yahoo. Es provisorio y lo que vale es el dato del premercado.
+
+No envié nada a nadie, no generé PDF y no toqué TradingView ni el premercado. Cerré la pestaña de Chrome que había abierto para leer Investing.
+[Wed 10/07/2026 15:19:16.76] Finalizado (codigo 0) 
+ 
+[Thu 10/08/2026 15:00:04.18] Iniciando cierre del dia 
+El informe de cierre de hoy está creado, solo en Word: `documentos premercado\10082026_cierre del dia.docx` (16:07 ET).
+
+- **Mercado:** según `esDiaDeMercado`, hoy hubo mercado. No había un informe de hoy que se pudiera sobrescribir.
+- **Sigma:** usé la lectura de las 16:05 ET, que ya es la del cierre, y el informe da su hora. La cadena es la del 08-oct, que ya venció, y el informe lo aclara.
+- **Investing, pestaña Hoy:** solo aparecen los subsidios por desempleo de las 08:30 ET. No hay ningún 3 estrellas a las 10:15 ET o después que el premercado no tuviera. Hoy no es D19, así que el día suma a la asertividad.
+- **Investing, pestaña Mañana:** dice «No hay eventos programados». El viernes no es D19.
+- **Registros:** guardé `resultado` y `llamada_siguiente` en `premercado_hipotesis_log.json`. La llamada es para el 2026-10-09, la fecha que da `siguienteDiaDeMercado`. En `control_premercado.xlsx` agregué el «CIERRE DEL DÍA» al Detalle de la fila 77. Antes hice copia de los dos (`.bak_20261008_cierre`).
+- **Script:** quedó en `control premercado\cierre_10082026.py`, armado sobre el del 07-oct, con las rutas por `os.path.join`. El de datos quedó al lado, en `datos_10082026.py`.
+
+Hay tres cosas que conviene que sepas:
+- **Pantalla:** el skill pide VANTAGE:SP500, pero el archivo de la base usa CAPITALCOM:SPX500, igual que los informes anteriores. Usé CAPITALCOM. Con la base de −0,21, los niveles entre paréntesis quedan iguales.
+- **T1 y T2 de la llamada del viernes:** son 7.715 y 7.700, los que sugiere `memoria_niveles.py`. Los dos tienen memoria fuerte.
+- **ES fuera de hora:** lo tomé a las 15:57 ET, con el retraso de Yahoo. Es provisorio y lo que vale es el dato del premercado.
+
+No envié nada a nadie, no generé PDF y no toqué TradingView ni el premercado. Cerré la pestaña de Chrome que había abierto para leer Investing.
+[Thu 10/08/2026 15:07:27.95] Finalizado (codigo 0) 
+ 
+[Fri 10/09/2026 15:00:07.58] Iniciando cierre del dia 
+Terminé el informe de cierre de hoy. Está en `documentos premercado\10092026_cierre del dia.docx`, generado a las 16:08 ET y solo en Word.
+
+- **Mercado:** `esDiaDeMercado` confirmó que hoy hubo mercado, y el informe de hoy todavía no existía. El siguiente día de mercado es el lunes 12 de octubre.
+- **Sigma:** usé la lectura de las 16:05 ET, la del cierre, y el informe da esa hora. El daemon la actualizó mientras corría el script; comprobé que los muros no cambiaron entre una y otra: Put Wall 7.810, Flip 7.813 y Call Wall con MVS en 7.815. El régimen es positivo, con GEX +1,4 B. El informe aclara que esa cadena ya venció.
+- **Investing, pestaña Hoy:** sigue diciendo «No hay eventos programados». Para asegurarme de que el filtro estaba bien, abrí la pestaña Ayer, que sí lista los subsidios del jueves. Hoy no es D19 y el día suma a la asertividad.
+- **El lunes 12:** mañana es sábado, así que leí el lunes en la pestaña «Próxima semana», como en el informe del 2 de octubre. El lunes no tiene ningún evento de 3 estrellas; el primero es el martes 13. El lunes no es D19.
+- **Resultado del día:** el favorito era el Neutral (39 %) y falló, porque se invalidó a las 12:45. El escenario que se dio fue el Alcista: se activó a las 12:45 y tocó el T1 de 7.820 a las 14:45, aunque por medio punto. La llamada del jueves (Bajista) también falló: el primer cierre de 15 minutos la invalidó sin que llegara a activarse.
+- **Llamada para el lunes:** ALCISTA con convicción del 55 %. Se activa con un cierre de 15 minutos sobre 7.820 y se invalida con uno bajo 7.800. T1 es 7.830 y T2 7.845.
+- **Registros:** guardé `resultado` y `llamada_siguiente` (`para_fecha` 2026-10-12) en `premercado_hipotesis_log.json`. En `control_premercado.xlsx` agregué el «CIERRE DEL DÍA» al Detalle de la fila 78. Antes hice copia de los dos archivos (`.bak_20261009_cierre`).
+- **Script:** quedó en `control premercado\cierre_10092026.py`, hecho sobre el del 8 de octubre y con las rutas por `os.path.join`. El de datos quedó al lado, en `datos_10092026.py`.
+
+Hay tres cosas que conviene que sepas:
+- **Pantalla:** usé CAPITALCOM:SPX500, igual que los informes anteriores, porque el archivo de la base trae ese símbolo y no VANTAGE. Con la base de −0,21, los niveles entre paréntesis quedan iguales.
+- **T1 y T2 del lunes:** `memoria_niveles.py` no encuentra historia por encima de 7.820, salvo la sesión del 06-oct. Por eso los objetivos salen de esa sesión: el lateral de la tarde (7.830) y el máximo histórico (7.845).
+- **ES fuera de hora:** lo tomé a las 15:58 ET, con el retraso de Yahoo. Da una apertura implícita de 7.812, es decir, plana. Falta todo el fin de semana, así que el dato que vale es el del premercado del lunes.
+
+No le envié nada a nadie, no generé PDF y no toqué TradingView ni el premercado. Cerré la pestaña de Chrome que abrí para leer Investing.
+[Fri 10/09/2026 15:09:20.46] Finalizado (codigo 0) 
+ 
+[Mon 10/12/2026 15:00:03.67] Iniciando cierre del dia 
+Terminé el informe de cierre de hoy. Está en `documentos premercado\10122026_cierre del dia.docx`, generado a las 16:09 ET y solo en Word.
+
+- **Mercado:** `esDiaDeMercado` confirmó que hoy hubo mercado (Columbus Day: la bolsa abre y el mercado de bonos cierra), y el informe de hoy todavía no existía. El siguiente día de mercado es el martes 13 de octubre.
+- **Sigma:** usé la lectura de las 16:05 ET, la del cierre, y el informe da esa hora. Antes de correr el script comprobé que no había cambiado: Put Wall 7.800, Call Wall y MVS 7.810, Flip 7.813. El régimen es positivo, con GEX +16,7 B. El informe aclara que esa cadena ya venció.
+- **Investing, pestaña Hoy:** sigue diciendo «No hay eventos programados», así que hoy no es D19 y el día suma a la asertividad. Ayer era domingo y salía vacía, así que el filtro lo comprobé con la pestaña Mañana, que sí lista un evento de 3 estrellas.
+- **Martes 13:** tiene un solo evento de 3 estrellas, las ventas de viviendas de segunda mano a las 10:00 ET. Es antes de las 10:15, así que el martes no es D19. Sale durante la tercera vela.
+- **Resultado del día:** el favorito era el Neutral (43 %) y acertó. La tercera vela también daba Neutral. Fue un acierto justo: tres cierres de 15 minutos, de 14:45 a 15:15, quedaron bajo 7.800 por menos de un punto y solo los salvó el colchón de 3 puntos. La llamada del viernes (Alcista sobre 7.820) no se activó ni se invalidó.
+- **Llamada para el martes:** BAJISTA con convicción del 52 %. Se activa con un cierre de 15 minutos bajo 7.795 y se invalida con uno sobre 7.815. T1 es 7.780 y T2 7.770, los dos que sugiere `memoria_niveles`. La convicción es baja: el cruce EMA10/EMA20 de 15 minutos está bajista desde las 13:15, pero un solo cierre cerca de 7.812 lo vuelve al alza.
+- **Registros:** guardé `resultado` y `llamada_siguiente` (`para_fecha` 2026-10-13) en `premercado_hipotesis_log.json`. En `control_premercado.xlsx` agregué el «CIERRE DEL DÍA» al Detalle de la fila 79. Antes hice copia de los dos archivos (`.bak_20261012_cierre`).
+- **Script:** quedó en `control premercado\cierre_10122026.py`, hecho sobre el del 9 de octubre y con las rutas por `os.path.join`. El de datos quedó al lado, en `datos_10122026.py`.
+
+Hay dos cosas que conviene que sepas:
+- **Pantalla:** usé CAPITALCOM:SPX500, igual que los informes anteriores, porque el archivo de la base trae ese símbolo y no VANTAGE como dice el skill. Con la base de −0,21, los niveles entre paréntesis quedan iguales.
+- **ES fuera de hora:** lo tomé a las 15:59 ET, con el retraso de Yahoo. Da una apertura implícita de 7.807, plana. El dato que vale es el del premercado.
+
+No le envié nada a nadie, no generé PDF y no toqué TradingView ni el premercado. Cerré la pestaña de Chrome que abrí para leer Investing.
+[Mon 10/12/2026 15:09:35.93] Finalizado (codigo 0) 
+ 

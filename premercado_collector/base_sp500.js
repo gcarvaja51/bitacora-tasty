@@ -40,7 +40,7 @@ const CDP_PORT = Number(process.env.TV_CDP_PORT || 9223);
 // Ese dia la referencia de contado paso a CAPITALCOM:SPX500. (2026-10-06) Se vuelve a un
 // solo activo, el indice: CBOE:SPX, que ya va en tiempo real. El SPX500, si sigue abierto,
 // vuelve a contar como un CFD mas (matchea CFD_MATCH).
-const SPX_MATCH = /^CBOE:SPX$/i;
+const SPX_MATCH = /^TVC:SPX$/i;
 // El CFD que mira Guillermo. Deliberadamente ancho: VANTAGE:SP500, OANDA:SPX500USD,
 // FOREXCOM:SPXUSD y demas variantes de broker. Se excluye SPCFD:SPX aparte, porque
 // /SPX/ suelto tambien lo matchea.

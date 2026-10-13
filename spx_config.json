@@ -70,7 +70,11 @@
       "extBandMaxPct": 0.3,
       "puertasBinarias": true,
       "maxEdadVela5Seg": 420,
-      "maxDesfaseVsSigmaPts": 8
+      "maxDesfaseVsSigmaPts": 8,
+      "apertura": {
+        "activo": false,
+        "tradierAutoExecute": false
+      }
     },
     "debit": {
       "tpPct": 30,
@@ -85,8 +89,8 @@
     "premercado": {
       "tradierAutoExecute": true,
       "_nota": "ENCENDIDA 2026-08-25 a pedido de Guillermo para acumular muestra. Tradier es SANDBOX/DEMO: no hay dinero real en juego. 1 contrato por trade a proposito -- el objetivo es generar observaciones para analizar, no rentabilidad. Revisar la muestra a las 20-30 operaciones antes de tocar el tamano.",
-      "ventanaInicioET": 10.0,
-      "ventanaFinET": 11.0,
+      "ventanaInicioET": 10,
+      "ventanaFinET": 11,
       "minVelas15mCerradas": 2,
       "unTradePorDia": true,
       "direccional": {
@@ -120,16 +124,19 @@
         "autoExecute": false,
         "_nota": "APAGADO hasta que haya muestra. La regla NO esta validada: el historico de muros del daemon guarda el strike pero no la magnitud, asi que la condicion del 2x nunca se pudo backtestear. gex_perfil.cjs empezo a guardarla el 2026-08-25.",
         "intervaloMin": 5,
-        "desdeET": 10.0,
-        "hastaET": 15.0,
+        "desdeET": 10,
+        "hastaET": 15,
         "persistenciaMin": 30,
-        "dominanciaMin": 2.0,
+        "dominanciaMin": 2,
         "dominanciaCercana": 1.8,
         "corredorMaxPts": 45,
         "ladoRequerido": "cualquiera",
         "ala": 25,
         "minCreditoAnchoPct": 35
       }
+    },
+    "mediodia": {
+      "tradierAutoExecute": true
     }
   },
   "entryMode": "pullback",

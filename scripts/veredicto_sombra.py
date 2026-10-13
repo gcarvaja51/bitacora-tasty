@@ -236,6 +236,17 @@ PROPUESTAS = [
         # valor. Los numeros de arriba salen de reconstruir la distancia a la
         # rejilla desde el spxPrice del snapshot: sirven para ver que el fenomeno
         # existe, no para calibrar el umbral.
+        #
+        # ACTUALIZADA 2026-09-24 (revision semanal 18-24 sep). El confundido de la
+        # cadena queda descartado: del 21 al 24-sep NO_STRIKES a delta 0.5 mato 26
+        # de 43 intentos post-score de REVERSION (60.5%), y en los mismos dias
+        # TENDENCIA a delta 0.3 fallo 0 de 35. La cadena traia griegas.
+        # ADVERTENCIA con numero: la familia pierde -$1,880 en 43 cierres
+        # comparables desde el 16-ago (-$43.7 por trade; TIME_STOP 31 de 43,
+        # -$2,495). Duplicar entradas de una familia negativa duplica la perdida
+        # salvo que los setups rescatados sean distintos: el instrumento tiene que
+        # contestar ESO, no solo cuantos se rescatan. Sigue sin construir.
+        "actualizada": "2026-09-24",
         "instrumento": None,
     },
     {
@@ -282,6 +293,34 @@ PROPUESTAS = [
         # Cuarta ALTO abierta sobre DIRECCIONAL. DIR-1 va primero: es la unica con
         # instrumento construido. DIR-4 va detras de conseguir su sombra.
         "espera": "necesita libro sombra propio; DIR-1 se aplica antes",
+    },
+    {
+        "id": "DIR-5", "familia": "DIRECCIONAL", "nivel": "alto",
+        "titulo": "El veto de muro BAJISTA pasa de sombra a operar",
+        "pregunta": ("¿No entrar en BEARISH cuando vetoMuroSombra.vetaria es true "
+                     "mejora el resultado?"),
+        # Declarada el 2026-10-01 (revision semanal, 25-sep a 1-oct). SUGERENCIAS
+        # propuesta 11. El umbral NO se mueve; la mitad alcista NO se toca.
+        #
+        # El numero, TENDENCIA comparables (resultadoOficial), BEARISH con el
+        # veto evaluado, 17-ago a 1-oct:
+        #   el veto habria bloqueado  n=10  WR 30%  -$1,255  (-$125.5 por trade)
+        #   el veto deja pasar        n=26  WR 58%  -$680    (-$26.2 por trade)
+        # 8 sesiones distintas; quitando cualquiera, vetado -$107 a -$156 por
+        # trade, pasa -$19 a -$36. Sin el cierre manual por atasco (28-sep):
+        # 9 vs 25, 33% vs 56%.
+        #
+        # Lo esperable de comparar() es MUESTRA INSUFICIENTE (10 < 30 y los
+        # Wilson se solapan). Se declara porque el dato ya se junta solo.
+        #
+        # INSTRUMENTO: el dato existe en cada ejecucion (vetoMuroSombra.aplica /
+        # .vetaria + resultadoOficial). Falta el juez: partir las BEARISH
+        # comparables por vetaria y llamar a comparar(). analisis_paper.py §4 lo
+        # hace sobre paperPnl, no sobre resultadoOficial. Escribir juzgar_DIR_5
+        # es parte de la propuesta; sin el, evaluar() devuelve SIN INSTRUMENTO.
+        "declarada": "2026-10-01",
+        "instrumento": "executions.vetoMuroSombra",
+        "espera": "DIR-1 sigue primera en la cola de DIRECCIONAL; una ALTO por ventana",
     },
 ]
 

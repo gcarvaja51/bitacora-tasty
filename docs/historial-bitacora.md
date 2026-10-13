@@ -3792,6 +3792,48 @@ valores que parecen protecciones (1 y 2) y **no frenan nada** — ver `src/freno
 en este bloque a propósito: declarar como vigente algo que el robot no aplica es justo lo que
 hace que se tomen decisiones creyendo que hay protecciones puestas.
 
+## Reversión de apertura: la señal vieja y las 3 entradas apiladas del 2-oct (2026-10-13)
+
+**Síntoma.** REVERSION `959ef3b3` llevaba 0 de 3 y −$280 (cadena real). Los tres trades eran
+del 2-oct, abiertos a las 9:55:32, 9:55:57 y 9:56:29: tres bear calls (7735/7745 y
+7730/7740 ×2) cerrados en 3-4 min por `PRECIO_OBJETIVO`, **con pérdida**.
+
+**Lo que pasó, del strategy log:**
+- 9:50:57 · la señal buena (giro en la vela de las 9:48, igual que el backtest) → Tradier
+  `HTTP 500` cuatro veces hasta las 9:52:29 (`APAGON_BROKER_INICIO`, gotcha 11).
+- 9:55:31 · `APAGON_BROKER_FIN`. En la vuelta siguiente el gatillo leyó la vela de las 9:52
+  (cierre 7736,37, EMA10 7734,41, `objetivoPts` 1,96) y mandó la orden. El SPX en vivo ya
+  estaba en ~7725: **por debajo del objetivo de un corto**. El monitor vio "objetivo
+  alcanzado" en la primera lectura y cerró; se pagó el cruce de ida y vuelta.
+- Dos vueltas más entraron (9:55:57 y 9:56:29) pese a `maxTradesDia: 1`.
+
+**Causa 1 — la señal se decidía solo con la vela cerrada.** `evaluarEntrada` es correcta para
+el backtest (entra al cierre de la vela de giro), pero en vivo la orden sale hasta 2 min
+después del cierre, y más tras un apagón. Nadie comparaba el spot con la EMA antes de mandar.
+
+**Causa 2 — vueltas solapadas.** `cicloDeTrading` es un `setInterval` de 30 s sin guarda. La
+vuelta mira el cupo al principio y guarda la ejecución al final (orden + `capturarSombraCadena`
++ `marcarPaper`). Con el broker recién vuelto eso pasó de 30 s, así que la vuelta siguiente vio
+el cupo libre.
+
+**Arreglo (bug, no cambio de estrategia — norma 2 lo permite cualquier día):**
+- `validarPrecioVivo(ent, spot)` en `src/reversion_apertura.js`: sin spot, con el spot ya en la
+  EMA10 de 2m (o más allá) o ya más allá del stop, **no se entra**. Se registra una vez por vela
+  como `APERTURA_PRECIO_VIVO`. Al entrar quedan `spotAlEntrar` y `restantePtsAlEntrar` en
+  `apertura.entrada`.
+- `checkReversionApertura` es ahora un envoltorio con candado (`aperturaEnCurso`): si la vuelta
+  anterior sigue viva, la nueva no corre.
+- Pruebas en `scripts/pruebas.js`, con el caso del 2-oct reproducido.
+
+**Lo que NO se hizo:** exigir una distancia mínima restante al objetivo (p. ej. que tape el
+costo de cruzar el spread). El 2-oct, aun con el spot sobre la EMA, el objetivo estaba a
+1,96 pts: el trade nacía perdedor. Eso sí es un cambio de estrategia y queda para viernes en
+`SUGERENCIAS.md`. Tampoco se tocaron los otros ciclos, que tienen el mismo `setInterval` sin guarda.
+
+**La muestra:** los 3 trades de `959ef3b3` son un solo incidente del broker y no dicen nada de
+la regla. Estudio en `04_reversion a la media/sombra_OU_2026-10-12/INFORME.md`: del 2 al 9 de
+octubre producción generó la misma señal que la simulación 4 de 4 días.
+
 ## Fase 0 — una sola respuesta a «¿cuánto ganó este trade?» (`src/pnl_oficial.js`, 2026-08-21)
 
 El 20-ago se cambió la regla del dinero a la cadena real, pero **solo en las pantallas**.

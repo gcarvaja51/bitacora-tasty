@@ -487,6 +487,19 @@ reales más por semana**, aproximadamente el doble de la familia.
 > Declarada como **REV-9** en `PROPUESTAS` con `instrumento: None`. El Auditor va a devolver
 > `SIN INSTRUMENTO`, y ese es el veredicto correcto.
 
+> **Actualizada el 2026-09-24 (revisión semanal, 18 a 24 sep): el confundido de la cadena
+> queda descartado.** Del 21 al 24-sep, `NO_STRIKES` a delta 0.5 mató **26 de 43** intentos de
+> REVERSION que ya habían pasado el score (**60,5%**). En los **mismos días**, TENDENCIA a delta
+> 0.3: **0 de 35**. La cadena venía con griegas; lo que falla es la ventana ±0.02 en el dinero.
+> (El 18-sep queda fuera: ese día fallaron los tres deltas a la vez, y eso sí olía a cadena.)
+>
+> ⚠️ **Y una advertencia nueva, con número:** la familia pierde. **43 cierres comparables desde el
+> 16-ago dan −$1.880 (−$43,7 por trade)**; `TIME_STOP` es 31 de esos 43 (−$2.495). REV-9 promete
+> duplicar las entradas, y duplicar las entradas de una familia negativa duplica la pérdida,
+> salvo que los setups rescatados sean distintos. Eso tiene que contestarlo el instrumento
+> antes de aplicar nada. El instrumento sigue sin construir: la fila de `NO_STRIKES` todavía no
+> trae el delta más cercano.
+
 ⚠️ **Es la tercera ALTO abierta sobre REVERSION** (con la 2 y la 3, más la 7 que también la
 toca). Solo se aplica una por ventana. Y el orden se decide solo: REV-3 y REV-4 cambian
 *cuántos setups existen*; esta cambia *cuántos de los que ya existen se pueden expresar como
@@ -584,7 +597,259 @@ del patrón estructural —lo que sostiene esta propuesta— **no cambió ningun
 
 ---
 
+### 11. El veto de muro BAJISTA pasa de sombra a operar — DIRECCIONAL, impacto ALTO
+
+**Anotado:** 2026-10-01 (revisión semanal del jueves) · **Declarada:** `DIR-5` en `PROPUESTAS`
+· **Código:** `evaluarVetoMuroSombra` (hoy solo marca, no bloquea)
+
+**Qué se propone:** en BEARISH, cuando `vetoMuroSombra.vetaria === true` (el TP exige más
+puntos que el aire hasta el Put Wall), **no entrar**. Nada más: el umbral es el que ya está
+escrito, no se mueve, y **la mitad alcista no se toca** (en alcista el veto no predijo nada en
+el backtest del 16-ago, y sigue sin aplicar).
+
+**El número** — TENDENCIA comparables (`resultadoOficial.comparable`), BEARISH con el veto
+evaluado, 17-ago a 1-oct:
+
+| | n | aciertos | P&L | por trade |
+|---|---|---|---|---|
+| **El veto habría bloqueado** | 10 | **30%** | **−$1.255** | **−$125,5** |
+| El veto deja pasar | 26 | 58% | −$680 | −$26,2 |
+
+- **Se sostiene quitando cualquier día.** Los 10 vienen de **8 sesiones distintas** (20-ago,
+  8, 9, 10, 14, 23, 28 y 29-sep). Sacando cada una, el lado vetado queda entre **−$107 y −$156
+  por trade** y el que pasa entre **−$19 y −$36**. Ningún día solo hace el resultado.
+- **Sin los cierres a mano por atasco** (el −$295 del 28-sep): 9 contra 25, 33% contra 56%,
+  −$960 contra −$690. La brecha sigue.
+- **Esta semana sumó 3 casos, y los tres son el patrón del lunes y el martes:** 28-sep 11:19
+  (3,09 pts de aire, el TP pedía 9,25; −$295) y 28-sep 9:57 (+$150, el único que atravesó el
+  muro), 29-sep 13:19 (4,43 contra 6,62; −$210).
+- Dentro del grupo que pasa, la geometría apunta al mismo lado: margen (aire − puntos para
+  el TP) de 0 a 5 pts, n=9, 44%, −$575; de 5 pts o más, n=17, 65%, −$105. Eso **no** es parte
+  de la propuesta: sería mover el umbral, y eso va después, si esta funciona.
+
+**Qué se espera que cambie, en magnitud:** ~**1,5 entradas bajistas menos por semana** (10 en
+6,5 semanas). Sobre la muestra, el P&L de TENDENCIA habría mejorado **+$1.255**, unos
+**+$190 por semana**, a cambio de perder 3 ganadores (+$390). El % de aciertos de la mitad
+bajista subiría de **50% (18/36) a 58%**.
+
+**Qué podría moverse sin querer:**
+1. **El veto no apaga la ventana.** La evaluación siguiente puede entrar unos minutos después,
+   cuando el precio ya pasó el muro o se alejó. Ese trade de reemplazo no existe en la
+   muestra y su resultado es desconocido. La mejora de arriba es un techo, no una promesa.
+2. **El listón tras pérdida dispara menos.** 7 de los 10 vetados fueron pérdidas, y una
+   pérdida evitada deja el listón en 80 el resto del día. Cambia qué entra después.
+3. **La muestra de DIR-1 y del listón cambia de composición** desde el día en que se aplique.
+
+⚠️ **Lo que el Auditor va a decir, y está bien que lo diga:** con n=10 en el lado vetado no
+llega a los 30 mínimos, y los intervalos de Wilson se solapan (3/10 contra 15/26). Lo esperable
+es **MUESTRA INSUFICIENTE**. Se declara igual porque el dato **ya se está juntando solo** en
+cada ejecución y la dirección no ha cambiado en 6 semanas. Si el Auditor no la autoriza, se
+queda en cola y **DIR-1 sigue primera**.
+
+**Instrumento: el dato existe, el juez no.** Cada ejecución trae `vetoMuroSombra` (`aplica`,
+`vetaria`, `aire`, `puntosParaTP`) y `resultadoOficial`. `scripts/analisis_paper.py` §4 ya parte
+por `vetaria`, pero sobre `paperPnl`, no sobre `resultadoOficial`. Falta un `juzgar_DIR_5` en
+`veredicto_sombra.py` que parta las BEARISH comparables por `vetaria` y llame a `comparar()`.
+Escribirlo es parte de la propuesta: mientras no exista, el Auditor devuelve `SIN INSTRUMENTO`.
+
+⚠️ **Quinta ALTO abierta sobre DIRECCIONAL** (1, 4, 6, 10 y esta). Solo una por ventana.
+
+---
+
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
+
+### 2026-10-12 · corrida diaria, 789 evaluaciones
+
+Sesión clavada en **7800–7815**: Put Wall 7800, Gamma Flip 7802, Call Wall 7810/7820, GEX
+positivo. `embudoPrevio` viene en `null` (lunes): no hay «antes» con qué comparar.
+
+**a) El veto de muro en sombra vetó 17 veces hoy, y las 17 son un artefacto del instrumento,
+no del mercado.** Las 33 evaluaciones BAJISTAS tuvieron el mismo `aire` (3,3–6,8 pts hasta el
+Put Wall 7800) y la misma prima (2,3–3,6 pts). Hasta las 13:22 ET el delta neto salió de la
+cadena (**0,28–0,30**) y el veto dio `false` 16 veces. Desde las 13:24 ET el delta real pasó a
+**0,307–0,353**, se salió por centésimas de la banda **0,03–0,30**, el instrumento lo
+reemplazó por un **supuesto de 0,10** y `puntosParaTP` se triplicó (de ~2,6 a **6,8–10,9**):
+las 17 dieron `vetaria: true`. Con el delta medido no habría vetado ninguna. La señal es un
+débito ATM de 10 de ancho (7795/7805), que por construcción tiene delta neto cerca de 0,33:
+la banda deja fuera justo el caso que más se opera. **Esto contamina la muestra de la
+sugerencia 11** (veto bajista a operar): sin separar los `supuesto`, el jueves se leería que
+el veto habría evitado 17 entradas. Lo marco como **posible corrección** (cálculo que reemplaza
+un dato medido por uno peor), no como ajuste. Sin efecto en dinero: es sombra.
+
+**b) El listón tras pérdida hizo exactamente lo que promete, y luego dejó pasar.** El SL de
+las 11:26 ET (−$155, `cadena_real`) subió el listón a 90: **26 `SCORE_FAIL`** con 80–85%. A las
+13:08 ET el score llegó a **90** y desde ahí la misma tesis bajista contra el Put Wall se
+generó **30 veces en 51 minutos**. Material para la sugerencia 6 (el listón no mira el tamaño
+de la pérdida): hoy no hay forma de saber si sirvió, porque ninguna de las 30 llenó.
+
+**c) El filtro de 15m estuvo cerrado, no atrasado** — su modo de falla benigno: «Marco 15m sin
+Fase 2 ni Fase 4» **× 159** (101 en la hora de las 10, 46 en la de las 11, 12 en la de las 12).
+No suma ni resta a la sugerencia 1.
+
+**d) REVERSION: día sin material.** Apertura no apta (gap **0,025%** contra 0,2%). Media mañana
+(sombra): `SIN_ALEJAMIENTO` 191 con alejamientos de **±0,01–0,03%**, un orden de magnitud bajo
+el borde de 0,10%. Igual que el 2-sep: **no es evidencia para la sugerencia 2**. Los 4
+`SCORE_FAIL` vuelven a ser «0% (mínimo 37,8%)» clavado — pregunta abierta desde el 2-sep.
+
+**e) NEUTRAL:** el IC 0DTE murió en la puerta del Gamma Flip (precio a <10 pts del flip 7802,
+27 `GATE_FAIL`) y en `CORTAS_MUY_CERCA` (15–19 pts contra piso 25). Coherente con un día pegado
+al flip. El 1DTE entró a las 15:50 ET.
+
+**Calidad del dato**
+- **Frescura:** n=395, mediana 18 s, p90 32 s, máx 51 s, **0 sobre 120 s**. Sigma en el 100%.
+- **Sellos:** 128 de 344 — el mismo backlog histórico; los cierres nuevos vienen sellados.
+- **Libro propio:** 5, los mismos ids de siempre, no crece.
+- **Completitud:** `CIERRE_PRE_CLOSE_30MIN` sin cotización **4 de 4** (hoy entró el cuarto,
+  MEDIODIA). Es el cierre de las 15:30, que por diseño no cotiza: el motor sigue sin tratarlo
+  como exento, igual que `VENCIMIENTO` 1/1 (el IB manual). Anotado desde el 1-oct.
+- **Motor, dos cegueras:** `senalesQueLleganAOrden` viene **vacío** con 29 órdenes de
+  TENDENCIA mandadas hoy; y `ordenesRechazadas` = 0 no ve las **28 canceladas por
+  `ORDEN_ATASCADA_SIN_LLENAR`**, que no son rechazos pero tampoco llegaron al mercado.
+
+### 2026-10-01 (bis) · revisión SEMANAL del jueves, 25-sep a 1-oct
+
+2.660 evaluaciones contra 2.336. ⚠️ La ventana anterior perdió **2,2 h de log** (tope de 5.000
+filas): los «antes» están subestimados. Primera semana con la Reversión de apertura y con
+MEDIODIA operando.
+
+**Una propuesta nueva: la 11 (DIR-5), en TENDENCIA.** REVERSION y NEUTRAL, ninguna. Abajo, por qué.
+
+---
+
+**a) TENDENCIA, por qué perdió la semana: entró pegada al muro.** 17 cierres comparables,
+8 ganadores, −$910 (el resultado es del Contador, lo cito como contexto). Tres de las pérdidas
+grandes las había marcado el veto de muro en sombra: las bajistas del 28 y 29-sep entraron a
+3 y 4 pts del Put Wall, cuando el TP pedía 9 y 7. De ahí sale la propuesta 11.
+El 30-sep fue el otro lado: 9 bull puts seguidos, todos con score 100, contra el Put Wall
+7700 en gamma positivo, 4 TP y 5 SL (−$320). **Ahí no hay propuesta.** El veto no aplica en
+alcista, y partiendo las alcistas por distancia al muro de la espalda no sale nada limpio:
+de 0 a 5 pts, n=3; de 10 a 20, n=17 y −$1.215; de 20 o más, n=19 y +$1.110. No es monótono.
+Es un día de rango, y con un solo día no se arma un filtro de régimen.
+
+**b) TENDENCIA, el embudo: `SIGNAL_BUILT` 126 (antes 35) no es mercado.** Unas 60 son de la
+mañana del 29-sep, cuando el interruptor DIRECCIONAL estaba apagado: se construyeron y no se
+mandaron. `NO_STRIKES` bajó de 48 a 7. El `SCORE_FAIL` de 45 (antes 67) es casi todo el
+listón tras pérdida: 38 en 85% o 65% contra 90%.
+
+**c) REVERSION: sin propuesta, sin muestra.** La apertura tuvo 3 días: dos no aptos por
+centésimas del gap (0,169% y 0,197%, contra 0,2%) y uno apto sin gatillo (alejamiento ~11,4
+pts contra 15). **Cero trades.** Media mañana está en sombra: el `SCORE_FAIL` de 115 (antes 26)
+es 88 en 0% y 27 en 33,3%. Ya se explicó el 28-sep: sin patrón, una reversión contra la fase
+no puntúa. `NO_STRIKES` en delta 0,5: 20 de 59 intentos después del score (33,9%; la semana
+pasada fue 60,5%). Sigue siendo REV-9, que no tiene instrumento.
+
+**d) NEUTRAL: sin propuesta.** El 69% de los `GATE_FAIL` (45 de 65) son gamma negativo. El
+interruptor estuvo apagado parte de la semana. No hubo IC 0DTE.
+**MEDIODIA** (n=3): +$85 y +$35 cerradas a mano, y −$235 por el cierre de las 15:30. La sombra
+ATM de las 12:30 con ala 15 dio +$152, −$175 y −$255 esos mismos días. Con n=3 no hay
+comparación posible. **Un dato a mirar:** el MVS no se movió en los 30 min de la ventana
+**ninguno de los tres días** (de 35 a 44 lecturas, mínimo = máximo). Puede que sea normal,
+porque el MVS es un strike y salta de a 5 pts. Pero si Sigma lo congela, el centro sale de un
+dato rancio. Hay que verificarlo antes de leer el centro como decisión.
+
+#### Calidad del dato
+
+- **Frescura:** n=1.315, mediana 21 s, p90 36 s, máx 177 s. 9 sobre 120 s y **ninguno sobre
+  180 s**. Ámbar, no rojo.
+- **Fuentes:** Sigma en 1.192 de 1.315 decisiones (90,6%), mediana 23 s. Yahoo en 123, mediana
+  3 s, sobre todo el 25-sep de 9:45 a 10:09, cuando Sigma no dio spot fresco.
+- **Sellos:** 128 de 310. Es el bloque de julio más el IB manual del 28-sep. Los cierres nuevos
+  del robot vienen sellados.
+- **Libro propio:** 5, los mismos 4 ids más el IB manual.
+- **Completitud:** `CIERRE_PRE_CLOSE_30MIN` sin cotización 1 de 1. Es el cierre de MEDIODIA a
+  las 15:30, que por diseño no trae cotización: el motor debería tratarlo como exento, igual
+  que `CIERRE_1DTE_HORA_TOPE`. `VENCIMIENTO` 1 de 1 es el IB manual. `MANUAL_FORZADO` sigue
+  estable (3/2/1 de 14).
+- **Motor, el bug sigue:** `senalesQueLleganAOrden.TENDENCIA.llegaronAOrden` = **122**. En
+  realidad se mandaron **24 órdenes y llenaron 17**. Resta solo `GATE_CREDITO_RIESGO` y no
+  descuenta las señales sin orden (interruptor apagado o posición abierta). Ya se anotó el
+  30-sep.
+
+---
+
+### 2026-09-24 (bis) · revisión SEMANAL del jueves, 18 a 24 de septiembre
+
+2.718 evaluaciones contra 2.275, 5 sesiones contra 5. ⚠️ **El 18-sep no sirve de muestra**:
+cero señales en las tres familias porque fallaron a la vez los tres deltas en `NO_STRIKES`. Y
+la ventana anterior perdió **3,9 h de log** (tope de 5.000 filas), así que los «antes» están
+subestimados.
+
+**Ninguna propuesta nueva esta semana.** REV-9 recibe el número que le faltaba (ver
+propuesta 9). Abajo, familia por familia, por qué no alcanza para más.
+
+---
+
+**a) BUG: el listón tras pérdida no ve un cierre que todavía no se reconcilió.**
+`minScoreEfectivoDireccional` (`server.js:6975`) filtra `status === 'closed' && closedAt`. Un
+trade con el SL ya disparado sigue en `'filled'` hasta que `checkTradierExecutions` lo
+reconcilia, así que no cuenta: el umbral vuelve a 80. El comentario de las líneas 6963-6967
+dice *«en esa ventana… se aplica el umbral ALTO — ante la duda frena»*, pero esa rama
+(`l.pendiente`) **no se alcanza nunca** en el caso para el que se escribió.
+**Caso, 22-sep:** el SL del primer trade (`38997520`, −$210) se disparó a las 10:47 ET; el
+registro no se cerró hasta las 11:40 porque el cierre no llenaba. A las **10:50** entró otro
+Bull Call con **score 85**, cuando el listón pedía 90. Perdió **−$260** (`cadena_real`). Desde
+el 17-ago, un trade entró con el anterior todavía sin cerrar **2 veces en 65**; el otro caso
+(28-ago) venía de un ganador y no importó. Es un bug, no un ajuste. Queda escalado.
+
+**b) BUG: la Reversión manda dos órdenes por el mismo setup, tercera semana.** 23-sep, dos
+pares: **10:06:03 y 10:07:03 ET**, `BULL_PUT_SPREAD 7735/7725` (−$180 y −$180), y
+**10:58:01 y 10:58:58**, `BEAR_CALL_SPREAD 7730/7740` (+$10 y +$50). En el medio, en el tick de
+:55, el ciclo sí escribe «Ya hay una Reversión abierta». **Hipótesis con número:**
+`cicloDeTrading(checkAlejamientoSMA, 60 * 1000)` (`server.js:12219`) es un `setInterval` sin
+candado de reentrada, y **del tick de :55 a la señal pasan ~65-68 s**. Si una corrida tarda
+más de 60 s, hay dos en vuelo a la vez, y cada una trae su propia foto de `executions`
+tomada antes de que exista la otra orden. Lo mismo cuadra con el 14-sep (57,5 s entre
+señales). **Efecto en la muestra:** de las 10 Reversiones de la semana, 4 son 2 pares; el n
+independiente es 8.
+
+**c) REVERSION, por qué pierde: el precio no vuelve.** 43 cierres comparables desde el 16-ago
+dan **−$1.880**. `TIME_STOP` son **31 de 43, −$2.495, 6 ganadores**. `PRECIO_OBJETIVO` son
+**10, +$615, 8 ganadores**. Esta semana, 8 de 10 fueron `TIME_STOP` (−$570).
+**Alargar el tiempo no lo arregla.** Tomé los 11 `TIME_STOP` que caen dentro del log (11 al
+24-sep) y seguí el spot después del cierre. Tocó el objetivo **1 vez en los 10 minutos
+siguientes y 2 en los 40**; tocó el stop 1 y 2 veces. Durante el hold, el **MFE tiene mediana 0,0
+pts contra 5,8 pts que hacían falta**, y ninguno pasó de 1,7. El setup entra y la reversión no
+llega. Lo que se pierde con el precio quieto (−$110 a −$210 en 10 min) es ejecución, así que
+eso es del Contador y no lo repito. **No propongo nada sobre la salida**, porque no hay sombra que
+mida acortarla. La pregunta que queda viva es de **entrada**: qué distingue a los 10 que llegan.
+
+**d) REVERSION, REV-9 pierde el confundido.** Del 21 al 24-sep: 26 `NO_STRIKES` de 43 intentos
+post-score (60,5%). TENDENCIA, mismos días: 0 de 35. Detalle y advertencia en la propuesta 9.
+
+**e) TENDENCIA: sin propuesta, y con período nuevo.** 13 cierres del 21 al 24-sep, 9
+ganadores, **+$510** (7 de 7 el 21-sep; ganancia media $150, pérdida media $210). Pero corren
+con el score **cambiado el domingo 20-sep**: `c81ce14` (tolerancia de 0,5 ATR en
+`patrones_estructurales`), `d87ac8a` y `35c272d`, los tres MEDIO sobre DIRECCIONAL y los tres
+**fuera de la ventana vie/sáb**. Con n=13 no hay nada que atribuir. **DIR-1 no se aplicó** en
+la ventana del 18/19 y sigue primera en la cola.
+**El listón del 22-sep:** 65 `SCORE_FAIL` con score 80 contra 90, todos BEARISH, de 11:50 a
+13:53 ET, con el SPX **plano** (7.761 → 7.760). No se puede saber si ayudó o costó.
+**Premisa de DIR-3 medida sobre el libro** (17-ago a hoy, `resultadoOficial` comparable): tras
+una pérdida del mismo día **n=12, WR 58,3%, −$39,2 por trade**; el resto **n=51, WR 60,8%,
+−$0,1**. Apunta a que la premisa se sostiene, pero con 12 no alcanza. Lo dictamina el Auditor.
+
+**f) NEUTRAL: sin propuesta, y una señal perdida sin rastro.** 53 de los 78 `GATE_FAIL` son
+gamma negativo (68%). El 22-sep el IC construyó **dos** señales (Long Put Condor 0DTE
+7715/7725/7735/7745 a las 12:29 ET y 1DTE a las 15:49). Las dos quedaron `PENDING` **sin
+`tradierOrder`, sin `sombraLimite` y sin ninguna fila en el log**. En la rama de débito no
+hay `else` que deje rastro si no se intenta la orden. Una señal que no llega a orden es el
+evento que más importa registrar, como dice el propio comentario de `server.js:9178`.
+**Hueco de completitud**, y la causa es de la Torre.
+
+#### Calidad del dato
+
+- **Frescura:** n=1.122, mediana 14 s, p90 37 s, máx 179 s. 18 sobre 120 s, **0 sobre 180 s**, y
+  las 18 fueron rechazos. Ámbar, no rojo.
+- **Fuentes: el arreglo del vencimiento de Sigma funcionó, con número.** 21-sep: Sigma en 16 de
+  233 decisiones y **GEX interno en 215 de 233** (el del sesgo de −3,7B); 18-sep: interno en
+  111 de 308. Después de `0f68b6e` (22-sep): Sigma en 273/282, 190/190 y 103/109. **Los 7
+  ganadores de TENDENCIA del 21-sep se decidieron con el GEX interno.**
+- **Sellos:** 127 de 282, el mismo bloque de julio. Los 22 cierres nuevos vienen sellados.
+- **Libro propio:** los mismos 4 ids posteriores al 16-ago.
+- **Motor:** `senalesQueLleganAOrden` vino **vacío** con 35 `SIGNAL_BUILT` de TENDENCIA en la
+  ventana. Hay que revisarlo antes de la próxima semanal.
+
+---
 
 ### 2026-09-17 (bis) · revisión SEMANAL del jueves, 11 a 17 de septiembre
 
@@ -2184,6 +2449,15 @@ desde el sábado traen sello los 3. El 127 es **deuda histórica congelada, no u
 y el parte no distingue una cosa de la otra.
 
 ---
+
+### REV-AP-1. Distancia mínima restante al objetivo en la reversión de apertura — REVERSION, impacto MEDIO (para viernes)
+
+Desde el 2026-10-13 la apertura no entra si el spot en vivo ya tocó la EMA10 de 2m (bug
+arreglado, histórico § *La señal vieja y las 3 entradas apiladas*). Lo que queda abierto es si
+además se exige un **mínimo de puntos restantes** al objetivo: el 2-oct el objetivo estaba a
+1,96 pts al cierre de la vela, y un credit spread de delta 0,50 no recupera el cruce con 2 pts.
+`apertura.entrada.restantePtsAlEntrar` ya se graba en cada ejecución para medirlo.
+Cambia qué trades existen → es cambio de estrategia, no bug.
 
 ## Decisiones pendientes (no son sugerencias, son cosas sin responder)
 

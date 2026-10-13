@@ -122,3 +122,8 @@ pin_dominante_sombra.json
 # identicas del HTML de la app, y los torre_* no tienen NI UNA entrada que
 # produccion no siga teniendo. Borrable cuando se quiera.
 _scratch/
+
+# Informe semanal de ejecucion (Tasty + Tradier) — datos, graficos y narrativa
+# generados. El motor es scripts/informe_semanal.py; el PDF final vive en
+# 01_Sigma\mentoria alejandro\informes bitacora\.
+informes_semanales/

@@ -16,6 +16,13 @@ spec.json:
   "y_min": 7280, "y_max": 7590
 }
 
+Umbrales (2026-09-25, OBLIGATORIOS de ahora en mas): cada direccional lleva
+"activa" e "invalida" (numeros, los mismos del bloque `escenarios` del log) y el
+neutral "corredor": [min, max]. Con eso se dibujan todas las activaciones e
+invalidaciones rotuladas por escenario, y las zonas de color pasan a ser las del
+corredor, no las de los muros. Sin ellos se dibuja como antes (solo
+"invalidacion" del bajista, rotulada a secas, que se prestaba a confusion).
+
 Cada target admite un valor (7510, lo normal desde 2026-09-17: el premercado da
 referencias redondas, no franjas) o un par [7491, 7510] (formato viejo).
 
@@ -77,9 +84,14 @@ def main():
     call_wall = niveles["call_wall"]
 
     # -- Washes de fondo (3 zonas) --
-    ax.axhspan(y_min, put_wall, color=RED_WASH, zorder=0)
-    ax.axhspan(put_wall, call_wall, color=GRAY_WASH, zorder=0)
-    ax.axhspan(call_wall, y_max, color=GREEN_WASH, zorder=0)
+    # Con corredor en el spec (2026-09-25) las zonas son las del escenario, no las de
+    # los muros: el gris es donde vive el Neutral y el verde/rojo empieza donde se
+    # activa cada direccional. Sin corredor, como siempre (muros).
+    corr = esc["neutral"].get("corredor")
+    z_lo, z_hi = (corr[0], corr[1]) if corr else (put_wall, call_wall)
+    ax.axhspan(y_min, z_lo, color=RED_WASH, zorder=0)
+    ax.axhspan(z_lo, z_hi, color=GRAY_WASH, zorder=0)
+    ax.axhspan(z_hi, y_max, color=GREEN_WASH, zorder=0)
 
     # -- Bandas de target (mas saturadas) --
     a = esc["alcista"]
@@ -154,8 +166,62 @@ def main():
     ax.text(8.9, spot_label_y, f"Spot ref.  {spot:,.0f}".replace(",", "."), va="center",
              fontsize=9.5, color=INK, fontweight="bold", fontfamily="sans-serif")
 
-    # -- Invalidacion bajista (linea fina roja punteada, opcional) --
-    inv = b.get("invalidacion")
+    # -- Umbrales de los 3 escenarios (2026-09-25, pedido de Guillermo: "marca las
+    #    invalidaciones para que se vea mejor") --
+    # Antes solo se dibujaba la invalidacion del bajista, rotulada "Invalidacion" a
+    # secas: el 25-sep leyo esa linea (7.720) como el borde del Neutral, que en
+    # realidad era 7.700-7.735. Si el spec trae activa/invalida por escenario, se
+    # dibujan TODOS los umbrales, cada uno diciendo de que escenario es, en una
+    # columna propia a la izquierda (x=2.4) para no chocar con T1/T2 (x=0.4) ni con
+    # los niveles de Sigma (derecha).
+    n = esc["neutral"]
+    umbrales = []   # (precio, texto, color, estilo_linea)
+    for clave, nombre, color in (("alcista", "ALCISTA", GREEN), ("bajista", "BAJISTA", RED)):
+        e = esc[clave]
+        if e.get("activa") is not None:
+            flecha = "↑" if clave == "alcista" else "↓"
+            umbrales.append((e["activa"], f"{flecha} activa {nombre}", color, "-."))
+        if e.get("invalida") is not None:
+            umbrales.append((e["invalida"], f"✕ invalida {nombre}", color, ":"))
+    if n.get("corredor"):
+        lo_n, hi_n = n["corredor"]
+        umbrales.append((lo_n, "✕ invalida NEUTRAL ↓", INK_SEC, ":"))
+        umbrales.append((hi_n, "✕ invalida NEUTRAL ↑", INK_SEC, ":"))
+
+    if umbrales:
+        # Linea: una por precio, salvo que ya haya un nivel rotulado ahi (el umbral
+        # se lee igual por su etiqueta de la izquierda).
+        ya_linea = set()
+        for precio, _, color, ls in umbrales:
+            if precio in ya_linea or any(abs(precio - lvl) < 1 for lvl in _rotulados):
+                continue
+            ya_linea.add(precio)
+            ax.axhline(precio, color=color, linewidth=1.2, linestyle=ls, zorder=2, xmax=0.86, alpha=0.85)
+        # Etiquetas: apiladas sin encimarse (varias pueden caer en el mismo precio:
+        # activar el alcista ES invalidar el neutral por arriba).
+        sep = (y_max - y_min) * 0.021
+        ordenados = sorted(umbrales, key=lambda u: (u[0], u[1]))
+        grupos = {}
+        for u in ordenados:
+            grupos.setdefault(u[0], []).append(u)
+        ultimo_y = None
+        for precio in sorted(grupos):
+            g = grupos[precio]
+            # el bloque del precio se centra en el precio, y se empuja hacia arriba
+            # si choca con el bloque anterior
+            y0 = precio - sep * (len(g) - 1) / 2
+            if ultimo_y is not None and y0 < ultimo_y + sep:
+                y0 = ultimo_y + sep
+            for i, (_, texto, color, _ls) in enumerate(g):
+                y = y0 + i * sep
+                etiqueta = f"{texto} {precio:,.0f}".replace(",", ".")
+                ax.text(2.4, y, etiqueta, va="center", fontsize=7.8, color=color,
+                        fontweight="bold", fontfamily="sans-serif", zorder=6,
+                        bbox=dict(boxstyle="round,pad=0.15", fc=SURFACE, ec="none", alpha=0.85))
+                ultimo_y = y
+
+    # -- Invalidacion bajista (formato viejo, solo si el spec no trae umbrales) --
+    inv = None if umbrales else b.get("invalidacion")
     # Si la invalidacion cae en el mismo strike que un nivel ya rotulado (Put Wall,
     # Gamma Flip, etc.) se omite la linea/etiqueta para no superponer texto -- bug
     # real visto 2026-07-23 (invalidacion == put_wall del dia, texto ilegible).
@@ -191,13 +257,30 @@ def main():
     y_bajista_center = (y_min + put_wall) / 2 - 15
     y_neutral_center = (put_wall + call_wall) / 2
 
-    ax.text(5.3, y_alcista_center, f"ALCISTA {esc['alcista']['prob']}%", fontsize=15,
+    # Con la columna de umbrales a la izquierda, los rotulos grandes se corren a la
+    # derecha para no taparla.
+    if umbrales:
+        x_box = 7.0
+        margen = (y_max - y_min) * 0.07
+        y_alcista_center = y_max - margen
+        y_bajista_center = y_min + margen
+        if corr:
+            # El rotulo NEUTRAL va en el hueco mas grande del corredor, para no
+            # tapar ninguna linea (umbrales, niveles o spot).
+            marcas = sorted({corr[0], corr[1], spot, *(u[0] for u in umbrales), *(
+                l for l in _rotulados if corr[0] <= l <= corr[1])})
+            marcas = [m for m in marcas if corr[0] <= m <= corr[1]]
+            a_, b_ = max(zip(marcas, marcas[1:]), key=lambda p: p[1] - p[0])
+            y_neutral_center = (a_ + b_) / 2
+    else:
+        x_box = 5.3
+    ax.text(x_box, y_alcista_center, f"ALCISTA {esc['alcista']['prob']}%", fontsize=15,
              color=GREEN, fontweight="bold", ha="center", va="center", fontfamily="sans-serif",
              bbox=dict(boxstyle="round,pad=0.35", fc=SURFACE, ec=GREEN, lw=1.2, alpha=0.92))
-    ax.text(5.3, y_neutral_center, f"NEUTRAL {esc['neutral']['prob']}%", fontsize=13,
+    ax.text(x_box, y_neutral_center, f"NEUTRAL {esc['neutral']['prob']}%", fontsize=13,
              color=INK_SEC, fontweight="bold", ha="center", va="center", fontfamily="sans-serif",
              bbox=dict(boxstyle="round,pad=0.35", fc=SURFACE, ec=INK_MUTED, lw=1.0, alpha=0.92))
-    ax.text(5.3, y_bajista_center, f"BAJISTA {esc['bajista']['prob']}%", fontsize=15,
+    ax.text(x_box, y_bajista_center, f"BAJISTA {esc['bajista']['prob']}%", fontsize=15,
              color=RED, fontweight="bold", ha="center", va="center", fontfamily="sans-serif",
              bbox=dict(boxstyle="round,pad=0.35", fc=SURFACE, ec=RED, lw=1.2, alpha=0.92))
 

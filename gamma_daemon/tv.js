@@ -22,7 +22,9 @@ const CDP_PORT = Number(process.env.TV_CDP_PORT || 9223);
 // pasada: CBOE:SPX ya va en tiempo real (vela de 2m al minuto, 7817,2 vs 7816,9
 // de Yahoo). CAPITALCOM:SPX500 deja de recibir muros.
 // Sigue siendo match EXACTO por la misma razon de arriba.
-export const SYMBOL_MATCH = /^CBOE:SPX$/i;
+// (2026-10-07) CBOE:SPX ya no esta en ninguna ventana; la del SPX es TVC:SPX, que
+// segun Guillermo va en tiempo real (la otra fuente del SPX que tenia abierta va 10 min tarde).
+export const SYMBOL_MATCH = /^TVC:SPX$/i;
 // Matchea CUALQUIER version (CIARG_V1, CIARG_V3, etc.) -- las multiples ventanas
 // SPX no estan sincronizadas entre si (ver CLAUDE.md) y pueden quedar temporalmente
 // con nombres distintos tras renombrar el script hasta que el usuario actualice
@@ -55,6 +57,17 @@ async function evalOn(client, expression, awaitPromise = false) {
     throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text || 'CDP eval error');
   }
   return result.result?.value;
+}
+
+// true si TradingView Desktop contesta en el puerto CDP. Es lo unico que justifica
+// relanzar la app (ver pushToTradingViewWithRetry en index.js).
+export async function cdpResponde() {
+  try {
+    const resp = await fetch(`http://localhost:${CDP_PORT}/json/version`, { signal: AbortSignal.timeout(5000) });
+    return resp.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function listChartTargets() {
@@ -166,7 +179,7 @@ export async function disableAutoSaveOnOtherWindows() {
               try { return c.model().mainSeries().symbol(); } catch (e) { return ''; }
             });
           } catch (e) { return { error: e.message }; }
-          if (syms.some(function(s) { return /^CBOE:SPX$/i.test(s); })) return { skip: 'es la del SPX' };
+          if (syms.some(function(s) { return /^TVC:SPX$/i.test(s); })) return { skip: 'es la del SPX' };
           try {
             var svc = api._saveChartService;
             if (!svc || typeof svc.setAutoSaveEnabled !== 'function') return { error: 'sin setAutoSaveEnabled' };
@@ -242,12 +255,15 @@ async function activarPane(client, paneIndex) {
 }
 
 // Busca el estudio CIARG en el pane indicado. Devuelve el entity_id o null.
+// (2026-10-07) SIN activar el pane. setActiveChart() cambiaba el pane seleccionado en
+// pantalla cada 2 minutos y era parte del parpadeo que no dejaba trabajar a Guillermo.
+// TradingViewApi.chart(i) devuelve el widget del pane i directamente, sin enfocarlo
+// (probado en vivo: chart(0)=15m y chart(1)=2m con el activo en 1).
 async function findStudyOnPane(client, paneIndex) {
-  await activarPane(client, paneIndex);
   return evalOn(client, `
     (function() {
       try {
-        var chart = window.TradingViewApi._activeChartWidgetWV.value();
+        var chart = window.TradingViewApi.chart(${paneIndex});
         var studies = chart.getAllStudies();
         for (var i = 0; i < studies.length; i++) {
           var name = studies[i].name || studies[i].title || '';
@@ -282,25 +298,29 @@ async function findStudyOnPane(client, paneIndex) {
 //   discrepantes — el input existe, se escribio, y al releer tiene otro valor.
 //                  Esto SI es el push fallando en silencio.
 async function setStudyInputs(client, entityId, inputs, paneIndex) {
-  await activarPane(client, paneIndex);
   const inputsJson = JSON.stringify(inputs);
   const result = await evalOn(client, `
     (function() {
-      var chart = window.TradingViewApi._activeChartWidgetWV.value();
-      if (!chart) return { error: 'no hay chart activo' };
+      var chart = window.TradingViewApi.chart(${paneIndex});
+      if (!chart) return { error: 'el pane ${paneIndex} ya no existe' };
       var study = chart.getStudyById(${JSON.stringify(entityId)});
       if (!study) return { error: 'Study not found: ' + ${JSON.stringify(entityId)} };
       var overrides = ${inputsJson};
 
       var currentInputs = study.getInputValues();
       var existentes = {};
+      var cambia = false;
       for (var i = 0; i < currentInputs.length; i++) {
         existentes[currentInputs[i].id] = true;
         if (overrides.hasOwnProperty(currentInputs[i].id)) {
+          if (currentInputs[i].value !== overrides[currentInputs[i].id]) cambia = true;
           currentInputs[i].value = overrides[currentInputs[i].id];
         }
       }
-      study.setInputValues(currentInputs);
+      // (2026-10-07) Solo se escribe si algo cambio: setInputValues obliga al
+      // indicador a recalcular y redibujar, y con niveles iguales eso era un
+      // parpadeo cada 2 minutos sin ningun beneficio.
+      if (cambia) study.setInputValues(currentInputs);
 
       // Relectura: el valor que de verdad quedo en el estudio.
       var despues = {};

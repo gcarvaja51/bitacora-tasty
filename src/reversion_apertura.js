@@ -182,7 +182,27 @@ function evaluarEntrada(velas2, dia, ahoraMs, cfgIn) {
   };
 }
 
+// El gatillo se decide con la vela CERRADA, pero la orden sale con el precio en
+// VIVO. Entre una cosa y otra el precio puede haber hecho ya todo el viaje.
+// Caso real, 2-oct-2026: la senal de la vela de las 9:52 (cierre 7736,37,
+// objetivo EMA10 7734,41) se mando a las 9:55:32 tras un apagon de Tradier, con
+// el SPX ya en ~7725, POR DEBAJO del objetivo de un corto. El monitor cerro
+// "por objetivo" en 3 min y la cadena real dio perdida. Si el spot ya toco el
+// objetivo (o ya paso el stop) no queda trade que hacer.
+function validarPrecioVivo(ent, spot) {
+  if (!Number.isFinite(spot)) return { ok: false, motivo: 'sin spot en vivo para confirmar la entrada' };
+  const largo = ent.lado === 'LARGO';
+  const restantePts = +(largo ? ent.ema10 - spot : spot - ent.ema10).toFixed(2);
+  if (restantePts <= 0) {
+    return { ok: false, restantePts, motivo: `el spot ${spot} ya alcanzo el objetivo (EMA10 2m ${ent.ema10}): la reversion ya ocurrio` };
+  }
+  if (largo ? spot <= ent.stop : spot >= ent.stop) {
+    return { ok: false, restantePts, motivo: `el spot ${spot} ya esta mas alla del stop ${ent.stop}` };
+  }
+  return { ok: true, restantePts };
+}
+
 module.exports = {
   DEFAULTS, conDefaults, ema, fechaET, minutosET, velasDeSesion,
-  evaluarDia, evaluarEntrada, velasCerradas, ema10_2m, PASO_2M, PASO_15M,
+  evaluarDia, evaluarEntrada, velasCerradas, ema10_2m, validarPrecioVivo, PASO_2M, PASO_15M,
 };

@@ -12786,7 +12786,20 @@ async function velasApertura() {
 let aperturaDiaMemo = null;
 let aperturaUltimaVelaLog = null;
 
+// Una sola vuelta a la vez. cicloDeTrading es un setInterval de 30s y la vuelta
+// que entra mira el cupo (maxTradesDia) al PRINCIPIO pero guarda la ejecucion al
+// FINAL, despues de la orden, la cadena sombra y el paper. Tras un apagon de
+// Tradier eso tarda mas de 30s: el 2-oct-2026 la vuelta siguiente arranco antes
+// de que la primera guardara, vio el cupo libre y entraron 3 bear calls en 1
+// minuto (9:55:32, 9:55:57, 9:56:29). Si la anterior sigue viva, esta no corre.
+let aperturaEnCurso = false;
 async function checkReversionApertura() {
+  if (aperturaEnCurso) return;
+  aperturaEnCurso = true;
+  try { await checkReversionAperturaVuelta(); } finally { aperturaEnCurso = false; }
+}
+
+async function checkReversionAperturaVuelta() {
   try {
     if (!isMarketHours()) return;
     const et = getETHour();
@@ -12842,6 +12855,20 @@ async function checkReversionApertura() {
         reason: `Spot no fiable: ${ctx.spotFuente || 'sin fuente'} con ${ctx.spotEdadSeg ?? '?'}s — no se abre la reversion de apertura` });
       return;
     }
+    // La vela cerrada decide el gatillo; el spot en vivo decide si todavia hay
+    // trade. Ver validarPrecioVivo (caso del 2-oct-2026).
+    const vivo = reversionApertura.validarPrecioVivo(ent, ctx.spxPrice);
+    if (!vivo.ok) {
+      const clave = `vivo-${ent.velaT}`;
+      if (aperturaUltimaVelaLog !== clave) {
+        aperturaUltimaVelaLog = clave;
+        logStrategyEvent({ strategyFamily: 'REVERSION', etTime, stage: 'APERTURA_PRECIO_VIVO', passed: false,
+          reason: vivo.motivo, snapshot: { ...ent, spot: ctx.spxPrice, spotFuente: ctx.spotFuente, restantePts: vivo.restantePts } });
+      }
+      return;
+    }
+    ent.restantePtsAlEntrar = vivo.restantePts;
+    ent.spotAlEntrar = ctx.spxPrice;
     const direction = ent.direction;
     const strategy = direction === 'BULLISH' ? 'BULL_PUT_SPREAD' : 'BEAR_CALL_SPREAD';
     const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);

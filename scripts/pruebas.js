@@ -664,6 +664,36 @@ seccion('La reversion de apertura (src/reversion_apertura.js)');
   chequear('alejamiento insuficiente no entra', RA.evaluarEntrada(v2, dia, cierreGiro, { alejamientoMinPts: 40 }).entra === false);
   chequear('la EMA con semilla en el primer valor (como pandas adjust=False)',
     Math.abs(RA.ema([1, 2, 3], 3).at(-1) - 2.25) < 1e-9);
+
+  // El precio en vivo manda sobre la vela cerrada. Caso real del 2-oct-2026: corto
+  // de la vela de las 9:52 (EMA10 7734,41, stop 7752,08) mandado con el SPX en 7725.
+  const oct2 = { lado: 'CORTO', ema10: 7734.41, stop: 7752.08 };
+  chequear('2-oct: con el spot ya bajo la EMA, el corto NO entra',
+    RA.validarPrecioVivo(oct2, 7725).ok === false);
+  chequear('el mismo corto con el spot todavia sobre la EMA si entra',
+    RA.validarPrecioVivo(oct2, 7740).ok === true && RA.validarPrecioVivo(oct2, 7740).restantePts === 5.59);
+  chequear('spot justo en la EMA: objetivo alcanzado, no entra', RA.validarPrecioVivo(oct2, 7734.41).ok === false);
+  chequear('spot mas alla del stop del corto: no entra', RA.validarPrecioVivo(oct2, 7753).ok === false);
+  chequear('largo: spot sobre la EMA no entra', RA.validarPrecioVivo({ lado: 'LARGO', ema10: 7680, stop: 7669 }, 7681).ok === false);
+  chequear('largo: spot bajo el stop no entra', RA.validarPrecioVivo({ lado: 'LARGO', ema10: 7680, stop: 7669 }, 7668).ok === false);
+  chequear('largo: spot entre el stop y la EMA entra', RA.validarPrecioVivo({ lado: 'LARGO', ema10: 7680, stop: 7669 }, 7675).ok === true);
+  chequear('sin spot no se entra a ciegas', RA.validarPrecioVivo(oct2, null).ok === false && RA.validarPrecioVivo(oct2, NaN).ok === false);
+  chequear('la entrada real del backtest (largo 7678 vs EMA ~7690) sigue entrando con su propio cierre como spot',
+    e.entra && RA.validarPrecioVivo(e, e.entrada).ok === true, JSON.stringify(e));
+}
+
+// El candado de una-vuelta-a-la-vez de la apertura. No se puede importar
+// server.js sin arrancarlo, asi que se lee la fuente: si alguien quita el candado,
+// vuelve el apilamiento del 2-oct-2026 (3 entradas en 1 minuto).
+{
+  const fuente = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+  chequear('checkReversionApertura no corre si la vuelta anterior sigue viva',
+    /async function checkReversionApertura\(\) \{\s*if \(aperturaEnCurso\) return;\s*aperturaEnCurso = true;\s*try \{ await checkReversionAperturaVuelta\(\); \} finally \{ aperturaEnCurso = false; \}/.test(fuente));
+  const iVuelta = fuente.indexOf('async function checkReversionAperturaVuelta()');
+  const iVivo = fuente.indexOf('reversionApertura.validarPrecioVivo(ent, ctx.spxPrice)');
+  const iOrden = fuente.indexOf('[Tradier-REV-AP] ');
+  chequear('y la apertura confirma el spot en vivo antes de mandar la orden',
+    iVuelta > 0 && iVivo > iVuelta && iOrden > iVivo, `vuelta ${iVuelta} vivo ${iVivo} orden ${iOrden}`);
 }
 
 // ── 2d. La figura de cada posicion abierta ─────────────────────────────────

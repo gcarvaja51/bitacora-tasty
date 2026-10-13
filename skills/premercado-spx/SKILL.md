@@ -1638,6 +1638,13 @@ niveles clave (Put Wall, Gamma Flip, Call Wall, MVS, spot de referencia, targets
 T1/T2 de cada escenario) dibujados a escala real de precio. Corre DESPUÉS del
 Paso 6 (necesita las probabilidades ya calculadas para los rótulos).
 
+⚠️ **Umbrales en el diagrama (pedido de Guillermo, 2026-09-25).** El spec lleva
+SIEMPRE `activa`/`invalida` en alcista y bajista y `corredor` en neutral (los mismos
+números del bloque `escenarios` del log). El diagrama rotula cada activación e
+invalidación con su escenario ("✕ invalida NEUTRAL ↓ 7.700", "↑ activa ALCISTA 7.735")
+y colorea las zonas por el corredor. Origen: ese día leyó la línea "Invalidación 7.720"
+(que era la del bajista) como el borde del Neutral.
+
 **Script**: `scripts/gen_escenarios_chart.py` (dentro de este skill) — Python +
 matplotlib (ya confirmado instalado). Uso:
 `python gen_escenarios_chart.py <output.png> <spec.json>` — ver el docstring del

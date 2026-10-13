@@ -1,0 +1,751 @@
+// Recolector de datos para el skill premercado-spx.
+//
+// Por que existe: la redaccion del informe (Claude, via /premercado-spx) necesita datos
+// de TradingView (captura del chart de 30min + valores de estudios como POC) y de Sigma
+// Terminal (Call Wall/Put Wall/Gamma Flip/MVS/GEX). Pelear con la conexion CDP/Chrome EN
+// VIVO mientras se redacta el informe es lo que ha fallado repetidamente (puerto CDP
+// desalineado, extension de Chrome desconectada, ventanas duplicadas). Este script separa
+// esa parte mecanica -- conectarse, capturar, leer numeros -- de la parte que si necesita
+// criterio (escribir el analisis). Corre ANTES (via Tarea Programada, o a mano), deja todo
+// en disco, y el skill simplemente lee el bundle mas reciente si existe.
+//
+// Reutiliza la logica de conexion ya probada en gamma_daemon/tv.js en vez de
+// reimplementarla -- mismo patron de "probar cada ventana candidata, verificar el simbolo"
+// que ya resolvio el bug de deriva SPY/SPX del daemon de Gamma.
+//
+// Para Sigma Terminal NO se lanza un Puppeteer propio (a diferencia de tv.js, que si
+// se reutiliza) -- gamma_daemon/sigma.js usa un Chrome dedicado con perfil persistente
+// (sigma_profile/) que el propio gamma_daemon mantiene abierto de forma continua (no lo
+// cierra entre ciclos). Intentar lanzar una SEGUNDA instancia de Puppeteer contra el
+// mismo userDataDir revienta con "Failed to launch the browser process!" (bug real
+// encontrado 2026-08-01) porque el profile ya esta en uso. En vez de competir por esa
+// misma instancia, este colector lee directamente gamma_daemon/status.json -- el propio
+// daemon ya persiste ahi su ultima lectura exitosa (lastLevels/lastSuccessAt) cada vez
+// que corre un ciclo dentro de horario de mercado, que es exactamente el dato que hace
+// falta ("el ultimo disponible") sin necesidad de tocar el navegador para nada.
+import { connectToSpxWindow, SYMBOL_MATCH } from '../gamma_daemon/tv.js';
+import { esperarSigmaDeHoy, diagnosticoDaemon } from './elegir_sigma.mjs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const GAMMA_STATUS_PATH = path.join(__dirname, '..', 'gamma_daemon', 'status.json');
+const OUT_ROOT = process.env.PREMERCADO_OUT_ROOT || 'C:\\Users\\gcarv\\Documents\\CARPETA PERSONAL\\01. guillermo carvajal\\01_Sigma\\mentoria alejandro\\premercados alejandro\\control premercado\\data_collector';
+const LOG_PATH = path.join(OUT_ROOT, 'collector.log');
+
+// Presupuesto de tiempo para TODA la parte de TradingView. Incidente real 19 y 20 de
+// agosto de 2026: connectToSpxWindow() se colgo ~9 minutos. CDP no tiene timeout propio
+// -- si una ventana de TradingView no responde a Runtime.enable()/evaluate(), el await
+// no vuelve NUNCA. Y mientras este proceso esperaba, el gamma_daemon (que es el dueño
+// real de esa ventana, ver CLAUDE.md) relanzo TradingView por debajo y le mato el
+// WebSocket. Por eso en collector.log los dos sintomas aparecian siempre juntos:
+// "no se pudo restaurar la resolucion ... readyState 3 (CLOSED)" y "FALLO: WebSocket
+// connection closed". El gate, del otro lado, mataba el proceso por timeout y anotaba
+// "se colgo antes de siquiera empezar" -- diagnostico equivocado: si habia empezado, lo
+// que no tenia era techo. Ahora cada paso tiene el suyo y el bloque entero tambien: si
+// TradingView no coopera en 2 minutos se abandona esa parte y se escribe igual el bundle
+// con los datos de Sigma, que son los que de verdad usa el informe.
+// OJO -- el techo va PASO POR PASO, nunca envolviendo el bloque entero. Promise.race
+// no cancela nada: si se le pone un limite global a collectFromTradingView(), la carrera
+// rechaza pero la cadena de adentro SIGUE corriendo, y puede ejecutar setResolution('30')
+// justo mientras main() va camino al process.exit(). Resultado: el chart del SPX queda
+// clavado en 30 minutos sin que nadie restaure la resolucion original -- y el usuario
+// opera el SPX en 15 min (ver CLAUDE.md). Con el techo por paso, en cambio, el rechazo
+// viaja por el camino normal de excepciones y el bloque finally SI corre: se restaura la
+// resolucion y se cierra el cliente. Peor caso sumando todos los pasos: ~220s, por debajo
+// del watchdog interno de 300s.
+const TV_STEP_MS = Number(process.env.TV_STEP_MS || 20000);
+const TV_CONNECT_MS = Number(process.env.TV_CONNECT_MS || 60000);
+// Cinturon final: pase lo que pase, este proceso no vive mas de 5 minutos. unref() para
+// que este temporizador no sea lo que mantenga vivo el event loop cuando todo salio bien.
+// Subido de 5 a 8 min el 2026-09-23 para darle cabida a la espera de Sigma de abajo
+// (6 min, en paralelo con TradingView). Sigue por debajo del techo de 10 min del gate.
+const HARD_KILL_MS = Number(process.env.COLLECTOR_HARD_KILL_MS || 480000);
+// Cuanto puede tener el dato de Sigma antes de que deje de valer como "de hoy".
+// 45 min cubre con holgura la fase de premercado del daemon (empieza 08:15, el
+// colector corre 08:30) y sigue delatando al instante una lectura del cierre
+// anterior, que son ~17 HORAS.
+const SIGMA_MAX_ANTIGUEDAD_MIN = Number(process.env.SIGMA_MAX_ANTIGUEDAD_MIN || 45);
+// Si a las 08:30 el dato de Sigma no es de hoy, cuanto se espera a que el daemon lo
+// traiga (2026-09-23; ver esperarSigmaDeHoy en elegir_sigma.mjs). Corre en paralelo
+// con TradingView, asi que en un dia normal no suma nada: la primera lectura ya sale OK.
+const SIGMA_ESPERA_MS = Number(process.env.SIGMA_ESPERA_MS || 6 * 60 * 1000);
+const SIGMA_PASO_MS = Number(process.env.SIGMA_PASO_MS || 20000);
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timeout de ${Math.round(ms / 1000)}s en ${label}`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function todayStamp() {
+  // MMDDAAAA, mismo formato que ya usa el resto del skill para nombrar archivos.
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}${dd}${d.getFullYear()}`;
+}
+
+function log(line) {
+  mkdirSync(OUT_ROOT, { recursive: true });
+  const ts = new Date().toISOString();
+  writeFileSync(LOG_PATH, `${ts}\t${line}\n`, { flag: 'a' });
+  console.log(line);
+}
+
+async function evalOn(client, expression) {
+  const result = await client.Runtime.evaluate({ expression, returnByValue: true, awaitPromise: false });
+  if (result.exceptionDetails) {
+    throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text || 'CDP eval error');
+  }
+  return result.result?.value;
+}
+
+async function focusPane(client, paneIndex) {
+  await evalOn(client, `
+    (function() {
+      var all = window.TradingViewApi._chartWidgetCollection.getAll();
+      var w = all[${paneIndex}];
+      if (w && w._mainDiv) w._mainDiv.click();
+      return true;
+    })()
+  `);
+  await new Promise((r) => setTimeout(r, 300));
+}
+
+const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
+
+async function getResolution(client) {
+  return evalOn(client, `${CHART_API}.resolution()`);
+}
+
+async function setResolution(client, timeframe) {
+  await evalOn(client, `${CHART_API}.setResolution(${JSON.stringify(timeframe)}, {})`);
+  await new Promise((r) => setTimeout(r, 1500));
+}
+
+async function captureChartPng(client, paneIndex, outPath) {
+  // El contenedor `.chart-widget` (referencia _mainDiv del pane) incluye TODAS las
+  // sub-panes (precio + indicadores como MACD/volumen), el eje de precio Y el eje de
+  // tiempo de abajo -- a diferencia de recortar solo al canvas de precio
+  // (`[data-name="pane-canvas"]`), que deja fuera el eje de tiempo y hace imposible ver
+  // donde empieza y termina el movimiento del dia (pedido explicito del usuario,
+  // 2026-08-01: "asegurate que se vea... el eje x del tiempo").
+  const bounds = await evalOn(client, `
+    (function() {
+      var all = window.TradingViewApi._chartWidgetCollection.getAll();
+      var w = all[${paneIndex}];
+      if (!w || !w._mainDiv) return null;
+      var rect = w._mainDiv.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    })()
+  `);
+  // Page.captureScreenshot SOLO devuelve algo si la ventana esta realmente visible:
+  // sin frames del compositor (ventana tapada o minimizada) la llamada no vuelve nunca.
+  // Medido el 21-ago-2026 sobre las 5 ventanas de TradingView abiertas: la unica al frente
+  // capturo en 0,6s y las otras CUATRO se colgaron indefinidamente, la del SPX incluida.
+  // Ese, y no "TradingView no responde", era el cuelgue que se comia 9-12 minutos del
+  // premercado. Tambien explica por que esto funciono hasta el 12-ago y despues no: la
+  // ventana dejo de estar al frente, nada mas.
+  //
+  // 🚨 EL ARREGLO DEL 21-AGO (bringToFront) ES UN NO-OP -- medido el 2026-08-27, cuarto
+  // dia consecutivo de fallo. TradingView Desktop NO usa pestanas de Chrome: cada chart
+  // es una ventana top-level propia que gestiona el shell de la app, y las que no estan
+  // activas quedan OCULTAS (EnumWindows las devuelve con IsWindowVisible=false, sin estar
+  // minimizadas). Sobre la ventana del SPX en ese estado, medido en vivo:
+  //   - getBoundingClientRect() del chart devuelve 0x0 (el layout de una pestana oculta
+  //     colapsa), asi que el `clip` sale en 0 y captureScreenshot rechaza con
+  //     "Cannot take screenshot with 0 width".
+  //   - Page.bringToFront() RESUELVE EN 4 ms y el chart SIGUE en 0x0. CDP activa el
+  //     target, pero no puede desocultar una ventana que administra el shell de la app.
+  //   - captureBeyondViewport:true y Emulation.setDeviceMetricsOverride tampoco sirven:
+  //     el clip sigue siendo 0.
+  // Y cuando `bounds` viene null (el pane ni siquiera tiene _mainDiv) no se pasaba clip,
+  // asi que captureScreenshot se quedaba esperando un frame que nunca llega: ESE es el
+  // "timeout de 30s en captureChartPng" de los dias 24, 25 y 26 de agosto.
+  //
+  // CONCLUSION: con la pestana del SPX de fondo, la captura por CDP es IMPOSIBLE, no
+  // lenta. Asi que se corta en seco en vez de quemar 30s de la ventana previa a la
+  // apertura, y el chart se dibuja despues con datos reales (ver chart30m.py). Volver a
+  // intentar la captura solo tiene sentido si la pestana del SPX es la ACTIVA de su
+  // ventana -- y forzarlo no es opcion: esa ventana es del gamma_daemon (ver CLAUDE.md).
+  if (!bounds || !(bounds.width > 0) || !(bounds.height > 0)) {
+    const medida = bounds ? `${bounds.width}x${bounds.height}` : 'sin _mainDiv';
+    throw new Error(
+      `el chart del pane ${paneIndex} mide ${medida}: la pestana del SPX esta de fondo en ` +
+      `TradingView Desktop y no compone frames. La captura por CDP no es posible en ese ` +
+      `estado; el chart se genera con datos reales (chart30m.py).`,
+    );
+  }
+  // (2026-09-29) La foto la saca TradingView, no el compositor. Page.captureScreenshot
+  // siguio colgandose aun con el chart midiendo 1175x562, visibilityState "visible" y la
+  // oclusion nativa ya apagada por Electron (CalculateNativeWinOcclusion): 24, 25, 26-ago,
+  // 28 y 29-sep. clientSnapshot() es la funcion que usa el boton de camara de TradingView:
+  // redibuja el layout desde sus canvas internos a un canvas nuevo, sin pedirle un frame a
+  // Windows. Medido en vivo el 29-sep a las 08:44 ET con la ventana SIN foco: 2,8 s,
+  // 1793x974, con escala, eje de tiempo y los paneles de indicadores. Fotografia los charts
+  // VISIBLES del layout (en "layaout M2K" es uno solo, el pane del SPX).
+  //
+  // VELAS SOLO PARA LA FOTO (pedido del usuario, 2026-09-29): su chart del SPX esta en
+  // linea (chartType 2) y la foto lo copiaba. Se pone en velas (1), se fotografia y se
+  // devuelve el tipo que tenia, pase lo que pase con la foto.
+  const tipoOriginal = await evalOn(client, `${CHART_API}.chartType()`).catch(() => null);
+  try {
+    if (tipoOriginal !== 1) {
+      await evalOn(client, `${CHART_API}.setChartType(1)`);
+      await new Promise((res) => setTimeout(res, 1000));   // que redibuje las velas
+    }
+    await snapshotPng(client, outPath);
+  } finally {
+    if (tipoOriginal != null && tipoOriginal !== 1) {
+      await evalOn(client, `${CHART_API}.setChartType(${Number(tipoOriginal)})`).catch(() => {});
+    }
+  }
+}
+
+async function snapshotPng(client, outPath) {
+  const r = await client.Runtime.evaluate({
+    returnByValue: true,
+    awaitPromise: true,
+    expression: `(async function() {
+      var col = window.TradingViewApi._chartWidgetCollection;
+      var c = await Promise.race([
+        col.clientSnapshot(),
+        new Promise(function(_, j) { setTimeout(function() { j(new Error('clientSnapshot no respondio en 15s')); }, 15000); }),
+      ]);
+      return { w: c.width, h: c.height, url: c.toDataURL('image/png') };
+    })()`,
+  });
+  if (r.exceptionDetails) {
+    throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text || 'clientSnapshot fallo');
+  }
+  const { w, h, url } = r.result.value || {};
+  if (!(w > 0 && h > 0) || !url) throw new Error(`clientSnapshot devolvio un canvas vacio (${w}x${h})`);
+  writeFileSync(outPath, Buffer.from(url.split(',')[1], 'base64'));
+}
+
+// El simbolo del chart ACTIVO -- el que de verdad van a tocar setResolution(),
+// captureChartPng() y getStudyValues().
+async function getActiveSymbol(client) {
+  return evalOn(client, `
+    (function() {
+      try { return ${CHART_API}._chartWidget.model().mainSeries().symbol(); }
+      catch (e) { return null; }
+    })()
+  `);
+}
+
+async function getStudyValues(client) {
+  const data = await evalOn(client, `
+    (function() {
+      var chart = window.TradingViewApi._activeChartWidgetWV.value()._chartWidget;
+      var model = chart.model();
+      var sources = model.model().dataSources();
+      var results = [];
+      for (var si = 0; si < sources.length; si++) {
+        var s = sources[si];
+        if (!s.metaInfo) continue;
+        try {
+          var meta = s.metaInfo();
+          var name = meta.description || meta.shortDescription || '';
+          if (!name) continue;
+          var values = {};
+          try {
+            var dwv = s.dataWindowView();
+            if (dwv) {
+              var items = dwv.items();
+              if (items) {
+                for (var i = 0; i < items.length; i++) {
+                  var item = items[i];
+                  if (item._value && item._value !== '\u2205' && item._title) values[item._title] = item._value;
+                }
+              }
+            }
+          } catch(e) {}
+          if (Object.keys(values).length > 0) results.push({ name: name, values: values });
+        } catch(e) {}
+      }
+      return results;
+    })()
+  `);
+  return data || [];
+}
+
+// EMAs y MACD por temporalidad, leidos de la ULTIMA FILA de datos de cada estudio
+// (2026-09-28). getStudyValues() lee la Data Window, que (a) muestra la vela bajo el
+// cursor, no necesariamente la ultima, y (b) se leia 1,5 s despues de setResolution(),
+// con la serie todavia cargando. Dos incidentes reales, ambos con paneSymbol SPCFD:SPX:
+//   - 23-sep: los "valores de 30m" eran los del SEMANAL (EMA10 7652, EMA200 5908): la
+//     serie aun no habia cambiado de resolucion.
+//   - 28-sep: EMAs de ~227 con volumen de 8 K -- basura a mitad de carga. El informe las
+//     descarto, recalculo con Yahoo y conto dos veces la ultima semana (EMA10 semanal
+//     7665 contra 7648 real).
+// Aqui no se da por buena una lectura hasta que la serie demuestre ser la pedida: simbolo
+// SPX, separacion entre velas igual a la temporalidad, la fila del estudio en la MISMA vela
+// que la ultima del precio, y la EMA corta a menos de un 10% del cierre. Si no lo cumple
+// en el plazo, falla y lo dice, en vez de entregar un numero ajeno.
+const TF_SEG = { W: 7 * 86400, D: 86400, '30': 1800 };
+const TF_ESPERA_MS = Number(process.env.TF_ESPERA_MS || 20000);
+
+async function leerIndicadoresUltimaVela(client) {
+  return evalOn(client, `
+    (function() {
+      var m = ${CHART_API}._chartWidget.model();
+      var ms = m.mainSeries();
+      var b = ms.bars();
+      var li = b.lastIndex();
+      var last = b.valueAt(li);
+      if (!last) return { sym: ms.symbol(), sinBarras: true };
+      var gaps = [];
+      for (var i = li; i > li - 8 && i > b.firstIndex(); i--) {
+        var a = b.valueAt(i), p = b.valueAt(i - 1);
+        if (a && p) gaps.push(a[0] - p[0]);
+      }
+      var out = { sym: ms.symbol(), barTime: last[0], close: last[4], minGap: gaps.length ? Math.min.apply(null, gaps) : null, nBarras: b.size(), estudios: [] };
+      var src = m.model().dataSources();
+      for (var si = 0; si < src.length; si++) {
+        var s = src[si];
+        if (!s.metaInfo || !s.data || s === ms) continue;
+        try {
+          var mi = s.metaInfo();
+          var d = s.data();
+          if (!d || d.lastIndex() == null) continue;
+          var row = d.valueAt(d.lastIndex());
+          if (!row) continue;
+          var vals = {};
+          (mi.plots || []).forEach(function(p, j) {
+            var v = row[j + 1];
+            var st = (mi.styles || {})[p.id];
+            if (typeof v === 'number' && isFinite(v)) vals[(st && st.title) || p.id] = v;
+          });
+          var inputs = null;
+          try { inputs = s.properties().state().inputs; } catch (e) {}
+          if (inputs && inputs.text) delete inputs.text;
+          out.estudios.push({ name: mi.description || mi.shortDescription || '', rowTime: row[0], values: vals, inputs: inputs });
+        } catch (e) {}
+      }
+      return out;
+    })()
+  `);
+}
+
+function validarLectura(tf, r) {
+  if (!r || r.sinBarras) return 'la serie no tiene barras todavia';
+  if (!SYMBOL_MATCH.test(r.sym || '')) return `el chart activo es ${r.sym}, no SPCFD:SPX`;
+  // Semanal: una semana con feriado el lunes abre el martes (6 dias), asi que ahi se
+  // acepta 5-7 dias; lo que importa es descartar la serie diaria o la de 30m.
+  const gapOk = tf === 'W' ? r.minGap >= 5 * 86400 && r.minGap <= 7 * 86400 : r.minGap === TF_SEG[tf];
+  if (!gapOk) return `las velas estan separadas ${r.minGap}s y ${tf} exige ${TF_SEG[tf]}s (la serie no termino de cambiar)`;
+  const kgs = r.estudios.find((e) => /KGS/.test(e.name));
+  if (!kgs) return 'no esta el estudio "SMA by KGS" en el chart';
+  if (kgs.rowTime !== r.barTime) return 'el estudio todavia no calculo la ultima vela';
+  const ema1 = kgs.values['EMA-1'];
+  if (!Number.isFinite(ema1) || Math.abs(ema1 / r.close - 1) > 0.10) {
+    return `EMA-1 ${ema1} no es creible contra el cierre ${r.close}`;
+  }
+  return null;
+}
+
+// Traduce la lectura cruda a { ema10, ema20, ... } con los largos REALES del estudio
+// (inputs in_9..in_13 de "SMA by KGS"), no con largos supuestos.
+function resumirIndicadores(tf, r) {
+  const kgs = r.estudios.find((e) => /KGS/.test(e.name));
+  const out = { tf, velaIso: new Date(r.barTime * 1000).toISOString(), cierre: r.close };
+  for (let k = 1; k <= 5; k++) {
+    const largo = kgs.inputs?.[`in_${8 + k}`];
+    const v = kgs.values[`EMA-${k}`];
+    if (Number.isFinite(v)) out[Number.isFinite(largo) ? `ema${largo}` : `EMA-${k}`] = Math.round(v * 100) / 100;
+  }
+  // /_CM_MacD/ exacto: "CIARG_V3 ... with MACD Slope" tambien contiene MACD y no lo es.
+  const macd = r.estudios.find((e) => /_CM_MacD/.test(e.name));
+  if (macd && Number.isFinite(macd.values.MACD) && Number.isFinite(macd.values.Signal)) {
+    out.macd = {
+      linea: Math.round(macd.values.MACD * 100) / 100,
+      senal: Math.round(macd.values.Signal * 100) / 100,
+      hist: Math.round((macd.values.MACD - macd.values.Signal) * 100) / 100,
+    };
+  }
+  return out;
+}
+
+async function indicadoresEn(client, tf) {
+  await withTimeout(setResolution(client, tf), TV_STEP_MS, `setResolution ${tf}`);
+  const limite = Date.now() + TF_ESPERA_MS;
+  let motivo = 'sin lectura';
+  while (Date.now() < limite) {
+    const r = await withTimeout(leerIndicadoresUltimaVela(client), TV_STEP_MS, `indicadores ${tf}`);
+    motivo = validarLectura(tf, r);
+    if (!motivo) return resumirIndicadores(tf, r);
+    await new Promise((res) => setTimeout(res, 700));
+  }
+  throw new Error(`${tf}: ${motivo}`);
+}
+
+// ENCUADRE DE LA FOTO DE 30m (2026-09-28). La primera captura real en semanas salio
+// inservible: solo el viernes y con la escala de 7.575 a 7.750. Dos causas:
+//   - setVisibleRangeDays(3) cuenta DIAS CALENDARIO: un lunes a las 08:30 ET, "hace 3
+//     dias" es el viernes a las 08:30, asi que entraba una sola sesion.
+//   - La escala de precio del pane no esta en automatico (el usuario la maneja a mano),
+//     asi que la foto heredaba el rango que hubiera quedado.
+// Ahora se cuentan SESIONES (fechas ET distintas en las barras) y se fija el rango de
+// precio al maximo/minimo de esas sesiones con un margen del 12%.
+const API_ESCALA = 'window.TradingViewApi.activeChart().getPanes()[0].getMainSourcePriceScale()';
+
+async function leerEscala(client) {
+  return evalOn(client, `
+    (function() {
+      var ps = ${API_ESCALA};
+      var r = ps.getVisiblePriceRange();
+      return { auto: ps.isAutoScale(), from: r && r.from, to: r && r.to };
+    })()
+  `);
+}
+
+async function restaurarEscala(client, esc) {
+  await evalOn(client, `
+    (function() {
+      var ps = ${API_ESCALA};
+      if (${JSON.stringify(!!esc.auto)}) ps.setAutoScale(true);
+      else if (${Number.isFinite(esc.from) && Number.isFinite(esc.to)}) ps.setVisiblePriceRange({ from: ${esc.from}, to: ${esc.to} });
+      return true;
+    })()
+  `);
+}
+
+async function encuadrarSesiones(client, sesiones) {
+  const r = await evalOn(client, `
+    (function() {
+      var api = window.TradingViewApi.activeChart();
+      var m = ${CHART_API}._chartWidget.model();
+      var ms = m.mainSeries();
+      if (String(api.resolution()) !== '30' || ms.symbol() !== api.symbol()) {
+        return { error: 'activeChart() no es el mismo chart que se valido (' + api.symbol() + ' ' + api.resolution() + ')' };
+      }
+      var b = ms.bars();
+      var li = b.lastIndex(), fi = b.firstIndex();
+      var fecha = function(t) { return new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); };
+      var dias = [], desde = li;
+      for (var i = li; i >= fi; i--) {
+        var v = b.valueAt(i); if (!v) continue;
+        var f = fecha(v[0]);
+        if (dias.indexOf(f) < 0) { if (dias.length === ${sesiones}) break; dias.push(f); }
+        desde = i;
+      }
+      var lo = Infinity, hi = -Infinity;
+      for (var j = desde; j <= li; j++) {
+        var w = b.valueAt(j); if (!w) continue;
+        if (w[3] < lo) lo = w[3]; if (w[2] > hi) hi = w[2];
+      }
+      if (!isFinite(lo) || !isFinite(hi)) return { error: 'sin barras en el rango' };
+      m.timeScale().zoomToBarsRange(desde, li + 2);
+      var pad = Math.max((hi - lo) * 0.12, 5);
+      api.getPanes()[0].getMainSourcePriceScale().setVisiblePriceRange({ from: lo - pad, to: hi + pad });
+      return { sesiones: dias.slice().reverse(), barras: li - desde + 1, min: Math.round(lo * 100) / 100, max: Math.round(hi * 100) / 100 };
+    })()
+  `);
+  if (!r || r.error) throw new Error(`encuadre: ${r ? r.error : 'sin respuesta'}`);
+  if (r.sesiones.length < sesiones) throw new Error(`encuadre: solo ${r.sesiones.length} sesion(es) en el chart`);
+  await new Promise((res) => setTimeout(res, 800));
+  return r;
+}
+
+async function collectFromTradingView(outDir) {
+  // NO se relanza TradingView desde aca. Antes, si la conexion inicial fallaba, esto
+  // llamaba a launchTv({ killExisting: true }) -- es decir taskkill /F /IM TradingView.exe.
+  // Relanzar TradingView en mitad de una recoleccion deja al usuario sin poder operar en
+  // plena preapertura y ademas levanta una ventana que puede quedar en otro layout o
+  // simbolo, con la que despues pelea el daemon. Si no hay ventana usable, este colector
+  // se resigna y devuelve el error: el informe ya tiene fallback para el chart (datos de
+  // Yahoo + niveles).
+  //
+  // (2026-09-09) Donde SI se relanza es en asegurar_tradingview.mjs, que el gate corre
+  // como paso aparte ANTES que este colector. La diferencia no es cosmetica: alli el
+  // relanzamiento es la primera decision que se toma --con la ventana todavia sin usar--,
+  // usa el mismo tv.launch() del daemon, y no se da por bueno hasta confirmar que volvio
+  // una ventana con SPCFD:SPX. Aqui dentro seguiria siendo lo de antes: matar la app a
+  // mitad de faena por un fetch fallido. La regla real no es "solo el daemon relanza",
+  // es "relanzar es un paso explicito y verificado, nunca el catch de otra cosa".
+  const conn = await withTimeout(connectToSpxWindow(), TV_CONNECT_MS, 'connectToSpxWindow');
+
+  const { client, panes } = conn;
+
+  // ELEGIR EL PANE POR SIMBOLO, NUNCA "el primero que no da error" (2026-09-18).
+  // Incidente real de esa manana: connectToSpxWindow() devuelve una VENTANA que tiene
+  // SPX en ALGUN pane -- no garantiza que sea el pane 0. Ese dia el pane 0 era NVDA, y
+  // como aqui se tomaba el primer pane sin error, el colector le cambio la resolucion a
+  // 30 min al chart de NVDA, lo fotografio (chart_30m.png salio siendo NVIDIA) y leyo
+  // sus indicadores -- que ademas vinieron vacios, porque getStudyValues() lee el chart
+  // ACTIVO y el click de focusPane cayo en el pane equivocado. El informe no lo noto:
+  // se fue a Yahoo por el fallback y nadie vio que el dato era de otro activo.
+  // Si no hay pane de SPX, se falla: leer el activo equivocado es peor que no leer nada,
+  // porque el numero malo entra al informe sin dejar rastro.
+  const panesSpx = panes.filter((p) => p.symbol && SYMBOL_MATCH.test(p.symbol));
+  if (panesSpx.length === 0) {
+    const detalle = panes.map((p) => `${p.index}:${p.symbol || p.error || '?'}`).join(', ') || 'sin panes';
+    throw new Error(
+      `La ventana conectada no tiene ningun pane con SPCFD:SPX (panes: ${detalle}). ` +
+      `No se toca ningun chart: cambiarle la resolucion o fotografiar otro activo mete ` +
+      `datos ajenos al informe.`
+    );
+  }
+  const paneIndex = panesSpx[0].index;
+  log(`[tv] pane elegido ${paneIndex} (${panesSpx[0].symbol}) de ${panes.length} pane(s): `
+    + panes.map((p) => `${p.index}:${p.symbol || p.error || '?'}`).join(', '));
+  // La resolucion original se lee DESPUES de enfocar el pane del SPX, no antes
+  // (2026-09-18). getResolution() mira el chart ACTIVO: leerla antes del focus devuelve
+  // la del pane que estuviera activo -- otro pane del mismo layout, u otro activo -- y el
+  // finally se la escribia al chart del SPX al terminar. Con dos panes de SPX abiertos
+  // (15m y 30m, el caso normal de este layout) eso deja el chart de 15 minutos en 30:
+  // justo la temporalidad en la que opera el usuario.
+  let originalResolution = null;
+  let escalaOriginal = null;
+
+  try {
+    await withTimeout(focusPane(client, paneIndex), TV_STEP_MS, 'focusPane');
+
+    // Segundo cinturon: confirmar que el chart ACTIVO quedo en el SPX ANTES de tocar
+    // nada. setResolution(), captureChartPng() y getStudyValues() trabajan sobre el
+    // chart activo, no sobre paneIndex -- si el click de focusPane no prendio (pane
+    // oculto, layout cambiado, ventana sin foco), sin esta comprobacion se le cambia la
+    // resolucion al chart de otro activo y se lee su Data Window.
+    const simboloActivo = await withTimeout(getActiveSymbol(client), TV_STEP_MS, 'getActiveSymbol');
+    if (!simboloActivo || !SYMBOL_MATCH.test(simboloActivo)) {
+      throw new Error(
+        `el pane ${paneIndex} es SPCFD:SPX pero el chart activo quedo en ` +
+        `"${simboloActivo || 'desconocido'}": focusPane no prendio. Se aborta sin tocar ` +
+        `la resolucion de un chart ajeno.`
+      );
+    }
+
+    originalResolution = await withTimeout(getResolution(client), TV_STEP_MS, 'getResolution').catch(() => null);
+    escalaOriginal = await withTimeout(leerEscala(client), TV_STEP_MS, 'leerEscala').catch(() => null);
+
+    // ORDEN (2026-09-28): primero el 30m validado (indicadoresEn espera a que la serie
+    // termine de cargar), DESPUES el encuadre y la foto. Antes se fotografiaba 1,5 s
+    // despues de setResolution, con la serie a medio cargar.
+    const indicadores = {};
+    const indicadoresError = {};
+    let studyValues = [];
+    try {
+      indicadores['30'] = await indicadoresEn(client, '30');
+      log(`[tv] 30: ${JSON.stringify(indicadores['30'])}`);
+    } catch (e) {
+      indicadoresError['30'] = e.message;
+      log(`[tv] indicadores 30 NO validos: ${e.message}`);
+    }
+
+    // La captura NO es fatal (2026-08-27). Antes un fallo aca abortaba el bloque entero y
+    // se perdian tambien los studyValues -- por eso el bundle venia con `tradingview: null`
+    // los dias 24, 25 y 26 de agosto y el informe se quedaba sin POC ni EMAs ni MACD del
+    // chart, no solo sin imagen. Son dos datos independientes: que no se pueda fotografiar
+    // la ventana no impide leerle los numeros.
+    let chartPng = false;
+    let chartPngError = null;
+    let encuadre = null;
+    if (indicadores['30']) {
+      // studyValues solo si el 30m quedo validado; si no, vacio antes que basura.
+      studyValues = await withTimeout(getStudyValues(client), TV_STEP_MS, 'getStudyValues');
+      try {
+        encuadre = await withTimeout(encuadrarSesiones(client, 3), TV_STEP_MS, 'encuadrarSesiones');
+        log(`[tv] encuadre 30m: ${JSON.stringify(encuadre)}`);
+        await withTimeout(captureChartPng(client, paneIndex, path.join(outDir, 'chart_30m.png')), TV_STEP_MS * 1.5, 'captureChartPng');
+        chartPng = true;
+      } catch (e) {
+        chartPngError = e.message;
+        log(`[tv] sin captura: ${e.message}`);
+      }
+    } else {
+      chartPngError = 'la serie de 30m no quedo validada: no se fotografia un chart a medio cargar';
+      log(`[tv] sin captura: ${chartPngError}`);
+    }
+
+    for (const tf of ['D', 'W']) {
+      try {
+        indicadores[tf] = await indicadoresEn(client, tf);
+        log(`[tv] ${tf}: ${JSON.stringify(indicadores[tf])}`);
+      } catch (e) {
+        indicadoresError[tf] = e.message;
+        log(`[tv] indicadores ${tf} NO validos: ${e.message}`);
+      }
+    }
+    return { success: true, paneIndex, paneSymbol: simboloActivo, studyValues, indicadores, indicadoresError, chartPng, chartPngError, encuadre };
+  } finally {
+    // Devolver la resolucion original es cortesia, no requisito: si el socket ya murio
+    // no se insiste. Esta linea era el primer sintoma visible del cuelgue.
+    try {
+      if (originalResolution) {
+        await withTimeout(setResolution(client, originalResolution), TV_STEP_MS, 'restaurar resolucion');
+      }
+    } catch (e) {
+      log(`[tv] no se pudo restaurar la resolucion original del pane ${paneIndex}: ${e.message}`);
+    }
+    // La escala de precio tambien se devuelve como estaba: el encuadre de la foto fija un
+    // rango de 30m (~100 pts) que, sin esto, se quedaba pegado al chart diario/semanal.
+    try {
+      if (escalaOriginal) await withTimeout(restaurarEscala(client, escalaOriginal), TV_STEP_MS, 'restaurar escala');
+    } catch (e) {
+      log(`[tv] no se pudo restaurar la escala de precio del pane ${paneIndex}: ${e.message}`);
+    }
+    try { await withTimeout(client.close(), 10000, 'client.close'); } catch { /* noop */ }
+  }
+}
+
+// Dibuja el chart de 30 minutos con datos reales de Yahoo y los muros que ya trajo Sigma.
+// Se apoya en chart30m.py (matplotlib) porque el resto del pipeline del premercado ya
+// dibuja con matplotlib y no vale la pena meter una segunda tecnologia de graficos.
+function generarChartDesdeDatos(outDir, sigma) {
+  const salida = path.join(outDir, 'chart_30m.png');
+  const specPath = path.join(outDir, 'chart30m_spec.json');
+
+  // Cada muro se rotula con su nombre: el color no puede ser el unico portador de la
+  // informacion (misma regla que ya sigue el diagrama de escenarios).
+  const niveles = [];
+  const agregar = (valor, etiqueta, color, trazo) => {
+    if (Number.isFinite(valor) && valor > 0) niveles.push({ valor, etiqueta, color, trazo });
+  };
+  if (sigma) {
+    const f = (n) => Number(n).toLocaleString('es-ES');
+    agregar(sigma.callWall, `Call Wall ${f(sigma.callWall)}`, 'verde', 'solido');
+    agregar(sigma.gammaFlip, `Gamma Flip ${f(sigma.gammaFlip)}`, 'violeta', 'guiones');
+    agregar(sigma.maxPain, `Max Pain ${f(sigma.maxPain)}`, 'ambar', 'mixto');
+    // Put Wall y MVS suelen coincidir: en ese caso una sola linea con las dos etiquetas,
+    // porque dos lineas superpuestas se leen como una sola mal rotulada.
+    if (Number.isFinite(sigma.mvs) && sigma.mvs === sigma.putWall) {
+      agregar(sigma.putWall, `Put Wall / MVS ${f(sigma.putWall)}`, 'rojo', 'solido');
+    } else {
+      agregar(sigma.putWall, `Put Wall ${f(sigma.putWall)}`, 'rojo', 'solido');
+      agregar(sigma.mvs, `MVS ${f(sigma.mvs)}`, 'gris', 'punteado');
+    }
+  }
+
+  const spec = {
+    titulo: `SPX - 30 minutos, ultimas 3 sesiones${sigma?.expiry ? ` (muros cadena ${sigma.expiry})` : ''}`,
+    symbol: '^GSPC',
+    sesiones: 3,
+    cierre_previo: Number.isFinite(sigma?.spxPrice) ? sigma.spxPrice : null,
+    niveles,
+  };
+  writeFileSync(specPath, JSON.stringify(spec, null, 2));
+
+  return new Promise((resolve, reject) => {
+    const py = spawn('python', [path.join(__dirname, 'chart30m.py'), salida, specPath], {
+      cwd: __dirname,
+      windowsHide: true,
+    });
+    let err = '';
+    let out = '';
+    py.stdout.on('data', (d) => { out += d.toString(); });
+    py.stderr.on('data', (d) => { err += d.toString(); });
+    // Techo propio: el resto del colector tiene el suyo y este paso no puede ser el que
+    // se coma la ventana previa a la apertura.
+    const t = setTimeout(() => { py.kill(); reject(new Error('chart30m.py supero 90s')); }, 90000);
+    py.on('error', (e) => { clearTimeout(t); reject(new Error(`no se pudo lanzar python: ${e.message}`)); });
+    py.on('close', (code) => {
+      clearTimeout(t);
+      if (code === 0) resolve({ archivo: salida, fuente: 'yahoo', detalle: out.trim(), niveles: niveles.length });
+      else reject(new Error(`chart30m.py salio con codigo ${code}: ${(err || out).trim().slice(0, 300)}`));
+    });
+  });
+}
+
+async function main() {
+  setTimeout(() => {
+    log(`[fatal] watchdog interno: ${Math.round(HARD_KILL_MS / 60000)} min sin terminar, saliendo a la fuerza`);
+    process.exit(1);
+  }, HARD_KILL_MS).unref();
+
+  const stamp = todayStamp();
+  const outDir = path.join(OUT_ROOT, stamp);
+  mkdirSync(outDir, { recursive: true });
+
+  const bundle = { collectedAt: new Date().toISOString(), tradingview: null, sigma: null, errors: [] };
+
+  // Sigma arranca YA y en paralelo: si hay que esperar al daemon, la espera se solapa
+  // con los ~30-200s de TradingView en vez de sumarse. No lanza: los errores viajan
+  // dentro del resultado y se registran abajo, en su orden de siempre.
+  const sigmaP = esperarSigmaDeHoy({
+    leerStatus: () => JSON.parse(readFileSync(GAMMA_STATUS_PATH, 'utf8')),
+    ahora: () => Date.now(),
+    dormir: (ms) => new Promise((r) => setTimeout(r, ms)),
+    maxAntiguedadMin: SIGMA_MAX_ANTIGUEDAD_MIN,
+    esperaMs: SIGMA_ESPERA_MS,
+    pasoMs: SIGMA_PASO_MS,
+  }).then((r) => ({ r }), (e) => ({ e }));
+
+  try {
+    bundle.tradingview = await collectFromTradingView(outDir);
+    log(`[tv] OK -- pane ${bundle.tradingview.paneIndex} (${bundle.tradingview.paneSymbol}), `
+      + `${bundle.tradingview.studyValues.length} estudios leidos, `
+      + (bundle.tradingview.chartPng ? 'captura guardada' : 'SIN captura (se dibuja con Yahoo)'));
+  } catch (e) {
+    bundle.errors.push(`tradingview: ${e.message}`);
+    log(`[tv] FALLO: ${e.message}`);
+  }
+
+  try {
+    // Cual de las dos lecturas de status.json vale, y si sirve como dato de hoy:
+    // vive en elegir_sigma.mjs, con sus pruebas (elegir_sigma.test.mjs). Se saco de
+    // aqui porque este archivo llama a main() al importarse y no habia forma de
+    // probar la regla sin lanzar el recolector entero contra TradingView -- y era
+    // justo la regla que llevaba semanas equivocandose callada.
+    const s = await sigmaP;
+    if (s.e) throw s.e;
+    const elegido = s.r;
+    const esperaTxt = elegido.intentos > 1
+      ? `, tras esperar ${Math.round(elegido.esperaMs / 1000)}s / ${elegido.intentos} lecturas`
+      : '';
+
+    bundle.sigma = {
+      ...elegido.levels,
+      asOf: elegido.asOf,
+      fuente: elegido.fuente,
+      antiguedadMin: elegido.antiguedadMin,
+      rancio: elegido.rancio,
+    };
+
+    const resumen = `Call Wall ${bundle.sigma.callWall}, Put Wall ${bundle.sigma.putWall},`
+      + ` Gamma Flip ${bundle.sigma.gammaFlip}, vto ${bundle.sigma.expiry}`;
+    if (bundle.sigma.rancio) {
+      // A errors[] a proposito: es lo que hace que el gate escriba "TERMINO CON
+      // ERRORES" en premercado_auto_launch.log en vez de dejarlo pasar callado.
+      const msg = `dato RANCIO de ${elegido.antiguedadMin ?? '?'} min (fuente ${elegido.fuente}, sello ${elegido.asOf}${esperaTxt})`
+        + ` -- el informe NO debe presentarlo como muros de hoy`
+        + ` -- causa: ${diagnosticoDaemon(elegido.status, Date.now())}`;
+      bundle.errors.push(`sigma: ${msg}`);
+      log(`[sigma] RANCIO: ${msg} -- ${resumen}`);
+    } else {
+      log(`[sigma] OK (fuente ${elegido.fuente}, ${elegido.antiguedadMin} min de antiguedad${esperaTxt}) -- ${resumen}`);
+    }
+  } catch (e) {
+    bundle.errors.push(`sigma: ${e.message}`);
+    log(`[sigma] FALLO: ${e.message}`);
+  }
+
+  // El chart NO es opcional para el informe, asi que si la captura por CDP no salio se
+  // dibuja con datos reales. Antes esto se improvisaba a mano cada manana (once scripts
+  // .scratch_chart30m_*.py distintos desde el 4-ago); ahora sale del bundle, siempre.
+  if (!bundle.tradingview?.chartPng) {
+    try {
+      bundle.chart30m = await generarChartDesdeDatos(outDir, bundle.sigma);
+      log(`[chart] generado con datos reales: ${bundle.chart30m.archivo}`);
+    } catch (e) {
+      bundle.errors.push(`chart30m: ${e.message}`);
+      log(`[chart] FALLO: ${e.message}`);
+    }
+  }
+
+  writeFileSync(path.join(outDir, 'bundle.json'), JSON.stringify(bundle, null, 2));
+  log(`[done] bundle escrito en ${outDir} (errores: ${bundle.errors.length})`);
+  process.exit(bundle.errors.length > 0 && !bundle.tradingview && !bundle.sigma ? 1 : 0);
+}
+
+main().catch((e) => {
+  log(`[fatal] ${e.stack || e.message}`);
+  process.exit(1);
+});

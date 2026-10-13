@@ -985,6 +985,8 @@ las EMAs de 15m, el precio se estira y vuelve a buscar la **EMA 10 de 2m**.
 | **Time stop** | 30 min (`timeStopVelas` 15 en la ejecución) |
 | **Instrumento** | El mismo: credit spread 0DTE, `smaReversion.targetDelta` 0,50 / `spreadWidth` 10, 1 contrato |
 | **Cupo** | 1 trade por día (las `canceled` no cuentan: una orden que el sandbox no llenó no gasta el día) |
+| **Confirmación en vivo** | Antes de mandar la orden, `validarPrecioVivo`: si el spot ya tocó la EMA10 de 2m o ya pasó el stop, **no se entra** (`APERTURA_PRECIO_VIVO`). La vela cerrada decide el gatillo; el spot decide si todavía queda trade |
+| **Una vuelta a la vez** | `checkReversionApertura` tiene candado (`aperturaEnCurso`): sin él, tras un apagón la vuelta siguiente veía el cupo libre y apilaba entradas (3 en 1 min el 2-oct). Histórico § *La señal vieja y las 3 entradas apiladas* |
 
 - **Velas**: Sigma primero (`sigma_velas_2m.json` / `_15m.json`, con sello de tiempo), Yahoo
   de respaldo. **Nunca Tradier.** La EMA es la de pandas `adjust=False` (semilla en el

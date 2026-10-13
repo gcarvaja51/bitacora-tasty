@@ -1,5 +1,412 @@
 [
  {
+  "timestamp": "2026-10-12T14:30:25.939Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_LEJOS_DEL_PIN",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Precio a 16.6 pts del pin 7790; maximo 8",
+  "snapshot": {
+   "spxPrice": 7806.63,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7820,
+    "putWall": 7800,
+    "gammaFlip": 7801,
+    "maxPain": 7790
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-10-09T14:30:17.840Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_LEJOS_DEL_PIN",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Precio a 42.8 pts del pin 7750; maximo 8",
+  "snapshot": {
+   "spxPrice": 7792.77,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7800,
+    "putWall": 7790,
+    "gammaFlip": 7765,
+    "maxPain": 7750
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-10-08T15:30:07.423Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "CIERRE_SL",
+  "passed": true,
+  "etTime": "11:30",
+  "reason": "spread vale 5.10 vs debito 12; perdida -6.90 supera el stop de 6.00 (50% de lo pagado)",
+  "snapshot": {
+   "spxPrice": 7775.36,
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-10-08",
+    "largaStrike": 7780,
+    "cortaStrike": 7805,
+    "nivelProfit": 7805,
+    "nivelProfitDeclarado": 7825,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 12,
+    "limite": 12,
+    "maxGanancia": 13,
+    "maxPerdida": 12,
+    "rr": 1.08,
+    "breakeven": 7792,
+    "pctDelAncho": 48,
+    "razon": "Larga 7780 (arranque) / corta 7805 (objetivo del escenario alcista). Paga maximo si el precio llega a 7805."
+   }
+  }
+ },
+ {
+  "timestamp": "2026-10-08T14:30:50.557Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXECUTED",
+  "passed": true,
+  "etTime": "10:30",
+  "reason": "DEBIT_VERTICAL enviado a Tradier: 39925470",
+  "snapshot": {
+   "spxPrice": 7791.15,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7800,
+    "putWall": 7770,
+    "gammaFlip": 7793,
+    "maxPain": 7770
+   },
+   "escenario": "alcista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-10-08",
+    "largaStrike": 7780,
+    "cortaStrike": 7805,
+    "nivelProfit": 7805,
+    "nivelProfitDeclarado": 7825,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 12,
+    "limite": 12,
+    "maxGanancia": 13,
+    "maxPerdida": 12,
+    "rr": 1.08,
+    "breakeven": 7792,
+    "pctDelAncho": 48,
+    "razon": "Larga 7780 (arranque) / corta 7805 (objetivo del escenario alcista). Paga maximo si el precio llega a 7805."
+   },
+   "orderId": 39925470
+  }
+ },
+ {
+  "timestamp": "2026-10-07T14:30:04.031Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "TARGET_MUY_CERCA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Objetivo mas lejano (7760) a solo 12.0 pts; minimo 12. Recorrido insuficiente para pagar un debit spread",
+  "snapshot": {
+   "spxPrice": 7771.98,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7795,
+    "putWall": 7750,
+    "gammaFlip": 7770,
+    "maxPain": 7785
+   },
+   "escenario": "bajista"
+  }
+ },
+ {
+  "timestamp": "2026-10-06T14:30:05.739Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NINGUN_ESCENARIO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Ningun escenario del premercado valido su condicion de activacion",
+  "snapshot": {
+   "spxPrice": 7816.61,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7860,
+    "putWall": 7800,
+    "gammaFlip": 7768,
+    "maxPain": 7750
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-10-05T14:30:02.908Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_RECORRIDO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "El precio (7756.03) ya superó todos los objetivos del escenario alcista: no queda recorrido que comprar",
+  "snapshot": {
+   "spxPrice": 7756.03,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7770,
+    "putWall": 7750,
+    "gammaFlip": 7720,
+    "maxPain": 7705
+   },
+   "escenario": "alcista"
+  }
+ },
+ {
+  "timestamp": "2026-10-02T15:19:05.732Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "CIERRE_SL",
+  "passed": true,
+  "etTime": "11:19",
+  "reason": "spread vale 4.75 vs debito 11; perdida -6.25 supera el stop de 5.50 (50% de lo pagado)",
+  "snapshot": {
+   "spxPrice": 7711.49,
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-10-02",
+    "largaStrike": 7745,
+    "cortaStrike": 7770,
+    "nivelProfit": 7770,
+    "nivelProfitDeclarado": 7780,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 11,
+    "limite": 11,
+    "maxGanancia": 14,
+    "maxPerdida": 11,
+    "rr": 1.27,
+    "breakeven": 7756,
+    "pctDelAncho": 44,
+    "razon": "Larga 7745 (arranque) / corta 7770 (objetivo del escenario alcista). Paga maximo si el precio llega a 7770."
+   }
+  }
+ },
+ {
+  "timestamp": "2026-10-02T14:30:11.358Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXECUTED",
+  "passed": true,
+  "etTime": "10:30",
+  "reason": "DEBIT_VERTICAL enviado a Tradier: 39550330",
+  "snapshot": {
+   "spxPrice": 7749.12,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7800,
+    "putWall": 7750,
+    "gammaFlip": 7716,
+    "maxPain": 7685
+   },
+   "escenario": "alcista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-10-02",
+    "largaStrike": 7745,
+    "cortaStrike": 7770,
+    "nivelProfit": 7770,
+    "nivelProfitDeclarado": 7780,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 11,
+    "limite": 11,
+    "maxGanancia": 14,
+    "maxPerdida": 11,
+    "rr": 1.27,
+    "breakeven": 7756,
+    "pctDelAncho": 44,
+    "razon": "Larga 7745 (arranque) / corta 7770 (objetivo del escenario alcista). Paga maximo si el precio llega a 7770."
+   },
+   "orderId": 39550330
+  }
+ },
+ {
+  "timestamp": "2026-10-01T14:30:54.565Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_RECORRIDO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "El precio (7636.66) ya superó todos los objetivos del escenario bajista: no queda recorrido que comprar",
+  "snapshot": {
+   "spxPrice": 7636.66,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7650,
+    "putWall": 7600,
+    "gammaFlip": 7644,
+    "maxPain": 7685
+   },
+   "escenario": "bajista"
+  }
+ },
+ {
+  "timestamp": "2026-09-30T14:30:40.237Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "TARGET_MUY_CERCA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Objetivo mas lejano (7715) a solo 7.2 pts; minimo 12. Recorrido insuficiente para pagar un debit spread",
+  "snapshot": {
+   "spxPrice": 7707.81,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7750,
+    "putWall": 7700,
+    "gammaFlip": 7706,
+    "maxPain": 7650
+   },
+   "escenario": "alcista"
+  }
+ },
+ {
+  "timestamp": "2026-09-29T14:30:06.608Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NINGUN_ESCENARIO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Ningun escenario del premercado valido su condicion de activacion",
+  "snapshot": {
+   "spxPrice": 7684.25,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7700,
+    "putWall": 7650,
+    "gammaFlip": 7676,
+    "maxPain": 7695
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-09-28T14:30:09.705Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_GAMMA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Neutral exige gamma POSITIVO; regimen actual NEGATIVO",
+  "snapshot": {
+   "spxPrice": 7702.98,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7750,
+    "putWall": 7700,
+    "gammaFlip": 7731,
+    "maxPain": 7725
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-09-25T14:30:08.996Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXECUTED",
+  "passed": true,
+  "etTime": "10:30",
+  "reason": "IRON_BUTTERFLY enviado a Tradier: 39215962",
+  "snapshot": {
+   "spxPrice": 7704.32,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7725,
+    "putWall": 7700,
+    "gammaFlip": 7704,
+    "maxPain": 7700
+   },
+   "escenario": "neutral",
+   "estructura": {
+    "ok": true,
+    "tipo": "IRON_BUTTERFLY",
+    "expiry": "2026-09-25",
+    "centroStrike": 7700,
+    "putCortoStrike": 7700,
+    "putLargoStrike": 7675,
+    "callCortoStrike": 7700,
+    "callLargoStrike": 7725,
+    "ala": 25,
+    "credito": 18,
+    "limite": 18,
+    "maxGanancia": 18,
+    "maxPerdida": 7,
+    "rr": 2.57,
+    "breakevens": [
+     7682,
+     7718
+    ],
+    "pctDelAla": 72,
+    "razon": "Butterfly centrado en el pin 7700 (strike 7700) que declaro el premercado; alas de 25. Paga maximo si el precio cierra pegado al pin."
+   },
+   "orderId": 39215962
+  }
+ },
+ {
+  "timestamp": "2026-09-24T14:30:06.446Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_GAMMA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Neutral exige gamma POSITIVO; regimen actual NEGATIVO",
+  "snapshot": {
+   "spxPrice": 7690.64,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7700,
+    "putWall": 7675,
+    "gammaFlip": 7690,
+    "maxPain": 7710
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-09-23T14:31:30.529Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_RECORRIDO",
+  "passed": false,
+  "etTime": "10:31",
+  "reason": "El precio (7719.99) ya superó todos los objetivos del escenario bajista: no queda recorrido que comprar",
+  "snapshot": {
+   "spxPrice": 7719.99,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7725,
+    "putWall": 7700,
+    "gammaFlip": 7750,
+    "maxPain": 7740
+   },
+   "escenario": "bajista"
+  }
+ },
+ {
   "timestamp": "2026-09-18T14:30:08.412Z",
   "strategyFamily": "PREMERCADO",
   "stage": "NEUTRAL_GAMMA",

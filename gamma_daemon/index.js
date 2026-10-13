@@ -328,7 +328,11 @@ async function pushToTradingViewWithRetry(inputs) {
   try {
     return await tv.pushGammaLevelsToAllWindows(inputs);
   } catch (e) {
-    console.warn('[tv] fallo el push, intentando relanzar TradingView:', e.message);
+    // (2026-10-07) Relanzar SOLO si TradingView no responde por CDP. Si responde pero
+    // no hay ventana con el simbolo del SPX (o un pane falla), matar la app no arregla
+    // nada: el 07-oct eso cerraba y abria TradingView cada 2 minutos toda la manana.
+    if (await tv.cdpResponde()) throw e;
+    console.warn('[tv] TradingView no responde, se relanza:', e.message);
     await tv.launch({ killExisting: true });
     await new Promise((r) => setTimeout(r, 15000)); // dar tiempo a que cargue el chart
     return tv.pushGammaLevelsToAllWindows(inputs);
