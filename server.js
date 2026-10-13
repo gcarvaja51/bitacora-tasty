@@ -8013,6 +8013,101 @@ app.post('/api/spx/clic', async (req, res) => {
   }
 });
 
+// ── Tabla del trade en TradingView (Guillermo 2026-10-12) ──
+//
+// "generemos una tabla similar a la de polymarket con los datos basicos: bull put spread, bear call spread,
+// prima recibida o debito pagado, riesgo, delta". El bot local la dibuja en el grafico de BLACKBULL:US500 y
+// pregunta aca cada pocos segundos. Solo lectura (lo mismo que ya expone /api/tradier/executions, sin clave).
+// Se muestra el clic abierto; si no hay, el ultimo clic cerrado hoy; si tampoco, el trade del robot abierto.
+const NOMBRE_ESTRUCTURA = {
+  BULL_PUT_SPREAD: 'Bull Put Spread', BEAR_CALL_SPREAD: 'Bear Call Spread',
+  BULL_CALL_SPREAD: 'Bull Call Spread', BEAR_PUT_SPREAD: 'Bear Put Spread',
+  IRON_CONDOR: 'Iron Condor', DEBIT_PUT_CONDOR: 'Debit Put Condor',
+};
+const tipoOcc = (s) => { const m = /^[A-Z]+\d{6}([CP])/.exec(s || ''); return m ? m[1] : null; };
+let cacheEstadoClic = { ts: 0, data: null };
+app.get('/api/spx/clic/estado', async (req, res) => {
+  try {
+    if (Date.now() - cacheEstadoClic.ts < 3000 && cacheEstadoClic.data) return res.json(cacheEstadoClic.data);
+    const hoyET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    const execs = loadTradierExecutions();
+    const abierta = (e) => e.status === 'submitted' || e.status === 'filled';
+    // los 'submitted' viejos que nunca se asentaron (vencidos) no son un trade abierto de verdad
+    const vigente = (e) => abierta(e) && String(e.expiry || e.strikes?.expiry || '') >= hoyET;
+    let ex = execs.find(e => e.strategyFamily === 'CLIC_TV' && vigente(e));
+    let origen = 'CLIC_TV';
+    if (!ex) ex = execs.find(e => e.strategyFamily === 'CLIC_TV' && e.status === 'closed' && e.fechaET === hoyET)
+      || execs.find(e => e.strategyFamily === 'CLIC_TV' && e.status === 'closed'
+                      && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(e.timestamp)) === hoyET);
+    if (!ex) { ex = execs.find(e => e.status === 'filled' && vigente(e)); origen = ex ? (ex.strategyFamily || 'ROBOT') : null; }
+    if (!ex) {
+      cacheEstadoClic = { ts: Date.now(), data: { ok: true, trade: null } };
+      return res.json(cacheEstadoClic.data);
+    }
+
+    const k = ex.strikes || {};
+    const n = ex.contracts || 1;
+    const esIC = ex.strategy === 'IRON_CONDOR';
+    const ancho = esIC ? Math.max(Math.abs(k.shortStrike - k.longStrike), Math.abs(k.callLongStrike - k.callShortStrike))
+                       : Math.abs(k.shortStrike - k.longStrike);
+    const credito = ex.isCredit !== false;
+    const base = baseDePrecio(ex).valor ?? (Math.abs(k.premium || 0) + (esIC ? Math.abs(k.callPremium || 0) : 0));
+    const primaUsd = +(base * 100 * n).toFixed(2);
+    const maxUsd = +(ancho * 100 * n).toFixed(2);
+
+    // delta neto de la posicion (por contrato): + gana si sube el SPX, - gana si baja
+    const signoPata = (key) => (/short/i.test(key) ? -1 : 1);
+    let deltaEntrada = null;
+    if (!esIC && k.shortDelta != null && k.longDelta != null) {
+      const sgn = tipoOcc(ex.legs?.shortSym) === 'P' ? -1 : 1;
+      deltaEntrada = +(sgn * (Math.abs(k.longDelta) - Math.abs(k.shortDelta))).toFixed(3);
+    }
+    let deltaAhora = null, pnl = null, fuente = null;
+    if (abierta(ex) && ex.legs) {
+      try {
+        const syms = Object.values(ex.legs).filter(Boolean);
+        const pares = syms.map(s => [s, aSimboloTasty(s)]).filter(([, t]) => t);
+        if (pares.length === syms.length) {
+          const d = await tt._req(`/market-data?${pares.map(([, t]) => `symbols[]=${encodeURIComponent(t)}`).join('&')}`);
+          const porT = {}; for (const it of (d.data?.items || [])) porT[it.symbol] = it;
+          const q = {}; let dl = 0, completo = true;
+          for (const [key, s] of Object.entries(ex.legs)) {
+            if (!s) continue;
+            const it = porT[aSimboloTasty(s)];
+            const mark = parseFloat(it?.mark ?? it?.mid), delta = parseFloat(it?.delta);
+            if (!Number.isFinite(mark) || !Number.isFinite(delta)) { completo = false; continue; }
+            q[s] = mark; dl += signoPata(key) * delta;
+          }
+          if (completo) { deltaAhora = +dl.toFixed(3); fuente = 'tasty'; }
+          if (ex.status === 'filled') pnl = calcLivePnl(ex, q);
+        }
+      } catch (e) { /* sin cotizacion: la tabla muestra lo de la entrada */ }
+    }
+    if (ex.status === 'closed') pnl = ex.resultadoOficial?.pnl ?? ex.pnl ?? null;
+    if (ex.status === 'closed' && pnl == null) {
+      try { pnl = require('./src/pnl_oficial').resultadoOficial(ex)?.pnl ?? ex.pnl; } catch (e) { pnl = ex.pnl; }
+    }
+
+    const data = { ok: true, trade: {
+      id: ex.id, origen, estado: ex.status, estructura: NOMBRE_ESTRUCTURA[ex.strategy] || ex.strategy,
+      direccion: ex.direction, credito, contratos: n, vence: k.expiry || ex.expiry,
+      strikes: esIC ? `${k.longStrike}/${k.shortStrike} · ${k.callShortStrike}/${k.callLongStrike}`
+                    : `${k.shortStrike}/${k.longStrike}`,
+      primaPts: +base.toFixed(2), primaUsd,
+      riesgoMaxUsd: +(credito ? maxUsd - primaUsd : primaUsd).toFixed(2),
+      gananciaMaxUsd: +(credito ? primaUsd : maxUsd - primaUsd).toFixed(2),
+      deltaEntrada, deltaAhora, deltaFuente: fuente,
+      spxEntrada: ex.entrySpx ?? null, abiertaEn: ex.filledAt || ex.timestamp,
+      cerradaEn: ex.closedAt || null, motivoCierre: ex.closeReason || null,
+      cierrePedido: !!ex.cierreClicPedido, pnl,
+    } };
+    cacheEstadoClic = { ts: Date.now(), data };
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/spx/signals', (req, res) => {
   res.json(loadSPXSignals());
 });
