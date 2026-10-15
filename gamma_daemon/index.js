@@ -228,7 +228,8 @@ function isPremarketWindow() {
 // pestaña y vuelve a leer (2026-09-22). Ver vencimiento.js.
 const leerSigmaDeHoy = crearLectorDeHoy({
   readLevels: () => sigma.readLevels(),
-  recargar: () => sigma.recargarTerminal(),
+  // 2026-10-15: clickear la fecha de hoy en la cinta, no solo recargar (ver sigma.irAlVencimiento).
+  recargar: () => sigma.irAlVencimiento(calendario.fechaET()),
   fechaET: () => calendario.fechaET(),
 });
 
@@ -376,6 +377,9 @@ async function runCycle() {
     // Sin este sello no hay forma de distinguir "el dato es de ahora" de "el
     // daemon tardo en mandarlo", y esa diferencia decide si la Reversion abre.
     levels.capturadoEn = new Date().toISOString();
+    // King Node (2026-10-13): best-effort, nunca lanza. Va antes de archivar para
+    // que quede en el historico y se pueda medir como se midieron los muros.
+    Object.assign(levels, await sigma.readKingNode());
     archivarLectura(levels, 'sesion');
     const prev = recordAndGetPrevious(levels);
 
@@ -504,6 +508,11 @@ async function runCycle() {
           in_31: maxPainGrafico,
           in_32: fuerzaCall,
           in_33: fuerzaPut,
+          // King Node (2026-10-13), AL FINAL por la regla de IDs posicionales.
+          // 0 = sin dato y el Pine no lo dibuja. Un Pine sin estos inputs los
+          // reporta como "ausentes", no como fallo.
+          in_34: levels.kingNode || 0,
+          in_35: levels.kingNodeGex || 0,
         });
         // Un pane que NO verifico ya no pasa callado (2026-09-06). Antes bastaba
         // con que UN pane dijera `updated` para dar el push por bueno, y `updated`

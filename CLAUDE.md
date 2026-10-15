@@ -1367,6 +1367,13 @@ Railway solo instala el de la raíz, así que nunca se despliega.
   así aparece la cadena de hoy: el ciclo cuenta como fallo y las estrategias caen al
   respaldo. `expiry: null` no bloquea. Pruebas: `node gamma_daemon/vencimiento.test.mjs`.
   Histórico § *La pestaña de Sigma se quedaba en el vencimiento de ayer*.
+  **2026-10-15 — rediseño de Sigma:** el rótulo "Exp AAAA-MM-DD" desapareció; el vencimiento
+  activo se lee de la cinta (`expiration-ribbon_ribbonDateActive__`, atributo `data-date`).
+  Sigma deja el día vencido rotulado "0d" y lo reabre así aunque se recargue, por eso
+  `recargar` ahora es `sigma.irAlVencimiento(hoy)`: clickea la fecha de hoy en la cinta y
+  solo recarga si no la encuentra. El 14 y el 15-oct el gate del premercado bloqueó por esto.
+  Pendiente: `readExpiryChips`/`seleccionarExpiry` (captura de niveles de otros activos)
+  siguen buscando los chips viejos `greeks_expBtn__`, que ahora solo son "All" y "▾".
 - **Una lectura fallida no se reintenta sobre la misma pestaña (2026-10-02).**
   `recuperacion.js`: por cada fallo seguido de *lectura* de Sigma (no del POST) → recargar,
   recargar, `sigma.descartarNavegador()`, y vuelta a empezar. Sin esto la pestaña trabada se
@@ -1375,6 +1382,14 @@ Railway solo instala el de la raíz, así que nunca se despliega.
   (cmd lo relee por posición): parar cmd y node, editar, relanzar oculto. Pruebas:
   `node gamma_daemon/recuperacion.test.mjs`. Histórico § *Una pestaña de Sigma trabada se
   reusaba…*.
+- **King Node (2026-10-13).** No está en las tarjetas: solo en Heat Map (chip
+  `[class*="heatmap_kingChip__"]`, la celda strike × vencimiento de mayor |GEX|) y puede
+  diferir del MVS. `sigma.readKingNode()` lo lee en una **pestaña propia fija en Heat Map**
+  (la del daemon tiene que quedarse en Positioning por el toggle MVS Abs). Best-effort: nunca
+  lanza, y si falla cierra su pestaña y no reintenta por 5 min. Se archiva (`kingNode`,
+  `kingNodeVto`, `kingNodeGex`) y va a TradingView como **`in_34`/`in_35`**; un Pine sin esos
+  inputs los reporta como `ausentes`. Parche del Pine en `_pine_king_node.txt`; prueba aislada
+  con perfil copiado: `SIGMA_PROFILE_DIR=<perfil sin "sigma_profile"> node _probar_king.mjs`.
 - `tv.js` — CDP crudo (`chrome-remote-interface`) directo contra TradingView Desktop, sin
   pasar por el servidor MCP. **Prueba cada ventana candidata hasta encontrar una con SPX
   cargado de verdad** en vez de conectar a la primera que matchee — esa era la causa raíz del

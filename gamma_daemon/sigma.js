@@ -73,7 +73,9 @@ const LABEL_MAP = {
   maxPain:    { alias: ['Max Pain'], obligatoria: true },
   putWall:    { alias: ['Put Wall'], obligatoria: true },
   callWall:   { alias: ['Call Wall'], obligatoria: true },
-  mvs:        { alias: ['MVS'], obligatoria: true },
+  // 2026-10-13: Sigma renombro la tarjeta a 'MVS abs' (con el toggle en Abs).
+  // Sin el alias el daemon fallo cada ciclo desde la apertura del premercado.
+  mvs:        { alias: ['MVS', 'MVS abs', 'MVS Abs'], obligatoria: true },
   // De aca abajo: se guardan para poder medirlas, pero ninguna estrategia
   // decide con ellas todavia. Que falte una no puede costar una sesion.
   totalGamma: { alias: ['Total Gamma'], obligatoria: false },
@@ -233,6 +235,29 @@ export async function recargarTerminal() {
   return p;
 }
 
+// Lleva el panel al vencimiento `hoy` (AAAA-MM-DD) clickeando su fecha en la cinta
+// (2026-10-15). Si la fecha no esta en la cinta, recarga y lo intenta una vez mas.
+// Recargar sola no alcanza: tras el rediseño Sigma vuelve a abrir en el dia vencido.
+// No lanza: si no lo consigue, la relectura de crearLectorDeHoy lo dejara a la vista.
+export async function irAlVencimiento(hoy) {
+  const clickear = (p) => p.evaluate((d) => {
+    const b = document.querySelector(`[class*="expiration-ribbon_ribbonDate__"][data-date="${d}"]`);
+    if (!b) return false;
+    b.click();
+    return true;
+  }, hoy);
+  let p = await ensurePage();
+  if (!(await clickear(p))) {
+    p = await recargarTerminal();
+    if (!(await clickear(p))) return p;
+  }
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    if ((await readExpiry(p)) === hoy) break;
+  }
+  return p;
+}
+
 function parseMoney(str) {
   if (str == null) return null;
   const s = String(str).replace(/,/g, '').trim();
@@ -301,10 +326,20 @@ async function readRawMetrics(p) {
 // vencimiento del viernes migrando dia a dia, o el 0DTE de cada jornada, y no
 // habia forma de distinguirlo. Son dos cosas distintas y solo una sostiene un
 // setup.
+//
+// 2026-10-14/15: Sigma rediseño el selector. El rotulo "Exp ..." desaparecio y
+// los chips pasaron a una cinta (`expiration-ribbon_ribbonDate__`, con
+// `data-date="2026-10-15"`) donde el activo lleva `ribbonDateActive__`. Sin esto
+// readExpiry devolvia null, null "no bloquea", y dos mañanas seguidas el panel
+// quedo en el vencimiento del dia anterior sin que el daemon se enterara (el gate
+// del premercado si lo freno). Ojo: Sigma rotula el dia vencido como "0d" hasta
+// que alguien elige otro, asi que recargar NO basta -- ver irAlVencimiento().
 async function readExpiry(p) {
   return p.evaluate(() => {
     const txt = (e) => (e && e.textContent || '').trim().replace(/\s+/g, ' ');
-    // "SPX — Exp 2026-08-24" en el subtitulo de un panel.
+    const activo = document.querySelector('[class*="expiration-ribbon_ribbonDateActive__"]');
+    if (activo && /^\d{4}-\d{2}-\d{2}$/.test(activo.dataset.date || '')) return activo.dataset.date;
+    // Formato viejo: "SPX — Exp 2026-08-24" en el subtitulo de un panel.
     for (const el of document.querySelectorAll('[class*="greeks_panelSub__"]')) {
       const m = txt(el).match(/Exp\s+(\d{4}-\d{2}-\d{2})/);
       if (m) return m[1];
@@ -706,6 +741,92 @@ export async function pestanaAuxiliar() {
   return aux;
 }
 
+// ── King Node (2026-10-13, pedido del usuario: "pintemos el king node en TV") ──
+//
+// El King Node NO esta en las tarjetas: solo en la pestaña Heat Map (chip 👑
+// "King Node $7805 · Oct 13 (0DTE) · $5.16B", la celda strike × vencimiento de
+// mayor |GEX| de toda la grilla) y en el indicador "Niveles Greeks" del chart.
+// Puede diferir del MVS: el 13-oct, King 7805 contra MVS 7800.
+//
+// Va en una pestaña PROPIA que se queda fija en Heat Map, no en la del daemon:
+// la del daemon tiene que seguir en Positioning & Levels, que es donde vive el
+// toggle "MVS Abs" que ensureMvsAbsolute() fuerza en cada lectura.
+//
+// Best-effort puro: devuelve {} ante cualquier problema y NUNCA lanza. Un dato
+// decorativo no puede costar el push de muros. Si falla, cierra su pestaña y no
+// reintenta por 5 min, para no sumar 20s de espera a cada ciclo de un dia malo.
+let kingPage = null;
+let kingPausaHasta = 0;
+const KING_TIMEOUT_MS = 20000;
+
+async function abrirPestanaKing() {
+  const principal = await ensurePage();
+  const kp = await principal.browser().newPage();
+  await kp.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  await new Promise((r) => setTimeout(r, 8000));
+  return kp;
+}
+
+async function leerChipKing(kp) {
+  // El simbolo de esta pestaña no se hereda de la del daemon: se verifica aparte.
+  const sym = await readSymbol(kp);
+  if (!/^SPX$/i.test(sym || '')) {
+    await seleccionarSimbolo(kp, 'SPX');
+    if (!/^SPX$/i.test((await readSymbol(kp)) || '')) throw new Error(`pestaña King en "${sym}"`);
+  }
+  // Se pide la pestaña Heat Map en cada lectura: si Sigma recarga, vuelve a Positioning.
+  const texto = await kp.evaluate(async () => {
+    const chip = () => document.querySelector('[class*="heatmap_kingChip__"]');
+    if (!chip()) {
+      const b = [...document.querySelectorAll('[class*="greeks_subTab__"]')]
+        .find((e) => e.textContent.trim() === 'Heat Map');
+      if (b) b.click();
+      for (let i = 0; i < 20 && !chip(); i++) await new Promise((r) => setTimeout(r, 500));
+    }
+    return chip() ? chip().textContent : null;
+  });
+  if (!texto) throw new Error('sin chip King Node en Heat Map');
+  return texto;
+}
+
+// "👑 King Node $7805 · Oct 13 (0DTE) · $5.16B"  /  "... · $-739.08M"
+export function parseKingChip(texto) {
+  const m = /King Node\s*\$?([\d,.]+)\s*·\s*([^·]+?)\s*·\s*(-?)\$?(-?)([\d.,]+)\s*([KMB]?)/.exec(texto || '');
+  if (!m) return null;
+  const mult = { K: 1e3, M: 1e6, B: 1e9 }[m[6]] || 1;
+  const signo = (m[3] || m[4]) ? -1 : 1;
+  return {
+    kingNode: Number(m[1].replace(/,/g, '')),
+    kingNodeVto: m[2].trim(),
+    kingNodeGex: signo * Number(m[5].replace(/,/g, '')) * mult,
+  };
+}
+
+export async function readKingNode() {
+  if (Date.now() < kingPausaHasta) return {};
+  const conTope = (prom, ms, que) => Promise.race([
+    prom,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms / 1000}s ${que}`)), ms)),
+  ]);
+  try {
+    // Abrir la pestaña tiene su propio tope: solo pasa una vez por navegador, y
+    // con el Heat Map recien montado tarda mas que una lectura normal.
+    if (!kingPage || kingPage.isClosed() || !browser || kingPage.browser() !== browser) {
+      kingPage = await conTope(abrirPestanaKing(), 60000, 'abriendo la pestaña');
+    }
+    const r = parseKingChip(await conTope(leerChipKing(kingPage), KING_TIMEOUT_MS, 'leyendo el chip'));
+    if (!r) throw new Error('chip King Node con formato desconocido');
+    return r;
+  } catch (e) {
+    console.error(`[sigma] King Node no disponible (${e.message.slice(0, 80)}) -- se sigue sin el, reintento en 5 min`);
+    const kp = kingPage;
+    kingPage = null;
+    kingPausaHasta = Date.now() + 5 * 60 * 1000;
+    try { if (kp && !kp.isClosed()) await kp.close(); } catch { /* ya cerrada */ }
+    return {};
+  }
+}
+
 /** Cierra la pestaña auxiliar. Nunca toca la del daemon. */
 export async function cerrarAuxiliar(aux) {
   try { if (aux && !aux.isClosed()) await aux.close(); } catch (e) { /* ya cerrada */ }
@@ -720,6 +841,7 @@ export async function descartarNavegador() {
   const b = browser;
   browser = null;
   page = null;
+  kingPage = null;
   if (!b) return;
   await Promise.race([
     b.close().catch(() => {}),
@@ -732,5 +854,6 @@ export async function close() {
     try { await browser.close(); } catch { /* noop */ }
     browser = null;
     page = null;
+    kingPage = null;
   }
 }
