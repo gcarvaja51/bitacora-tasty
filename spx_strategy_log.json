@@ -1,5 +1,25 @@
 [
  {
+  "timestamp": "2026-10-15T14:30:05.609Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NINGUN_ESCENARIO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Ningun escenario del premercado valido su condicion de activacion",
+  "snapshot": {
+   "spxPrice": 7698.85,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7750,
+    "putWall": 7670,
+    "gammaFlip": 7735,
+    "maxPain": 7745
+   },
+   "escenario": null
+  }
+ },
+ {
   "timestamp": "2026-10-14T14:30:08.368Z",
   "strategyFamily": "PREMERCADO",
   "stage": "SIN_PREMERCADO",

@@ -2959,3 +2959,49 @@ TimeoutError: Navigation timeout of 90000 ms exceeded
 Node.js v24.15.0
 [Wed 10/14/2026 15:41:57.26] Terminado con codigo 1 
 [Wed 10/14/2026 15:41:57.27] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Thu 10/15/2026  9:45:01.35] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, PYPL, UBER, TSLA, NU, F, CCL, NIO, GAP, JBLU
+
+[SPX]
+   guardado  SPX    exp=2026-10-15  maxPain=7745  MVS=7700  cw=7750  pw=7700
+   (sin chip de viernes disponible)
+
+[PYPL]
+   guardado  PYPL   exp=2026-10-16  maxPain=53  MVS=55  cw=57.5  pw=53
+   (sin chip de viernes disponible)
+
+[UBER]
+   guardado  UBER   exp=2026-10-16  maxPain=71  MVS=70  cw=70  pw=69
+   (sin chip de viernes disponible)
+
+[TSLA]
+   guardado  TSLA   exp=2026-10-16  maxPain=370  MVS=360  cw=370  pw=360
+   (sin chip de viernes disponible)
+
+[NU]
+   guardado  NU     exp=2026-10-16  maxPain=13  MVS=15  cw=15  pw=14
+   (sin chip de viernes disponible)
+
+[F]
+   guardado  F      exp=2026-10-16  maxPain=12.5  MVS=12  cw=12.5  pw=12
+   (sin chip de viernes disponible)
+
+[CCL]
+   guardado  CCL    exp=2026-10-16  maxPain=24  MVS=26.5  cw=26.5  pw=26
+   (sin chip de viernes disponible)
+
+[NIO]
+   guardado  NIO    exp=2026-10-16  maxPain=3.5  MVS=3.5  cw=3.5  pw=null
+   (sin chip de viernes disponible)
+
+[GAP]
+   guardado  GAP    exp=2026-10-16  maxPain=23  MVS=23  cw=24  pw=23
+   (sin chip de viernes disponible)
+
+[JBLU]
+   guardado  JBLU   exp=2026-10-16  maxPain=4  MVS=3  cw=null  pw=3
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Thu 10/15/2026  9:48:44.59] Terminado con codigo 0 
