@@ -1,0 +1,96 @@
+[2026-09-28 10:57:13] 2026-09-07 es festivo en NY: la agenda sale el martes, hoy no se busca
+[2026-09-28 10:57:20] agenda encontrada (publicada 2026-09-08T13:13:27Z): 9 sesiones; avisos: 2026-09-07 sin hora: 🇺🇸 Festivo en Estados Unidos – Mercado cerrado
+[2026-09-28 10:57:29] agenda encontrada (publicada 2026-09-28T14:06:27Z): 11 sesiones
+[2026-09-28 10:57:59] no se pudo leer el grupo: HTTPConnectionPool(host='127.0.0.1', port=3001): Read timed out. (read timeout=30)
+[2026-09-28 10:57:59] a las 10:57 todavia no sale la agenda del 2026-10-05: se deja para la proxima corrida
+[Mon 09/28/2026 11:00:02.21] Iniciando calendario semanal 
+[2026-09-28 11:00:05] semana del 2026-09-28 ya cargada: nada que hacer
+Traceback (most recent call last):
+  File "C:\Users\gcarv\.claude\skills\calendario-semanal\agenda.py", line 240, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\gcarv\.claude\skills\calendario-semanal\agenda.py", line 236, in main
+    sys.exit(esperar(hoy, a.hasta) if a.fase == "esperar" else cerrar(hoy))
+             ~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\gcarv\.claude\skills\calendario-semanal\agenda.py", line 153, in esperar
+    registrar("semana del %s ya cargada: nada que hacer" % lunes)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gcarv\.claude\skills\calendario-semanal\agenda.py", line 50, in registrar
+    with open(LOG, "a", encoding="utf-8") as f:
+         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'C:\\Users\\gcarv\\.claude\\skills\\calendario-semanal\\ejecuciones.log'
+[Mon 09/28/2026 11:00:05.26] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Tue 09/29/2026 11:00:00.83] Iniciando calendario semanal 
+[2026-09-29 11:00:05] semana del 2026-09-28 ya cargada: nada que hacer
+[Tue 09/29/2026 11:00:05.53] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Wed 09/30/2026 11:00:01.48] Iniciando calendario semanal 
+[2026-09-30 11:00:07] semana del 2026-09-28 ya cargada: nada que hacer
+[Wed 09/30/2026 11:00:08.06] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Mon 10/05/2026 11:00:01.58] Iniciando calendario semanal 
+[2026-10-05 11:00:43] agenda encontrada (publicada 2026-10-05T11:39:59Z): 10 sesiones
+[Mon 10/05/2026 11:00:43.78] Fase 2, intento 1 de 3 
+Cargué en Google Calendar las 10 sesiones de la semana del 5 al 11 de octubre, todas nuevas: no había ninguna antes. El JSON coincidía con el texto original y la agenda no trae avisos.
+
+Google Calendar confirmó cada evento a la hora correcta: van en hora del Este, sin invitados y sin notificaciones. En hora Colombia quedan una hora antes que en la agenda; por ejemplo, las de las 9:15 ET quedan a las 8:15am.
+
+| Día | Hora Colombia | Sesión |
+|---|---|---|
+| Lun 5 | 8:15am | Sesión en Vivo con Cristian |
+| Lun 5 | 10:30am | Sesión en Vivo con Gonza |
+| Mar 6 | 8:15am | Sesión en Vivo con Facu |
+| Mié 7 | 8:15am | Sesión en Vivo con Tarri |
+| Mié 7 | 11:00am | Sesión en Vivo con Cristian |
+| Jue 8 | 8:15am | Sesión en Vivo con Gonza |
+| Jue 8 | 10:00am | Sigma Live en YouTube con Luis |
+| Vie 9 | 8:15am | Sesión en Vivo con Luis |
+| Vie 9 | 11:00am | "El proceso detrás del trade" con Rocío |
+| Dom 11 | 5:30pm | Planeación semanal |
+
+Las dos sesiones de hoy (8:15 y 10:30am) ya habían pasado cuando se cargaron, porque se crearon a las 11:01am hora Colombia.
+
+La semana quedó marcada como hecha en `semanas\2026-10-05_cargada.json`. No mandé nada por WhatsApp; el parte lo envía la fase 3.
+[Mon 10/05/2026 11:02:39.27] Fase 2 terminada tras 1 intento(s) 
+[2026-10-05 11:02:47] aviso a Guillermo: OK
+[2026-10-05 11:02:47] parte a Guillermo: enviado
+[Mon 10/05/2026 11:02:48.17] Finalizado (codigo 0) 
+ 
+[Tue 10/06/2026 11:00:01.37] Iniciando calendario semanal 
+[2026-10-06 11:00:03] semana del 2026-10-05 ya cargada: nada que hacer
+[Tue 10/06/2026 11:00:03.80] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Wed 10/07/2026 11:00:01.41] Iniciando calendario semanal 
+[2026-10-07 11:00:02] semana del 2026-10-05 ya cargada: nada que hacer
+[Wed 10/07/2026 11:00:02.85] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Mon 10/12/2026 11:00:01.97] Iniciando calendario semanal 
+[2026-10-12 11:00:46] agenda encontrada (publicada 2026-10-12T10:38:43Z): 11 sesiones
+[Mon 10/12/2026 11:00:46.37] Fase 2, intento 1 de 3 
+ToolSearch no encontró las herramientas de Google Calendar (el conector no cargó en esta sesión), así que no cargué nada en el calendario ni escribí `semanas\2026-10-12_cargada.json`. La tarea me relanza sola.
+[Mon 10/12/2026 11:05:10.68] Claude no dejo el _cargada.json - reintento en 2 min 
+[Mon 10/12/2026 11:07:12.61] Fase 2, intento 2 de 3 
+No encontré las herramientas de Google Calendar en esta sesión, así que no escribí `semanas\2026-10-12_cargada.json`; la tarea vuelve a lanzar esto sola.
+[Mon 10/12/2026 11:10:26.97] Claude no dejo el _cargada.json - reintento en 2 min 
+[Mon 10/12/2026 11:12:28.68] Fase 2, intento 3 de 3 
+Listo: las 11 sesiones de la semana del 12 de octubre ya están en Google Calendar y la semana quedó marcada como hecha en `semanas\2026-10-12_cargada.json`.
+
+- **Lectura de la agenda:** el JSON dice lo mismo que el texto original. Las 11 sesiones y sus horas coinciden, y no hay avisos.
+- **Duplicados:** no había ninguna sesión de "Sigma Club" esa semana en el calendario, así que no quedó ninguna en `ya_estaban`.
+- **Eventos:** los creé en hora de Nueva York, de 1 hora cada uno, sin invitados y sin notificaciones. En Colombia quedan una hora antes, por ejemplo las de las 9:15 de la mañana en NY quedan a las 8:15.
+
+No mandé nada por WhatsApp; el parte lo envía la fase 3.
+[Mon 10/12/2026 11:14:35.46] Fase 2 terminada tras 3 intento(s) 
+[2026-10-12 11:14:38] aviso a Guillermo: OK
+[2026-10-12 11:14:38] parte a Guillermo: enviado
+[Mon 10/12/2026 11:14:38.89] Finalizado (codigo 0) 
+ 
+[Tue 10/13/2026 11:00:02.86] Iniciando calendario semanal 
+[2026-10-13 11:00:09] semana del 2026-10-12 ya cargada: nada que hacer
+[Tue 10/13/2026 11:00:10.16] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Wed 10/14/2026 11:00:01.08] Iniciando calendario semanal 
+[2026-10-14 11:00:02] semana del 2026-10-12 ya cargada: nada que hacer
+[Wed 10/14/2026 11:00:02.83] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
