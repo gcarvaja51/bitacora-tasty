@@ -217,6 +217,10 @@ max_pain_G   = input.float(0.0, "Max Pain", group=grpG)
 // numeros — un input.string obligaria a otro mecanismo de push.
 call_wall_fuerza_G = input.float(0.0, "Call Wall - strength (0=n/a 1=weak 2=medium 3=strong)", group=grpG)
 put_wall_fuerza_G  = input.float(0.0, "Put Wall - strength (0=n/a 1=weak 2=medium 3=strong)", group=grpG)
+// King Node (2026-10-13) — celda strike × vencimiento de mayor |GEX| del Heat Map
+// de Sigma. AL FINAL de todos los input.* por la regla de IDs posicionales (in_34/in_35).
+king_node_G     = input.float(0.0, "King Node", group=grpG)
+king_node_gex_G = input.float(0.0, "King Node GEX ($)", group=grpG)
 
 // Solo dibujar en SPX — evita que estos niveles (escala ~7500) distorsionen
 // el chart al abrir otro activo de precio muy distinto (ej. UBER, SOFI): la
@@ -269,6 +273,12 @@ var label putWallLbl_G = na
 var label gammaFlipLbl_G = na
 var label mvsLbl_G = na
 var label maxPainLbl_G = na
+var label kingLbl_G = na
+var line kingIzq_G = na
+var line kingDer_G = na
+// King Node (2026-10-15, pedido del usuario): solo una corona grande, sin linea y
+// sin etiqueta, pegada al precio -- entre la ultima vela y la columna de etiquetas
+// de los muros (que arranca en xLbl_G = bar_index + 4), al nivel del King Node.
 if barstate.islast
     line.delete(callWallLine_G)
     line.delete(putWallLine_G)
@@ -296,6 +306,16 @@ if barstate.islast
     if show_gamma_active_G and max_pain_G > 0
         maxPainLine_G := line.new(x1_G, max_pain_G, bar_index, max_pain_G, extend=extend.both, color=color.new(color.blue, 0), style=line.style_dashed, width=2)
         maxPainLbl_G := label.new(xLbl_G, max_pain_G, "MAX PAIN " + str.tostring(max_pain_G, "#.##"), style=label.style_label_left, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
+    // King Node: corona sola, grande, pegada al precio.
+    label.delete(kingLbl_G)
+    line.delete(kingIzq_G)
+    line.delete(kingDer_G)
+    if show_gamma_active_G and king_node_G > 0
+        // Trazo corto a cada lado de la corona (2026-10-15, pedido del usuario: "para
+        // analizar mejor"): marca el nivel exacto sin volver a la linea completa.
+        kingIzq_G := line.new(bar_index - 1, king_node_G, bar_index + 1, king_node_G, color=color.new(#FFD700, 0), style=line.style_solid, width=1)
+        kingDer_G := line.new(bar_index + 3, king_node_G, bar_index + 5, king_node_G, color=color.new(#FFD700, 0), style=line.style_solid, width=1)
+        kingLbl_G := label.new(bar_index + 2, king_node_G, "👑", style=label.style_label_center, color=color.new(color.black, 100), textcolor=color.new(#FFD700, 0), size=size.large)
 
 // ══════════════════════════════════════════════════════════════════
 // ── Tabla GEX/DEX/Vanna — actual vs hace ~6min (2026-07-30) ─────────
