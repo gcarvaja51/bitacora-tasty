@@ -275,3 +275,36 @@ Hay dos cosas que conviene que sepas:
 No le envié nada a nadie, no generé PDF y no toqué TradingView ni el premercado. Cerré la pestaña de Chrome que abrí para leer Investing.
 [Mon 10/12/2026 15:09:35.93] Finalizado (codigo 0) 
  
+[Tue 10/13/2026 15:05:54.86] Iniciando cierre del dia 
+El informe de cierre de hoy ya está en `documentos premercado\10132026_cierre del dia.docx`. Es solo Word: no se generó PDF ni se envió nada. Lo armé a las 16:15 ET.
+
+- **Mercado:** el calendario NYSE confirma que hoy hubo sesión. El informe de hoy no existía, así que no se sobrescribió nada.
+- **Sigma:** usé el `lastLevels` de las 16:05 ET (20:05:28Z) y en el informe aclaro que es la cadena que venció hoy.
+- **Calendario de hoy:** la pestaña Hoy de Investing sigue mostrando solo las ventas de viviendas de las 10:00 ET. No apareció ningún evento de 3 estrellas a las 10:15 ET o después, así que hoy no es D19 y el día suma a la asertividad.
+- **Calendario de mañana:** la pestaña Mañana tiene el IPC a las 08:30 ET. Sale antes de las 10:15, así que mañana tampoco es D19.
+- **Registro:** en `premercado_hipotesis_log.json` quedaron `resultado` y `llamada_siguiente` para el 2026-10-14. En `control_premercado.xlsx` (fila 80) agregué el "CIERRE DEL DÍA" en el Detalle. Antes de tocar cada archivo hice una copia (`.bak_20261013_cierre` y `_bak_20261013_cierre.xlsx`).
+- **Script:** quedó en `control premercado\cierre_10132026.py`, con rutas armadas por `os.path.join`.
+- **Símbolo de pantalla:** en la tabla de niveles usé BLACKBULL:US500, base +3. El skill dice VANTAGE:SP500, pero `base_sp500_vs_spx.json` hoy mide BLACKBULL:US500, que también es el que usó el premercado de esta mañana. Me guié por el archivo.
+- **TradingView:** no lo lancé ni le cambié el símbolo. No hizo falta abrirlo.
+
+Al cerrar la pestaña de Investing la herramienta dio error porque la pestaña no figuraba en mi grupo. Puede que haya quedado abierta en tu Chrome.
+[Tue 10/13/2026 15:15:44.62] Finalizado (codigo 0) 
+ 
+[Wed 10/14/2026 15:00:01.44] Iniciando cierre del dia 
+El informe de cierre de hoy está generado: `documentos premercado\10142026_cierre del dia.docx` (16:09 ET, solo Word). No envié nada a nadie y no toqué TradingView.
+
+**Lo que hice:**
+- **Día de mercado:** `esDiaDeMercado` dio que sí y el .docx de hoy no existía, así que se creó.
+- **Sigma:** usé el `lastLevels` de las **16:05 ET**, que es la lectura del cierre. El script tomó primero la de las 16:00 y corregí en el .docx dos datos que salían de ella: la hora y el Flip, que pasó de 7.788 a 7.789.
+- **Investing, pestaña Hoy:** solo están las tres lecturas del IPC a las 08:30 ET. Hoy no es D19.
+- **Investing, pestaña Mañana:** los inventarios de crudo de la AIE tienen 3 estrellas y salen a las 12:00 ET. **El jueves 15 es D19, día sin trade.** El informe lo dice, igual que en el precedente del 07-oct.
+- **Registro:** guardé `resultado` y `llamada_siguiente` en el log (`para_fecha` 2026-10-15) y añadí el "CIERRE DEL DÍA" a la fila 81 del Excel. Hice backup de los dos antes (`*_bak_20261014_cierre`).
+- **Script:** quedó en `control premercado\cierre_10142026.py`, con las rutas armadas con `os.path.join`.
+
+**Dos cosas que debes saber:**
+- **Hoy no hay escenarios de premercado para calificar.** El premercado de hoy no se pudo hacer a su hora y se escribió a las 10:50 ET, ya con el mercado abierto, así que quedó fuera de muestra. Califiqué igual sus escenarios de media mañana. En "¿Acertamos?" puse **NO APLICA**: el día no suma ni resta. En el log quedó `acierto: "no_aplica"`, y el Auditor no lo toma porque la entrada no tiene `probabilidades`.
+- **La llamada del martes para hoy falló.** Se invalidó en la primera vela, sin haberse activado nunca. El informe lo dice tal cual.
+
+No pude escribir la línea en `ejecuciones.log`: el archivo estaba bloqueado, seguramente porque el lanzador programado lo tiene abierto. El fallo de Sigma sin vencimiento (expiry), que esta mañana bloqueó el premercado, sigue sin arreglarse.
+[Wed 10/14/2026 15:10:31.36] Finalizado (codigo 0) 
+ 

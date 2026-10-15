@@ -1,5 +1,33 @@
 [
  {
+  "timestamp": "2026-10-14T14:30:08.368Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_PREMERCADO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "No hay entrada de premercado para 2026-10-14"
+ },
+ {
+  "timestamp": "2026-10-13T14:30:57.532Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_LEJOS_DEL_PIN",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Precio a 17.8 pts del pin 7785; maximo 8",
+  "snapshot": {
+   "spxPrice": 7802.8,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7805,
+    "putWall": 7800,
+    "gammaFlip": 7791,
+    "maxPain": 7785
+   },
+   "escenario": null
+  }
+ },
+ {
   "timestamp": "2026-10-12T14:30:25.939Z",
   "strategyFamily": "PREMERCADO",
   "stage": "NEUTRAL_LEJOS_DEL_PIN",

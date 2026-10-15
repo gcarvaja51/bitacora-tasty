@@ -2845,3 +2845,117 @@ TimeoutError: Navigation timeout of 90000 ms exceeded
 Node.js v24.15.0
 [Mon 10/12/2026 15:42:45.42] Terminado con codigo 1 
 [Mon 10/12/2026 15:42:45.43] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Tue 10/13/2026  9:45:02.17] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57
+            this.#timeoutError = new TimeoutError(opts.message);
+                                 ^
+
+TimeoutError: Navigation timeout of 90000 ms exceeded
+    at new Deferred (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57:34)
+    at Deferred.create (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:18:16)
+    at new LifecycleWatcher (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/LifecycleWatcher.js:66:46)
+    at CdpFrame.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:146:29)
+    at CdpFrame.<anonymous> (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/decorators.js:101:27)
+    at CdpPage.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:570:43)
+    at ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:218:14)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:703:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Tue 10/13/2026  9:47:12.75] Terminado con codigo 1 
+[Tue 10/13/2026  9:47:12.78] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Tue 10/13/2026 15:40:01.47] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, NVDA, PYPL, RKLB, UBER, TSLA, NU, F, CCL, NIO, GAP, JBLU
+
+[SPX]
+   guardado  SPX    exp=2026-10-13  maxPain=7785  MVS=7805  cw=7810  pw=7805
+   (sin chip de viernes disponible)
+
+[NVDA]
+   guardado  NVDA   exp=2026-10-14  maxPain=225  MVS=230  cw=230  pw=225
+   (sin chip de viernes disponible)
+
+[PYPL]
+   guardado  PYPL   exp=2026-10-16  maxPain=53  MVS=55  cw=57.5  pw=53
+   (sin chip de viernes disponible)
+
+[RKLB]
+   guardado  RKLB   exp=2026-10-16  maxPain=70  MVS=65  cw=65  pw=60
+   (sin chip de viernes disponible)
+
+[UBER]
+   guardado  UBER   exp=2026-10-16  maxPain=72  MVS=72.5  cw=73  pw=70
+   (sin chip de viernes disponible)
+
+[TSLA]
+   guardado  TSLA   exp=2026-10-14  maxPain=377.5  MVS=375  cw=380  pw=370
+   (sin chip de viernes disponible)
+
+[NU]
+   guardado  NU     exp=2026-10-16  maxPain=13  MVS=16  cw=16  pw=15.5
+   (sin chip de viernes disponible)
+
+[F]
+   guardado  F      exp=2026-10-16  maxPain=12.5  MVS=12  cw=12.5  pw=12
+   (sin chip de viernes disponible)
+
+[CCL]
+   guardado  CCL    exp=2026-10-16  maxPain=24  MVS=26.5  cw=27  pw=26
+   (sin chip de viernes disponible)
+
+[NIO]
+   guardado  NIO    exp=2026-10-16  maxPain=4  MVS=3.5  cw=null  pw=3.5
+   (sin chip de viernes disponible)
+
+[GAP]
+   guardado  GAP    exp=2026-10-16  maxPain=23  MVS=23  cw=23  pw=22
+   (sin chip de viernes disponible)
+
+[JBLU]
+   guardado  JBLU   exp=2026-10-16  maxPain=4  MVS=3.5  cw=3.5  pw=null
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Tue 10/13/2026 15:43:27.70] Terminado con codigo 0 
+[Wed 10/14/2026  9:45:00.86] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57
+            this.#timeoutError = new TimeoutError(opts.message);
+                                 ^
+
+TimeoutError: Navigation timeout of 90000 ms exceeded
+    at new Deferred (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57:34)
+    at Deferred.create (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:18:16)
+    at new LifecycleWatcher (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/LifecycleWatcher.js:66:46)
+    at CdpFrame.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:146:29)
+    at CdpFrame.<anonymous> (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/decorators.js:101:27)
+    at CdpPage.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:570:43)
+    at ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:218:14)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:703:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Wed 10/14/2026  9:47:12.93] Terminado con codigo 1 
+[Wed 10/14/2026  9:47:12.93] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Wed 10/14/2026 15:40:01.05] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57
+            this.#timeoutError = new TimeoutError(opts.message);
+                                 ^
+
+TimeoutError: Navigation timeout of 90000 ms exceeded
+    at new Deferred (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57:34)
+    at Deferred.create (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:18:16)
+    at new LifecycleWatcher (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/LifecycleWatcher.js:66:46)
+    at CdpFrame.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:146:29)
+    at CdpFrame.<anonymous> (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/decorators.js:101:27)
+    at CdpPage.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:570:43)
+    at ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:218:14)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:703:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Wed 10/14/2026 15:41:57.26] Terminado con codigo 1 
+[Wed 10/14/2026 15:41:57.27] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
