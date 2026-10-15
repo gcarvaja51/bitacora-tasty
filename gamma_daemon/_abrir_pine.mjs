@@ -32,7 +32,7 @@ for (const t of targets) {
 
   const sym = await ev(`(function(){try{return window.TradingViewApi._chartWidgetCollection.getAll()
     .map(function(c){return c.model().mainSeries().symbol()}).join(',')}catch(e){return '?'}})()`);
-  if (!/SPCFD:SPX/i.test(sym || '')) { await client.close(); continue; }
+  if (!/(^|,)TVC:SPX(,|$)/i.test(sym || "")) { await client.close(); continue; }   // 2026-10-13: era SPCFD:SPX, retirado el 10-05
   console.log('ventana SPX:', t.id.slice(0, 8));
 
   // pineId del estudio CIARG que esta puesto en el chart

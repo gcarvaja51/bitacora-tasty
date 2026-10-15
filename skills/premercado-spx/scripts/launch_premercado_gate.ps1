@@ -40,6 +40,54 @@ function Send-Ntfy($message, $title, $priority) {
     }
 }
 
+# ── AVISOS QUE SI SE VEN (2026-10-13) ─────────────────────────────────────
+# El 13-oct Sigma renombro la tarjeta 'MVS' a 'MVS abs', el recolector se
+# quedo con los muros del dia anterior (991 min de antiguedad) y el gate lanzo
+# el skill IGUAL, "con datos incompletos". El informe iba a salir con Call Wall
+# 7810 / Put Wall 7800 / Flip 7813 cuando los de hoy eran 7825 / 7790 / 7792 --
+# con el flip del lado contrario del precio. Guillermo lo pidio sin rodeos:
+# un informe con datos viejos es peor que no tener informe. Si no se puede
+# resolver solo, se BLOQUEA y se le avisa por WhatsApp y con un post-it en
+# pantalla, no solo con un ntfy que puede no ver.
+function Send-WhatsApp($texto) {
+    try {
+        $waDir = "C:\Users\gcarv\Documents\CARPETA PERSONAL\whatsapp"
+        $cred = Get-Content (Join-Path $waDir "credenciales.txt")
+        $usuario  = ($cred | Select-String '^usuario:').ToString().Split(':')[1].Trim()
+        $password = ($cred | Select-String '^password:').ToString().Split(':')[1].Trim()
+        $cuentas = Get-Content (Join-Path $waDir "cuentas.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+        $headers = @{
+            Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("${usuario}:${password}"))
+            'X-Device-Id' = $cuentas.colombia.device_id
+        }
+        $cuerpo = @{ phone = "573186252537@s.whatsapp.net"; message = $texto } | ConvertTo-Json -Compress
+        Invoke-RestMethod "http://127.0.0.1:3001/send/message" -Headers $headers -Method POST `
+            -Body ([Text.Encoding]::UTF8.GetBytes($cuerpo)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 30 | Out-Null
+        Write-Log "WhatsApp enviado."
+    } catch {
+        Write-Log "WhatsApp fallo (no critico, queda ntfy + post-it): $($_.Exception.Message)"
+    }
+}
+
+function Show-PostIt($titulo, $cuerpo) {
+    try {
+        $txt = Join-Path $logDir "premercado_postit.txt"
+        @($titulo, $cuerpo) | Out-File -FilePath $txt -Encoding utf8
+        Start-Process -FilePath "powershell.exe" -WindowStyle Hidden -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File',
+            '"C:\Users\gcarv\.claude\skills\premercado-spx\scripts\postit_alerta.ps1"', '-Archivo', "`"$txt`"")
+    } catch {
+        Write-Log "Post-it fallo (no critico): $($_.Exception.Message)"
+    }
+}
+
+# Los tres canales a la vez. $prioridad: 'urgent' para bloqueos, 'high' para avisos.
+function Send-Alerta($titulo, $cuerpo, $prioridad) {
+    Send-Ntfy $cuerpo "Premercado SPX: $titulo" $prioridad
+    Send-WhatsApp "*Premercado SPX: $titulo*`n`n$cuerpo"
+    Show-PostIt $titulo $cuerpo
+}
+
 # Hora real en ET (maneja DST solo -- por eso hay 2 triggers de Windows,
 # uno cubre EDT y otro EST, y este chequeo descarta el que no corresponde)
 $etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, "Eastern Standard Time")
@@ -119,6 +167,9 @@ if ($mcpMuertos -gt 0) {
 #      una hora en la que no molesta, y si el puerto ya responde no toca nada.
 #      Best-effort: si no lo consigue, el gate sigue -- el informe puede escribirse
 #      solo con Sigma, como ya hacia.
+#      (2026-10-13: 4.4 y 4.5 viven en funciones para poder reintentarlas desde el
+#      control de calidad 4.7. Se llaman desde ahi, no aca.)
+function Invoke-PreflightTV {
 Write-Log "Verificando el puerto CDP de TradingView antes del recolector..."
 Push-Location "C:\Users\gcarv\bitacora-tasty\premercado_collector"
 try {
@@ -147,6 +198,7 @@ try {
 } finally {
     Pop-Location
 }
+}
 
 # 4.5) Recolector de datos (2026-08-01, nuevo) -- corre ANTES que claude.cmd para
 #      dejar ya en disco la captura del chart de 30min + valores de estudios de
@@ -155,6 +207,9 @@ try {
 #      si falla, NO aborta el gate -- el skill igual puede correr en modo manual/fallback
 #      como ya hacia antes de que existiera el colector, solo pierde la ventaja de tener
 #      los datos ya listos.
+#      2026-10-13: ya NO es best-effort. Lo que trae el recolector pasa por el
+#      control de calidad 4.7 y, si no sirve, el skill no se lanza.
+function Invoke-Recolector {
 Write-Log "Corriendo recolector de datos (TradingView + Sigma) antes del skill..."
 Push-Location "C:\Users\gcarv\bitacora-tasty\premercado_collector"
 try {
@@ -200,7 +255,7 @@ try {
     if ($nuevas.Count -gt 0) {
         foreach ($l in $nuevas) { Write-Log "  [colector] $l" }
         if (@($nuevas | Where-Object { $_ -match 'FALLO|errores: [1-9]' }).Count -gt 0) {
-            Write-Log "Recolector: TERMINO CON ERRORES -- el skill corre igual, pero con datos incompletos. Revisar las lineas [colector] de arriba."
+            Write-Log "Recolector: TERMINO CON ERRORES -- pasa al control de calidad. Revisar las lineas [colector] de arriba."
         } else {
             Write-Log "Recolector: OK."
         }
@@ -223,6 +278,82 @@ try {
     Write-Log "Recolector fallo por completo (excepcion): $($_.Exception.Message)"
 } finally {
     Pop-Location
+}
+}
+
+# 4.7) CONTROL DE CALIDAD DE LOS DATOS (2026-10-13) -- lo que el premercado NECESITA
+#      para poder escribirse. Si falta algo de esta lista, el informe NO se genera:
+#        Sigma:  lectura de HOY (vencimiento = fecha de hoy, no rancia), simbolo SPX,
+#                y los 7 niveles con los que se arman los escenarios: spot, Call Wall,
+#                Put Wall, Gamma Flip, Max Pain, MVS y Net GEX.
+#        TradingView (TVC:SPX): EMAs + MACD en 30m, diario y semanal, y la captura de 30m.
+#      Antes de rendirse lo intenta resolver solo: relanza el preflight de TV y el
+#      recolector (que ya espera hasta ~6 min a que el gamma_daemon traiga Sigma fresco).
+#      Hasta 3 intentos, sin pasar de las 08:52 ET para dejarle al skill margen hasta el
+#      techo de las 09:15.
+function Get-ProblemasDatos {
+    $p = @()
+    $hoyEt = $etNow.ToString('yyyy-MM-dd')
+    $ruta = Join-Path $logDir "data_collector\$($etNow.ToString('MMddyyyy'))\bundle.json"
+    if (-not (Test-Path $ruta)) { return @("No hay bundle de datos de hoy ($ruta).") }
+    try { $b = Get-Content $ruta -Raw -Encoding UTF8 | ConvertFrom-Json }
+    catch { return @("El bundle de hoy no se puede leer: $($_.Exception.Message)") }
+    if (-not $b.collectedAt -or ((Get-Date) - [DateTime]$b.collectedAt).TotalMinutes -gt 30) {
+        $p += "El bundle no es de esta corrida (collectedAt: $($b.collectedAt))."
+    }
+
+    $s = $b.sigma
+    if (-not $s) {
+        $p += "Sigma: no hay lectura."
+    } else {
+        if ($s.rancio -eq $true) { $p += "Sigma: dato RANCIO de $($s.antiguedadMin) min (son muros de otra sesion)." }
+        if ($s.expiry -ne $hoyEt) { $p += "Sigma: el vencimiento leido es $($s.expiry), no el de hoy ($hoyEt)." }
+        if ($s.symbol -and $s.symbol -ne 'SPX') { $p += "Sigma: el simbolo es $($s.symbol), no SPX." }
+        $faltan = @('spxPrice', 'callWall', 'putWall', 'gammaFlip', 'maxPain', 'mvs', 'netGex') |
+            Where-Object { $null -eq $s.$_ }
+        if ($faltan.Count) { $p += "Sigma: faltan niveles ($($faltan -join ', '))." }
+    }
+
+    $tv = $b.tradingview
+    if (-not $tv -or $tv.success -ne $true) {
+        $p += "TradingView: la lectura del chart fallo."
+    } else {
+        $faltanTf = @('30', 'D', 'W') | Where-Object { -not $tv.indicadores.$_ -or $null -eq $tv.indicadores.$_.ema10 }
+        if ($faltanTf.Count) { $p += "TradingView: faltan EMAs/MACD en $($faltanTf -join ', ')." }
+        if ($tv.chartPng -ne $true) { $p += "TradingView: no hay captura del chart de 30m." }
+    }
+    # Los errores que declara el recolector solo acompanan a un bloqueo (traen la
+    # causa, p. ej. la etiqueta que Sigma renombro); por si solos no bloquean.
+    if ($p.Count) {
+        foreach ($e in @($b.errors)) { if ($e) { $p += "Recolector: $("$e".Substring(0, [Math]::Min(400, "$e".Length)))" } }
+    }
+    return $p
+}
+
+$problemas = @()
+for ($intento = 1; $intento -le 3; $intento++) {
+    Invoke-PreflightTV
+    Invoke-Recolector
+    $problemas = @(Get-ProblemasDatos)
+    if ($problemas.Count -eq 0) {
+        Write-Log "Control de calidad: OK (intento $intento) -- Sigma de hoy y TradingView completos."
+        break
+    }
+    foreach ($x in $problemas) { Write-Log "Control de calidad (intento $intento): $x" }
+    $etAhora = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, "Eastern Standard Time")
+    if ($intento -eq 3 -or $etAhora.TimeOfDay -gt [TimeSpan]'08:52:00') { break }
+    Write-Log "Reintentando en 60 s para que el gamma_daemon y TradingView se pongan al dia..."
+    Start-Sleep -Seconds 60
+}
+
+if ($problemas.Count -gt 0) {
+    Write-Log "BLOQUEADO - NO se lanza el premercado: los datos no sirven tras $intento intento(s). Mejor sin informe que con uno desactualizado."
+    $cuerpo = "HOY NO SE GENERO EL PREMERCADO: los datos no estan al dia y no lo pude resolver solo ($intento intento(s)).`n`n" +
+              (($problemas | ForEach-Object { "- $_" }) -join "`n") +
+              "`n`nNecesito que intervengas. Detalle en control premercado\premercado_auto_launch.log."
+    Send-Alerta "BLOQUEADO, necesito que intervengas" $cuerpo "urgent"
+    # exit 2 = "fallo, pero YA notifique yo mismo" -- el .vbs no duplica el aviso
+    exit 2
 }
 
 # 4.6) Base SP500 vs SPX (2026-08-31, nuevo) -- mide el desfase entre el CFD que
@@ -399,7 +530,7 @@ try{
         Send-Ntfy "Documento guardado: $nombreDocx.$nota" "Premercado SPX listo" "default"
     } else {
         Write-Log "AVISO - el documento existe pero los escenarios NO sirven para la estrategia: $valida"
-        Send-Ntfy "Documento OK ($nombreDocx) PERO el bloque `escenarios` falla: $valida. La Estrategia Premercado NO va a operar hoy salvo que se arregle antes de las 10:00 ET." "Premercado SPX: escenarios invalidos" "high"
+        Send-Alerta "escenarios invalidos" "El documento $nombreDocx se genero, PERO el bloque de escenarios para la estrategia falla: $valida.`n`nLa Estrategia Premercado NO va a operar hoy salvo que se arregle antes de las 10:00 ET." "high"
     }
     exit 0
 } else {
@@ -410,7 +541,7 @@ try{
         "no hay ningun .docx con el nombre de hoy"
     }
     Write-Log "FALLO - la corrida $motivo y NO dejo documento tras 3 min de gracia: $detalle ($docxEsperado). Revisar $outFile y $errFile."
-    Send-Ntfy "La corrida $motivo y NO genero el documento. HOY NO HAY PREMERCADO -- hay que correrlo a mano antes de la apertura." "Premercado SPX: FALLO (sin documento)" "high"
+    Send-Alerta "FALLO, sin documento" "Los datos estaban al dia, pero la corrida $motivo y NO genero el documento.`n`nHOY NO HAY PREMERCADO: necesito que intervengas antes de la apertura. Detalle en $outFile." "urgent"
     # exit 2 = "fallo, pero YA notifique yo mismo" -- el .vbs no debe duplicar el aviso
     exit 2
 }
