@@ -8117,8 +8117,10 @@ const clicReal = crearClicReal({
     await processDirectionalEntry(direccion, { source: 'CLIC_REAL', timeframe: 'clic', forzado: true, soloPreview: true, familia: 'CLIC_REAL', out });
     return out;
   },
-  avisar: (texto) => fetch('https://ntfy.sh/bitacora_gcarvaja51', {
-    method: 'POST', headers: { Title: 'Clic REAL SPX (TastyTrade)', Priority: 'high', Tags: 'moneybag', 'Content-Type': 'text/plain' }, body: texto,
+  // publicacion JSON de ntfy: deja titulo con acentos y emojis (en una cabecera HTTP no se puede)
+  avisar: (texto, titulo = 'Clic SPX (TastyTrade)', tag = 'moneybag') => fetch('https://ntfy.sh/', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic: 'bitacora_gcarvaja51', title: titulo, message: texto, priority: 4, tags: [tag] }),
   }).catch(() => {}),
 });
 clicReal.vigilar();

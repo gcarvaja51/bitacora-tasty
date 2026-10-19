@@ -301,7 +301,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       rec.gananciaMaxUsd = Math.round((p.credito ? r.precio : p.ancho - r.precio) * 100);
       lista.unshift(rec);
       guardar(lista);
-      avisar(`${r.simulado ? '[DRY-RUN] ' : ''}Clic REAL abierto: ${p.nombre} ${p.strikesTxt || `${p.largo}/${p.corto}`} a ${r.precio} (${p.credito ? 'credito' : 'debito'})`);
+      avisar(`${p.nombre} ${p.strikesTxt || `${p.largo}/${p.corto}`} · ${p.credito ? 'crédito' : 'débito'} $${r.precio.toFixed(2)} · `
+             + `riesgo máx $${rec.riesgoMaxUsd} · ganancia máx $${rec.gananciaMaxUsd}${r.simulado ? ' · DEMO (dry-run)' : ''}`,
+             `Clic SPX abierto: ${p.nombre}${r.simulado ? ' (demo)' : ''}`, 'chart_with_upwards_trend');
       return { ok: true, registro: rec };
     } finally {
       ocupado = false;
@@ -335,7 +337,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         rec.estado = 'abierta';
         rec.ultimoIntentoCierre = { en: new Date().toISOString(), motivo: r.motivo };
         guardar(lista);
-        avisar(`⚠️ Clic REAL: NO se pudo cerrar (${r.motivo}). Revisar en TastyTrade.`);
+        avisar(`${r.motivo}. Revisar en TastyTrade.`, '⚠️ Clic SPX: NO se pudo cerrar', 'warning');
         return { ok: false, error: r.motivo };
       }
       rec.estado = 'cerrada'; rec.cerradaEn = new Date().toISOString(); rec.precioSalida = r.precio; rec.ordenCierre = r.orderId;
@@ -344,7 +346,15 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       rec.pnlUsd = +(rec.pnlBrutoUsd - (rec.feesApertura || 0) - rec.feesCierre).toFixed(2);   // neto de comisiones
       rec.dayTrade = rec.fecha === fechaET();
       guardar(lista);
-      avisar(`${rec.simulado ? '[DRY-RUN] ' : ''}Clic REAL cerrado (${motivo}): ${rec.nombre} ${rec.strikesTxt || `${rec.largo}/${rec.corto}`} ${rec.precioEntrada} -> ${r.precio} = ${rec.pnlUsd >= 0 ? '+' : ''}$${rec.pnlUsd} neto (bruto ${rec.pnlBrutoUsd}, comisiones ${((rec.feesApertura || 0) + rec.feesCierre).toFixed(2)})`);
+      // Guillermo 2026-10-19: el resultado en dolares tiene que verse en la notificacion -> va en el titulo
+      const usd = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
+      avisar(`${rec.nombre} ${rec.strikesTxt || `${rec.largo}/${rec.corto}`}: ${rec.precioEntrada.toFixed(2)} → ${r.precio.toFixed(2)}
+`
+             + `Resultado: ${usd(rec.pnlUsd)} neto (bruto ${usd(rec.pnlBrutoUsd)}, comisiones $${((rec.feesApertura || 0) + rec.feesCierre).toFixed(2)})
+`
+             + `Motivo: ${motivo}${rec.simulado ? ' · DEMO (dry-run)' : ''}`,
+             `${rec.pnlUsd >= 0 ? '✅ GANÓ' : '🔻 PERDIÓ'} ${usd(rec.pnlUsd)} · Clic SPX cerrado${rec.simulado ? ' (demo)' : ''}`,
+             rec.pnlUsd >= 0 ? 'white_check_mark' : 'small_red_triangle_down');
       return { ok: true, registro: rec };
     } finally {
       ocupado = false;
