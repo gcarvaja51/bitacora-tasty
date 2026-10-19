@@ -8154,6 +8154,9 @@ app.post('/api/spx/clic-real', async (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
+app.get('/api/spx/clic-real/resumen', (req, res) => {
+  try { res.json(clicReal.resumen(req.query.modo)); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 app.get('/api/spx/clic-real/estado', async (req, res) => {
   try { res.json(await clicReal.estado()); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });

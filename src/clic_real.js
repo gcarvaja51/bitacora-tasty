@@ -89,9 +89,14 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
 
   // manda la orden y la persigue: precios = [medio, ..., natural]. Devuelve {lleno, precio, orderId} o {lleno:false}
   async function mandarYPerseguir(rec, precios, abrir, esperaMs = 8000) {
+    // comisiones que TastyTrade calcula para esta orden (dry-run); se descuentan del P&L (2026-10-19)
+    const dr = await dryRun(cuerpoOrden(rec, precios[0], abrir));
+    const fees = Number(dr?.data?.['fee-calculation']?.['total-fees'] || 0);
     if (modo() === 'dryrun') {
-      const dr = await dryRun(cuerpoOrden(rec, precios[0], abrir));
-      return { lleno: true, precio: precios[0], orderId: 'DRYRUN', simulado: true, fees: dr?.data?.['fee-calculation'] || null };
+      // demo (Guillermo 2026-10-19): llena al medio + 0.05 en contra (el segundo escalon), un deslizamiento tipico
+      // de los spreads 0DTE del SPX; si el natural esta al medio, al natural.
+      const precio = precios[Math.min(1, precios.length - 1)];
+      return { lleno: true, precio, orderId: 'DRYRUN', simulado: true, fees };
     }
     let orderId = null;
     for (let i = 0; i < precios.length; i++) {
@@ -108,7 +113,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
           console.log(`[CLIC_REAL] orden ${orderId} reemplazada a ${precios[i]}`);
         } catch (e) {
           const o = await leerOrden(orderId);          // si ya se lleno, el reemplazo falla: se toma el fill
-          if (o.status === 'Filled') return { lleno: true, precio: precioLleno(o, rec) ?? precios[i - 1], orderId };
+          if (o.status === 'Filled') return { lleno: true, precio: precioLleno(o, rec) ?? precios[i - 1], orderId, fees };
           throw e;
         }
       }
@@ -116,7 +121,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       while (Date.now() < fin) {
         await dormir(1500);
         const o = await leerOrden(orderId);
-        if (o.status === 'Filled') return { lleno: true, precio: precioLleno(o, rec) ?? precios[i], orderId };
+        if (o.status === 'Filled') return { lleno: true, precio: precioLleno(o, rec) ?? precios[i], orderId, fees };
         if (['Rejected', 'Cancelled', 'Expired'].includes(o.status)) {
           return { lleno: false, orderId, motivo: `orden ${o.status}${o['reject-reason'] ? ': ' + o['reject-reason'] : ''}` };
         }
@@ -125,7 +130,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     try { await tt._req(`/accounts/${cuenta()}/orders/${orderId}`, { method: 'DELETE' }); } catch (e) { /* ya se lleno o murio */ }
     await dormir(1500);
     const o = await leerOrden(orderId);                 // pudo llenarse justo al cancelar
-    if (o.status === 'Filled') return { lleno: true, precio: precioLleno(o, rec) ?? precios[precios.length - 1], orderId };
+    if (o.status === 'Filled') return { lleno: true, precio: precioLleno(o, rec) ?? precios[precios.length - 1], orderId, fees };
     return { lleno: false, orderId, motivo: 'no se lleno persiguiendo hasta el natural; cancelada' };
   }
 
@@ -220,7 +225,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         guardar(lista);
         return { ok: false, error: r.motivo, orderId: r.orderId };
       }
-      Object.assign(rec, { estado: 'abierta', precioEntrada: r.precio, simulado: !!r.simulado });
+      Object.assign(rec, { estado: 'abierta', precioEntrada: r.precio, simulado: !!r.simulado, feesApertura: r.fees || 0 });
       rec.riesgoMaxUsd = Math.round((p.credito ? p.ancho - r.precio : r.precio) * 100);
       rec.gananciaMaxUsd = Math.round((p.credito ? r.precio : p.ancho - r.precio) * 100);
       lista.unshift(rec);
@@ -263,10 +268,12 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         return { ok: false, error: r.motivo };
       }
       rec.estado = 'cerrada'; rec.cerradaEn = new Date().toISOString(); rec.precioSalida = r.precio; rec.ordenCierre = r.orderId;
-      rec.pnlUsd = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * rec.contratos);
+      rec.feesCierre = r.fees || 0;
+      rec.pnlBrutoUsd = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * rec.contratos);
+      rec.pnlUsd = +(rec.pnlBrutoUsd - (rec.feesApertura || 0) - rec.feesCierre).toFixed(2);   // neto de comisiones
       rec.dayTrade = rec.fecha === fechaET();
       guardar(lista);
-      avisar(`${rec.simulado ? '[DRY-RUN] ' : ''}Clic REAL cerrado (${motivo}): ${rec.nombre} ${rec.largo}/${rec.corto} ${rec.precioEntrada} -> ${r.precio} = ${rec.pnlUsd >= 0 ? '+' : ''}$${rec.pnlUsd}`);
+      avisar(`${rec.simulado ? '[DRY-RUN] ' : ''}Clic REAL cerrado (${motivo}): ${rec.nombre} ${rec.largo}/${rec.corto} ${rec.precioEntrada} -> ${r.precio} = ${rec.pnlUsd >= 0 ? '+' : ''}$${rec.pnlUsd} neto (bruto ${rec.pnlBrutoUsd}, comisiones ${((rec.feesApertura || 0) + rec.feesCierre).toFixed(2)})`);
       return { ok: true, registro: rec };
     } finally {
       ocupado = false;
@@ -286,7 +293,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         try {
           const q = await cotizar(rec.legs);
           const salida = rec.credito ? -q.ventaNat : q.ventaNat;   // lo que cuesta/da cerrar ya, al natural
-          pnl = Math.round((rec.credito ? rec.precioEntrada - salida : salida - rec.precioEntrada) * 100 * rec.contratos);
+          // neto estimado: cierre al natural y comisiones de ida + otras tantas de vuelta
+          pnl = +(Math.round((rec.credito ? rec.precioEntrada - salida : salida - rec.precioEntrada) * 100 * rec.contratos)
+                  - 2 * (rec.feesApertura || 0)).toFixed(2);
           delta = q.deltaNeto;
         } catch (e) { /* sin cotizacion: se muestra sin P&L */ }
       }
@@ -303,6 +312,23 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     return cacheEstado.data;
   }
 
+  // resumen de los trades cerrados del modo vigente (o del pedido): hoy y acumulado
+  function resumen(modoPedido) {
+    const m = modoPedido || modo();
+    const hoy = fechaET();
+    const cerr = cargar().filter((x) => x.modo === m && x.estado === 'cerrada' && x.pnlUsd != null);
+    const est = (l) => {
+      const n = l.length, g = l.filter((x) => x.pnlUsd > 0).length, tot = l.reduce((a, x) => a + x.pnlUsd, 0);
+      return { n, ganados: g, pctGanados: n ? Math.round(100 * g / n) : null, pnlNeto: +tot.toFixed(2),
+               promedio: n ? +(tot / n).toFixed(2) : null,
+               comisiones: +l.reduce((a, x) => a + (x.feesApertura || 0) + (x.feesCierre || 0), 0).toFixed(2) };
+    };
+    const deHoy = cerr.filter((x) => x.fecha === hoy);
+    return { ok: true, modo: m, hoy: est(deHoy), acumulado: est(cerr), desde: cerr.length ? cerr[cerr.length - 1].fecha : null,
+             tradesHoy: deHoy.map((x) => ({ hora: x.abiertaEn, nombre: x.nombre, strikes: `${x.largo}/${x.corto}`, entrada: x.precioEntrada,
+                                            salida: x.precioSalida, pnlNeto: x.pnlUsd, motivo: x.motivoCierre })) };
+  }
+
   // seguro: a las 15:30 ET se cierra lo que quede abierto
   function vigilar() {
     setInterval(async () => {
@@ -313,7 +339,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     }, 20000);
   }
 
-  return { preview, ejecutar, cerrar, estado, vigilar, modo, _cuerpoOrden: cuerpoOrden, _r05: r05 };
+  return { preview, ejecutar, cerrar, estado, vigilar, modo, resumen, _cuerpoOrden: cuerpoOrden, _r05: r05 };
 }
 
 module.exports = { crearClicReal, ACCION };
