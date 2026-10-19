@@ -7288,7 +7288,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     // Obtener contexto de mercado. Con clic (forzado) se reusa el ultimo contexto si tiene < 60 s y se le pone el
     // precio de ahora (2026-10-19: armarlo de cero tardaba ~50 s y la ventana de validacion llegaba a los 2 min).
     let ctx;
-    if (forzado && ultimoCtxSPX.ctx && Date.now() - ultimoCtxSPX.ts < 60000) {
+    if (forzado && ultimoCtxSPX.ctx && Date.now() - ultimoCtxSPX.ts < 90000) {
       ctx = { ...ultimoCtxSPX.ctx };
       const s = await precioSPXFresco({ rapido: true });
       ctx.spxPrice    = s?.price ?? ctx.spxPrice;
@@ -8122,6 +8122,16 @@ const clicReal = crearClicReal({
   }).catch(() => {}),
 });
 clicReal.vigilar();
+// Contexto siempre listo para el clic (2026-10-19, Guillermo: "OK, procedamos"). Armarlo cuesta ~45 s; si al hacer
+// clic el ultimo tenia mas de 90 s, la ventana de validacion tardaba ~40 s en vez de ~15. En horario de mercado se
+// rearma solo cada 45 s (nunca dos a la vez).
+let rearmandoCtx = false;
+setInterval(async () => {
+  if (rearmandoCtx || !isMarketHours() || Date.now() - ultimoCtxSPX.ts < 40000) return;
+  rearmandoCtx = true;
+  try { await buildSPXContext(); } catch (e) { console.error('[CTX] rearmado en segundo plano:', e.message); }
+  finally { rearmandoCtx = false; }
+}, 45000);
 function claveClicOk(req) {
   const clave = process.env.CLIC_TOKEN;
   const dada = String(req.get('x-clic-token') || '');
