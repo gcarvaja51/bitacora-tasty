@@ -351,3 +351,30 @@ El informe de cierre de hoy está listo: `documentos premercado\10162026_cierre 
 - **Premercado del lunes:** si no se arregla lo del estudio "SMA by KGS" en el chart, el lunes puede volver a bloquearse.
 [Fri 10/16/2026 15:07:43.87] Finalizado (codigo 0) 
  
+[Mon 10/19/2026 15:00:01.67] Iniciando cierre del dia 
+Listo el informe de cierre de hoy: `documentos premercado\10192026_cierre del dia.docx` (16:07 ET, solo Word). No envié nada a nadie y no toqué TradingView.
+
+**Lo primero: hoy tampoco hubo premercado.** El control de calidad lo bloqueó a las 07:37 hora Colombia por la misma causa del viernes: el estudio "SMA by KGS" no está en el chart. Sin él no hay EMAs ni MACD en 30m, diario y semanal, ni captura del chart de 30m. Si no se arregla, mañana se vuelve a bloquear. Como no había escenarios, en "¿Acertamos?" quedó **NO APLICA**.
+
+**Cómo fue la corrida:**
+- **Día de mercado:** `esDiaDeMercado` dijo que sí y el .docx no existía, así que se creó.
+- **Llamada del viernes para hoy** (BAJISTA bajo 7.630): quedó **NO_ACTIVO**. Se invalidó en la primera vela, con cierre en 7.697 sobre 7.683. El día cerró en 7.691 (+31).
+- **Sigma:** usé el `lastLevels` de las **16:05 ET**.
+- **Llamada para el martes 20:** BAJISTA, convicción 52 %. Se activa con un cierre de 15m bajo 7.685, se invalida sobre 7.710, T1 7.670 y T2 7.660 (de `memoria_niveles`). En pantalla usé BLACKBULL:US500 +3, igual que el viernes.
+- **Registro:**
+  - **Log:** entrada mínima del 19-oct con `resultado` y `llamada_siguiente` (`para_fecha` 2026-10-20).
+  - **Excel:** fila 84 "No generado", con el CIERRE DEL DÍA en el Detalle.
+  - **Backups:** `*_bak_20261019_cierre`.
+  - **Script:** `control premercado\cierre_10192026.py`.
+
+**Un tropiezo que corregí:**
+- **Qué pasó:** redacté el texto con la lectura de Sigma de las 16:00 (GEX −15,6 B, negativo). Cuando corrió el script, ya había entrado la de las 16:05, con **GEX +14,1 B positivo** y los mismos muros, lo que contradecía el texto.
+- **Qué hice:** restauré el log y el Excel desde los backups que el script acababa de sacar, borré el .docx que había creado esa misma corrida y lo volví a generar.
+- **Cómo quedó:** el informe ahora dice que el salto a positivo es la cadena del 0DTE venciendo y que el tono de la sesión fue negativo.
+
+**Lo que no se pudo verificar:**
+- **Investing:** la extensión de Chrome no conectó (dos intentos), así que no leí las pestañas **Hoy** ni **Mañana**. La parte de D19 sale de la lectura del viernes en "Próxima semana": lunes 19 y martes 20 sin eventos de 3 estrellas, y el primero es el miércoles 21. Una búsqueda web tampoco mostró datos de EE.UU. para el martes. Hoy y mañana quedan como no D19, pero conviene confirmarlo en el premercado. En el log quedó marcado como "NO VERIFICADO AL CIERRE".
+
+Fuentes de la búsqueda web: [fedratecalc – calendario de octubre 2026](https://fedratecalc.com/us-economic-calendar/october-2026/), [Guggenheim – 2026 U.S. Economic Calendar](https://www.guggenheiminvestments.com/services/advisor-resources/us-economic-calendar)
+[Mon 10/19/2026 15:07:57.92] Finalizado (codigo 0) 
+ 
