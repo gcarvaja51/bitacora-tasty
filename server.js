@@ -2848,6 +2848,14 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
       underlyingPrice = parseFloat(qJ.chart?.result?.[0]?.meta?.regularMarketPrice || 0);
     } catch(e) {}
 
+    // ?cerca=N (2026-10-19): solo strikes a +-N pts del subyacente. Lo usa el clic para no cotizar ~6000 contratos.
+    const cerca = parseFloat(req.query.cerca) || 0;
+    if (cerca > 0 && underlyingPrice > 0) {
+      for (let i = 0; i < expList.length; i++) {
+        expList[i] = { ...expList[i], strikes: (expList[i].strikes || []).filter(s => Math.abs(parseFloat(s['strike-price']) - underlyingPrice) <= cerca) };
+      }
+    }
+
     // 3. Precios/Greeks reales desde TastyTrade /market-data en lotes de 50
     const pricingMap = {};
     const allSymbols = [];
@@ -6156,7 +6164,16 @@ async function refrescarRejillasGex() {
 // Construye el contexto de mercado completo para SPX (precio, VIX, IV Rank, GEX,
 // indicadores 2m/15m/diario, rango de apertura, confluencia Weinstein). Usado tanto
 // por GET /api/spx/context como por el chequeo periódico de Iron Condor.
+// Ultimo contexto armado (2026-10-19). El robot lo reconstruye cada ~30 s y cuesta ~50 s armarlo; el clic (CLIC_TV /
+// CLIC_REAL) lo reusa si tiene menos de 60 s, refrescando solo el precio, para que la ventana de validacion de
+// Guillermo no tarde 2 minutos en aparecer.
+let ultimoCtxSPX = { ts: 0, ctx: null };
 async function buildSPXContext() {
+  const c = await buildSPXContextImpl();
+  if (c && c.spxPrice) ultimoCtxSPX = { ts: Date.now(), ctx: c };
+  return c;
+}
+async function buildSPXContextImpl() {
     // 1. Cadena SPX para GEX y precio
     const chainData = await tt._req('/option-chains/SPX/nested');
     const expirations = chainData.data?.items?.[0]?.expirations || [];
@@ -7268,9 +7285,21 @@ async function processDirectionalEntry(direction, meta = {}) {
   // (meta.soloPreview) y no toca Tradier; su orden la manda src/clic_real.js tras la aprobacion de Guillermo.
   const FAM = meta.familia || (forzado ? 'CLIC_TV' : 'TENDENCIA');
   try {
-    // Obtener contexto de mercado
-    const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
-    const ctx    = await ctxRes.json();
+    // Obtener contexto de mercado. Con clic (forzado) se reusa el ultimo contexto si tiene < 60 s y se le pone el
+    // precio de ahora (2026-10-19: armarlo de cero tardaba ~50 s y la ventana de validacion llegaba a los 2 min).
+    let ctx;
+    if (forzado && ultimoCtxSPX.ctx && Date.now() - ultimoCtxSPX.ts < 60000) {
+      ctx = { ...ultimoCtxSPX.ctx };
+      const s = await precioSPXFresco({ rapido: true });
+      ctx.spxPrice    = s?.price ?? ctx.spxPrice;
+      ctx.spotFuente  = s?.fuente ?? null;
+      ctx.spotEdadSeg = s?.edadSeg ?? null;
+      ctx.spotFiable  = s?.edadSeg != null && s.edadSeg <= MAX_EDAD_SPOT_SEG;
+      ctx.ctxReusadoSeg = Math.round((Date.now() - ultimoCtxSPX.ts) / 1000);
+    } else {
+      const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
+      ctx = await ctxRes.json();
+    }
 
     // No abrir con un precio viejo (2026-08-16, ver spotFiable en
     // buildSPXContext). Con el spot degradado, la seleccion de strikes, entrySpx
@@ -7515,7 +7544,8 @@ async function processDirectionalEntry(direction, meta = {}) {
     const spreadWidth = forzado ? sel.spreadWidth : (tradingCfg.spreadWidth || 10);
 
     // Buscar strikes con delta configurable
-    const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
+    // Con clic, solo 0DTE/1DTE y +-250 pts (2026-10-19): la cadena entera (6 vencimientos, ~6000 contratos) tarda ~35 s.
+    const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX${forzado ? '?limit=2&cerca=250' : ''}`);
     const chainData = await chainRes.json();
     let strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType, targetDelta, spreadWidth);
 
@@ -8087,7 +8117,6 @@ const clicReal = crearClicReal({
     await processDirectionalEntry(direccion, { source: 'CLIC_REAL', timeframe: 'clic', forzado: true, soloPreview: true, familia: 'CLIC_REAL', out });
     return out;
   },
-  obtenerCadena: async () => (await fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/SPX`)).json(),
   avisar: (texto) => fetch('https://ntfy.sh/bitacora_gcarvaja51', {
     method: 'POST', headers: { Title: 'Clic REAL SPX (TastyTrade)', Priority: 'high', Tags: 'moneybag', 'Content-Type': 'text/plain' }, body: texto,
   }).catch(() => {}),

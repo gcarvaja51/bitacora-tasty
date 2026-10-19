@@ -26,7 +26,7 @@ const r05 = (x, arriba) => +((arriba ? Math.ceil(x / TICK - 1e-9) : Math.floor(x
 const fechaET = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d);
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, obtenerCadena, avisar = () => {} }) {
+function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, avisar = () => {} }) {
   const ARCHIVO = path.join(dataDir, 'clic_real.json');
   const modo = () => String(process.env.CLIC_REAL_MODO || 'apagado').toLowerCase();
   const frenoUsd = () => Number(process.env.CLIC_REAL_FRENO_USD || 400);
@@ -39,17 +39,17 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, ob
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l, null, 2), 'utf8');
   const abierta = () => cargar().find((x) => (x.estado === 'abierta' || x.estado === 'cerrando') && x.modo === modo());
 
-  // cotizacion del vertical desde la cadena real: medio y natural, en puntos, con signo positivo
+  // cotizacion del vertical: solo las dos patas, directo de TastyTrade /market-data (< 1 s; la cadena entera tarda ~35 s)
   async function cotizar(legs) {
-    const cad = await obtenerCadena();
+    const params = [legs.comprada, legs.vendida].map((x) => `symbols[]=${encodeURIComponent(x)}`).join('&');
+    const d = await tt._req(`/market-data?${params}`);
     const q = {};
-    for (const e of cad.expirations || []) for (const s of e.strikes || []) for (const k of ['call', 'put']) {
-      if (s[k]?.symbol) q[s[k].symbol] = s[k];
+    for (const it of d?.data?.items || []) {
+      q[it.symbol] = { bid: Number(it.bid), ask: Number(it.ask), delta: Number(it.delta || 0) };
     }
     const comprada = q[legs.comprada], vendida = q[legs.vendida];
-    if (!comprada || !vendida || comprada.bid == null || vendida.ask == null) throw new Error('sin cotizacion de las patas');
+    if (!comprada || !vendida || !Number.isFinite(comprada.bid) || !Number.isFinite(vendida.ask)) throw new Error('sin cotizacion de las patas');
     return {
-      // abrir/cerrar un debito: se paga ask-bid (natural) o el medio; credito al reves. Siempre "valor del spread".
       medio: +((comprada.bid + comprada.ask) / 2 - (vendida.bid + vendida.ask) / 2).toFixed(2),
       // compraNat: abrir un debito ya (comprar la comprada al ask, vender la vendida al bid). En un credito,
       // -compraNat es lo que se cobra al abrir ya. ventaNat: cerrar un debito ya; en un credito, -ventaNat es lo que
