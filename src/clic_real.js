@@ -187,7 +187,17 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       const nat = p.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true);
       const peor = p.credito ? p.precioMedio - medio : medio - p.precioMedio;
       if (peor > tolPts() + 1e-9) {
-        return { ok: false, error: `el precio se movio ${peor.toFixed(2)} pts en contra desde el preview (${p.precioMedio} -> ${medio}): pide uno nuevo` };
+        // 2026-10-19: en un movimiento rapido el spread se encarecio 0.35 en 7 s y la entrada se perdio. En vez de
+        // rechazar seco, se devuelve un preview nuevo con el precio de ahora para que Guillermo decida otra vez.
+        const fuera = p.credito ? medio < 1.20 - 1e-9 : medio > 3.80 + 1e-9;
+        const msg = `el precio se movio ${peor.toFixed(2)} pts en contra desde el preview (${p.precioMedio} -> ${medio})`;
+        if (fuera) return { ok: false, error: `${msg} y quedo fuera de los limites del clic (${p.credito ? 'credito < 1.20' : 'debito > 3.80'})` };
+        const p2 = { ...p, id: 'pv-' + Date.now(), creado: Date.now(), precioAnterior: p.precioMedio, precioMedio: medio, natural: nat,
+                     deltaNeto: q.deltaNeto };
+        p2.riesgoMaxUsd = Math.round((p2.credito ? p2.ancho - medio : medio) * 100);
+        p2.gananciaMaxUsd = Math.round((p2.credito ? medio : p2.ancho - medio) * 100);
+        previews.set(p2.id, p2);
+        return { ok: false, recotizado: true, error: msg, preview: p2, modo: modo(), cuenta: cuenta() };
       }
       // escalera: medio, medio+0.05, ... hasta el natural, sin pasar de los limites del clic
       const tope = p.credito ? 1.20 : 3.80;
