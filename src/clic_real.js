@@ -43,25 +43,30 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l, null, 2), 'utf8');
   const abierta = () => cargar().find((x) => (x.estado === 'abierta' || x.estado === 'cerrando') && x.modo === modo());
 
-  // cotizacion del vertical: solo las dos patas, directo de TastyTrade /market-data (< 1 s; la cadena entera tarda ~35 s)
+  // patas: [{ sym, lado }] con lado +1 = comprada, -1 = vendida (vertical: 2 patas; Iron Butterfly: 4). Los registros
+  // de antes del 2026-10-19 traen { comprada, vendida } y se convierten aca.
+  const patas = (legs) => Array.isArray(legs) ? legs : [{ sym: legs.comprada, lado: 1 }, { sym: legs.vendida, lado: -1 }];
+
+  // cotizacion de la estructura: solo sus patas, directo de TastyTrade /market-data (< 1 s; la cadena entera ~35 s).
+  // Todo en "valor de comprar la estructura": positivo = debito, negativo = credito.
   async function cotizar(legs) {
-    const params = [legs.comprada, legs.vendida].map((x) => `symbols[]=${encodeURIComponent(x)}`).join('&');
-    const d = await tt._req(`/market-data?${params}`);
+    const L = patas(legs);
+    const d = await tt._req(`/market-data?${L.map((x) => `symbols[]=${encodeURIComponent(x.sym)}`).join('&')}`);
     const q = {};
-    for (const it of d?.data?.items || []) {
-      q[it.symbol] = { bid: Number(it.bid), ask: Number(it.ask), delta: Number(it.delta || 0) };
-    }
-    const comprada = q[legs.comprada], vendida = q[legs.vendida];
-    if (!comprada || !vendida || !Number.isFinite(comprada.bid) || !Number.isFinite(vendida.ask)) throw new Error('sin cotizacion de las patas');
-    return {
-      medio: +((comprada.bid + comprada.ask) / 2 - (vendida.bid + vendida.ask) / 2).toFixed(2),
-      // compraNat: abrir un debito ya (comprar la comprada al ask, vender la vendida al bid). En un credito,
-      // -compraNat es lo que se cobra al abrir ya. ventaNat: cerrar un debito ya; en un credito, -ventaNat es lo que
+    for (const it of d?.data?.items || []) q[it.symbol] = { bid: Number(it.bid), ask: Number(it.ask), delta: Number(it.delta || 0) };
+    let medio = 0, compraNat = 0, ventaNat = 0, deltaNeto = 0;
+    for (const x of L) {
+      const c = q[x.sym];
+      if (!c || !Number.isFinite(c.bid) || !Number.isFinite(c.ask)) throw new Error(`sin cotizacion de ${x.sym}`);
+      medio += x.lado * (c.bid + c.ask) / 2;
+      // compraNat: abrir ya (lo comprado al ask, lo vendido al bid); en un credito, -compraNat es lo que se cobra al
+      // abrir ya. ventaNat: deshacer ya (lo comprado al bid, lo vendido al ask); en un credito, -ventaNat es lo que
       // cuesta recomprarlo ya.
-      compraNat: +(comprada.ask - vendida.bid).toFixed(2),
-      ventaNat: +(comprada.bid - vendida.ask).toFixed(2),
-      deltaNeto: +((comprada.delta || 0) - (vendida.delta || 0)).toFixed(3),
-    };
+      compraNat += x.lado > 0 ? c.ask : -c.bid;
+      ventaNat += x.lado > 0 ? c.bid : -c.ask;
+      deltaNeto += x.lado * c.delta;
+    }
+    return { medio: +medio.toFixed(2), compraNat: +compraNat.toFixed(2), ventaNat: +ventaNat.toFixed(2), deltaNeto: +deltaNeto.toFixed(3) };
   }
 
   function cuerpoOrden(rec, precio, abrir) {
@@ -70,10 +75,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const efecto = (abrir ? !credito : credito) ? 'Debit' : 'Credit';
     return {
       'time-in-force': 'Day', 'order-type': 'Limit', price: Math.abs(precio).toFixed(2), 'price-effect': efecto,
-      legs: [
-        { 'instrument-type': 'Equity Option', symbol: rec.legs.comprada, quantity: rec.contratos, action: abrir ? 'Buy to Open' : 'Sell to Close' },
-        { 'instrument-type': 'Equity Option', symbol: rec.legs.vendida, quantity: rec.contratos, action: abrir ? 'Sell to Open' : 'Buy to Close' },
-      ],
+      legs: patas(rec.legs).map((x) => ({
+        'instrument-type': 'Equity Option', symbol: x.sym, quantity: rec.contratos,
+        action: x.lado > 0 ? (abrir ? 'Buy to Open' : 'Sell to Close') : (abrir ? 'Sell to Open' : 'Buy to Close'),
+      })),
     };
   }
 
@@ -196,6 +201,46 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, venceEnSeg: 90 };
   }
 
+  // Iron Butterfly (Guillermo 2026-10-19: "IB pero que yo decida el strike y las alas"): vende put y call en el centro y
+  // compra las alas a +-alas, 0DTE, 1 contrato. Credito; riesgo maximo = alas - credito.
+  async function previewIB(centro, alas) {
+    if (modo() === 'apagado') return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
+    if (!isMarketHours()) return { ok: false, error: 'mercado cerrado' };
+    const m = horaETmin();
+    if (m < 9 * 60 + 31 || m > 15 * 60 + 15) return { ok: false, error: 'fuera de la ventana de clics (9:31-15:15 ET)' };
+    centro = Math.round(Number(centro) / 5) * 5; alas = Math.round(Number(alas) / 5) * 5;
+    if (!(centro > 1000) || !(alas >= 5 && alas <= 100)) return { ok: false, error: `centro ${centro} / alas ${alas} invalidos (alas de 5 a 100, multiplo de 5)` };
+    if (abierta()) return { ok: false, error: 'ya hay un clic real abierto: hay que cerrarlo primero' };
+    if (pnlHoy() <= -frenoUsd()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
+    const vence = fechaET();
+    const exp = vence.replace(/-/g, '').slice(2);
+    const occ = (t, k) => `SPXW  ${exp}${t}${String(Math.round(k * 1000)).padStart(8, '0')}`;
+    const legs = [{ sym: occ('P', centro), lado: -1 }, { sym: occ('C', centro), lado: -1 },
+                  { sym: occ('P', centro - alas), lado: 1 }, { sym: occ('C', centro + alas), lado: 1 }];
+    const rec = { credito: true, contratos: 1, legs };
+    const q = await cotizar(legs);
+    if (q.medio >= 0) return { ok: false, error: 'el Iron Butterfly no da credito con esos strikes' };
+    const precioMedio = r05(-q.medio, false);
+    const dr = await dryRun(cuerpoOrden(rec, precioMedio, true));
+    let spx = null;
+    try { spx = (await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last ?? null; } catch (e) { /* informativo */ }
+    const p = {
+      id: 'pv-' + Date.now(), creado: Date.now(), direccion: 'NEUTRAL', estrategia: 'IRON_BUTTERFLY', estructura: 'IB',
+      nombre: 'Iron Butterfly', credito: true, legs, contratos: 1, vence, corto: centro, largo: alas, ancho: alas,
+      strikesTxt: `${centro - alas}/${centro}/${centro + alas}`, precioMedio, natural: r05(-q.compraNat, false),
+      deltaNeto: q.deltaNeto, spx: spx != null ? Number(spx) : null,
+      bp: dr?.data?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
+      fees: dr?.data?.['fee-calculation']?.['total-fees'] ?? null, avisosDryRun: dr?.data?.warnings || [],
+    };
+    p.riesgoMaxUsd = Math.round((alas - precioMedio) * 100);
+    p.gananciaMaxUsd = Math.round(precioMedio * 100);
+    if (modo() === 'dryrun' && p.riesgoMaxUsd > cuentaDemo().disponible) {
+      return { ok: false, error: `cuenta demo: el riesgo del IB ($${p.riesgoMaxUsd}) supera el saldo disponible ($${cuentaDemo().disponible})` };
+    }
+    previews.set(p.id, p);
+    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, venceEnSeg: 90 };
+  }
+
   async function ejecutar(previewId) {
     if (modo() === 'apagado') return { ok: false, error: 'clic real apagado' };
     const p = previews.get(previewId);
@@ -214,7 +259,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       if (peor > tolPts() + 1e-9) {
         // 2026-10-19: en un movimiento rapido el spread se encarecio 0.35 en 7 s y la entrada se perdio. En vez de
         // rechazar seco, se devuelve un preview nuevo con el precio de ahora para que Guillermo decida otra vez.
-        const fuera = p.credito ? medio < 1.20 - 1e-9 : medio > 3.80 + 1e-9;
+        const fuera = p.estructura === 'IB' ? false : p.credito ? medio < 1.20 - 1e-9 : medio > 3.80 + 1e-9;
         const msg = `el precio se movio ${peor.toFixed(2)} pts en contra desde el preview (${p.precioMedio} -> ${medio})`;
         if (fuera) return { ok: false, error: `${msg} y quedo fuera de los limites del clic (${p.credito ? 'credito < 1.20' : 'debito > 3.80'})` };
         const p2 = { ...p, id: 'pv-' + Date.now(), creado: Date.now(), precioAnterior: p.precioMedio, precioMedio: medio, natural: nat,
@@ -225,7 +270,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         return { ok: false, recotizado: true, error: msg, preview: p2, modo: modo(), cuenta: cuenta() };
       }
       // escalera: medio, medio+0.05, ... hasta el natural, sin pasar de los limites del clic
-      const tope = p.credito ? 1.20 : 3.80;
+      const tope = p.estructura === 'IB' ? (p.credito ? 0.05 : 1e9) : p.credito ? 1.20 : 3.80;
       const precios = [];
       for (let x = medio; p.credito ? x >= nat - 1e-9 : x <= nat + 1e-9; x = +(x + (p.credito ? -TICK : TICK)).toFixed(2)) {
         if (p.credito ? x < tope - 1e-9 : x > tope + 1e-9) break;
@@ -244,6 +289,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         id: 'cr-' + Date.now(), modo: modo(), cuenta: cuenta(), fecha: fechaET(), direccion: p.direccion, estrategia: p.estrategia,
         nombre: p.nombre, credito: p.credito, legs: p.legs, contratos: 1, vence: p.vence, corto: p.corto, largo: p.largo,
         ancho: p.ancho, spxEntrada: p.spx, deltaEntrada: q.deltaNeto, ordenApertura: r.orderId, abiertaEn: new Date().toISOString(),
+        estructura: p.estructura || 'VERTICAL', strikesTxt: p.strikesTxt || null,
       };
       if (!r.lleno) {
         lista.unshift({ ...rec, estado: 'no_llenada', motivo: r.motivo, precios });
@@ -255,7 +301,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       rec.gananciaMaxUsd = Math.round((p.credito ? r.precio : p.ancho - r.precio) * 100);
       lista.unshift(rec);
       guardar(lista);
-      avisar(`${r.simulado ? '[DRY-RUN] ' : ''}Clic REAL abierto: ${p.nombre} ${p.largo}/${p.corto} a ${r.precio} (${p.credito ? 'credito' : 'debito'})`);
+      avisar(`${r.simulado ? '[DRY-RUN] ' : ''}Clic REAL abierto: ${p.nombre} ${p.strikesTxt || `${p.largo}/${p.corto}`} a ${r.precio} (${p.credito ? 'credito' : 'debito'})`);
       return { ok: true, registro: rec };
     } finally {
       ocupado = false;
@@ -298,7 +344,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       rec.pnlUsd = +(rec.pnlBrutoUsd - (rec.feesApertura || 0) - rec.feesCierre).toFixed(2);   // neto de comisiones
       rec.dayTrade = rec.fecha === fechaET();
       guardar(lista);
-      avisar(`${rec.simulado ? '[DRY-RUN] ' : ''}Clic REAL cerrado (${motivo}): ${rec.nombre} ${rec.largo}/${rec.corto} ${rec.precioEntrada} -> ${r.precio} = ${rec.pnlUsd >= 0 ? '+' : ''}$${rec.pnlUsd} neto (bruto ${rec.pnlBrutoUsd}, comisiones ${((rec.feesApertura || 0) + rec.feesCierre).toFixed(2)})`);
+      avisar(`${rec.simulado ? '[DRY-RUN] ' : ''}Clic REAL cerrado (${motivo}): ${rec.nombre} ${rec.strikesTxt || `${rec.largo}/${rec.corto}`} ${rec.precioEntrada} -> ${r.precio} = ${rec.pnlUsd >= 0 ? '+' : ''}$${rec.pnlUsd} neto (bruto ${rec.pnlBrutoUsd}, comisiones ${((rec.feesApertura || 0) + rec.feesCierre).toFixed(2)})`);
       return { ok: true, registro: rec };
     } finally {
       ocupado = false;
@@ -327,7 +373,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       trade = {
         id: rec.id, origen: 'CLIC_REAL', modo: rec.modo, estado: rec.estado === 'cerrada' ? 'closed' : 'filled',
         estructura: rec.nombre, direccion: rec.direccion, credito: rec.credito, contratos: rec.contratos, vence: rec.vence,
-        strikes: `${rec.corto}/${rec.largo}`, primaPts: rec.precioEntrada, primaUsd: Math.round(rec.precioEntrada * 100 * rec.contratos),
+        strikes: rec.strikesTxt || `${rec.corto}/${rec.largo}`, primaPts: rec.precioEntrada, primaUsd: Math.round(rec.precioEntrada * 100 * rec.contratos),
         riesgoMaxUsd: rec.riesgoMaxUsd, gananciaMaxUsd: rec.gananciaMaxUsd, deltaEntrada: rec.deltaEntrada, deltaAhora: delta,
         spxEntrada: rec.spxEntrada, abiertaEn: rec.abiertaEn, cerradaEn: rec.cerradaEn || null, motivoCierre: rec.motivoCierre || null,
         cierrePedido: rec.estado === 'cerrando', pnl, simulado: !!rec.simulado,
@@ -351,7 +397,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const deHoy = cerr.filter((x) => x.fecha === hoy);
     return { ok: true, modo: m, hoy: est(deHoy), acumulado: est(cerr), desde: cerr.length ? cerr[cerr.length - 1].fecha : null,
              tradesHoy: deHoy.map((x) => ({ hora: x.abiertaEn, nombre: x.nombre, strikes: `${x.largo}/${x.corto}`, entrada: x.precioEntrada,
-                                            salida: x.precioSalida, pnlNeto: x.pnlUsd, motivo: x.motivoCierre })) };
+                                            salida: x.precioSalida, pnlNeto: x.pnlUsd, motivo: x.motivoCierre, strikesTxt: x.strikesTxt })) };
   }
 
   // vista de la cuenta demo para la web: saldo, curva, trades y la posicion abierta con su P&L en vivo
@@ -368,7 +414,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
              comisiones: +cerr.reduce((a, x) => a + (x.feesApertura || 0) + (x.feesCierre || 0), 0).toFixed(2),
              maxDrawdown: c.maxDrawdown, curva: c.curva, abierta,
              lista: c.trades.slice().reverse().map((x) => ({ id: x.id, fecha: x.fecha, abiertaEn: x.abiertaEn, cerradaEn: x.cerradaEn || null,
-               nombre: x.nombre, direccion: x.direccion, strikes: `${x.largo}/${x.corto}`, credito: x.credito, entrada: x.precioEntrada,
+               nombre: x.nombre, direccion: x.direccion, strikes: x.strikesTxt || `${x.largo}/${x.corto}`, credito: x.credito, entrada: x.precioEntrada,
                salida: x.precioSalida ?? null, spxEntrada: x.spxEntrada, pnlBruto: x.pnlBrutoUsd ?? null, pnlNeto: x.pnlUsd ?? null,
                comisiones: +((x.feesApertura || 0) + (x.feesCierre || 0)).toFixed(2), motivo: x.motivoCierre || null, estado: x.estado })) };
   }
@@ -383,7 +429,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     }, 20000);
   }
 
-  return { preview, ejecutar, cerrar, estado, vigilar, modo, resumen, demo, _cuerpoOrden: cuerpoOrden, _r05: r05 };
+  return { preview, previewIB, ejecutar, cerrar, estado, vigilar, modo, resumen, demo, _cuerpoOrden: cuerpoOrden, _r05: r05 };
 }
 
 module.exports = { crearClicReal, ACCION };

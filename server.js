@@ -8139,8 +8139,11 @@ function claveClicOk(req) {
 }
 app.post('/api/spx/clic-real', async (req, res) => {
   if (!claveClicOk(req)) return res.status(401).json({ ok: false, error: 'clave inválida' });
-  const { accion, direccion, previewId } = req.body || {};
+  const { accion, direccion, previewId, estructura, centro, alas } = req.body || {};
   try {
+    if (accion === 'preview' && String(estructura || '').toUpperCase() === 'IB') {
+      return res.json(await clicReal.previewIB(centro, alas));
+    }
     if (accion === 'preview') {
       const d = String(direccion || '').toUpperCase();
       if (!['BULLISH', 'BEARISH'].includes(d)) return res.status(400).json({ ok: false, error: 'direccion BULLISH/BEARISH' });
