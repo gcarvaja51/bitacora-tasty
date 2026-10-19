@@ -3005,3 +3005,153 @@ a capturar: SPX, PYPL, UBER, TSLA, NU, F, CCL, NIO, GAP, JBLU
 
 [captura] Sigma restaurado a SPX + vencimiento del dia
 [Thu 10/15/2026  9:48:44.59] Terminado con codigo 0 
+[Thu 10/15/2026 15:40:01.12] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, TSLA, PYPL, UBER, NU, F, CCL, NIO, GAP, JBLU
+
+[SPX]
+   guardado  SPX    exp=2026-10-15  maxPain=7745  MVS=7750  cw=7745  pw=7740
+   (sin chip de viernes disponible)
+
+[TSLA]
+   guardado  TSLA   exp=2026-10-16  maxPain=370  MVS=360  cw=380  pw=360
+   (sin chip de viernes disponible)
+
+[PYPL]
+   guardado  PYPL   exp=2026-10-16  maxPain=53  MVS=57.5  cw=57.5  pw=53
+   (sin chip de viernes disponible)
+
+[UBER]
+   guardado  UBER   exp=2026-10-16  maxPain=71  MVS=72.5  cw=72.5  pw=70
+   (sin chip de viernes disponible)
+
+[NU]
+   guardado  NU     exp=2026-10-16  maxPain=13  MVS=15  cw=15  pw=14
+   (sin chip de viernes disponible)
+
+[F]
+   guardado  F      exp=2026-10-16  maxPain=12.5  MVS=12  cw=12.5  pw=12
+   (sin chip de viernes disponible)
+
+[CCL]
+   guardado  CCL    exp=2026-10-16  maxPain=24  MVS=26.5  cw=26.5  pw=26
+   (sin chip de viernes disponible)
+
+[NIO]
+   guardado  NIO    exp=2026-10-16  maxPain=3.5  MVS=3.5  cw=3.5  pw=null
+   (sin chip de viernes disponible)
+
+[GAP]
+   guardado  GAP    exp=2026-10-16  maxPain=23  MVS=23  cw=24  pw=23
+   (sin chip de viernes disponible)
+
+[JBLU]
+   guardado  JBLU   exp=2026-10-16  maxPain=4  MVS=3  cw=null  pw=3
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Thu 10/15/2026 15:42:53.94] Terminado con codigo 0 
+[Fri 10/16/2026  9:45:09.13] Iniciando captura de niveles 
+[sigma] no se pudo limpiar el perfil (spawnSync powershell.exe ETIMEDOUT) -- se intenta lanzar igual
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/node/BrowserLauncher.js:130
+                throw new TimeoutError(error.message);
+                      ^
+
+TimeoutError: Timed out after 90000 ms while waiting for the WS endpoint URL to appear in stdout!
+    at ChromeLauncher.launch (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/node/BrowserLauncher.js:130:23)
+    at async ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:203:13)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:736:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Fri 10/16/2026  9:48:39.92] Terminado con codigo 1 
+[Fri 10/16/2026  9:48:39.92] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Fri 10/16/2026 15:40:02.23] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, TSLA, PYPL, UBER, NU, F, CCL, NIO, GAP, JBLU
+
+[SPX]
+   guardado  SPX    exp=2026-10-16  maxPain=7675  MVS=7660  cw=7660  pw=7650
+   (sin chip de viernes disponible)
+
+[TSLA]
+   guardado  TSLA   exp=2026-10-16  maxPain=370  MVS=350  cw=355  pw=352.5
+   (sin chip de viernes disponible)
+
+[PYPL]
+   guardado  PYPL   exp=2026-10-16  maxPain=53  MVS=57  cw=57  pw=53
+   (sin chip de viernes disponible)
+
+[UBER]
+   guardado  UBER   exp=2026-10-16  maxPain=72  MVS=70  cw=71  pw=70
+   (sin chip de viernes disponible)
+
+[NU]
+   guardado  NU     exp=2026-10-16  maxPain=13  MVS=14  cw=15  pw=14.5
+   (sin chip de viernes disponible)
+
+[F]
+   guardado  F      exp=2026-10-16  maxPain=12.5  MVS=12.5  cw=12.5  pw=12
+   (sin chip de viernes disponible)
+
+[CCL]
+   guardado  CCL    exp=2026-10-16  maxPain=24  MVS=26  cw=26  pw=25.5
+   (sin chip de viernes disponible)
+
+[NIO]
+   guardado  NIO    exp=2026-10-16  maxPain=3.5  MVS=3.5  cw=3.5  pw=null
+   (sin chip de viernes disponible)
+
+[GAP]
+   guardado  GAP    exp=2026-10-16  maxPain=23  MVS=23  cw=24  pw=23
+   (sin chip de viernes disponible)
+
+[JBLU]
+   guardado  JBLU   exp=2026-10-16  maxPain=4  MVS=3  cw=3  pw=null
+   (sin chip de viernes disponible)
+
+[captura] Sigma restaurado a SPX + vencimiento del dia
+[Fri 10/16/2026 15:43:11.14] Terminado con codigo 0 
+[Mon 10/19/2026  9:45:01.57] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, TSLA, PYPL, UBER, NU, F, CCL, NIO, GAP, JBLU
+
+[SPX]
+   FALLO SPX: el panel muestra "CCL" y se pidio "SPX" -- no se guarda
+
+[TSLA]
+   FALLO TSLA: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[PYPL]
+   FALLO PYPL: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[UBER]
+   FALLO UBER: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NU]
+   FALLO NU: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[F]
+   FALLO F: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[CCL]
+[sigma] faltan metricas opcionales (ivPromedio) -- se sigue igual, ninguna estrategia decide con ellas. Si persiste, revisar si Sigma renombro la etiqueta.
+   guardado  CCL    exp=2026-10-23  maxPain=25  MVS=27  cw=27  pw=25
+   (sin chip de viernes disponible)
+
+[NIO]
+   FALLO NIO: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[GAP]
+   FALLO GAP: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[JBLU]
+   FALLO JBLU: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 1 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 2 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 3 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[captura] no se pudo devolver la pestaña auxiliar a SPX;
+[captura] no importa: se cierra igual y el daemon no se entera.
+[Mon 10/19/2026  9:48:11.25] Terminado con codigo 1 
+[Mon 10/19/2026  9:48:11.27] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 

@@ -318,7 +318,15 @@ PROPUESTAS = [
         # comparables por vetaria y llamar a comparar(). analisis_paper.py §4 lo
         # hace sobre paperPnl, no sobre resultadoOficial. Escribir juzgar_DIR_5
         # es parte de la propuesta; sin el, evaluar() devuelve SIN INSTRUMENTO.
+        #
+        # ACTUALIZADA 2026-10-15 (revision semanal 9-15 oct): la brecha se achico.
+        # Del 2 al 15-oct: vetadas n=6, 4 ganan, -$10; pasan n=8, 5 ganan, -$20.
+        # El 14-oct (tendencia que rompio el Put Wall) las 4 vetadas ganaron.
+        # Acumulado 17-ago a 15-oct: vetadas n=16 WR 43.8% -$79.1/trade; pasan
+        # n=34 WR 58.8% -$20.6/trade. Delta de la cadena en las 16 vetadas (el
+        # "supuesto" del 12-oct no veto ninguna ejecucion).
         "declarada": "2026-10-01",
+        "actualizada": "2026-10-15",
         "instrumento": "executions.vetoMuroSombra",
         "espera": "DIR-1 sigue primera en la cola de DIRECCIONAL; una ALTO por ventana",
     },

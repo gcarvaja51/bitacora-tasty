@@ -146,6 +146,15 @@ try {
     $sesiones = foreach ($f in (Get-ChildItem $semanas -Filter '*_agenda.json' | Sort-Object Name -Descending | Select-Object -First 2)) {
         (Get-Content $f.FullName -Raw -Encoding UTF8 | ConvertFrom-Json).sesiones
     }
+    # El Mananero de Henry NO sale en la agenda semanal: es fijo, lunes a viernes 8:00 ET
+    # (7:00 Colombia en horario de verano de EE.UU.). El link de YouTube llega al grupo
+    # ~7:55 ET con "Arranca El Mananero" (visto 9 al 16-oct). Pedido 2026-10-16.
+    $hoyEt = [TimeZoneInfo]::ConvertTime($ahora, [TimeZoneInfo]::Local, $et).Date
+    $sesiones = @($sesiones) + @(foreach ($d in 0..1) {
+        $dia = $hoyEt.AddDays($d)
+        if ($dia.DayOfWeek -in 'Saturday', 'Sunday') { continue }
+        [pscustomobject]@{ fecha = $dia.ToString('yyyy-MM-dd'); hora_et = '08:00'; titulo = 'El Mananero de Henry (YouTube)' }
+    })
 
     $mensajes = $null
     foreach ($s in $sesiones) {

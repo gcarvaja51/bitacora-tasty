@@ -1,5 +1,21 @@
 [
  {
+  "timestamp": "2026-10-19T14:30:07.513Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_PREMERCADO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "No hay entrada de premercado para 2026-10-19"
+ },
+ {
+  "timestamp": "2026-10-16T14:30:06.350Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_PREMERCADO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "No hay entrada de premercado para 2026-10-16"
+ },
+ {
   "timestamp": "2026-10-15T14:30:05.609Z",
   "strategyFamily": "PREMERCADO",
   "stage": "NINGUN_ESCENARIO",

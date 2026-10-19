@@ -308,3 +308,46 @@ El informe de cierre de hoy está generado: `documentos premercado\10142026_cier
 No pude escribir la línea en `ejecuciones.log`: el archivo estaba bloqueado, seguramente porque el lanzador programado lo tiene abierto. El fallo de Sigma sin vencimiento (expiry), que esta mañana bloqueó el premercado, sigue sin arreglarse.
 [Wed 10/14/2026 15:10:31.36] Finalizado (codigo 0) 
  
+[Thu 10/15/2026 15:00:02.77] Iniciando cierre del dia 
+El informe de cierre de hoy está listo: `documentos premercado\10152026_cierre del dia.docx` (16:10 ET, solo Word). No envié nada a nadie y no toqué TradingView.
+
+**Lo que hice:**
+- **Día de mercado:** `esDiaDeMercado` dio que sí y el .docx de hoy no existía, así que se creó.
+- **Sigma:** usé el `lastLevels` de las **16:05 ET**. En esa lectura el GEX salta a +13,3 B (positivo), cuando a las 16:00 era −8,9 B (negativo), y la IV promedio cae a 6,9 %. Es la cadena del 0DTE venciendo, no un cambio del mercado. El informe lo explica y toma el tono de la sesión, no el de esa lectura.
+- **Investing, pestaña Hoy:** están los mismos siete eventos que tenía el premercado. No apareció ningún 3 estrellas nuevo. **Hoy es D19** por el crudo de la AIE de las 12:00 ET, que el premercado ya tenía. Se puntúa, pero no suma a la asertividad.
+- **Investing, pestaña Mañana:** sale vacía, y la vista de la semana confirma que el viernes 16 no tiene eventos de 3 estrellas de EE.UU. **El viernes no es D19.** El informe recuerda que el viernes es OPEX mensual.
+- **Registro:** guardé `resultado` y `llamada_siguiente` en el log (`para_fecha` 2026-10-16) y añadí el "CIERRE DEL DÍA" a la fila 82 del Excel. Antes hice backup de los dos (`*_bak_20261015_cierre`).
+- **Script:** quedó en `control premercado\cierre_10152026.py`, con las rutas armadas con `os.path.join`.
+
+**Dos cosas que debes saber:**
+- **El "SÍ" de hoy es corto.** El bajista (el favorito) se activó a las 09:45 y llegó al T1 a las 10:00. El día terminó del lado contrario: el alcista se activó a las 11:00 e hizo T1 y T2.
+- **La llamada del miércoles para hoy falló.** Se activó a las 09:45, se quedó a 3 puntos del T1 y se invalidó a las 15:00. El informe lo dice tal cual.
+
+Corregí una cosa a mano en el .docx (y también en el script): la apertura implícita dio un gap de −0,2, el formato lo mostraba como "−0" y lo dejé como "plana". No escribí ninguna línea en `ejecuciones.log`: la instrucción era escribirla solo si no había mercado.
+[Thu 10/15/2026 15:11:49.82] Finalizado (codigo 0) 
+ 
+[Fri 10/16/2026 15:00:00.99] Iniciando cierre del dia 
+El informe de cierre de hoy está listo: `documentos premercado\10162026_cierre del dia.docx` (16:07 ET, solo Word). No envié nada a nadie y no toqué TradingView.
+
+**Lo que tienes que saber primero: hoy no hubo premercado.** El control de calidad lo bloqueó a las 07:39 (hora Colombia) después de tres intentos. TradingView no entregó las EMAs ni el MACD de 30m, diario y semanal, porque el estudio "SMA by KGS" no estaba en el chart. Tampoco había captura del chart de 30m. Se avisó por WhatsApp. Como no había escenarios que calificar, en "¿Acertamos?" puse **NO APLICA**: el día no suma ni resta.
+
+**Lo que hice:**
+- **Día de mercado:** `esDiaDeMercado` dio que sí y el .docx de hoy no existía, así que se creó.
+- **El mercado:** día de tendencia bajista en el vencimiento mensual (OPEX). Cerró en 7.659 (−85, −1,10 %) con un rango de 125 y quedó bajo la EMA50 diaria. El VIX pasó de 16,0 a 20,4.
+- **La llamada del jueves para hoy** (ALCISTA sobre 7.755) quedó **NO_ACTIVO**. El cierre de 15m más alto fue 7.749, así que nunca se activó, y se invalidó a las 11:00.
+- **Sigma:** usé el `lastLevels` de las **16:05 ET**. El GEX quedó en −85,9 B (negativo) y los muros en 7.650-7.660. Es la cadena venciendo (la IV bajó a 11,8 %), así que el informe toma el tono de la sesión, no esos números.
+- **Investing, pestaña Hoy:** dice "No hay eventos programados". Hoy no es D19.
+- **Investing, próxima sesión:** en vez de la pestaña Mañana leí la vista "Próxima semana". El lunes 19 no tiene eventos de 3 estrellas, así que no es D19. El primero es el crudo de la AIE del miércoles 21.
+- **Llamada para el lunes:** BAJISTA, convicción 53 %. Se activa con un cierre de 15m bajo 7.630, T1 7.615, T2 7.590, y se invalida sobre 7.680. Los objetivos salen de los mínimos del diario, porque `memoria_niveles` no devuelve niveles bajo 7.630.
+
+**Registro, distinto de los otros días:** como no había entrada de hoy en el log ni fila en el Excel, las creé:
+- **Log:** una entrada mínima del 16-oct con `sin_premercado`, `exclusion_muestra`, `resultado` (`acierto: "no_aplica"`) y `llamada_siguiente` (`para_fecha` 2026-10-19). La creé para que el premercado del lunes encuentre la llamada. No tiene `escenarios` ni `probabilidades`, así que el motor la marca como `SIN_PREMERCADO` y el Auditor no la cuenta.
+- **Excel:** la fila 83 con estado "No generado", como el precedente del 10-ago, y el "CIERRE DEL DÍA" en el Detalle. No toqué la hoja Resumen.
+- **Backups:** hice copia de los dos antes (`*_bak_20261016_cierre`).
+- **Script:** quedó en `control premercado\cierre_10162026.py`, con las rutas armadas con `os.path.join`.
+
+**Para revisar:**
+- **Pantalla:** usé BLACKBULL:US500 con +3, que es lo que dice `base_sp500_vs_spx.json`, aunque el skill pide VANTAGE:SP500. La base no se mide desde el 12-oct.
+- **Premercado del lunes:** si no se arregla lo del estudio "SMA by KGS" en el chart, el lunes puede volver a bloquearse.
+[Fri 10/16/2026 15:07:43.87] Finalizado (codigo 0) 
+ 

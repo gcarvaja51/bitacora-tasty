@@ -100,6 +100,7 @@ Unidos – Mercado cerrado") **no son eventos**: van a `avisos` y se mencionan e
    - **`timeZone: "America/New_York"`** — obligatorio. Las horas de la agenda son del
      Este y el calendario está en America/Bogota; sin esto todo queda una hora corrido.
    - `description`: `Agenda semanal Sigma Club (grupo Notificaciones 5). Duración estimada 1 h. El link de Zoom llega 10 min antes por el canal de notificaciones.`
+   - **`colorId: "5"`** (dorado/amarillo): Guillermo pidió Sigma en dorado e Iron Balls en azul (2026-10-15).
    - `notificationLevel: "NONE"`, sin invitados.
    - Para "La Enfermería", añadir a la descripción que las posiciones a revisar se
      mandan antes a tarri@opcionsigma.com (estrategia, strikes, vencimiento, prima, estado).
@@ -192,3 +193,28 @@ Las grabaciones ("Ya disponible") no cuentan.
 - Una sesión que se agregue a mano en Google Calendar NO avisa: solo avisan las del JSON.
 
 **Celular (mismo día):** cada aviso sale también por ntfy, topic `bitacora_gcarvaja51`, el mismo del gate del premercado, así que la app ya está suscrita. Va con prioridad alta y el link como `Click` y como botón "Entrar". Depende de que el PC esté encendido, porque lo dispara la misma tarea. Si ntfy falla queda la línea `ntfy fallo:` en el log.
+
+## Iron Balls: aviso y calendario en azul (2026-10-15)
+
+Pedido de Guillermo: lo mismo que Sigma (aviso −5 / 0 / +5 en el PC y el celular con el link)
+para el grupo **`📈 Canal Oficial - Iron Balls 📈`** — `120363233546136336@g.us`, cuenta **`usa`**,
+y en Google Calendar en **azul (`colorId "9"`)**.
+
+**Iron Balls no publica agenda semanal.** El "PROGRAMACIÓN OFICIAL" de Gamma solo trae los temas
+de las cápsulas, sin horas. Las sesiones se anuncian sueltas ("HOY 12:30 NEW YORK" en una imagen,
+"nos vemos el Jueves vía Zoom y YouTube. 12:30 New York", o Emerson: "link en 10 minutos") y el
+Zoom se pega 4-20 min antes (Pipe suele ir a las 12:30 ET).
+
+`aviso_ironballs.ps1` (tarea **`IronBalls_Aviso_Sesiones`**, cada **2 min**, oculta):
+1. Lee los últimos 30 mensajes del canal (GOWA).
+2. Anuncio = hora + "New York/NY/ET". El día lo da el nombre del día (manda sobre "mañana"),
+   luego "mañana", luego "hoy"; sin día, el del mensaje. Se guarda en `ironballs\sesiones.json`.
+3. Avisa −5 / 0 / +5 con el link (Zoom o youtube.com/live publicado de 40 min antes a 15 después).
+4. Link de Zoom nuevo (≤15 min) → aviso inmediato aunque no hubiera anuncio con hora.
+5. Sesiones futuras que no están en `ironballs\en_calendario.json` → lanza `ironballs_calendario.cmd`
+   (`claude -p`, crea el evento en azul con timeZone America/New_York; un intento cada 30 min).
+
+Datos en `01_Sigma\calendario semanal\ironballs\` (`aviso.log`, `calendario.log`, `avisos.json`).
+Pruebas: `aviso_ironballs.ps1 -Prueba` (notificación de muestra) y `-Seco` (lee 100 mensajes y
+muestra qué anuncios detecta, sin avisar ni guardar). **El .ps1 va con BOM UTF-8**: sin él,
+PowerShell 5.1 lee la raya "–" como comilla y no compila.

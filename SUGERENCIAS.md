@@ -654,9 +654,62 @@ Escribirlo es parte de la propuesta: mientras no exista, el Auditor devuelve `SI
 
 ⚠️ **Quinta ALTO abierta sobre DIRECCIONAL** (1, 4, 6, 10 y esta). Solo una por ventana.
 
+> **Actualizada el 2026-10-15 (revisión semanal, 9 a 15-oct): la brecha se achicó a la mitad.**
+> Del 2 al 15-oct sumó **6 vetadas y 8 que pasan**, y son indistinguibles: vetadas 4 de 6,
+> −$10; las que pasan 5 de 8, −$20. El 14-oct, día de tendencia que atravesó el Put Wall, las
+> 4 vetadas ganaron (+$500). Acumulado 17-ago a 15-oct (comparables, BEARISH, delta medido
+> de la cadena en 16 de 16): **vetadas n=16, 43,8%, −$79,1 por trade**; pasan n=34, 58,8%,
+> −$20,6 por trade. Antes era −$125,5 contra −$26,2. La dirección no se invirtió, pero el
+> efecto depende del tipo de día (rango contra el muro sí, tendencia que lo rompe no) y el
+> veto no sabe distinguirlos. El artefacto del delta «supuesto» del 12-oct no llegó a
+> ninguna ejecución (1 de 86 con delta supuesto, y no vetó). Sigue sin juez `juzgar_DIR_5`.
+
 ---
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
+
+### 2026-10-15 (bis) · revisión SEMANAL del jueves, 9 a 15-oct — SIN PROPUESTA
+
+3.313 evaluaciones en 5 sesiones contra 1.687 en la ventana previa. ⚠️ **La previa está
+recortada**: el log arranca el 5-oct a las 12:33 ET (tope de 5.000 filas), faltan ~9,6 h de
+sesión. Se compara por proporción, no en crudo: ~663 evaluaciones por sesión contra ~480.
+
+**Ninguna familia trae evidencia con número para proponer.** Lo que se miró:
+
+| Familia | Candidata | Por qué no |
+|---|---|---|
+| TENDENCIA | Apagar o filtrar el bajista | 50 comparables, −$1.965 (−$39,3/trade) contra +$1.090 del alcista (n=65). Pero por período: ago +$140, 1ª mitad sep **−$1.560**, 2ª mitad −$525, oct −$20. Es la quincena del 1 al 15-sep, no la dirección |
+| TENDENCIA | Bull Put (crédito) contra Bull Call (débito) | −$13,1 contra +$40,8 por trade (29 y 36). Septiembre −$515, octubre +$135 (11 de 13). Se da vuelta por mes |
+| TENDENCIA | GEX que parpadea en el Gamma Flip decide crédito/débito | n=1 (15-oct 13:59, −$265) |
+| TENDENCIA | DIR-5 (veto de muro bajista) | Ya declarada; esta semana se debilitó (ver la propuesta 11) |
+| REVERSION | Piso de objetivo/riesgo en la apertura | 5 setups desde el 2-oct, **1 solo llenó** (2-oct, objetivo 1,96 contra riesgo 15,71, −$280 en las 3 apiladas). El 15-oct pedía 0,43 contra 22,95 y no llenó. n=1 con resultado |
+| NEUTRAL | IC 0DTE contra la puerta del Gamma Flip | 0 trades en la semana; el lado rechazado no tiene resultado |
+| MEDIODIA | Centro por MVS o salida de las 15:30 | n=11, 6 ganan, −$875. Las 4 salidas de las 15:30 suman −$1.215. Partido por distancia MVS–spot: ≤1,2 pts n=4 −$185; >5 pts n=7 −$690. No es monótono y la n no da |
+
+**Lo que cambió en el embudo (por proporción):**
+- TENDENCIA `NO_PULLBACK_2M` 42% de las evaluaciones (antes 35,5%); «15m sin Fase 2 ni 4»
+  379 (antes 134). Semana de rango el 12–13 y tendencia el 14–15: el filtro estuvo cerrado,
+  no atrasado.
+- TENDENCIA `SCORE_FAIL` 133 (antes 41): 21 por el listón tras pérdida (85% contra 90), el
+  resto 70–75% con el listón normal. El 13-oct, 51 bajistas con techo 90 por DEX positivo.
+- NEUTRAL `GATE_FAIL` 107 (antes 47): 51 por GEX negativo; el 12 y 13 además la puerta del
+  Gamma Flip.
+- MEDIODIA `SIGNAL_BUILT` 25 (antes 3): 22 son las 11 + 11 órdenes atascadas del 9 y el
+  15-oct. No es mercado (es de la Torre).
+- REVERSION `NO_STRIKES` 16 (antes 31), todos «delta 0,5»; 9 el 15-oct entre 11:14 y 11:21.
+
+**Calidad del dato**
+- **Frescura:** n=1.544, mediana 20 s, p90 33 s, máx 167 s, 5 sobre 120 s (0,3%). Sigma
+  1.535 (mediana 20 s), Yahoo 9 (hueco de Sigma 12:54–12:59 del 15-oct).
+- **Velas de Sigma (BUG abierto, escalado el 14-oct):** `IMPULSO` «sin velas de 15m de la
+  sesión» en 52 de 52 señales del 14 y 15-oct (del 6 al 12, 0 de 75), y la apertura tomó
+  2m y 15m de **Yahoo** los dos días (`apertura.fuente2m/15m`). Sin commit de arreglo a la
+  fecha. Mientras dure, la muestra de la escalera de impulsos no crece.
+- **Sellos:** 128 de 362, el backlog histórico; todo lo nuevo viene sellado.
+- **Libro propio:** 5, los mismos ids.
+- **Completitud:** `CIERRE_PRE_CLOSE_30MIN` 4/4 y `VENCIMIENTO` 1/1 sin cotización, por
+  diseño; el motor sigue sin tratarlos como exentos. La reversión de apertura no graba
+  `entrySpx` en la raíz (sí en `apertura.entrada.spotAlEntrar`, solo desde el 14-oct).
 
 ### 2026-10-12 · corrida diaria, 789 evaluaciones
 

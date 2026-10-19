@@ -94,3 +94,19 @@ No mandé nada por WhatsApp; el parte lo envía la fase 3.
 [2026-10-14 11:00:02] semana del 2026-10-12 ya cargada: nada que hacer
 [Wed 10/14/2026 11:00:02.83] Fase 1 termino con codigo 1 - NO se arranca Claude 
  
+[Mon 10/19/2026 11:00:01.68] Iniciando calendario semanal 
+[2026-10-19 11:00:30] agenda encontrada (publicada 2026-10-19T10:55:14Z): 11 sesiones
+[Mon 10/19/2026 11:00:31.32] Fase 2, intento 1 de 3 
+La semana del 19 al 25 de octubre ya está en Google Calendar: creé las 11 sesiones y ninguna estaba antes.
+
+- El JSON tiene las mismas 11 sesiones y horas que el texto original del grupo.
+- Todos los eventos están en hora de Nueva York, duran 1 hora, van en dorado y no tienen invitados ni avisos por correo.
+- En Colombia quedan una hora antes que en la agenda: las de 9:15 pasan a las 8:15, y la Planeación del domingo, a las 5:30 pm.
+- La agenda avisa que el domingo 25 cambia la hora en Europa. Lo dejé en las notas del parte; en Colombia esta semana no cambia nada.
+
+Dejé la marca en `semanas\2026-10-19_cargada.json`. No mandé nada por WhatsApp: el parte lo manda la fase 3.
+[Mon 10/19/2026 11:03:15.75] Fase 2 terminada tras 1 intento(s) 
+[2026-10-19 11:03:17] aviso a Guillermo: OK
+[2026-10-19 11:03:17] parte a Guillermo: enviado
+[Mon 10/19/2026 11:03:17.96] Finalizado (codigo 0) 
+ 
