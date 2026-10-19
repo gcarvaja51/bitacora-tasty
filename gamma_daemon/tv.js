@@ -25,6 +25,11 @@ const CDP_PORT = Number(process.env.TV_CDP_PORT || 9223);
 // (2026-10-07) CBOE:SPX ya no esta en ninguna ventana; la del SPX es TVC:SPX, que
 // segun Guillermo va en tiempo real (la otra fuente del SPX que tenia abierta va 10 min tarde).
 export const SYMBOL_MATCH = /^TVC:SPX$/i;
+// Ventanas que ADEMAS reciben los muros (2026-10-18, Guillermo: "en tradenation:US500 necesito que se pinten ahi los
+// muros y gex dex"). TRADENATION:US500 es el boton del clic SPX -> Tradier y va a ±0,1 pts del SPX (medido 12-16 oct),
+// asi que los niveles del SPX caen en su sitio. Solo amplia pushGammaLevelsToAllWindows: la eleccion de la ventana que
+// se GUARDA (connectToSpxWindow / saveLayout) sigue atada a TVC:SPX, para no subir al layout del celular la de Trade Nation.
+const PUSH_MATCH = /^(TVC:SPX|TRADENATION:US500)$/i;
 // Matchea CUALQUIER version (CIARG_V1, CIARG_V3, etc.) -- las multiples ventanas
 // SPX no estan sincronizadas entre si (ver CLAUDE.md) y pueden quedar temporalmente
 // con nombres distintos tras renombrar el script hasta que el usuario actualice
@@ -429,7 +434,7 @@ export async function pushGammaLevelsToAllWindows(inputs) {
           });
         })()
       `);
-      const hasSpx = Array.isArray(panes) && panes.some((p) => p.symbol && SYMBOL_MATCH.test(p.symbol));
+      const hasSpx = Array.isArray(panes) && panes.some((p) => p.symbol && PUSH_MATCH.test(p.symbol));
       if (!hasSpx) { await client.close(); continue; }
 
       const results = [];
