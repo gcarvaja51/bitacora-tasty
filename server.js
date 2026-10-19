@@ -4732,6 +4732,7 @@ const SPX_CONFIG_DEFAULTS = {
     tpPct:       25,      // Take Profit % del crédito (25% → 94% prob. éxito, playbook Alejandro)
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
+    clicSpreadWidth: 5,   // Ancho de los spreads abiertos con clic en TradingView (CLIC_TV, 2026-10-18)
     // Tolerancia de deslizamiento al ABRIR (2026-08-13). Cuanto se acepta
     // perder contra el premium que estimo la señal: en credito el piso es
     // premium*(1-tol), en debito el techo es premium*(1+tol). Ver
@@ -7490,6 +7491,9 @@ async function processDirectionalEntry(direction, meta = {}) {
     // contratos con score >=90. La funcion queda sin uso pero no se borra, por si
     // se quiere volver a este esquema mas adelante.
     sel.contracts = 1;
+    // CLIC_TV (2026-10-18, decision de Guillermo): ancho fijo de 5 puntos ($500 de riesgo maximo). Se fija aca, antes
+    // de maxRisk, para que el riesgo registrado y los strikes usen el mismo ancho. El direccional automatico no cambia.
+    if (forzado) sel.spreadWidth = (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).clicSpreadWidth || 5;
     sel.maxRisk   = sel.contracts * sel.spreadWidth * 100;
 
     // Parámetros de trading desde config
@@ -7502,7 +7506,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     // anunciaria un TP de 30% y el monitor cerraria en 15%.
     const tpPct       = (lecturaImpulso.tpPctExigido ?? (tradingCfg.tpPct || 50)) / 100;
     const slMult      = tradingCfg.slMult || 1.0;
-    const spreadWidth = tradingCfg.spreadWidth || 10;
+    const spreadWidth = forzado ? sel.spreadWidth : (tradingCfg.spreadWidth || 10);
 
     // Buscar strikes con delta configurable
     const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
