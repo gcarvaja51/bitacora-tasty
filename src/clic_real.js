@@ -37,7 +37,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, ob
 
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return []; } };
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l, null, 2), 'utf8');
-  const abierta = () => cargar().find((x) => x.estado === 'abierta' || x.estado === 'cerrando');
+  const abierta = () => cargar().find((x) => (x.estado === 'abierta' || x.estado === 'cerrando') && x.modo === modo());
 
   // cotizacion del vertical desde la cadena real: medio y natural, en puntos, con signo positivo
   async function cotizar(legs) {
@@ -131,7 +131,8 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, ob
 
   function pnlHoy() {
     const hoy = fechaET();
-    return cargar().filter((x) => x.fecha === hoy && x.pnlUsd != null).reduce((a, x) => a + x.pnlUsd, 0);
+    // solo los del modo vigente: las pruebas en dry-run no cuentan para el freno del dinero real
+    return cargar().filter((x) => x.fecha === hoy && x.pnlUsd != null && x.modo === modo()).reduce((a, x) => a + x.pnlUsd, 0);
   }
 
   async function preview(direccion) {
@@ -267,7 +268,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, ob
     if (Date.now() - cacheEstado.ts < 4000 && cacheEstado.data) return cacheEstado.data;
     const hoy = fechaET();
     const l = cargar();
-    const rec = l.find((x) => x.estado === 'abierta' || x.estado === 'cerrando') || l.find((x) => x.fecha === hoy && x.estado === 'cerrada');
+    const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && x.modo === modo());
     let trade = null;
     if (rec) {
       let pnl = rec.pnlUsd ?? null, delta = rec.deltaEntrada;
