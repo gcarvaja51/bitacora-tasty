@@ -283,7 +283,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         const disp = cuentaDemo().disponible;
         if (riesgo > disp) return { ok: false, error: `cuenta demo: el riesgo del vertical ($${riesgo}) supera el saldo disponible ($${disp})` };
       }
+      const t0 = Date.now();
       const r = await mandarYPerseguir({ ...p }, precios, true);
+      const segEjec = +((Date.now() - t0) / 1000).toFixed(1);
       const lista = cargar();
       const rec = {
         id: 'cr-' + Date.now(), modo: modo(), cuenta: cuenta(), fecha: fechaET(), direccion: p.direccion, estrategia: p.estrategia,
@@ -296,7 +298,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         guardar(lista);
         return { ok: false, error: r.motivo, orderId: r.orderId };
       }
-      Object.assign(rec, { estado: 'abierta', precioEntrada: r.precio, simulado: !!r.simulado, feesApertura: r.fees || 0 });
+      Object.assign(rec, { estado: 'abierta', precioEntrada: r.precio, simulado: !!r.simulado, feesApertura: r.fees || 0, segEjecApertura: segEjec });
       rec.riesgoMaxUsd = Math.round((p.credito ? p.ancho - r.precio : r.precio) * 100);
       rec.gananciaMaxUsd = Math.round((p.credito ? r.precio : p.ancho - r.precio) * 100);
       lista.unshift(rec);
@@ -330,7 +332,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         if (precios.length >= 6) break;
       }
       if (!precios.length) precios.push(Math.max(0.05, nat));
+      const t0 = Date.now();
       const r = await mandarYPerseguir({ ...rec }, precios, false, 7000);
+      const segEjecCierre = +((Date.now() - t0) / 1000).toFixed(1);
       lista = cargar();
       rec = lista.find((x) => x.id === rec0.id);
       if (!r.lleno) {
@@ -342,18 +346,31 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       }
       rec.estado = 'cerrada'; rec.cerradaEn = new Date().toISOString(); rec.precioSalida = r.precio; rec.ordenCierre = r.orderId;
       rec.feesCierre = r.fees || 0;
+      rec.segEjecCierre = segEjecCierre;
       rec.pnlBrutoUsd = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * rec.contratos);
       rec.pnlUsd = +(rec.pnlBrutoUsd - (rec.feesApertura || 0) - rec.feesCierre).toFixed(2);   // neto de comisiones
       rec.dayTrade = rec.fecha === fechaET();
       guardar(lista);
       // Guillermo 2026-10-19: el resultado en dolares tiene que verse en la notificacion -> va en el titulo
       const usd = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
+      // y cuanto duro el trade y cuanto se le pago a TastyTrade (Guillermo 2026-10-19)
+      const seg = Math.round((new Date(rec.cerradaEn) - new Date(rec.abiertaEn)) / 1000);
+      const dur = seg >= 3600 ? `${Math.floor(seg / 3600)} h ${Math.floor(seg % 3600 / 60)} min` : `${Math.floor(seg / 60)} min ${seg % 60} s`;
+      const pago = (rec.feesApertura || 0) + rec.feesCierre;
       avisar(`${rec.nombre} ${rec.strikesTxt || `${rec.largo}/${rec.corto}`}: ${rec.precioEntrada.toFixed(2)} → ${r.precio.toFixed(2)}
 `
-             + `Resultado: ${usd(rec.pnlUsd)} neto (bruto ${usd(rec.pnlBrutoUsd)}, comisiones $${((rec.feesApertura || 0) + rec.feesCierre).toFixed(2)})
+             + `Resultado bruto: ${usd(rec.pnlBrutoUsd)}
+`
+             + `Pago a TastyTrade: -$${pago.toFixed(2)} (apertura $${(rec.feesApertura || 0).toFixed(2)} + cierre $${rec.feesCierre.toFixed(2)})
+`
+             + `Resultado NETO: ${usd(rec.pnlUsd)}
+`
+             + `Tiempo en el trade: ${dur}
+`
+             + `Ejecución de las órdenes: apertura ${rec.segEjecApertura ?? '?'} s · cierre ${segEjecCierre} s
 `
              + `Motivo: ${motivo}${rec.simulado ? ' · DEMO (dry-run)' : ''}`,
-             `${rec.pnlUsd >= 0 ? '✅ GANÓ' : '🔻 PERDIÓ'} ${usd(rec.pnlUsd)} · Clic SPX cerrado${rec.simulado ? ' (demo)' : ''}`,
+             `${rec.pnlUsd >= 0 ? '✅ GANÓ' : '🔻 PERDIÓ'} ${usd(rec.pnlUsd)} neto en ${dur} · Clic SPX${rec.simulado ? ' (demo)' : ''}`,
              rec.pnlUsd >= 0 ? 'white_check_mark' : 'small_red_triangle_down');
       return { ok: true, registro: rec };
     } finally {
