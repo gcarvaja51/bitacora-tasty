@@ -405,7 +405,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && x.modo === modo());
     let trade = null;
     if (rec) {
-      let pnl = rec.pnlUsd ?? null, delta = rec.deltaEntrada;
+      let pnl = rec.pnlUsd ?? null, delta = rec.deltaEntrada, spxAhora = null;
       if (rec.estado !== 'cerrada') {
         try {
           const q = await cotizar(rec.legs);
@@ -415,6 +415,8 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
                   - 2 * (rec.feesApertura || 0)).toFixed(2);
           delta = q.deltaNeto;
         } catch (e) { /* sin cotizacion: se muestra sin P&L */ }
+        // SPX ahora: el bot lo usa para traducir el TP/SL que Guillermo pone en TradingView a P&L de las opciones
+        try { spxAhora = Number((await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last) || null; } catch (e) { /* informativo */ }
       }
       trade = {
         id: rec.id, origen: 'CLIC_REAL', modo: rec.modo, estado: rec.estado === 'cerrada' ? 'closed' : 'filled',
@@ -422,7 +424,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         strikes: rec.strikesTxt || `${rec.corto}/${rec.largo}`, primaPts: rec.precioEntrada, primaUsd: Math.round(rec.precioEntrada * 100 * rec.contratos),
         riesgoMaxUsd: rec.riesgoMaxUsd, gananciaMaxUsd: rec.gananciaMaxUsd, deltaEntrada: rec.deltaEntrada, deltaAhora: delta,
         spxEntrada: rec.spxEntrada, abiertaEn: rec.abiertaEn, cerradaEn: rec.cerradaEn || null, motivoCierre: rec.motivoCierre || null,
-        cierrePedido: rec.estado === 'cerrando', pnl, simulado: !!rec.simulado,
+        cierrePedido: rec.estado === 'cerrando', pnl, spxAhora, simulado: !!rec.simulado,
       };
     }
     cacheEstado = { ts: Date.now(), data: { ok: true, modo: modo(), pnlHoy: pnlHoy(), freno: frenoUsd(), trade } };
