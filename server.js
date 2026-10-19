@@ -9068,6 +9068,16 @@ app.get('/api/spx/ib-atm-sombra', (req, res) => {
   });
 });
 
+// Velas del SPX real (I:SPX de Polygon via Sigma) que empuja el gamma daemon, para el aviso SPX SEMI del bot de
+// Polymarket (2026-10-18): fases EMA 8/20 en 15/5/2 min sobre el SPX de verdad, sin la sesion de Sigma ni el feed
+// atrasado de TradingView. Solo lectura de lo ya guardado. ?m=2|5|15
+app.get('/api/spx/sigma-velas', (req, res) => {
+  const f = { 2: SIGMA_VELAS2M_FILE, 5: SIGMA_VELAS_FILE, 15: SIGMA_VELAS15M_FILE }[Number(req.query.m)];
+  if (!f) return res.status(400).json({ ok: false, error: 'm debe ser 2, 5 o 15' });
+  try { res.json({ ok: true, ...JSON.parse(fs.readFileSync(f, 'utf8')) }); }
+  catch (e) { res.status(404).json({ ok: false, error: 'sin velas guardadas' }); }
+});
+
 app.get('/api/spx/sigma-levels', (req, res) => {
   const history = loadSigmaLevelsHistory();
   if (req.query.history === 'true') {
