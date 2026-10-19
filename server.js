@@ -4735,6 +4735,8 @@ const SPX_CONFIG_DEFAULTS = {
     clicSpreadWidth: 5,   // Ancho de los spreads abiertos con clic en TradingView (CLIC_TV, 2026-10-18)
     clicCreditoMin:  1.20, // CLIC_TV en credito: minimo $1.20/contrato; si no, se acerca el delta hasta clicDeltaMax
     clicDeltaMax:    0.50, // o no se entra
+    clicDebitoMax:   3.50, // CLIC_TV en debito: maximo $3.50/contrato; si no, se corre fuera del dinero
+    clicDeltaMinDebito: 0.30, // mientras la pata comprada conserve este delta, o no se entra
     // Tolerancia de deslizamiento al ABRIR (2026-08-13). Cuanto se acepta
     // perder contra el premium que estimo la señal: en credito el piso es
     // premium*(1-tol), en debito el techo es premium*(1+tol). Ver
@@ -7534,6 +7536,33 @@ async function processDirectionalEntry(direction, meta = {}) {
         return false;
       }
       console.log(`[CLIC_TV] Crédito $${strikes.premium.toFixed(2)} con delta ${strikes.shortDelta} (${strikes.shortStrike}/${strikes.longStrike})`);
+    }
+    // CLIC_TV en debito (2026-10-18, decision de Guillermo): pagar maximo $3.50 por contrato ($350), en correspondencia
+    // con el credito minimo de $1.20 (ganar >= $150 sobre $500 de ancho). Si el ATM cuesta mas, el spread se corre
+    // fuera del dinero de 5 en 5 puntos mientras la pata comprada conserve delta >= clicDeltaMinDebito; si no, no se entra.
+    if (forzado && !sel.isCredit && strikes) {
+      const maxDeb   = tradingCfg.clicDebitoMax ?? 3.50;
+      const deltaMin = tradingCfg.clicDeltaMinDebito ?? 0.30;
+      const esCall   = sel.strategy === 'BULL_CALL_SPREAD';
+      const lista    = ((chainData.expirations || []).find(e => e.expiry === strikes.expiry) || {}).strikes || [];
+      const pata     = k => (lista.find(s => s.strike === k) || {})[esCall ? 'call' : 'put'];
+      let largo = strikes.longStrike;
+      while (strikes && -strikes.premium > maxDeb) {
+        largo += esCall ? 5 : -5;
+        const l = pata(largo), c = pata(esCall ? largo + spreadWidth : largo - spreadWidth);
+        if (!l || !c || Math.abs(l.delta || 0) < deltaMin) { strikes = null; break; }
+        strikes = { ...strikes, longStrike: largo, shortStrike: esCall ? largo + spreadWidth : largo - spreadWidth,
+                    longDelta: +Math.abs(l.delta || 0).toFixed(3), shortDelta: +Math.abs(c.delta || 0).toFixed(3),
+                    premium: +(-((l.mark || 0) - (c.mark || 0))).toFixed(2) };
+      }
+      if (!strikes) {
+        const reason = `Débito mayor a $${maxDeb.toFixed(2)} aun corriendo el spread hasta delta ${deltaMin} — no se entra`;
+        console.log(`[CLIC_TV] ❌ ${reason}`);
+        logStrategyEvent({ strategyFamily: FAM, stage: 'DEBITO_MAXIMO', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
+        if (meta.out) meta.out.reason = reason;
+        return false;
+      }
+      console.log(`[CLIC_TV] Débito $${(-strikes.premium).toFixed(2)} (${strikes.longStrike}/${strikes.shortStrike}, delta ${strikes.longDelta})`);
     }
 
     if (!strikes) {
