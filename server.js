@@ -4735,7 +4735,7 @@ const SPX_CONFIG_DEFAULTS = {
     clicSpreadWidth: 5,   // Ancho de los spreads abiertos con clic en TradingView (CLIC_TV, 2026-10-18)
     clicCreditoMin:  1.20, // CLIC_TV en credito: minimo $1.20/contrato; si no, se acerca el delta hasta clicDeltaMax
     clicDeltaMax:    0.50, // o no se entra
-    clicDebitoMax:   3.50, // CLIC_TV en debito: maximo $3.50/contrato; si no, se corre fuera del dinero
+    clicDebitoMax:   3.80, // CLIC_TV en debito: maximo $3.80/contrato (espejo del credito $1.20/5); si no, se corre fuera del dinero
     clicDeltaMinDebito: 0.30, // mientras la pata comprada conserve este delta, o no se entra
     // Tolerancia de deslizamiento al ABRIR (2026-08-13). Cuanto se acepta
     // perder contra el premium que estimo la señal: en credito el piso es
@@ -7537,11 +7537,11 @@ async function processDirectionalEntry(direction, meta = {}) {
       }
       console.log(`[CLIC_TV] Crédito $${strikes.premium.toFixed(2)} con delta ${strikes.shortDelta} (${strikes.shortStrike}/${strikes.longStrike})`);
     }
-    // CLIC_TV en debito (2026-10-18, decision de Guillermo): pagar maximo $3.50 por contrato ($350), en correspondencia
-    // con el credito minimo de $1.20 (ganar >= $150 sobre $500 de ancho). Si el ATM cuesta mas, el spread se corre
+    // CLIC_TV en debito (2026-10-19, decision de Guillermo; era $3.50 desde el 18-oct): pagar maximo $3.80 por contrato
+    // ($380), espejo exacto del credito minimo de $1.20 en ancho 5: los dos ganan >= $120 arriesgando <= $380. Si el ATM cuesta mas, el spread se corre
     // fuera del dinero de 5 en 5 puntos mientras la pata comprada conserve delta >= clicDeltaMinDebito; si no, no se entra.
     if (forzado && !sel.isCredit && strikes) {
-      const maxDeb   = tradingCfg.clicDebitoMax ?? 3.50;
+      const maxDeb   = tradingCfg.clicDebitoMax ?? 3.80;
       const deltaMin = tradingCfg.clicDeltaMinDebito ?? 0.30;
       const esCall   = sel.strategy === 'BULL_CALL_SPREAD';
       const lista    = ((chainData.expirations || []).find(e => e.expiry === strikes.expiry) || {}).strikes || [];
