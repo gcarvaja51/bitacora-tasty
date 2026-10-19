@@ -4733,6 +4733,8 @@ const SPX_CONFIG_DEFAULTS = {
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
     clicSpreadWidth: 5,   // Ancho de los spreads abiertos con clic en TradingView (CLIC_TV, 2026-10-18)
+    clicCreditoMin:  1.20, // CLIC_TV en credito: minimo $1.20/contrato; si no, se acerca el delta hasta clicDeltaMax
+    clicDeltaMax:    0.50, // o no se entra
     // Tolerancia de deslizamiento al ABRIR (2026-08-13). Cuanto se acepta
     // perder contra el premium que estimo la señal: en credito el piso es
     // premium*(1-tol), en debito el techo es premium*(1+tol). Ver
@@ -7511,7 +7513,28 @@ async function processDirectionalEntry(direction, meta = {}) {
     // Buscar strikes con delta configurable
     const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX`);
     const chainData = await chainRes.json();
-    const strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType, targetDelta, spreadWidth);
+    let strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType, targetDelta, spreadWidth);
+
+    // CLIC_TV en credito (2026-10-18, decision de Guillermo): credito minimo de $1.20 por contrato ($120). Si el delta
+    // objetivo no lo da, se acerca la pata corta al precio de 0.01 en 0.01 hasta clicDeltaMax; si ni asi alcanza, no
+    // se entra. Se mide sobre la cadena real de TastyTrade, la misma que fija el P&L oficial (no sobre el sandbox).
+    if (forzado && sel.isCredit) {
+      const minCred  = tradingCfg.clicCreditoMin ?? 1.20;
+      const deltaMax = tradingCfg.clicDeltaMax ?? 0.50;
+      for (let d = targetDelta; (!strikes || strikes.premium < minCred) && d < deltaMax - 1e-9; ) {
+        d = +(d + 0.01).toFixed(2);
+        const s = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType, d, spreadWidth);
+        if (s) strikes = s;
+      }
+      if (!strikes || strikes.premium < minCred) {
+        const reason = `Crédito insuficiente: ${strikes ? '$' + strikes.premium.toFixed(2) : 'sin strikes'} < $${minCred.toFixed(2)} aun con delta ${deltaMax} — no se entra`;
+        console.log(`[CLIC_TV] ❌ ${reason}`);
+        logStrategyEvent({ strategyFamily: FAM, stage: 'CREDITO_MINIMO', passed: false, reason, snapshot: buildStrategySnapshot(ctx, { direction, gex: effectiveGex, score: playbookResult.score, strategy: sel.strategy, checks: checksSnapshot }) });
+        if (meta.out) meta.out.reason = reason;
+        return false;
+      }
+      console.log(`[CLIC_TV] Crédito $${strikes.premium.toFixed(2)} con delta ${strikes.shortDelta} (${strikes.shortStrike}/${strikes.longStrike})`);
+    }
 
     if (!strikes) {
       const reason = `No se encontraron strikes con delta ${targetDelta}`;
