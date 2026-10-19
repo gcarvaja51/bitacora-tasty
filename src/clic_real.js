@@ -180,25 +180,44 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const k = sig.strikes;
     const exp = k.expiry.replace(/-/g, '').slice(2);
     const occ = (strike) => `SPXW  ${exp}${a.tipo}${String(Math.round(strike * 1000)).padStart(8, '0')}`;
-    // longStrike = la pata comprada, shortStrike = la vendida (misma convencion que findStrikesByDelta)
-    const rec = { credito: a.credito, contratos: 1, legs: { comprada: occ(k.longStrike), vendida: occ(k.shortStrike) } };
-    const q = await cotizar(rec.legs);
-    // abrir: debito se paga (sube hacia compraNat); credito se cobra (valor negativo; baja hacia ventaNat)
-    const precioMedio = a.credito ? r05(-q.medio, false) : r05(q.medio, true);
-    const dr = await dryRun(cuerpoOrden(rec, precioMedio, true));
-    const id = 'pv-' + Date.now();
-    const p = {
-      id, creado: Date.now(), direccion, estrategia: sig.strategy, nombre: a.nombre, credito: a.credito, legs: rec.legs,
-      contratos: 1, vence: k.expiry, corto: k.shortStrike, largo: k.longStrike, ancho: Math.abs(k.shortStrike - k.longStrike),
-      precioMedio, natural: a.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true), deltaNeto: q.deltaNeto,
-      spx: out.ctx?.spxPrice ?? null, bp: dr?.data?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
-      fees: dr?.data?.['fee-calculation']?.['total-fees'] ?? null, avisosDryRun: dr?.data?.warnings || [],
+    const ancho = Math.abs(k.shortStrike - k.longStrike) || 5;
+    // Dos opciones para la pata VENDIDA (Guillermo 2026-10-19): "at the money" (el strike mas cercano al precio) o
+    // "a 5 puntos del precio" del lado fuera del dinero (calls arriba, puts abajo): mas protegido, menos credito /
+    // debito mas barato. La estructura (credito o debito) la sigue eligiendo la Bitacora; la comprada va a +-ancho.
+    const spx = out.ctx?.spxPrice ?? null;
+    const atm = Math.round((spx || (k.shortStrike + k.longStrike) / 2) / 5) * 5;
+    const otm = a.tipo === 'C' ? 5 : -5;
+    const lejos = (corto) => (a.tipo === 'C') === a.credito ? corto + ancho : corto - ancho;   // la comprada
+    const armar = async (clave, etiqueta, corto) => {
+      const largo = lejos(corto);
+      const rec = { credito: a.credito, contratos: 1, legs: { comprada: occ(largo), vendida: occ(corto) } };
+      const q = await cotizar(rec.legs);
+      const precioMedio = a.credito ? r05(-q.medio, false) : r05(q.medio, true);
+      const dr = await dryRun(cuerpoOrden(rec, precioMedio, true));
+      const v = {
+        id: 'pv-' + Date.now() + '-' + clave, creado: Date.now(), direccion, estrategia: sig.strategy, nombre: a.nombre,
+        credito: a.credito, legs: rec.legs, contratos: 1, vence: k.expiry, corto, largo, ancho, ubicacion: clave, etiqueta,
+        precioMedio, natural: a.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true), deltaNeto: q.deltaNeto,
+        spx, bp: dr?.data?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
+        fees: dr?.data?.['fee-calculation']?.['total-fees'] ?? null, avisosDryRun: dr?.data?.warnings || [],
+      };
+      v.riesgoMaxUsd = Math.round((v.credito ? ancho - precioMedio : precioMedio) * 100);
+      v.gananciaMaxUsd = Math.round((v.credito ? precioMedio : ancho - precioMedio) * 100);
+      // mismas reglas del clic: credito >= 1.20 / debito <= 3.80; si no cumple, la opcion no se ofrece
+      if (v.credito ? precioMedio < 1.20 - 1e-9 : precioMedio > 3.80 + 1e-9) {
+        v.noCumple = v.credito ? `crédito $${precioMedio.toFixed(2)} < $1.20` : `débito $${precioMedio.toFixed(2)} > $3.80`;
+      }
+      if (modo() === 'dryrun' && !v.noCumple && v.riesgoMaxUsd > cuentaDemo().disponible) v.noCumple = 'no cabe en el saldo de la cuenta demo';
+      previews.set(v.id, v);
+      return v;
     };
-    p.riesgoMaxUsd = Math.round((p.credito ? p.ancho - p.precioMedio : p.precioMedio) * 100);
-    p.gananciaMaxUsd = Math.round((p.credito ? p.precioMedio : p.ancho - p.precioMedio) * 100);
-    previews.set(id, p);
+    const variantes = [await armar('ATM', 'At the money', atm), await armar('OTM5', 'A 5 puntos del precio', atm + otm)];
     for (const [kk, v] of previews) if (Date.now() - v.creado > 10 * 60 * 1000) previews.delete(kk);
-    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, venceEnSeg: 90 };
+    if (variantes.every((v) => v.noCumple)) {
+      return { ok: false, error: `ninguna opcion cumple las reglas del clic (ATM: ${variantes[0].noCumple}; a 5 pts: ${variantes[1].noCumple})` };
+    }
+    const p = variantes.find((v) => !v.noCumple);
+    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: 90 };
   }
 
   // Iron Butterfly (Guillermo 2026-10-19: "IB pero que yo decida el strike y las alas"): vende put y call en el centro y
