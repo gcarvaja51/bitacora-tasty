@@ -8074,7 +8074,7 @@ app.post('/api/spx/clic', async (req, res) => {
 // "generemos una tabla similar a la de polymarket con los datos basicos: bull put spread, bear call spread,
 // prima recibida o debito pagado, riesgo, delta". El bot local la dibuja en el grafico de BLACKBULL:US500 y
 // pregunta aca cada pocos segundos. Solo lectura (lo mismo que ya expone /api/tradier/executions, sin clave).
-// Se muestra el clic abierto; si no hay, el ultimo clic cerrado hoy; si tampoco, el trade del robot abierto.
+// Se muestra el clic abierto; si no hay, el ultimo clic cerrado hoy. Solo clics (2026-10-19): el robot no sale aca.
 const NOMBRE_ESTRUCTURA = {
   BULL_PUT_SPREAD: 'Bull Put Spread', BEAR_CALL_SPREAD: 'Bear Call Spread',
   BULL_CALL_SPREAD: 'Bull Call Spread', BEAR_PUT_SPREAD: 'Bear Put Spread',
@@ -8095,7 +8095,7 @@ app.get('/api/spx/clic/estado', async (req, res) => {
     if (!ex) ex = execs.find(e => e.strategyFamily === 'CLIC_TV' && e.status === 'closed' && e.fechaET === hoyET)
       || execs.find(e => e.strategyFamily === 'CLIC_TV' && e.status === 'closed'
                       && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(e.timestamp)) === hoyET);
-    if (!ex) { ex = execs.find(e => e.status === 'filled' && vigente(e)); origen = ex ? (ex.strategyFamily || 'ROBOT') : null; }
+    // 2026-10-19 (Guillermo): "que muestre solo mis clics" -- ya no cae al trade abierto del robot.
     if (!ex) {
       cacheEstadoClic = { ts: Date.now(), data: { ok: true, trade: null } };
       return res.json(cacheEstadoClic.data);
