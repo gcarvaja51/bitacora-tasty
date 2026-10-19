@@ -7264,7 +7264,9 @@ async function processDirectionalEntry(direction, meta = {}) {
   // segun gamma/IV, strikes por delta, envio y registro) es el mismo camino que el direccional automatico.
   // Queda en su propia familia CLIC_TV para no mezclar sus resultados ni sus logs con TENDENCIA.
   const forzado = !!meta.forzado;
-  const FAM = forzado ? 'CLIC_TV' : 'TENDENCIA';
+  // CLIC_REAL (2026-10-19): el clic que va a TastyTrade real usa este mismo camino solo para armar el vertical
+  // (meta.soloPreview) y no toca Tradier; su orden la manda src/clic_real.js tras la aprobacion de Guillermo.
+  const FAM = meta.familia || (forzado ? 'CLIC_TV' : 'TENDENCIA');
   try {
     // Obtener contexto de mercado
     const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
@@ -7753,6 +7755,11 @@ async function processDirectionalEntry(direction, meta = {}) {
       }),
     });
 
+    if (meta.soloPreview) {                 // CLIC_REAL: hasta aca, sin Tradier ni registro de señal
+      if (meta.out) { meta.out.signal = signal; meta.out.ctx = ctx; }
+      return true;
+    }
+
     // ── Ejecución automática en Tradier (sandbox) — las 4 verticales direccionales ──
     // Ampliado 2026-07-08: antes solo credito (Bull Put/Bear Call). Los debitos
     // (Bull Call/Bear Put) — que el sistema empieza a elegir con gamma negativo,
@@ -8067,6 +8074,49 @@ app.post('/api/spx/clic', async (req, res) => {
     console.error('[CLIC_TV] Error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// ── Clic REAL en TastyTrade (Guillermo 2026-10-19) — ver src/clic_real.js ──
+// Dos pasos: preview (arma, cotiza y hace dry-run) -> ejecutar (tras la aprobacion en el PC). Misma clave que CLIC_TV.
+// CLIC_REAL_MODO=apagado|dryrun|real en Railway; mientras no diga 'real', nada sale a la cuenta.
+const { crearClicReal } = require('./src/clic_real');
+const clicReal = crearClicReal({
+  tt, dataDir: DATA_DIR, horaETmin, isMarketHours,
+  obtenerSenal: async (direccion) => {
+    const out = {};
+    await processDirectionalEntry(direccion, { source: 'CLIC_REAL', timeframe: 'clic', forzado: true, soloPreview: true, familia: 'CLIC_REAL', out });
+    return out;
+  },
+  obtenerCadena: async () => (await fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/SPX`)).json(),
+  avisar: (texto) => fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+    method: 'POST', headers: { Title: 'Clic REAL SPX (TastyTrade)', Priority: 'high', Tags: 'moneybag', 'Content-Type': 'text/plain' }, body: texto,
+  }).catch(() => {}),
+});
+clicReal.vigilar();
+function claveClicOk(req) {
+  const clave = process.env.CLIC_TOKEN;
+  const dada = String(req.get('x-clic-token') || '');
+  return !!clave && dada.length === clave.length && require('crypto').timingSafeEqual(Buffer.from(dada), Buffer.from(clave));
+}
+app.post('/api/spx/clic-real', async (req, res) => {
+  if (!claveClicOk(req)) return res.status(401).json({ ok: false, error: 'clave inválida' });
+  const { accion, direccion, previewId } = req.body || {};
+  try {
+    if (accion === 'preview') {
+      const d = String(direccion || '').toUpperCase();
+      if (!['BULLISH', 'BEARISH'].includes(d)) return res.status(400).json({ ok: false, error: 'direccion BULLISH/BEARISH' });
+      return res.json(await clicReal.preview(d));
+    }
+    if (accion === 'ejecutar') return res.json(await clicReal.ejecutar(String(previewId || '')));
+    if (accion === 'cerrar') return res.json(await clicReal.cerrar('CIERRE_CLIC'));
+    return res.status(400).json({ ok: false, error: 'accion: preview | ejecutar | cerrar' });
+  } catch (e) {
+    console.error('[CLIC_REAL] Error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+app.get('/api/spx/clic-real/estado', async (req, res) => {
+  try { res.json(await clicReal.estado()); } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // ── Tabla del trade en TradingView (Guillermo 2026-10-12) ──
