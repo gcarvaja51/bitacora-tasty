@@ -63,6 +63,9 @@
       <span class="nav-icon">⚡</span>
       <span class="nav-label">SPX Señales</span>
     </div>
+    <div class="nav-item" onclick="nav('demo',this)">
+      <span class="icon">🧪</span> Cuenta demo SPX
+    </div>
     <div class="nav-item" onclick="nav('backtester',this)">
       <span class="icon">🔬</span> Backtester SPX
     </div>
@@ -591,6 +594,36 @@
     </div>
 
     <!-- ══ BUYING POWER DASHBOARD ══════════════ -->
+    <!-- ══ CUENTA DEMO SPX (clic de TradingView -> TastyTrade en dry-run, 2026-10-19) ══ -->
+    <div id="panel-demo" class="panel">
+      <div class="kpi-row cols-6" id="demo-kpis" style="margin-bottom:16px;"></div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span>Posición abierta</span><span id="demo-modo" style="font-size:11px;color:var(--muted);"></span>
+        </div>
+        <div id="demo-abierta" style="padding:12px 16px;"></div>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Saldo de la cuenta demo</div>
+        <div id="demo-curva" style="padding:8px 16px;"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">Trades demo <span id="demo-count" style="color:var(--blue);"></span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Estructura</th><th>Strikes</th><th>Precio entrada</th>
+              <th>Precio salida</th><th>P&amp;L bruto</th><th>Comisiones</th><th>P&amp;L neto</th><th>Motivo</th></tr></thead>
+            <tbody id="demo-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5;">
+        Cuenta ficticia de $2.000: cada clic de Trade Nation aprobado en el PC se simula contra la cadena real de TastyTrade
+        (dry-run). Entra y sale al medio + $0,05 en contra y el P&amp;L descuenta las comisiones que calcula TastyTrade.
+        No se puede reproducir una orden que en real no se llenaría.
+      </div>
+    </div>
+
     <div id="panel-bp" class="panel">
       <div id="bp-content"><div class="loader"><div class="spinner"></div></div></div>
     </div>
@@ -1059,6 +1092,7 @@ function nav(tab, el) {
   else if (tab==='spx')     loadSPX();
   else if (tab==='wheel')   { wheelView='tabla'; loadWheel(); }
   else if (tab==='bp')      loadBP();
+  else if (tab==='demo')    loadDemo();
   else if (tab==='chain')   initChainPanel();
   else if (tab==='alejandro') loadAlejandro();
   else if (tab==='today') loadToday();
@@ -4255,6 +4289,58 @@ async function runAI() {
 // ══════════════════════════════════════════
 //  BUYING POWER DASHBOARD
 // ══════════════════════════════════════════
+// ══ Cuenta demo SPX (2026-10-19) ══
+let demoTimer = null;
+async function loadDemo() {
+  clearInterval(demoTimer);
+  demoTimer = setInterval(() => { if ($('panel-demo').classList.contains('active')) pintarDemo(); else clearInterval(demoTimer); }, 15000);
+  await pintarDemo();
+}
+async function pintarDemo() {
+  let d;
+  try { d = await fetch('/api/spx/clic-real/demo?t=' + Date.now()).then(r => r.json()); }
+  catch (e) { $('demo-kpis').innerHTML = `<div class="dim">Error: ${e.message}</div>`; return; }
+  const usd = (v, signo) => v == null ? '—' : (signo && v > 0 ? '+' : v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const cls = v => v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+  const hora = iso => iso ? new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET' : '—';
+  $('demo-modo').textContent = d.modo === 'dryrun' ? 'modo demo (dry-run) · cuenta desde ' + new Date(d.desde).toLocaleDateString('es-CO') : 'ATENCIÓN: el clic está en modo ' + d.modo;
+  $('demo-kpis').innerHTML = [
+    kpiCard('Saldo', usd(d.saldo), `capital inicial ${usd(d.capital)}`, cls(d.saldo - d.capital)),
+    kpiCard('P&L realizado', usd(d.pnlRealizado, true), `${d.rendimientoPct >= 0 ? '+' : ''}${d.rendimientoPct}% de la cuenta`, cls(d.pnlRealizado)),
+    kpiCard('P&L abierto', usd(d.pnlAbierto, true), d.abierta ? 'neto estimado al natural' : 'sin posición', cls(d.pnlAbierto)),
+    kpiCard('Trades', d.trades, d.pctGanados == null ? '—' : `${d.ganados} ganados · ${d.pctGanados}%`),
+    kpiCard('Promedio', usd(d.promedio, true), `comisiones ${usd(d.comisiones)}`, cls(d.promedio)),
+    kpiCard('Disponible', usd(d.disponible), `máx. drawdown ${usd(d.maxDrawdown)}`),
+  ].join('');
+  const a = d.abierta;
+  $('demo-abierta').innerHTML = a
+    ? `<div style="font-family:var(--mono);font-size:13px;line-height:1.8;">
+         <b>${a.estructura}</b> ${a.strikes} · vence ${a.vence} · ${a.contratos} contrato ·
+         ${a.credito ? 'crédito' : 'débito'} ${usd(a.primaPts)} · riesgo máx ${usd(a.riesgoMaxUsd)} · ganancia máx ${usd(a.gananciaMaxUsd)}<br>
+         Abierta ${hora(a.abiertaEn)} con SPX ${a.spxEntrada ?? '—'} · delta ${a.deltaAhora != null ? a.deltaAhora.toFixed(3) : '—'} ·
+         P&amp;L <span class="${cls(a.pnl)}">${usd(a.pnl, true)}</span></div>`
+    : '<div class="dim">Sin posición abierta. Para abrir: BUY o SELL de TRADENATION:US500 en el Paper Trading y aprobar en el PC.</div>';
+  // curva del saldo (SVG simple)
+  const pts = d.curva || [];
+  if (pts.length < 2) $('demo-curva').innerHTML = '<div class="dim" style="padding:8px 0;">La curva aparece con el primer trade cerrado.</div>';
+  else {
+    const W = 900, H = 160, vs = pts.map(p => p.saldo), mn = Math.min(...vs, d.capital), mx = Math.max(...vs, d.capital), rg = (mx - mn) || 1;
+    const x = i => 10 + i * (W - 20) / (pts.length - 1), y = v => H - 10 - (v - mn) * (H - 20) / rg;
+    const linea = pts.map((p, i) => `${x(i).toFixed(1)},${y(p.saldo).toFixed(1)}`).join(' ');
+    $('demo-curva').innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;">
+      <line x1="10" x2="${W - 10}" y1="${y(d.capital)}" y2="${y(d.capital)}" stroke="var(--border2)" stroke-dasharray="4 4"/>
+      <polyline points="${linea}" fill="none" stroke="${d.saldo >= d.capital ? 'var(--green)' : 'var(--red)'}" stroke-width="2"/>
+      <text x="${W - 12}" y="${y(d.capital) - 4}" text-anchor="end" font-size="11" fill="var(--muted)">capital ${usd(d.capital)}</text></svg>`;
+  }
+  $('demo-count').textContent = d.lista.length ? `(${d.lista.length})` : '';
+  $('demo-tbody').innerHTML = d.lista.length ? d.lista.map(t => `<tr>
+      <td>${t.fecha}</td><td>${hora(t.abiertaEn)}</td><td>${hora(t.cerradaEn)}</td><td>${t.nombre}</td><td>${t.strikes}</td>
+      <td>${usd(t.entrada)}</td><td>${usd(t.salida)}</td><td class="${cls(t.pnlBruto)}">${usd(t.pnlBruto, true)}</td>
+      <td>${usd(t.comisiones)}</td><td class="${cls(t.pnlNeto)}"><b>${usd(t.pnlNeto, true)}</b></td>
+      <td>${t.estado === 'cerrada' ? (t.motivo || '') : '<span style="color:var(--blue);">abierta</span>'}</td></tr>`).join('')
+    : '<tr><td colspan="11" class="dim" style="text-align:center;padding:20px;">Todavía no hay trades demo.</td></tr>';
+}
+
 async function loadBP() {
   $('bp-content').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   let d;

@@ -32,6 +32,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   const frenoUsd = () => Number(process.env.CLIC_REAL_FRENO_USD || 400);
   const tolPts = () => Number(process.env.CLIC_REAL_TOL_PTS || 0.15);
   const cuenta = () => process.env.CLIC_REAL_CUENTA || tt.accountNumber;
+  // Cuenta demo (Guillermo 2026-10-19: "abramos una cuenta demo en tastytrade de 2000 dolares y la monitoreamos en la
+  // bitacora"): en modo dryrun los trades se llevan contra un capital ficticio que arranca en CLIC_DEMO_DESDE.
+  const demoCapital = () => Number(process.env.CLIC_DEMO_CAPITAL || 2000);
+  const demoDesde = () => process.env.CLIC_DEMO_DESDE || '2026-10-19T17:45:00Z';
   const previews = new Map();
   let ocupado = false;               // una orden a la vez: un segundo pedido mientras otro corre se rechaza
 
@@ -134,6 +138,21 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     return { lleno: false, orderId, motivo: 'no se lleno persiguiendo hasta el natural; cancelada' };
   }
 
+  function cuentaDemo() {
+    const desde = demoDesde();
+    const l = cargar().filter((x) => x.modo === 'dryrun' && x.abiertaEn >= desde && x.estado !== 'no_llenada').reverse();
+    const cerr = l.filter((x) => x.estado === 'cerrada' && x.pnlUsd != null);
+    const realizado = cerr.reduce((a, x) => a + x.pnlUsd, 0);
+    const abiertos = l.filter((x) => x.estado === 'abierta' || x.estado === 'cerrando');
+    const reservado = abiertos.reduce((a, x) => a + (x.riesgoMaxUsd || 0) + 2 * (x.feesApertura || 0), 0);
+    let eq = demoCapital(), pico = eq, dd = 0;
+    const curva = [{ t: desde, saldo: eq }];
+    for (const x of cerr) { eq += x.pnlUsd; pico = Math.max(pico, eq); dd = Math.max(dd, pico - eq); curva.push({ t: x.cerradaEn, saldo: +eq.toFixed(2) }); }
+    const saldo = +(demoCapital() + realizado).toFixed(2);
+    return { capital: demoCapital(), desde, saldo, disponible: +(saldo - reservado).toFixed(2), reservado: +reservado.toFixed(2),
+             realizado: +realizado.toFixed(2), maxDrawdown: +dd.toFixed(2), curva, trades: l, abiertos };
+  }
+
   function pnlHoy() {
     const hoy = fechaET();
     // solo los del modo vigente: las pruebas en dry-run no cuentan para el freno del dinero real
@@ -147,6 +166,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     if (m < 9 * 60 + 31 || m > 15 * 60 + 15) return { ok: false, error: 'fuera de la ventana de clics (9:31-15:15 ET)' };
     if (abierta()) return { ok: false, error: 'ya hay un clic real abierto: hay que cerrarlo primero' };
     if (pnlHoy() <= -frenoUsd()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
+    if (modo() === 'dryrun' && cuentaDemo().disponible < 100) return { ok: false, error: `cuenta demo sin saldo disponible ($${cuentaDemo().disponible})` };
     const out = await obtenerSenal(direccion);
     const sig = out.signal;
     if (!sig?.strikes) return { ok: false, error: out.reason || 'no se pudo armar el vertical' };
@@ -213,6 +233,11 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         if (precios.length >= 4) break;
       }
       if (!precios.length) return { ok: false, error: `fuera de los limites del clic (${p.credito ? 'credito < 1.20' : 'debito > 3.80'})` };
+      if (modo() === 'dryrun') {
+        const riesgo = Math.round((p.credito ? p.ancho - precios[0] : precios[0]) * 100);
+        const disp = cuentaDemo().disponible;
+        if (riesgo > disp) return { ok: false, error: `cuenta demo: el riesgo del vertical ($${riesgo}) supera el saldo disponible ($${disp})` };
+      }
       const r = await mandarYPerseguir({ ...p }, precios, true);
       const lista = cargar();
       const rec = {
@@ -329,6 +354,25 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
                                             salida: x.precioSalida, pnlNeto: x.pnlUsd, motivo: x.motivoCierre })) };
   }
 
+  // vista de la cuenta demo para la web: saldo, curva, trades y la posicion abierta con su P&L en vivo
+  async function demo() {
+    const c = cuentaDemo();
+    const cerr = c.trades.filter((x) => x.estado === 'cerrada');
+    const g = cerr.filter((x) => x.pnlUsd > 0).length;
+    let abierta = null;
+    if (c.abiertos[0]) { const e = await estado(); abierta = e.trade && e.trade.modo === 'dryrun' ? e.trade : null; }
+    return { ok: true, modo: modo(), capital: c.capital, desde: c.desde, saldo: c.saldo, disponible: c.disponible, reservado: c.reservado,
+             pnlRealizado: c.realizado, pnlAbierto: abierta?.pnl ?? 0, rendimientoPct: +(100 * c.realizado / c.capital).toFixed(2),
+             trades: cerr.length, ganados: g, pctGanados: cerr.length ? Math.round(100 * g / cerr.length) : null,
+             promedio: cerr.length ? +(c.realizado / cerr.length).toFixed(2) : null,
+             comisiones: +cerr.reduce((a, x) => a + (x.feesApertura || 0) + (x.feesCierre || 0), 0).toFixed(2),
+             maxDrawdown: c.maxDrawdown, curva: c.curva, abierta,
+             lista: c.trades.slice().reverse().map((x) => ({ id: x.id, fecha: x.fecha, abiertaEn: x.abiertaEn, cerradaEn: x.cerradaEn || null,
+               nombre: x.nombre, direccion: x.direccion, strikes: `${x.largo}/${x.corto}`, credito: x.credito, entrada: x.precioEntrada,
+               salida: x.precioSalida ?? null, spxEntrada: x.spxEntrada, pnlBruto: x.pnlBrutoUsd ?? null, pnlNeto: x.pnlUsd ?? null,
+               comisiones: +((x.feesApertura || 0) + (x.feesCierre || 0)).toFixed(2), motivo: x.motivoCierre || null, estado: x.estado })) };
+  }
+
   // seguro: a las 15:30 ET se cierra lo que quede abierto
   function vigilar() {
     setInterval(async () => {
@@ -339,7 +383,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     }, 20000);
   }
 
-  return { preview, ejecutar, cerrar, estado, vigilar, modo, resumen, _cuerpoOrden: cuerpoOrden, _r05: r05 };
+  return { preview, ejecutar, cerrar, estado, vigilar, modo, resumen, demo, _cuerpoOrden: cuerpoOrden, _r05: r05 };
 }
 
 module.exports = { crearClicReal, ACCION };
