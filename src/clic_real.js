@@ -79,7 +79,12 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
 
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return []; } };
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l, null, 2), 'utf8');
-  const abierta = () => cargar().find((x) => (x.estado === 'abierta' || x.estado === 'cerrando') && x.modo === modo());
+  // Ranuras (Guillermo 2026-10-20: "ajusta para que me permita abrir el IB adicional a la posición que tengo"):
+  // 'principal' = la del clic de TradingView (vertical, o IB con BUY de 2 desde plano) y 'adicional' = el Iron Butterfly
+  // que se abre con el botón IB del gráfico, sin tocar la posición de Paper Trading. Una posición por ranura.
+  const enCurso = (x) => (x.estado === 'abierta' || x.estado === 'cerrando') && x.modo === modo();
+  const abierta = (ranura = 'principal') => cargar().find((x) => enCurso(x) && (x.ranura || 'principal') === ranura);
+  const abiertas = () => cargar().filter(enCurso);
 
   // patas: [{ sym, lado }] con lado +1 = comprada, -1 = vendida (vertical: 2 patas; Iron Butterfly: 4). Los registros
   // de antes del 2026-10-19 traen { comprada, vendida } y se convierten aca.
@@ -289,14 +294,15 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
 
   // Iron Butterfly (Guillermo 2026-10-19: "IB pero que yo decida el strike y las alas"): vende put y call en el centro y
   // compra las alas a +-alas, 0DTE, 1 contrato. Credito; riesgo maximo = alas - credito.
-  async function previewIB(centro, alas) {
+  async function previewIB(centro, alas, ranura = 'principal') {
     if (modo() === 'apagado') return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
     const fuera = fueraDeVentana();
     if (fuera) return { ok: false, error: fuera };
     const noche = nocturna();
     centro = Math.round(Number(centro) / 5) * 5; alas = Math.round(Number(alas) / 5) * 5;
     if (!(centro > 1000) || !(alas >= 5 && alas <= 100)) return { ok: false, error: `centro ${centro} / alas ${alas} invalidos (alas de 5 a 100, multiplo de 5)` };
-    if (abierta()) return { ok: false, error: 'ya hay un clic real abierto: hay que cerrarlo primero' };
+    if (abierta(ranura)) return { ok: false, error: ranura === 'adicional' ? 'ya hay un IB adicional abierto: hay que cerrarlo primero'
+                                                                      : 'ya hay un clic real abierto: hay que cerrarlo primero' };
     if (pnlHoy() <= -frenoUsd()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
     const vence = noche ? proximoHabil() : fechaET();
     const exp = vence.replace(/-/g, '').slice(2);
@@ -314,7 +320,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       id: 'pv-' + Date.now(), creado: Date.now(), direccion: 'NEUTRAL', estrategia: 'IRON_BUTTERFLY', estructura: 'IB',
       nombre: 'Iron Butterfly', credito: true, legs, contratos: 1, vence, sesion: noche ? 'nocturna' : 'regular', corto: centro, largo: alas, ancho: alas,
       strikesTxt: `${centro - alas}/${centro}/${centro + alas}`, precioMedio, natural: r05(-q.compraNat, false),
-      deltaNeto: q.deltaNeto, spx: spx != null ? Number(spx) : null,
+      deltaNeto: q.deltaNeto, spx: spx != null ? Number(spx) : null, ranura,
       bp: dr?.data?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
       fees: dr?.data?.['fee-calculation']?.['total-fees'] ?? null, avisosDryRun: dr?.data?.warnings || [],
     };
@@ -334,7 +340,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     // sin vencimiento (Guillermo 2026-10-19: "no le pongas límite de tiempo a la aprobación"): al ejecutar se recotiza y,
     // si el precio se movió más de la tolerancia, vuelve un precio nuevo para una segunda confirmación
     if (ocupado) return { ok: false, error: 'ya hay una orden en curso' };
-    if (abierta()) return { ok: false, error: 'ya hay un clic real abierto' };
+    if (abierta(p.ranura || 'principal')) return { ok: false, error: 'ya hay un clic real abierto en esa ranura' };
     if (pnlHoy() <= -frenoUsd()) return { ok: false, error: 'freno diario alcanzado' };
     ocupado = true;
     previews.delete(previewId);
@@ -379,6 +385,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         nombre: p.nombre, credito: p.credito, legs: p.legs, contratos: 1, vence: p.vence, corto: p.corto, largo: p.largo,
         ancho: p.ancho, spxEntrada: p.spx, deltaEntrada: q.deltaNeto, vendidasEntrada: q.vendidas || null, ordenApertura: r.orderId, abiertaEn: new Date().toISOString(),
         estructura: p.estructura || 'VERTICAL', strikesTxt: p.strikesTxt || null, sesion: p.sesion || 'regular',
+        ranura: p.ranura || 'principal',
       };
       if (!r.lleno) {
         lista.unshift({ ...rec, estado: 'no_llenada', motivo: r.motivo, precios });
@@ -399,8 +406,8 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     }
   }
 
-  async function cerrar(motivo = 'CIERRE_CLIC') {
-    const rec0 = abierta();
+  async function cerrar(motivo = 'CIERRE_CLIC', ranura = 'principal') {
+    const rec0 = abierta(ranura);
     if (!rec0) return { ok: true, nada: true };
     if (ocupado) return { ok: false, error: 'ya hay una orden en curso' };
     ocupado = true;
@@ -475,9 +482,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     if (Date.now() - cacheEstado.ts < 1500 && cacheEstado.data) return cacheEstado.data;
     const hoy = fechaET();
     const l = cargar();
-    const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && x.modo === modo());
-    let trade = null;
-    if (rec) {
+    const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && x.modo === modo()
+                                         && (x.ranura || 'principal') === 'principal');
+    const vista = async (rec) => {
       let pnl = rec.pnlUsd ?? null, delta = rec.deltaEntrada, vendidas = rec.vendidasEntrada || null, spxAhora = null;
       if (rec.estado !== 'cerrada') {
         try {
@@ -495,16 +502,21 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
             : Number((await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last) || null;
         } catch (e) { /* informativo */ }
       }
-      trade = {
+      return {
         id: rec.id, origen: 'CLIC_REAL', modo: rec.modo, estado: rec.estado === 'cerrada' ? 'closed' : 'filled',
         estructura: rec.nombre, direccion: rec.direccion, credito: rec.credito, contratos: rec.contratos, vence: rec.vence,
         strikes: rec.strikesTxt || `${rec.corto}/${rec.largo}`, primaPts: rec.precioEntrada, primaUsd: Math.round(rec.precioEntrada * 100 * rec.contratos),
         riesgoMaxUsd: rec.riesgoMaxUsd, gananciaMaxUsd: rec.gananciaMaxUsd, deltaEntrada: rec.deltaEntrada, deltaAhora: delta,
         vendidas, spxEntrada: rec.spxEntrada, abiertaEn: rec.abiertaEn, cerradaEn: rec.cerradaEn || null, motivoCierre: rec.motivoCierre || null,
         cierrePedido: rec.estado === 'cerrando', pnl, spxAhora, simulado: !!rec.simulado, sesion: rec.sesion || 'regular',
+        ranura: rec.ranura || 'principal',
       };
-    }
-    cacheEstado = { ts: Date.now(), data: { ok: true, modo: modo(), pnlHoy: pnlHoy(), freno: frenoUsd(), trade } };
+    };
+    let trade = null;
+    if (rec) trade = await vista(rec);
+    const ad = abierta('adicional');
+    const adicional = ad ? await vista(ad) : null;
+    cacheEstado = { ts: Date.now(), data: { ok: true, modo: modo(), pnlHoy: pnlHoy(), freno: frenoUsd(), trade, adicional } };
     return cacheEstado.data;
   }
 
@@ -530,10 +542,14 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const c = cuentaDemo();
     const cerr = c.trades.filter((x) => x.estado === 'cerrada');
     const g = cerr.filter((x) => x.pnlUsd > 0).length;
-    let abierta = null;
-    if (c.abiertos[0]) { const e = await estado(); abierta = e.trade && e.trade.modo === 'dryrun' ? e.trade : null; }
+    let abierta = null, adicional = null;
+    if (c.abiertos[0]) {
+      const e = await estado();
+      abierta = e.trade && e.trade.modo === 'dryrun' && e.trade.estado !== 'closed' ? e.trade : null;
+      adicional = e.adicional && e.adicional.modo === 'dryrun' ? e.adicional : null;
+    }
     return { ok: true, modo: modo(), capital: c.capital, desde: c.desde, saldo: c.saldo, disponible: c.disponible, reservado: c.reservado,
-             pnlRealizado: c.realizado, pnlAbierto: abierta?.pnl ?? 0, rendimientoPct: +(100 * c.realizado / c.capital).toFixed(2),
+             pnlRealizado: c.realizado, pnlAbierto: +((abierta?.pnl ?? 0) + (adicional?.pnl ?? 0)).toFixed(2), adicional, rendimientoPct: +(100 * c.realizado / c.capital).toFixed(2),
              trades: cerr.length, ganados: g, pctGanados: cerr.length ? Math.round(100 * g / cerr.length) : null,
              promedio: cerr.length ? +(c.realizado / cerr.length).toFixed(2) : null,
              comisiones: +cerr.reduce((a, x) => a + (x.feesApertura || 0) + (x.feesCierre || 0), 0).toFixed(2),
@@ -553,12 +569,15 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   function vigilar() {
     setInterval(async () => {
       try {
-        if (!abierta() || ocupado) return;
-        const m = horaETmin(), rec = abierta();
-        if (rec.sesion === 'nocturna') {
-          // la práctica nocturna se cierra sola al terminar su ventana (23:30 ET)
-          if (m > NOCHE_HASTA || m < NOCHE_DESDE) await cerrar('CIERRE_FIN_PRACTICA_NOCTURNA');
-        } else if (m >= 15 * 60 + 30) await cerrar('CIERRE_PRE_CLOSE_1530');
+        if (ocupado) return;
+        const m = horaETmin();
+        for (const rec of abiertas()) {             // todas las ranuras (principal y el IB adicional)
+          const r = rec.ranura || 'principal';
+          if (rec.sesion === 'nocturna') {
+            // la práctica nocturna se cierra sola al terminar su ventana (23:30 ET)
+            if (m > NOCHE_HASTA || m < NOCHE_DESDE) await cerrar('CIERRE_FIN_PRACTICA_NOCTURNA', r);
+          } else if (m >= 15 * 60 + 30) await cerrar('CIERRE_PRE_CLOSE_1530', r);
+        }
       } catch (e) { console.error('[CLIC_REAL] vigilancia:', e.message); }
     }, 20000);
   }

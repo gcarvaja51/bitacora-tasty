@@ -8166,9 +8166,11 @@ function claveClicOk(req) {
 app.post('/api/spx/clic-real', async (req, res) => {
   if (!claveClicOk(req)) return res.status(401).json({ ok: false, error: 'clave inválida' });
   const { accion, direccion, previewId, estructura, centro, alas } = req.body || {};
+  // ranura: 'principal' (clic de TV) o 'adicional' (IB del botón, Guillermo 2026-10-20)
+  const ranura = String((req.body || {}).ranura || '') === 'adicional' ? 'adicional' : 'principal';
   try {
     if (accion === 'preview' && String(estructura || '').toUpperCase() === 'IB') {
-      return res.json(await clicReal.previewIB(centro, alas));
+      return res.json(await clicReal.previewIB(centro, alas, ranura));
     }
     if (accion === 'preview') {
       const d = String(direccion || '').toUpperCase();
@@ -8176,7 +8178,7 @@ app.post('/api/spx/clic-real', async (req, res) => {
       return res.json(await clicReal.preview(d));
     }
     if (accion === 'ejecutar') return res.json(await clicReal.ejecutar(String(previewId || '')));
-    if (accion === 'cerrar') return res.json(await clicReal.cerrar('CIERRE_CLIC'));
+    if (accion === 'cerrar') return res.json(await clicReal.cerrar(ranura === 'adicional' ? 'CIERRE_BOTON_IB' : 'CIERRE_CLIC', ranura));
     return res.status(400).json({ ok: false, error: 'accion: preview | ejecutar | cerrar' });
   } catch (e) {
     console.error('[CLIC_REAL] Error:', e.message);
