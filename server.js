@@ -7289,7 +7289,11 @@ async function processDirectionalEntry(direction, meta = {}) {
     // Obtener contexto de mercado. Con clic (forzado) se reusa el ultimo contexto si tiene < 60 s y se le pone el
     // precio de ahora (2026-10-19: armarlo de cero tardaba ~50 s y la ventana de validacion llegaba a los 2 min).
     let ctx;
+    // diagnostico de tiempos del clic (2026-10-20: una ventana tardo 44 s con el servidor caliente)
+    const _t0 = Date.now(), diag = meta.out ? (meta.out.diag = {}) : {};
+    diag.ctxEdadSeg = ultimoCtxSPX.ts ? Math.round((Date.now() - ultimoCtxSPX.ts) / 1000) : null;
     if (forzado && ultimoCtxSPX.ctx && Date.now() - ultimoCtxSPX.ts < 90000) {
+      diag.ctx = 'reusado';
       ctx = { ...ultimoCtxSPX.ctx };
       const s = await precioSPXFresco({ rapido: true });
       ctx.spxPrice    = s?.price ?? ctx.spxPrice;
@@ -7298,9 +7302,11 @@ async function processDirectionalEntry(direction, meta = {}) {
       ctx.spotFiable  = s?.edadSeg != null && s.edadSeg <= MAX_EDAD_SPOT_SEG;
       ctx.ctxReusadoSeg = Math.round((Date.now() - ultimoCtxSPX.ts) / 1000);
     } else {
+      diag.ctx = 'rearmado';
       const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
       ctx = await ctxRes.json();
     }
+    diag.ctxMs = Date.now() - _t0;
 
     // No abrir con un precio viejo (2026-08-16, ver spotFiable en
     // buildSPXContext). Con el spot degradado, la seleccion de strikes, entrySpx
@@ -7552,13 +7558,18 @@ async function processDirectionalEntry(direction, meta = {}) {
     // ~10 s y era el grueso del preview del clic. Con clic se usa la que se rearma sola cada 20 s (cadenaClic, abajo);
     // los strikes se eligen con ella y las patas elegidas se recotizan en vivo en clic_real antes de mostrar el precio.
     let chainData;
+    diag.antesCadenaMs = Date.now() - _t0;
+    diag.cadenaEdadSeg = cadenaClic.ts ? Math.round((Date.now() - cadenaClic.ts) / 1000) : null;
     if (forzado && cadenaClic.data && Date.now() - cadenaClic.ts < 45000) {
+      diag.cadena = 'cache';
       chainData = cadenaClic.data;
     } else {
+      diag.cadena = 'descargada';
       const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX${forzado ? '?limit=2&cerca=250' : ''}`);
       chainData = await chainRes.json();
       if (forzado && chainData?.expirations?.length) cadenaClic = { ts: Date.now(), data: chainData };
     }
+    diag.cadenaMs = Date.now() - _t0 - diag.antesCadenaMs;
     let strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType, targetDelta, spreadWidth);
 
     // CLIC_TV en credito (2026-10-18, decision de Guillermo): credito minimo de $1.20 por contrato ($120). Si el delta

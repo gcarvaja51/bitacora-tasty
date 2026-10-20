@@ -245,7 +245,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
                         strikes: { expiry: vence, shortStrike: atmN, longStrike: alc ? atmN - 5 : atmN + 5 } },
               ctx: { spxPrice: spxN } };
     } else {
+      var _ts = Date.now();
       out = await obtenerSenal(direccion);
+      var _senalMs = Date.now() - _ts;
     }
     const sig = out.signal;
     if (!sig?.strikes) return { ok: false, error: out.reason || 'no se pudo armar el vertical' };
@@ -286,13 +288,15 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       return v;
     };
     // las dos en paralelo (2026-10-20, meta de 5 s del clic a la orden): cada una cotiza y hace su dry-run
+    const _tv = Date.now();
     const variantes = await Promise.all([armar('ATM', 'At the money', atm), armar('OTM5', 'A 5 puntos del precio', atm + otm)]);
+    const tiempos = { ...(out.diag || {}), senalMs: typeof _senalMs === 'number' ? _senalMs : null, variantesMs: Date.now() - _tv };
     for (const [kk, v] of previews) if (Date.now() - v.creado > 6 * 3600 * 1000) previews.delete(kk);
     if (variantes.every((v) => v.noCumple)) {
       return { ok: false, error: `ninguna opcion cumple las reglas del clic (ATM: ${variantes[0].noCumple}; a 5 pts: ${variantes[1].noCumple})` };
     }
     const p = variantes.find((v) => !v.noCumple);
-    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: null };
+    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: null, tiempos };
   }
 
   // Iron Butterfly (Guillermo 2026-10-19: "IB pero que yo decida el strike y las alas"): vende put y call en el centro y
