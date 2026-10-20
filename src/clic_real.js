@@ -141,9 +141,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
 
   // manda la orden y la persigue: precios = [medio, ..., natural]. Devuelve {lleno, precio, orderId} o {lleno:false}
   async function mandarYPerseguir(rec, precios, abrir, esperaMs = 8000) {
-    // comisiones que TastyTrade calcula para esta orden (dry-run); se descuentan del P&L (2026-10-19)
-    const dr = await dryRun(cuerpoOrden(rec, precios[0], abrir));
-    const fees = Number(dr?.data?.['fee-calculation']?.['total-fees'] || 0);
+    // comisiones que TastyTrade calcula para esta orden (dry-run); se descuentan del P&L (2026-10-19). En la apertura
+    // ya vienen del dry-run del preview (rec.feesConocidas): no se repite esa llamada (2026-10-20, meta de 5 s)
+    const fees = rec.feesConocidas != null ? Number(rec.feesConocidas)
+      : Number((await dryRun(cuerpoOrden(rec, precios[0], abrir)))?.data?.['fee-calculation']?.['total-fees'] || 0);
     if (modo() === 'dryrun') {
       // demo (Guillermo 2026-10-19): llena al medio + 0.05 en contra (el segundo escalon), un deslizamiento tipico
       // de los spreads 0DTE del SPX; si el natural esta al medio, al natural.
@@ -276,7 +277,8 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       previews.set(v.id, v);
       return v;
     };
-    const variantes = [await armar('ATM', 'At the money', atm), await armar('OTM5', 'A 5 puntos del precio', atm + otm)];
+    // las dos en paralelo (2026-10-20, meta de 5 s del clic a la orden): cada una cotiza y hace su dry-run
+    const variantes = await Promise.all([armar('ATM', 'At the money', atm), armar('OTM5', 'A 5 puntos del precio', atm + otm)]);
     for (const [kk, v] of previews) if (Date.now() - v.creado > 6 * 3600 * 1000) previews.delete(kk);
     if (variantes.every((v) => v.noCumple)) {
       return { ok: false, error: `ninguna opcion cumple las reglas del clic (ATM: ${variantes[0].noCumple}; a 5 pts: ${variantes[1].noCumple})` };
@@ -369,7 +371,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         if (riesgo > disp) return { ok: false, error: `cuenta demo: el riesgo del vertical ($${riesgo}) supera el saldo disponible ($${disp})` };
       }
       const t0 = Date.now();
-      const r = await mandarYPerseguir({ ...p }, precios, true);
+      const r = await mandarYPerseguir({ ...p, feesConocidas: p.fees ?? null }, precios, true);
       const segEjec = +((Date.now() - t0) / 1000).toFixed(1);
       const lista = cargar();
       const rec = {
@@ -418,6 +420,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       }
       if (!precios.length) precios.push(Math.max(0.05, nat));
       const t0 = Date.now();
+      // el SPX de salida (para el informe) se pide a la vez que se manda la orden, no después (2026-10-20)
+      const spxSal = (rec.sesion === 'nocturna' ? spxSintetico(rec.vence)
+        : tt._req('/market-data?symbols[]=SPX').then((d) => Number(d?.data?.items?.[0]?.last) || null)).catch(() => null);
       const r = await mandarYPerseguir({ ...rec }, precios, false, 7000);
       const segEjecCierre = +((Date.now() - t0) / 1000).toFixed(1);
       lista = cargar();
@@ -435,11 +440,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       rec.pnlBrutoUsd = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * rec.contratos);
       rec.pnlUsd = +(rec.pnlBrutoUsd - (rec.feesApertura || 0) - rec.feesCierre).toFixed(2);   // neto de comisiones
       rec.dayTrade = rec.fecha === fechaET();
-      // SPX al cerrar, para el informe del trade (informativo: si falla no se detiene el cierre)
-      try {
-        rec.spxSalida = rec.sesion === 'nocturna' ? await spxSintetico(rec.vence)
-          : Number((await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last) || null;
-      } catch (e) { rec.spxSalida = null; }
+      rec.spxSalida = await spxSal;          // SPX al cerrar, para el informe del trade (informativo)
       guardar(lista);
       // Guillermo 2026-10-19: el resultado en dolares tiene que verse en la notificacion -> va en el titulo
       const usd = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
@@ -470,7 +471,8 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
 
   let cacheEstado = { ts: 0, data: null };
   async function estado() {
-    if (Date.now() - cacheEstado.ts < 4000 && cacheEstado.data) return cacheEstado.data;
+    // 1,5 s (era 4): la tabla de TV pide cada 2 s y el P&L no debe tener más de ~3,5 s (Guillermo 2026-10-20)
+    if (Date.now() - cacheEstado.ts < 1500 && cacheEstado.data) return cacheEstado.data;
     const hoy = fechaET();
     const l = cargar();
     const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && x.modo === modo());

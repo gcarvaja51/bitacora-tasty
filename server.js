@@ -6168,6 +6168,7 @@ async function refrescarRejillasGex() {
 // CLIC_REAL) lo reusa si tiene menos de 60 s, refrescando solo el precio, para que la ventana de validacion de
 // Guillermo no tarde 2 minutos en aparecer.
 let ultimoCtxSPX = { ts: 0, ctx: null };
+let cadenaClic = { ts: 0, data: null };   // cadena 0DTE/1DTE +-250 del clic, rearmada cada 20 s (2026-10-20)
 async function buildSPXContext() {
   const c = await buildSPXContextImpl();
   if (c && c.spxPrice) ultimoCtxSPX = { ts: Date.now(), ctx: c };
@@ -7545,8 +7546,17 @@ async function processDirectionalEntry(direction, meta = {}) {
 
     // Buscar strikes con delta configurable
     // Con clic, solo 0DTE/1DTE y +-250 pts (2026-10-19): la cadena entera (6 vencimientos, ~6000 contratos) tarda ~35 s.
-    const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX${forzado ? '?limit=2&cerca=250' : ''}`);
-    const chainData = await chainRes.json();
+    // 2026-10-20 (Guillermo: "después del click la ejecución mucho más rápida, meta 5 s"): bajar esta cadena tardaba
+    // ~10 s y era el grueso del preview del clic. Con clic se usa la que se rearma sola cada 20 s (cadenaClic, abajo);
+    // los strikes se eligen con ella y las patas elegidas se recotizan en vivo en clic_real antes de mostrar el precio.
+    let chainData;
+    if (forzado && cadenaClic.data && Date.now() - cadenaClic.ts < 45000) {
+      chainData = cadenaClic.data;
+    } else {
+      const chainRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX${forzado ? '?limit=2&cerca=250' : ''}`);
+      chainData = await chainRes.json();
+      if (forzado && chainData?.expirations?.length) cadenaClic = { ts: Date.now(), data: chainData };
+    }
     let strikes = findStrikesByDelta(chainData.expirations || [], sel.strategy, ctx.spxPrice, sel.expType, targetDelta, spreadWidth);
 
     // CLIC_TV en credito (2026-10-18, decision de Guillermo): credito minimo de $1.20 por contrato ($120). Si el delta
@@ -8134,6 +8144,18 @@ setInterval(async () => {
   try { await buildSPXContext(); } catch (e) { console.error('[CTX] rearmado en segundo plano:', e.message); }
   finally { rearmandoCtx = false; }
 }, 45000);
+// Cadena del clic siempre lista (2026-10-20, meta de 5 s): 0DTE/1DTE a +-250 pts, rearmada cada 20 s en horario de
+// mercado (nunca dos a la vez). processDirectionalEntry la usa si tiene menos de 45 s.
+let rearmandoCadena = false;
+setInterval(async () => {
+  if (rearmandoCadena || !isMarketHours() || Date.now() - cadenaClic.ts < 18000) return;
+  rearmandoCadena = true;
+  try {
+    const d = await (await fetch(`http://localhost:${process.env.PORT||3000}/api/option-chain/SPX?limit=2&cerca=250`)).json();
+    if (d?.expirations?.length) cadenaClic = { ts: Date.now(), data: d };
+  } catch (e) { console.error('[CADENA] rearmado en segundo plano:', e.message); }
+  finally { rearmandoCadena = false; }
+}, 20000);
 function claveClicOk(req) {
   const clave = process.env.CLIC_TOKEN;
   const dada = String(req.get('x-clic-token') || '');
