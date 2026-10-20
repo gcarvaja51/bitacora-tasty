@@ -612,7 +612,7 @@
         <div class="table-wrap">
           <table>
             <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Estructura</th><th>Strikes</th><th>Precio entrada</th>
-              <th>Precio salida</th><th>P&amp;L bruto</th><th>Comisiones</th><th>P&amp;L neto</th><th>Motivo</th></tr></thead>
+              <th>Precio salida</th><th>P&amp;L bruto</th><th>Comisiones</th><th>P&amp;L neto</th><th>Motivo</th><th>PDF</th></tr></thead>
             <tbody id="demo-tbody"></tbody>
           </table>
         </div>
@@ -4333,12 +4333,17 @@ async function pintarDemo() {
       <text x="${W - 12}" y="${y(d.capital) - 4}" text-anchor="end" font-size="11" fill="var(--muted)">capital ${usd(d.capital)}</text></svg>`;
   }
   $('demo-count').textContent = d.lista.length ? `(${d.lista.length})` : '';
+  // 2026-10-20 (Guillermo: "en la bitácora pongamos el pdf de cada posición"): lo genera y sube el bot del PC al cerrar
+  let pdfs = {};
+  try { pdfs = await fetch('/api/informe-trade?t=' + Date.now()).then(r => r.json()); } catch (e) { /* sin PDFs */ }
+  const pdf = t => pdfs[t.id] ? `<a href="/api/informe-trade/${encodeURIComponent(t.id)}" target="_blank" rel="noopener">📄 Ver</a>`
+    : `<span class="dim">${t.estado === 'cerrada' ? 'generando…' : '—'}</span>`;
   $('demo-tbody').innerHTML = d.lista.length ? d.lista.map(t => `<tr>
       <td>${t.fecha}</td><td>${hora(t.abiertaEn)}</td><td>${hora(t.cerradaEn)}</td><td>${t.nombre}</td><td>${t.strikes}</td>
       <td>${usd(t.entrada)}</td><td>${usd(t.salida)}</td><td class="${cls(t.pnlBruto)}">${usd(t.pnlBruto, true)}</td>
       <td>${usd(t.comisiones)}</td><td class="${cls(t.pnlNeto)}"><b>${usd(t.pnlNeto, true)}</b></td>
-      <td>${t.estado === 'cerrada' ? (t.motivo || '') : '<span style="color:var(--blue);">abierta</span>'}</td></tr>`).join('')
-    : '<tr><td colspan="11" class="dim" style="text-align:center;padding:20px;">Todavía no hay trades demo.</td></tr>';
+      <td>${t.estado === 'cerrada' ? (t.motivo || '') : '<span style="color:var(--blue);">abierta</span>'}</td><td>${pdf(t)}</td></tr>`).join('')
+    : '<tr><td colspan="12" class="dim" style="text-align:center;padding:20px;">Todavía no hay trades demo.</td></tr>';
 }
 
 async function loadBP() {

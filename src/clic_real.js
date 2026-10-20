@@ -435,6 +435,11 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       rec.pnlBrutoUsd = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * rec.contratos);
       rec.pnlUsd = +(rec.pnlBrutoUsd - (rec.feesApertura || 0) - rec.feesCierre).toFixed(2);   // neto de comisiones
       rec.dayTrade = rec.fecha === fechaET();
+      // SPX al cerrar, para el informe del trade (informativo: si falla no se detiene el cierre)
+      try {
+        rec.spxSalida = rec.sesion === 'nocturna' ? await spxSintetico(rec.vence)
+          : Number((await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last) || null;
+      } catch (e) { rec.spxSalida = null; }
       guardar(lista);
       // Guillermo 2026-10-19: el resultado en dolares tiene que verse en la notificacion -> va en el titulo
       const usd = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
@@ -534,7 +539,12 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
              lista: c.trades.slice().reverse().map((x) => ({ id: x.id, fecha: x.fecha, abiertaEn: x.abiertaEn, cerradaEn: x.cerradaEn || null,
                nombre: x.nombre, direccion: x.direccion, strikes: x.strikesTxt || `${x.largo}/${x.corto}`, credito: x.credito, entrada: x.precioEntrada,
                salida: x.precioSalida ?? null, spxEntrada: x.spxEntrada, pnlBruto: x.pnlBrutoUsd ?? null, pnlNeto: x.pnlUsd ?? null,
-               comisiones: +((x.feesApertura || 0) + (x.feesCierre || 0)).toFixed(2), motivo: x.motivoCierre || null, estado: x.estado })) };
+               comisiones: +((x.feesApertura || 0) + (x.feesCierre || 0)).toFixed(2), motivo: x.motivoCierre || null, estado: x.estado,
+               // 2026-10-20 (Guillermo: "en la bitácora pongamos el pdf de cada posición"): lo que necesita el informe del bot
+               estructura: x.estructura || 'VERTICAL', corto: x.corto, largo: x.largo, ancho: x.ancho, vence: x.vence,
+               contratos: x.contratos, riesgoMaxUsd: x.riesgoMaxUsd, gananciaMaxUsd: x.gananciaMaxUsd, deltaEntrada: x.deltaEntrada,
+               vendidasEntrada: x.vendidasEntrada || null, spxSalida: x.spxSalida ?? null, sesion: x.sesion || 'regular',
+               feesApertura: x.feesApertura || 0, feesCierre: x.feesCierre || 0, segEjecApertura: x.segEjecApertura ?? null })) };
   }
 
   // seguro: a las 15:30 ET se cierra lo que quede abierto
