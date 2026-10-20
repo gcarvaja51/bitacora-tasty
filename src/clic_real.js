@@ -272,12 +272,12 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       return v;
     };
     const variantes = [await armar('ATM', 'At the money', atm), await armar('OTM5', 'A 5 puntos del precio', atm + otm)];
-    for (const [kk, v] of previews) if (Date.now() - v.creado > 10 * 60 * 1000) previews.delete(kk);
+    for (const [kk, v] of previews) if (Date.now() - v.creado > 6 * 3600 * 1000) previews.delete(kk);
     if (variantes.every((v) => v.noCumple)) {
       return { ok: false, error: `ninguna opcion cumple las reglas del clic (ATM: ${variantes[0].noCumple}; a 5 pts: ${variantes[1].noCumple})` };
     }
     const p = variantes.find((v) => !v.noCumple);
-    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: 90 };
+    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: null };
   }
 
   // Iron Butterfly (Guillermo 2026-10-19: "IB pero que yo decida el strike y las alas"): vende put y call en el centro y
@@ -317,14 +317,15 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       return { ok: false, error: `cuenta demo: el riesgo del IB ($${p.riesgoMaxUsd}) supera el saldo disponible ($${cuentaDemo().disponible})` };
     }
     previews.set(p.id, p);
-    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, venceEnSeg: 90 };
+    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, venceEnSeg: null };
   }
 
   async function ejecutar(previewId) {
     if (modo() === 'apagado') return { ok: false, error: 'clic real apagado' };
     const p = previews.get(previewId);
     if (!p) return { ok: false, error: 'preview inexistente o vencido: hay que volver a pedirlo' };
-    if (Date.now() - p.creado > 90 * 1000) return { ok: false, error: 'preview vencido (90 s): hay que volver a pedirlo' };
+    // sin vencimiento (Guillermo 2026-10-19: "no le pongas límite de tiempo a la aprobación"): al ejecutar se recotiza y,
+    // si el precio se movió más de la tolerancia, vuelve un precio nuevo para una segunda confirmación
     if (ocupado) return { ok: false, error: 'ya hay una orden en curso' };
     if (abierta()) return { ok: false, error: 'ya hay un clic real abierto' };
     if (pnlHoy() <= -frenoUsd()) return { ok: false, error: 'freno diario alcanzado' };
