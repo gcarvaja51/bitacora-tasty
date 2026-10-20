@@ -221,7 +221,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     if (nocturna()) return null;
     if (!isMarketHours()) return 'mercado cerrado (práctica nocturna en demo: 20:15-23:30 ET, domingo a jueves)';
     const m = horaETmin();
-    if (m < 9 * 60 + 31 || m > 15 * 60 + 15) return 'fuera de la ventana de clics (9:31-15:15 ET; práctica nocturna en demo: 20:15-23:30 ET)';
+    // Guillermo 2026-10-20 ("quita la restricción, para ver cómo nos va"): en la DEMO se puede abrir hasta las 15:55 ET
+    // (las 0DTE vencen a las 16:00); en la cuenta real sigue 9:31-15:15
+    const hasta = modo() === 'dryrun' ? 15 * 60 + 55 : 15 * 60 + 15;
+    if (m < 9 * 60 + 31 || m > hasta) return `fuera de la ventana de clics (9:31-${modo() === 'dryrun' ? '15:55' : '15:15'} ET; práctica nocturna en demo: 20:15-23:30 ET)`;
     return null;
   }
 
@@ -583,7 +586,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
           if (rec.sesion === 'nocturna') {
             // la práctica nocturna se cierra sola al terminar su ventana (23:30 ET)
             if (m > NOCHE_HASTA || m < NOCHE_DESDE) await cerrar('CIERRE_FIN_PRACTICA_NOCTURNA', r);
-          } else if (m >= 15 * 60 + 30) await cerrar('CIERRE_PRE_CLOSE_1530', r);
+          } else if (m >= (modo() === 'dryrun' ? 15 * 60 + 59 : 15 * 60 + 30)) {
+            // seguro antes del vencimiento: 15:30 en la real; en la demo 15:59 (Guillermo 2026-10-20: ventana hasta 15:55)
+            await cerrar(modo() === 'dryrun' ? 'CIERRE_PRE_CLOSE_1559' : 'CIERRE_PRE_CLOSE_1530', r);
+          }
         }
       } catch (e) { console.error('[CLIC_REAL] vigilancia:', e.message); }
     }, 20000);
