@@ -37,7 +37,45 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   const demoCapital = () => Number(process.env.CLIC_DEMO_CAPITAL || 2000);
   const demoDesde = () => process.env.CLIC_DEMO_DESDE || '2026-10-19T17:45:00Z';
   const previews = new Map();
-  let ocupado = false;               // una orden a la vez: un segundo pedido mientras otro corre se rechaza
+  let ocupado = false;
+
+  // ── Sesión nocturna de práctica (Guillermo 2026-10-19: "solo para un tema didáctico, pongamos en demo después de las
+  // 5 pm hora NY para que podamos hacer ejercicios"). Las opciones del SPX vuelven a cotizar en la sesión global de Cboe
+  // (GTH, desde las 20:15 ET, con vencimiento del día hábil siguiente); entre 16:15 y 20:15 no hay precios. Solo en
+  // modo dryrun: nunca sale una orden real de noche. El SPX contado no se mueve fuera de horario, así que el precio del
+  // subyacente se saca de las opciones (paridad put-call en el strike ATM: S = K + C - P).
+  const NOCHE_DESDE = 20 * 60 + 15, NOCHE_HASTA = 23 * 60 + 30;
+  const diaSemET = () => new Date(fechaET() + 'T12:00:00Z').getUTCDay();          // 0 = domingo
+  const nocturna = () => modo() === 'dryrun' && String(process.env.CLIC_NOCHE || 'on').toLowerCase() !== 'off'
+    && diaSemET() <= 4 && horaETmin() >= NOCHE_DESDE && horaETmin() <= NOCHE_HASTA;  // domingo a jueves en la noche
+  const proximoHabil = () => {
+    for (let i = 1; i <= 5; i++) {
+      const f = fechaET(new Date(Date.now() + i * 86400000));
+      const w = new Date(f + 'T12:00:00Z').getUTCDay();
+      if (w >= 1 && w <= 5) return f;
+    }
+    return null;
+  };
+  let cacheSint = { ts: 0, v: null };
+  async function spxSintetico(vence) {
+    if (Date.now() - cacheSint.ts < 15000 && cacheSint.v) return cacheSint.v;
+    const exp = vence.replace(/-/g, '').slice(2);
+    const occ = (t, k) => `SPXW  ${exp}${t}${String(Math.round(k * 1000)).padStart(8, '0')}`;
+    let s = Number((await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last) || null;
+    if (!s) throw new Error('sin precio de referencia del SPX');
+    for (let i = 0; i < 3; i++) {
+      const k = Math.round(s / 5) * 5;
+      const d = await tt._req(`/market-data?symbols[]=${encodeURIComponent(occ('C', k))}&symbols[]=${encodeURIComponent(occ('P', k))}`);
+      const q = {};
+      for (const it of d?.data?.items || []) q[it.symbol] = (Number(it.bid) + Number(it.ask)) / 2;
+      const c = q[occ('C', k)], p = q[occ('P', k)];
+      if (!Number.isFinite(c) || !Number.isFinite(p)) throw new Error('las opciones del SPX no cotizan ahora');
+      s = +(k + c - p).toFixed(2);
+      if (Math.abs(s - k) <= 2.5) break;
+    }
+    cacheSint = { ts: Date.now(), v: s };
+    return s;
+  }               // una orden a la vez: un segundo pedido mientras otro corre se rechaza
 
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return []; } };
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l, null, 2), 'utf8');
@@ -164,15 +202,37 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     return cargar().filter((x) => x.fecha === hoy && x.pnlUsd != null && x.modo === modo()).reduce((a, x) => a + x.pnlUsd, 0);
   }
 
+  // ventana de clics: la regular (9:31-15:15 ET) o, en demo, la nocturna de práctica (20:15-23:30 ET)
+  function fueraDeVentana() {
+    if (nocturna()) return null;
+    if (!isMarketHours()) return 'mercado cerrado (práctica nocturna en demo: 20:15-23:30 ET, domingo a jueves)';
+    const m = horaETmin();
+    if (m < 9 * 60 + 31 || m > 15 * 60 + 15) return 'fuera de la ventana de clics (9:31-15:15 ET; práctica nocturna en demo: 20:15-23:30 ET)';
+    return null;
+  }
+
   async function preview(direccion) {
     if (modo() === 'apagado') return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
-    if (!isMarketHours()) return { ok: false, error: 'mercado cerrado' };
-    const m = horaETmin();
-    if (m < 9 * 60 + 31 || m > 15 * 60 + 15) return { ok: false, error: 'fuera de la ventana de clics (9:31-15:15 ET)' };
+    const fuera = fueraDeVentana();
+    if (fuera) return { ok: false, error: fuera };
+    const noche = nocturna();
     if (abierta()) return { ok: false, error: 'ya hay un clic real abierto: hay que cerrarlo primero' };
     if (pnlHoy() <= -frenoUsd()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
     if (modo() === 'dryrun' && cuentaDemo().disponible < 100) return { ok: false, error: `cuenta demo sin saldo disponible ($${cuentaDemo().disponible})` };
-    const out = await obtenerSenal(direccion);
+    let out;
+    if (noche) {
+      // de noche no corre el motor de la Bitácora (sin contexto del SPX contado): débito ATM, como el clic de día en
+      // tendencia (Bull Call / Bear Put), vencimiento del día hábil siguiente
+      const vence = proximoHabil();
+      const spxN = await spxSintetico(vence);
+      const atmN = Math.round(spxN / 5) * 5;
+      const alc = direccion === 'BULLISH';
+      out = { signal: { strategy: alc ? 'BULL_CALL_SPREAD' : 'BEAR_PUT_SPREAD',
+                        strikes: { expiry: vence, shortStrike: atmN, longStrike: alc ? atmN - 5 : atmN + 5 } },
+              ctx: { spxPrice: spxN } };
+    } else {
+      out = await obtenerSenal(direccion);
+    }
     const sig = out.signal;
     if (!sig?.strikes) return { ok: false, error: out.reason || 'no se pudo armar el vertical' };
     const a = ACCION[sig.strategy];
@@ -198,7 +258,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         id: 'pv-' + Date.now() + '-' + clave, creado: Date.now(), direccion, estrategia: sig.strategy, nombre: a.nombre,
         credito: a.credito, legs: rec.legs, contratos: 1, vence: k.expiry, corto, largo, ancho, ubicacion: clave, etiqueta,
         precioMedio, natural: a.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true), deltaNeto: q.deltaNeto,
-        spx, bp: dr?.data?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
+        spx, sesion: noche ? 'nocturna' : 'regular', bp: dr?.data?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
         fees: dr?.data?.['fee-calculation']?.['total-fees'] ?? null, avisosDryRun: dr?.data?.warnings || [],
       };
       v.riesgoMaxUsd = Math.round((v.credito ? ancho - precioMedio : precioMedio) * 100);
@@ -224,14 +284,14 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   // compra las alas a +-alas, 0DTE, 1 contrato. Credito; riesgo maximo = alas - credito.
   async function previewIB(centro, alas) {
     if (modo() === 'apagado') return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
-    if (!isMarketHours()) return { ok: false, error: 'mercado cerrado' };
-    const m = horaETmin();
-    if (m < 9 * 60 + 31 || m > 15 * 60 + 15) return { ok: false, error: 'fuera de la ventana de clics (9:31-15:15 ET)' };
+    const fuera = fueraDeVentana();
+    if (fuera) return { ok: false, error: fuera };
+    const noche = nocturna();
     centro = Math.round(Number(centro) / 5) * 5; alas = Math.round(Number(alas) / 5) * 5;
     if (!(centro > 1000) || !(alas >= 5 && alas <= 100)) return { ok: false, error: `centro ${centro} / alas ${alas} invalidos (alas de 5 a 100, multiplo de 5)` };
     if (abierta()) return { ok: false, error: 'ya hay un clic real abierto: hay que cerrarlo primero' };
     if (pnlHoy() <= -frenoUsd()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
-    const vence = fechaET();
+    const vence = noche ? proximoHabil() : fechaET();
     const exp = vence.replace(/-/g, '').slice(2);
     const occ = (t, k) => `SPXW  ${exp}${t}${String(Math.round(k * 1000)).padStart(8, '0')}`;
     const legs = [{ sym: occ('P', centro), lado: -1 }, { sym: occ('C', centro), lado: -1 },
@@ -242,10 +302,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const precioMedio = r05(-q.medio, false);
     const dr = await dryRun(cuerpoOrden(rec, precioMedio, true));
     let spx = null;
-    try { spx = (await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last ?? null; } catch (e) { /* informativo */ }
+    try { spx = noche ? await spxSintetico(vence) : (await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last ?? null; } catch (e) { /* informativo */ }
     const p = {
       id: 'pv-' + Date.now(), creado: Date.now(), direccion: 'NEUTRAL', estrategia: 'IRON_BUTTERFLY', estructura: 'IB',
-      nombre: 'Iron Butterfly', credito: true, legs, contratos: 1, vence, corto: centro, largo: alas, ancho: alas,
+      nombre: 'Iron Butterfly', credito: true, legs, contratos: 1, vence, sesion: noche ? 'nocturna' : 'regular', corto: centro, largo: alas, ancho: alas,
       strikesTxt: `${centro - alas}/${centro}/${centro + alas}`, precioMedio, natural: r05(-q.compraNat, false),
       deltaNeto: q.deltaNeto, spx: spx != null ? Number(spx) : null,
       bp: dr?.data?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
@@ -310,7 +370,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         id: 'cr-' + Date.now(), modo: modo(), cuenta: cuenta(), fecha: fechaET(), direccion: p.direccion, estrategia: p.estrategia,
         nombre: p.nombre, credito: p.credito, legs: p.legs, contratos: 1, vence: p.vence, corto: p.corto, largo: p.largo,
         ancho: p.ancho, spxEntrada: p.spx, deltaEntrada: q.deltaNeto, ordenApertura: r.orderId, abiertaEn: new Date().toISOString(),
-        estructura: p.estructura || 'VERTICAL', strikesTxt: p.strikesTxt || null,
+        estructura: p.estructura || 'VERTICAL', strikesTxt: p.strikesTxt || null, sesion: p.sesion || 'regular',
       };
       if (!r.lleno) {
         lista.unshift({ ...rec, estado: 'no_llenada', motivo: r.motivo, precios });
@@ -416,7 +476,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
           delta = q.deltaNeto;
         } catch (e) { /* sin cotizacion: se muestra sin P&L */ }
         // SPX ahora: el bot lo usa para traducir el TP/SL que Guillermo pone en TradingView a P&L de las opciones
-        try { spxAhora = Number((await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last) || null; } catch (e) { /* informativo */ }
+        try {
+          spxAhora = rec.sesion === 'nocturna' ? await spxSintetico(rec.vence)
+            : Number((await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last) || null;
+        } catch (e) { /* informativo */ }
       }
       trade = {
         id: rec.id, origen: 'CLIC_REAL', modo: rec.modo, estado: rec.estado === 'cerrada' ? 'closed' : 'filled',
@@ -424,7 +487,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         strikes: rec.strikesTxt || `${rec.corto}/${rec.largo}`, primaPts: rec.precioEntrada, primaUsd: Math.round(rec.precioEntrada * 100 * rec.contratos),
         riesgoMaxUsd: rec.riesgoMaxUsd, gananciaMaxUsd: rec.gananciaMaxUsd, deltaEntrada: rec.deltaEntrada, deltaAhora: delta,
         spxEntrada: rec.spxEntrada, abiertaEn: rec.abiertaEn, cerradaEn: rec.cerradaEn || null, motivoCierre: rec.motivoCierre || null,
-        cierrePedido: rec.estado === 'cerrando', pnl, spxAhora, simulado: !!rec.simulado,
+        cierrePedido: rec.estado === 'cerrando', pnl, spxAhora, simulado: !!rec.simulado, sesion: rec.sesion || 'regular',
       };
     }
     cacheEstado = { ts: Date.now(), data: { ok: true, modo: modo(), pnlHoy: pnlHoy(), freno: frenoUsd(), trade } };
@@ -472,7 +535,11 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     setInterval(async () => {
       try {
         if (!abierta() || ocupado) return;
-        if (horaETmin() >= 15 * 60 + 30) await cerrar('CIERRE_PRE_CLOSE_1530');
+        const m = horaETmin(), rec = abierta();
+        if (rec.sesion === 'nocturna') {
+          // la práctica nocturna se cierra sola al terminar su ventana (23:30 ET)
+          if (m > NOCHE_HASTA || m < NOCHE_DESDE) await cerrar('CIERRE_FIN_PRACTICA_NOCTURNA');
+        } else if (m >= 15 * 60 + 30) await cerrar('CIERRE_PRE_CLOSE_1530');
       } catch (e) { console.error('[CLIC_REAL] vigilancia:', e.message); }
     }, 20000);
   }
