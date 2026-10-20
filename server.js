@@ -7379,7 +7379,9 @@ async function processDirectionalEntry(direction, meta = {}) {
     // relacion). Usaba tt._req a TastyTrade por error, sizeando el riesgo del 2%
     // contra ~$8,300 de la cuenta personal en vez de los ~$100,000 reales de Tradier.
     let capital = 10000;
-    try {
+    // 2026-10-20 (Guillermo: "no tiene nada que ver Tradier, lo estamos haciendo todo sobre TastyTrade"): el clic de
+    // TastyTrade (soloPreview) va siempre a 1 contrato y no usa este capital; no se espera a Tradier (meta de 5 s).
+    if (!meta.soloPreview) try {
       const balances = await tradier.getBalances();
       capital = parseFloat(balances?.total_equity || capital);
     } catch(e) {}
