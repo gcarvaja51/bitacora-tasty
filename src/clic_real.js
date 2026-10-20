@@ -30,6 +30,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   const ARCHIVO = path.join(dataDir, 'clic_real.json');
   const modo = () => String(process.env.CLIC_REAL_MODO || 'apagado').toLowerCase();
   const frenoUsd = () => Number(process.env.CLIC_REAL_FRENO_USD || 400);
+  // Guillermo 2026-10-20: "no abre porque he perdido mucho, quita la restricción": el freno diario ya no frena la DEMO
+  // (dryrun); sigue frenando la cuenta real (modo 'real') hasta que él diga otra cosa.
+  const frenado = () => modo() === 'real' && pnlHoy() <= -frenoUsd();
   const tolPts = () => Number(process.env.CLIC_REAL_TOL_PTS || 0.15);
   const cuenta = () => process.env.CLIC_REAL_CUENTA || tt.accountNumber;
   // Cuenta demo (Guillermo 2026-10-19: "abramos una cuenta demo en tastytrade de 2000 dolares y la monitoreamos en la
@@ -228,7 +231,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     if (fuera) return { ok: false, error: fuera };
     const noche = nocturna();
     if (abierta()) return { ok: false, error: 'ya hay un clic real abierto: hay que cerrarlo primero' };
-    if (pnlHoy() <= -frenoUsd()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
+    if (frenado()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
     if (modo() === 'dryrun' && cuentaDemo().disponible < 100) return { ok: false, error: `cuenta demo sin saldo disponible ($${cuentaDemo().disponible})` };
     let out;
     if (noche) {
@@ -303,7 +306,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     if (!(centro > 1000) || !(alas >= 5 && alas <= 100)) return { ok: false, error: `centro ${centro} / alas ${alas} invalidos (alas de 5 a 100, multiplo de 5)` };
     if (abierta(ranura)) return { ok: false, error: ranura === 'adicional' ? 'ya hay un IB adicional abierto: hay que cerrarlo primero'
                                                                       : 'ya hay un clic real abierto: hay que cerrarlo primero' };
-    if (pnlHoy() <= -frenoUsd()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
+    if (frenado()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
     const vence = noche ? proximoHabil() : fechaET();
     const exp = vence.replace(/-/g, '').slice(2);
     const occ = (t, k) => `SPXW  ${exp}${t}${String(Math.round(k * 1000)).padStart(8, '0')}`;
@@ -341,7 +344,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     // si el precio se movió más de la tolerancia, vuelve un precio nuevo para una segunda confirmación
     if (ocupado) return { ok: false, error: 'ya hay una orden en curso' };
     if (abierta(p.ranura || 'principal')) return { ok: false, error: 'ya hay un clic real abierto en esa ranura' };
-    if (pnlHoy() <= -frenoUsd()) return { ok: false, error: 'freno diario alcanzado' };
+    if (frenado()) return { ok: false, error: 'freno diario alcanzado' };
     ocupado = true;
     previews.delete(previewId);
     try {
