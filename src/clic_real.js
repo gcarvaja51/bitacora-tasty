@@ -93,9 +93,14 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const q = {};
     for (const it of d?.data?.items || []) q[it.symbol] = { bid: Number(it.bid), ask: Number(it.ask), delta: Number(it.delta || 0) };
     let medio = 0, compraNat = 0, ventaNat = 0, deltaNeto = 0;
+    const vendidas = [];   // Guillermo 2026-10-20: "solo el delta de la put o call vendida" (el IB trae dos)
     for (const x of L) {
       const c = q[x.sym];
       if (!c || !Number.isFinite(c.bid) || !Number.isFinite(c.ask)) throw new Error(`sin cotizacion de ${x.sym}`);
+      if (x.lado < 0) {
+        const m = /([CP])(\d{8})$/.exec(String(x.sym).trim());
+        vendidas.push({ tipo: m ? (m[1] === 'C' ? 'call' : 'put') : null, strike: m ? Number(m[2]) / 1000 : null, delta: +c.delta.toFixed(3) });
+      }
       medio += x.lado * (c.bid + c.ask) / 2;
       // compraNat: abrir ya (lo comprado al ask, lo vendido al bid); en un credito, -compraNat es lo que se cobra al
       // abrir ya. ventaNat: deshacer ya (lo comprado al bid, lo vendido al ask); en un credito, -ventaNat es lo que
@@ -104,7 +109,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       ventaNat += x.lado > 0 ? c.bid : -c.ask;
       deltaNeto += x.lado * c.delta;
     }
-    return { medio: +medio.toFixed(2), compraNat: +compraNat.toFixed(2), ventaNat: +ventaNat.toFixed(2), deltaNeto: +deltaNeto.toFixed(3) };
+    return { medio: +medio.toFixed(2), compraNat: +compraNat.toFixed(2), ventaNat: +ventaNat.toFixed(2), deltaNeto: +deltaNeto.toFixed(3), vendidas };
   }
 
   function cuerpoOrden(rec, precio, abrir) {
@@ -370,7 +375,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       const rec = {
         id: 'cr-' + Date.now(), modo: modo(), cuenta: cuenta(), fecha: fechaET(), direccion: p.direccion, estrategia: p.estrategia,
         nombre: p.nombre, credito: p.credito, legs: p.legs, contratos: 1, vence: p.vence, corto: p.corto, largo: p.largo,
-        ancho: p.ancho, spxEntrada: p.spx, deltaEntrada: q.deltaNeto, ordenApertura: r.orderId, abiertaEn: new Date().toISOString(),
+        ancho: p.ancho, spxEntrada: p.spx, deltaEntrada: q.deltaNeto, vendidasEntrada: q.vendidas || null, ordenApertura: r.orderId, abiertaEn: new Date().toISOString(),
         estructura: p.estructura || 'VERTICAL', strikesTxt: p.strikesTxt || null, sesion: p.sesion || 'regular',
       };
       if (!r.lleno) {
@@ -466,7 +471,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && x.modo === modo());
     let trade = null;
     if (rec) {
-      let pnl = rec.pnlUsd ?? null, delta = rec.deltaEntrada, spxAhora = null;
+      let pnl = rec.pnlUsd ?? null, delta = rec.deltaEntrada, vendidas = rec.vendidasEntrada || null, spxAhora = null;
       if (rec.estado !== 'cerrada') {
         try {
           const q = await cotizar(rec.legs);
@@ -475,6 +480,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
           pnl = +(Math.round((rec.credito ? rec.precioEntrada - salida : salida - rec.precioEntrada) * 100 * rec.contratos)
                   - 2 * (rec.feesApertura || 0)).toFixed(2);
           delta = q.deltaNeto;
+          vendidas = q.vendidas;
         } catch (e) { /* sin cotizacion: se muestra sin P&L */ }
         // SPX ahora: el bot lo usa para traducir el TP/SL que Guillermo pone en TradingView a P&L de las opciones
         try {
@@ -487,7 +493,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         estructura: rec.nombre, direccion: rec.direccion, credito: rec.credito, contratos: rec.contratos, vence: rec.vence,
         strikes: rec.strikesTxt || `${rec.corto}/${rec.largo}`, primaPts: rec.precioEntrada, primaUsd: Math.round(rec.precioEntrada * 100 * rec.contratos),
         riesgoMaxUsd: rec.riesgoMaxUsd, gananciaMaxUsd: rec.gananciaMaxUsd, deltaEntrada: rec.deltaEntrada, deltaAhora: delta,
-        spxEntrada: rec.spxEntrada, abiertaEn: rec.abiertaEn, cerradaEn: rec.cerradaEn || null, motivoCierre: rec.motivoCierre || null,
+        vendidas, spxEntrada: rec.spxEntrada, abiertaEn: rec.abiertaEn, cerradaEn: rec.cerradaEn || null, motivoCierre: rec.motivoCierre || null,
         cierrePedido: rec.estado === 'cerrando', pnl, spxAhora, simulado: !!rec.simulado, sesion: rec.sesion || 'regular',
       };
     }
