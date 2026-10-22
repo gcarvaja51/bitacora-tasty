@@ -29,16 +29,25 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, avisar = () => {} }) {
   const ARCHIVO = path.join(dataDir, 'clic_real.json');
   const modo = () => String(process.env.CLIC_REAL_MODO || 'apagado').toLowerCase();
+  // Real o demo por trade (Guillermo 2026-10-22: "un botón, última validación antes de enviar el trade, que me pregunte
+  // si va por real o por demo"). CLIC_REAL_MODO pasa a ser el techo: 'dryrun' solo deja la demo; 'real' deja elegir
+  // las dos en cada trade; 'apagado' ninguna. El modo de cada trade queda en su registro (rec.modo).
+  const permitidos = () => modo() === 'real' ? ['real', 'dryrun'] : modo() === 'dryrun' ? ['dryrun'] : [];
+  const soloDemo = () => permitidos().length === 1 && permitidos()[0] === 'dryrun';
   const frenoUsd = () => Number(process.env.CLIC_REAL_FRENO_USD || 400);
   // Guillermo 2026-10-20: "no abre porque he perdido mucho, quita la restricción": el freno diario ya no frena la DEMO
   // (dryrun); sigue frenando la cuenta real (modo 'real') hasta que él diga otra cosa.
-  const frenado = () => modo() === 'real' && pnlHoy() <= -frenoUsd();
+  const frenado = (m = 'real') => m === 'real' && pnlHoy('real') <= -frenoUsd();
   const tolPts = () => Number(process.env.CLIC_REAL_TOL_PTS || 0.15);
   const cuenta = () => process.env.CLIC_REAL_CUENTA || tt.accountNumber;
   // Cuenta demo (Guillermo 2026-10-19: "abramos una cuenta demo en tastytrade de 2000 dolares y la monitoreamos en la
   // bitacora"): en modo dryrun los trades se llevan contra un capital ficticio que arranca en CLIC_DEMO_DESDE.
+  // Reinicio 2026-10-22 (Guillermo: "dejar en la sombra los trades demo hechos hasta ahora y reiniciar con 2000 dólares
+  // desde hoy, esos trades eran los necesarios para afinar el algoritmo"): la demo nunca arranca antes de DEMO_REINICIO,
+  // aunque CLIC_DEMO_DESDE en Railway diga una fecha anterior. Los de antes quedan como sombra (no se borran).
+  const DEMO_REINICIO = '2026-10-22T13:00:00Z';                   // 9:00 ET del 22-oct
   const demoCapital = () => Number(process.env.CLIC_DEMO_CAPITAL || 2000);
-  const demoDesde = () => process.env.CLIC_DEMO_DESDE || '2026-10-19T17:45:00Z';
+  const demoDesde = () => [process.env.CLIC_DEMO_DESDE || '', DEMO_REINICIO].sort().pop();
   const previews = new Map();
   let ocupado = false;
 
@@ -49,7 +58,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   // subyacente se saca de las opciones (paridad put-call en el strike ATM: S = K + C - P).
   const NOCHE_DESDE = 20 * 60 + 15, NOCHE_HASTA = 23 * 60 + 30;
   const diaSemET = () => new Date(fechaET() + 'T12:00:00Z').getUTCDay();          // 0 = domingo
-  const nocturna = () => modo() === 'dryrun' && String(process.env.CLIC_NOCHE || 'on').toLowerCase() !== 'off'
+  const nocturna = () => permitidos().includes('dryrun') && String(process.env.CLIC_NOCHE || 'on').toLowerCase() !== 'off'
     && diaSemET() <= 4 && horaETmin() >= NOCHE_DESDE && horaETmin() <= NOCHE_HASTA;  // domingo a jueves en la noche
   const proximoHabil = () => {
     for (let i = 1; i <= 5; i++) {
@@ -85,7 +94,8 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   // Ranuras (Guillermo 2026-10-20: "ajusta para que me permita abrir el IB adicional a la posición que tengo"):
   // 'principal' = la del clic de TradingView (vertical, o IB con BUY de 2 desde plano) y 'adicional' = el Iron Butterfly
   // que se abre con el botón IB del gráfico, sin tocar la posición de Paper Trading. Una posición por ranura.
-  const enCurso = (x) => (x.estado === 'abierta' || x.estado === 'cerrando') && x.modo === modo();
+  // una posición por ranura, sea real o demo (2026-10-22: el modo ya no es global sino de cada trade)
+  const enCurso = (x) => x.estado === 'abierta' || x.estado === 'cerrando';
   const abierta = (ranura = 'principal') => cargar().find((x) => enCurso(x) && (x.ranura || 'principal') === ranura);
   const abiertas = () => cargar().filter(enCurso);
 
@@ -153,7 +163,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     // ya vienen del dry-run del preview (rec.feesConocidas): no se repite esa llamada (2026-10-20, meta de 5 s)
     const fees = rec.feesConocidas != null ? Number(rec.feesConocidas)
       : Number((await dryRun(cuerpoOrden(rec, precios[0], abrir)))?.data?.['fee-calculation']?.['total-fees'] || 0);
-    if (modo() === 'dryrun') {
+    if (rec.modo !== 'real') {          // solo un registro marcado 'real' manda órdenes; cualquier otro se simula
       // demo (Guillermo 2026-10-19): llena al medio + 0.05 en contra (el segundo escalon), un deslizamiento tipico
       // de los spreads 0DTE del SPX; si el natural esta al medio, al natural.
       const precio = precios[Math.min(1, precios.length - 1)];
@@ -210,32 +220,34 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
              realizado: +realizado.toFixed(2), maxDrawdown: +dd.toFixed(2), curva, trades: l, abiertos };
   }
 
-  function pnlHoy() {
+  function pnlHoy(m = 'real') {
     const hoy = fechaET();
-    // solo los del modo vigente: las pruebas en dry-run no cuentan para el freno del dinero real
-    return cargar().filter((x) => x.fecha === hoy && x.pnlUsd != null && x.modo === modo()).reduce((a, x) => a + x.pnlUsd, 0);
+    // solo los del modo pedido: las pruebas en dry-run no cuentan para el freno del dinero real
+    return cargar().filter((x) => x.fecha === hoy && x.pnlUsd != null && x.modo === m).reduce((a, x) => a + x.pnlUsd, 0);
   }
 
   // ventana de clics: la regular (9:31-15:15 ET) o, en demo, la nocturna de práctica (20:15-23:30 ET)
-  function fueraDeVentana() {
-    if (nocturna()) return null;
+  // m = modo del trade; en el preview, antes de elegir, se usa el más amplio de los permitidos
+  const modoAmplio = () => permitidos().includes('dryrun') ? 'dryrun' : 'real';
+  function fueraDeVentana(m = modoAmplio()) {
+    if (nocturna()) return m === 'real' ? 'la práctica nocturna es solo en demo' : null;
     if (!isMarketHours()) return 'mercado cerrado (práctica nocturna en demo: 20:15-23:30 ET, domingo a jueves)';
-    const m = horaETmin();
+    const t = horaETmin();
     // Guillermo 2026-10-20 ("quita la restricción, para ver cómo nos va"): en la DEMO se puede abrir hasta las 15:55 ET
     // (las 0DTE vencen a las 16:00); en la cuenta real sigue 9:31-15:15
-    const hasta = modo() === 'dryrun' ? 15 * 60 + 55 : 15 * 60 + 15;
-    if (m < 9 * 60 + 31 || m > hasta) return `fuera de la ventana de clics (9:31-${modo() === 'dryrun' ? '15:55' : '15:15'} ET; práctica nocturna en demo: 20:15-23:30 ET)`;
+    const hasta = m === 'dryrun' ? 15 * 60 + 55 : 15 * 60 + 15;
+    if (t < 9 * 60 + 31 || t > hasta) return `fuera de la ventana de clics ${m === 'dryrun' ? 'demo' : 'real'} (9:31-${m === 'dryrun' ? '15:55' : '15:15'} ET; práctica nocturna en demo: 20:15-23:30 ET)`;
     return null;
   }
 
   async function preview(direccion) {
-    if (modo() === 'apagado') return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
+    if (!permitidos().length) return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
     const fuera = fueraDeVentana();
     if (fuera) return { ok: false, error: fuera };
     const noche = nocturna();
-    if (abierta()) return { ok: false, error: 'ya hay un clic real abierto: hay que cerrarlo primero' };
-    if (frenado()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
-    if (modo() === 'dryrun' && cuentaDemo().disponible < 100) return { ok: false, error: `cuenta demo sin saldo disponible ($${cuentaDemo().disponible})` };
+    if (abierta()) return { ok: false, error: 'ya hay un clic abierto (real o demo): hay que cerrarlo primero' };
+    // el freno de la real y el saldo de la demo se miran al ejecutar, cuando ya se eligió el modo; si solo hay demo, acá
+    if (soloDemo() && cuentaDemo().disponible < 100) return { ok: false, error: `cuenta demo sin saldo disponible ($${cuentaDemo().disponible})` };
     let out;
     if (noche) {
       // de noche no corre el motor de la Bitácora (sin contexto del SPX contado): débito ATM, como el clic de día en
@@ -286,7 +298,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       if (v.credito ? precioMedio < 1.20 - 1e-9 : precioMedio > 3.80 + 1e-9) {
         v.noCumple = v.credito ? `crédito $${precioMedio.toFixed(2)} < $1.20` : `débito $${precioMedio.toFixed(2)} > $3.80`;
       }
-      if (modo() === 'dryrun' && !v.noCumple && v.riesgoMaxUsd > cuentaDemo().disponible) v.noCumple = 'no cabe en el saldo de la cuenta demo';
+      if (!v.noCumple && v.riesgoMaxUsd > cuentaDemo().disponible) {
+        if (soloDemo()) v.noCumple = 'no cabe en el saldo de la cuenta demo';
+        else v.noCabeDemo = `no cabe en el saldo de la demo ($${cuentaDemo().disponible})`;   // sí puede ir por real
+      }
       previews.set(v.id, v);
       return v;
     };
@@ -299,21 +314,20 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       return { ok: false, error: `ninguna opcion cumple las reglas del clic (ATM: ${variantes[0].noCumple}; a 5 pts: ${variantes[1].noCumple})` };
     }
     const p = variantes.find((v) => !v.noCumple);
-    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: null, tiempos };
+    return { ok: true, modo: modo(), modosPermitidos: permitidos(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: null, tiempos };
   }
 
   // Iron Butterfly (Guillermo 2026-10-19: "IB pero que yo decida el strike y las alas"): vende put y call en el centro y
   // compra las alas a +-alas, 0DTE, 1 contrato. Credito; riesgo maximo = alas - credito.
   async function previewIB(centro, alas, ranura = 'principal') {
-    if (modo() === 'apagado') return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
+    if (!permitidos().length) return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
     const fuera = fueraDeVentana();
     if (fuera) return { ok: false, error: fuera };
     const noche = nocturna();
     centro = Math.round(Number(centro) / 5) * 5; alas = Math.round(Number(alas) / 5) * 5;
     if (!(centro > 1000) || !(alas >= 5 && alas <= 100)) return { ok: false, error: `centro ${centro} / alas ${alas} invalidos (alas de 5 a 100, multiplo de 5)` };
     if (abierta(ranura)) return { ok: false, error: ranura === 'adicional' ? 'ya hay un IB adicional abierto: hay que cerrarlo primero'
-                                                                      : 'ya hay un clic real abierto: hay que cerrarlo primero' };
-    if (frenado()) return { ok: false, error: `freno diario: P&L de hoy ${pnlHoy().toFixed(0)} <= -${frenoUsd()}` };
+                                                                      : 'ya hay un clic abierto (real o demo): hay que cerrarlo primero' };
     const vence = noche ? proximoHabil() : fechaET();
     const exp = vence.replace(/-/g, '').slice(2);
     const occ = (t, k) => `SPXW  ${exp}${t}${String(Math.round(k * 1000)).padStart(8, '0')}`;
@@ -336,22 +350,33 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     };
     p.riesgoMaxUsd = Math.round((alas - precioMedio) * 100);
     p.gananciaMaxUsd = Math.round(precioMedio * 100);
-    if (modo() === 'dryrun' && p.riesgoMaxUsd > cuentaDemo().disponible) {
-      return { ok: false, error: `cuenta demo: el riesgo del IB ($${p.riesgoMaxUsd}) supera el saldo disponible ($${cuentaDemo().disponible})` };
+    if (p.riesgoMaxUsd > cuentaDemo().disponible) {
+      const msg = `cuenta demo: el riesgo del IB ($${p.riesgoMaxUsd}) supera el saldo disponible ($${cuentaDemo().disponible})`;
+      if (soloDemo()) return { ok: false, error: msg };
+      p.noCabeDemo = msg;                                    // sí puede ir por real
     }
     previews.set(p.id, p);
-    return { ok: true, modo: modo(), cuenta: cuenta(), preview: p, venceEnSeg: null };
+    return { ok: true, modo: modo(), modosPermitidos: permitidos(), cuenta: cuenta(), preview: p, venceEnSeg: null };
   }
 
-  async function ejecutar(previewId) {
-    if (modo() === 'apagado') return { ok: false, error: 'clic real apagado' };
+  // modoPedido: 'real' | 'dryrun', lo que eligió Guillermo en el último botón del PC. Sin modo solo se acepta si hay uno
+  // solo permitido (la demo): con la real habilitada, nunca se adivina.
+  async function ejecutar(previewId, modoPedido) {
+    if (!permitidos().length) return { ok: false, error: 'clic real apagado' };
     const p = previews.get(previewId);
     if (!p) return { ok: false, error: 'preview inexistente o vencido: hay que volver a pedirlo' };
+    const m = String(modoPedido || (permitidos().length === 1 ? permitidos()[0] : '')).toLowerCase();
+    if (!permitidos().includes(m)) {
+      return { ok: false, error: `modo ${m || '(sin elegir)'} no permitido (CLIC_REAL_MODO=${modo()}: ${permitidos().join(' o ')})` };
+    }
+    if (m === 'real' && p.sesion === 'nocturna') return { ok: false, error: 'la práctica nocturna es solo en demo' };
+    const fueraM = p.sesion === 'nocturna' ? null : fueraDeVentana(m);
+    if (fueraM) return { ok: false, error: fueraM };
     // sin vencimiento (Guillermo 2026-10-19: "no le pongas límite de tiempo a la aprobación"): al ejecutar se recotiza y,
     // si el precio se movió más de la tolerancia, vuelve un precio nuevo para una segunda confirmación
     if (ocupado) return { ok: false, error: 'ya hay una orden en curso' };
-    if (abierta(p.ranura || 'principal')) return { ok: false, error: 'ya hay un clic real abierto en esa ranura' };
-    if (frenado()) return { ok: false, error: 'freno diario alcanzado' };
+    if (abierta(p.ranura || 'principal')) return { ok: false, error: 'ya hay un clic abierto en esa ranura (real o demo)' };
+    if (frenado(m)) return { ok: false, error: `freno diario de la real: P&L de hoy ${pnlHoy('real').toFixed(0)} <= -${frenoUsd()}` };
     ocupado = true;
     previews.delete(previewId);
     try {
@@ -370,7 +395,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         p2.riesgoMaxUsd = Math.round((p2.credito ? p2.ancho - medio : medio) * 100);
         p2.gananciaMaxUsd = Math.round((p2.credito ? medio : p2.ancho - medio) * 100);
         previews.set(p2.id, p2);
-        return { ok: false, recotizado: true, error: msg, preview: p2, modo: modo(), cuenta: cuenta() };
+        return { ok: false, recotizado: true, error: msg, preview: p2, modo: m, modosPermitidos: permitidos(), cuenta: cuenta() };
       }
       // escalera: medio, medio+0.05, ... hasta el natural, sin pasar de los limites del clic
       const tope = p.estructura === 'IB' ? (p.credito ? 0.05 : 1e9) : p.credito ? 1.20 : 3.80;
@@ -381,17 +406,17 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         if (precios.length >= 4) break;
       }
       if (!precios.length) return { ok: false, error: `fuera de los limites del clic (${p.credito ? 'credito < 1.20' : 'debito > 3.80'})` };
-      if (modo() === 'dryrun') {
+      if (m === 'dryrun') {
         const riesgo = Math.round((p.credito ? p.ancho - precios[0] : precios[0]) * 100);
         const disp = cuentaDemo().disponible;
         if (riesgo > disp) return { ok: false, error: `cuenta demo: el riesgo del vertical ($${riesgo}) supera el saldo disponible ($${disp})` };
       }
       const t0 = Date.now();
-      const r = await mandarYPerseguir({ ...p, feesConocidas: p.fees ?? null }, precios, true);
+      const r = await mandarYPerseguir({ ...p, modo: m, feesConocidas: p.fees ?? null }, precios, true);
       const segEjec = +((Date.now() - t0) / 1000).toFixed(1);
       const lista = cargar();
       const rec = {
-        id: 'cr-' + Date.now(), modo: modo(), cuenta: cuenta(), fecha: fechaET(), direccion: p.direccion, estrategia: p.estrategia,
+        id: 'cr-' + Date.now(), modo: m, cuenta: cuenta(), fecha: fechaET(), direccion: p.direccion, estrategia: p.estrategia,
         nombre: p.nombre, credito: p.credito, legs: p.legs, contratos: 1, vence: p.vence, corto: p.corto, largo: p.largo,
         ancho: p.ancho, spxEntrada: p.spx, deltaEntrada: q.deltaNeto, vendidasEntrada: q.vendidas || null, ordenApertura: r.orderId, abiertaEn: new Date().toISOString(),
         estructura: p.estructura || 'VERTICAL', strikesTxt: p.strikesTxt || null, sesion: p.sesion || 'regular',
@@ -492,7 +517,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     if (Date.now() - cacheEstado.ts < 1500 && cacheEstado.data) return cacheEstado.data;
     const hoy = fechaET();
     const l = cargar();
-    const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && x.modo === modo()
+    const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && permitidos().includes(x.modo)
                                          && (x.ranura || 'principal') === 'principal');
     const vista = async (rec) => {
       let pnl = rec.pnlUsd ?? null, delta = rec.deltaEntrada, vendidas = rec.vendidasEntrada || null, spxAhora = null;
@@ -526,15 +551,19 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     if (rec) trade = await vista(rec);
     const ad = abierta('adicional');
     const adicional = ad ? await vista(ad) : null;
-    cacheEstado = { ts: Date.now(), data: { ok: true, modo: modo(), pnlHoy: pnlHoy(), freno: frenoUsd(), trade, adicional } };
+    cacheEstado = { ts: Date.now(), data: { ok: true, modo: modo(), modosPermitidos: permitidos(), pnlHoy: pnlHoy('real'),
+                                            pnlHoyDemo: pnlHoy('dryrun'), freno: frenoUsd(), trade, adicional } };
     return cacheEstado.data;
   }
 
   // resumen de los trades cerrados del modo vigente (o del pedido): hoy y acumulado
   function resumen(modoPedido) {
-    const m = modoPedido || modo();
+    const m = modoPedido || (modo() === 'real' ? 'real' : 'dryrun');
     const hoy = fechaET();
-    const cerr = cargar().filter((x) => x.modo === m && x.estado === 'cerrada' && x.pnlUsd != null);
+    const todos = cargar().filter((x) => x.modo === m && x.estado === 'cerrada' && x.pnlUsd != null);
+    // demo: solo desde el reinicio; lo de antes es la sombra (afinamiento del algoritmo, 2026-10-19/20)
+    const cerr = m === 'dryrun' ? todos.filter((x) => x.abiertaEn >= demoDesde()) : todos;
+    const sombra = m === 'dryrun' ? todos.filter((x) => x.abiertaEn < demoDesde()) : [];
     const est = (l) => {
       const n = l.length, g = l.filter((x) => x.pnlUsd > 0).length, tot = l.reduce((a, x) => a + x.pnlUsd, 0);
       return { n, ganados: g, pctGanados: n ? Math.round(100 * g / n) : null, pnlNeto: +tot.toFixed(2),
@@ -543,6 +572,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     };
     const deHoy = cerr.filter((x) => x.fecha === hoy);
     return { ok: true, modo: m, hoy: est(deHoy), acumulado: est(cerr), desde: cerr.length ? cerr[cerr.length - 1].fecha : null,
+             ...(m === 'dryrun' ? { demoDesde: demoDesde(), sombra: est(sombra) } : {}),
              tradesHoy: deHoy.map((x) => ({ hora: x.abiertaEn, nombre: x.nombre, strikes: `${x.largo}/${x.corto}`, entrada: x.precioEntrada,
                                             salida: x.precioSalida, pnlNeto: x.pnlUsd, motivo: x.motivoCierre, strikesTxt: x.strikesTxt })) };
   }
@@ -558,7 +588,11 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       abierta = e.trade && e.trade.modo === 'dryrun' && e.trade.estado !== 'closed' ? e.trade : null;
       adicional = e.adicional && e.adicional.modo === 'dryrun' ? e.adicional : null;
     }
-    return { ok: true, modo: modo(), capital: c.capital, desde: c.desde, saldo: c.saldo, disponible: c.disponible, reservado: c.reservado,
+    // sombra: los trades demo de antes del reinicio del 22-oct (afinamiento), aparte y sin tocar el saldo
+    const somb = cargar().filter((x) => x.modo === 'dryrun' && x.abiertaEn < c.desde && x.estado === 'cerrada' && x.pnlUsd != null);
+    const sombra = { trades: somb.length, ganados: somb.filter((x) => x.pnlUsd > 0).length,
+                     pnlNeto: +somb.reduce((a, x) => a + x.pnlUsd, 0).toFixed(2) };
+    return { ok: true, modo: modo(), modosPermitidos: permitidos(), sombra, capital: c.capital, desde: c.desde, saldo: c.saldo, disponible: c.disponible, reservado: c.reservado,
              pnlRealizado: c.realizado, pnlAbierto: +((abierta?.pnl ?? 0) + (adicional?.pnl ?? 0)).toFixed(2), adicional, rendimientoPct: +(100 * c.realizado / c.capital).toFixed(2),
              trades: cerr.length, ganados: g, pctGanados: cerr.length ? Math.round(100 * g / cerr.length) : null,
              promedio: cerr.length ? +(c.realizado / cerr.length).toFixed(2) : null,
@@ -586,9 +620,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
           if (rec.sesion === 'nocturna') {
             // la práctica nocturna se cierra sola al terminar su ventana (23:30 ET)
             if (m > NOCHE_HASTA || m < NOCHE_DESDE) await cerrar('CIERRE_FIN_PRACTICA_NOCTURNA', r);
-          } else if (m >= (modo() === 'dryrun' ? 15 * 60 + 59 : 15 * 60 + 30)) {
+          } else if (m >= (rec.modo === 'real' ? 15 * 60 + 30 : 15 * 60 + 59)) {
             // seguro antes del vencimiento: 15:30 en la real; en la demo 15:59 (Guillermo 2026-10-20: ventana hasta 15:55)
-            await cerrar(modo() === 'dryrun' ? 'CIERRE_PRE_CLOSE_1559' : 'CIERRE_PRE_CLOSE_1530', r);
+            await cerrar(rec.modo === 'real' ? 'CIERRE_PRE_CLOSE_1530' : 'CIERRE_PRE_CLOSE_1559', r);
           }
         }
       } catch (e) { console.error('[CLIC_REAL] vigilancia:', e.message); }
