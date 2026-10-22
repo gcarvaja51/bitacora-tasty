@@ -384,7 +384,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       const medio = p.credito ? r05(-q.medio, false) : r05(q.medio, true);
       const nat = p.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true);
       const peor = p.credito ? p.precioMedio - medio : medio - p.precioMedio;
-      if (peor > tolPts() + 1e-9) {
+      // 2026-10-22 (Guillermo: "fue un poco lento"): un IB de ~$16 se movió 0.20 en 6 s y pidió segunda confirmación.
+      // En el IB la tolerancia escala con el crédito (2 %); en los verticales sigue fija (CLIC_REAL_TOL_PTS, 0.15)
+      const tol = p.estructura === 'IB' ? Math.max(tolPts(), r05(0.02 * p.precioMedio, false)) : tolPts();
+      if (peor > tol + 1e-9) {
         // 2026-10-19: en un movimiento rapido el spread se encarecio 0.35 en 7 s y la entrada se perdio. En vez de
         // rechazar seco, se devuelve un preview nuevo con el precio de ahora para que Guillermo decida otra vez.
         const fuera = p.estructura === 'IB' ? false : p.credito ? medio < 1.20 - 1e-9 : medio > 3.80 + 1e-9;
