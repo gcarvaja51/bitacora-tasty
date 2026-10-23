@@ -1,5 +1,77 @@
 [
  {
+  "timestamp": "2026-10-23T15:05:35.788Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "CIERRE_SL",
+  "passed": true,
+  "etTime": "11:05",
+  "reason": "spread vale 5.60 vs debito 11.8; perdida -6.20 supera el stop de 5.90 (50% de lo pagado)",
+  "snapshot": {
+   "spxPrice": 7648.72,
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "PUT",
+    "expiry": "2026-10-23",
+    "largaStrike": 7630,
+    "cortaStrike": 7605,
+    "nivelProfit": 7605,
+    "nivelProfitDeclarado": 7600,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 11.8,
+    "limite": 11.8,
+    "maxGanancia": 13.2,
+    "maxPerdida": 11.8,
+    "rr": 1.12,
+    "breakeven": 7618.2,
+    "pctDelAncho": 47.2,
+    "razon": "Larga 7630 (arranque) / corta 7605 (objetivo del escenario bajista). Paga maximo si el precio llega a 7605."
+   }
+  }
+ },
+ {
+  "timestamp": "2026-10-23T14:30:08.351Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXECUTED",
+  "passed": true,
+  "etTime": "10:30",
+  "reason": "DEBIT_VERTICAL enviado a Tradier: 40631645",
+  "snapshot": {
+   "spxPrice": 7621.33,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7650,
+    "putWall": 7600,
+    "gammaFlip": 7685,
+    "maxPain": 7710
+   },
+   "escenario": "bajista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "PUT",
+    "expiry": "2026-10-23",
+    "largaStrike": 7630,
+    "cortaStrike": 7605,
+    "nivelProfit": 7605,
+    "nivelProfitDeclarado": 7600,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 11.8,
+    "limite": 11.8,
+    "maxGanancia": 13.2,
+    "maxPerdida": 11.8,
+    "rr": 1.12,
+    "breakeven": 7618.2,
+    "pctDelAncho": 47.2,
+    "razon": "Larga 7630 (arranque) / corta 7605 (objetivo del escenario bajista). Paga maximo si el precio llega a 7605."
+   },
+   "orderId": 40631645
+  }
+ },
+ {
   "timestamp": "2026-10-22T14:30:07.010Z",
   "strategyFamily": "PREMERCADO",
   "stage": "STRIKES_RECHAZADOS",

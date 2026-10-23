@@ -3402,3 +3402,32 @@ a capturar: SPX, GAP, JBLU, F, UBER, NIO, NU
 [captura] no importa: se cierra igual y el daemon no se entera.
 [Thu 10/22/2026 15:42:08.35] Terminado con codigo 1 
 [Thu 10/22/2026 15:42:08.37] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Fri 10/23/2026  9:45:01.37] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, F, UBER, NIO, NU
+
+[SPX]
+   FALLO SPX: el panel muestra "CCL" y se pidio "SPX" -- no se guarda
+
+[GAP]
+   FALLO GAP: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[F]
+   FALLO F: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[UBER]
+   FALLO UBER: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NIO]
+   FALLO NIO: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NU]
+   FALLO NU: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 1 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 2 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 3 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[captura] no se pudo devolver la pestaña auxiliar a SPX;
+[captura] no importa: se cierra igual y el daemon no se entera.
+[Fri 10/23/2026  9:47:05.57] Terminado con codigo 1 
+[Fri 10/23/2026  9:47:05.59] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
