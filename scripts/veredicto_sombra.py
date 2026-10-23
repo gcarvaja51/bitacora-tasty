@@ -325,10 +325,53 @@ PROPUESTAS = [
         # Acumulado 17-ago a 15-oct: vetadas n=16 WR 43.8% -$79.1/trade; pasan
         # n=34 WR 58.8% -$20.6/trade. Delta de la cadena en las 16 vetadas (el
         # "supuesto" del 12-oct no veto ninguna ejecucion).
+        #
+        # ACTUALIZADA 2026-10-22 (revision semanal 16-22 oct): sumo 4, todas del
+        # 22-oct. Vetadas 3 (+130, -260, +160 = +$30); pasa 1 (-$270). Acumulado
+        # 17-ago a 22-oct: vetadas n=19 WR 47% -$65.0/trade; pasan n=35 WR 57%
+        # -$27.7/trade. La brecha: -$105 (1-oct), -$58 (15-oct), -$37 (22-oct).
         "declarada": "2026-10-01",
-        "actualizada": "2026-10-15",
+        "actualizada": "2026-10-22",
         "instrumento": "executions.vetoMuroSombra",
         "espera": "DIR-1 sigue primera en la cola de DIRECCIONAL; una ALTO por ventana",
+    },
+    {
+        "id": "DIR-6", "familia": "DIRECCIONAL", "nivel": "alto",
+        "titulo": "La vertical de CREDITO alcista pierde con 62% de aciertos",
+        "pregunta": ("¿Operar siempre debito (Bull Call) en TENDENCIA alcista, tambien "
+                     "con GEX positivo, mejora el P&L por trade?"),
+        # Declarada el 2026-10-22 (revision semanal 16-22 oct). SUGERENCIAS
+        # propuesta 12. Hoy selectStrategy (src/spx.js) elige credito con GEX
+        # positivo e (ivRank > 30 o vix > 20). La mitad bajista no se toca (ya es
+        # 100% debito: 54 Bear Put, 0 Bear Call comparables). El IC no se toca.
+        #
+        # El numero, TENDENCIA comparables (resultadoOficial), 2-sep a 22-oct:
+        #   Bull Put (credito)  n=39  WR 62%  -$1,030  -$26.4/trade
+        #                       ganancia media +$49, perdida media -$146 -> empata con 75%
+        #   Bull Call (debito)  n=38  WR 68%  +$1,365  +$35.9/trade
+        #                       ganancia media +$154, perdida media -$219 -> empata con 59%
+        # Por mes, mismo lado las dos veces: sep -$32.2 vs +$26.7 (16/15);
+        # oct -$22.4 vs +$30.0 (23/10). Por quincena NO es estable: 1-15 oct el
+        # credito dio +$10.4/trade (n=13, 85%); 16-22 oct -$65.0 (n=10). Una
+        # semana mala es la que cambio la lectura del 15-oct.
+        #
+        # CONFUNDIDO SERIO: el credito solo sale con GEX positivo y el debito
+        # alcista casi siempre con GEX negativo. La tabla compara regimenes tanto
+        # como instrumentos. Por eso el juez NO puede ser la tabla de arriba.
+        #
+        # SIN INSTRUMENTO, y construirlo es parte de la propuesta. Hace falta el
+        # contrafactual en el MISMO instante: el Bull Call (delta 0.30, mismo
+        # ancho, misma vela) que se habria elegido en cada Bull Put, con su TP 30%
+        # y SL 50%. Lo mas cercano es shadowExits (src/salidas_alternativas.js), y
+        # HOY ESTA MAL para las 41 verticales de credito que analizo: las valora
+        # como debito de CALLS con el credito como prima pagada (17 dan TP 30% en
+        # el minuto 0). Corregido eso, la misma funcion puede valorar la vertical
+        # de debito alternativa. Y el juez no puede ser comparar() sobre win rate:
+        # 24/39 contra 26/38 se solapan y la diferencia esta en el TAMANO; tiene
+        # que comparar P&L por trade sobre los mismos instantes.
+        "declarada": "2026-10-22",
+        "instrumento": None,
+        "espera": "sexta ALTO abierta en DIRECCIONAL; DIR-1 sigue primera, una ALTO por ventana",
     },
 ]
 

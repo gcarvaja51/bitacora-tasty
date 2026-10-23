@@ -100,7 +100,11 @@ $etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow
 #    Los triggers de la temporada equivocada (7:30 y 9:30 ET) siguen quedando fuera.
 $windowStart = New-Object DateTime($etNow.Year, $etNow.Month, $etNow.Day, 8, 15, 0)
 $windowEnd   = New-Object DateTime($etNow.Year, $etNow.Month, $etNow.Day, 9, 5, 0)
-if ($etNow -lt $windowStart -or $etNow -gt $windowEnd) {
+# Corrida manual fuera de ventana (2026-10-20): $env:PREMERCADO_FORZAR = "1" salta la ventana
+# horaria, el corte de reintentos de las 08:52 y el tope de las 09:15. El disparo programado no la usa.
+$forzar = ($env:PREMERCADO_FORZAR -eq "1")
+if ($forzar) { Write-Log "FORZADO - corrida manual fuera de ventana (ET actual: $($etNow.ToString('HH:mm')))." }
+if (-not $forzar -and ($etNow -lt $windowStart -or $etNow -gt $windowEnd)) {
     Write-Log "SKIP - fuera de ventana horaria (ET actual: $($etNow.ToString('HH:mm')), esperado 08:15-09:05). Este es el trigger de la temporada equivocada (EDT/EST) -- normal, no es un error."
     exit 0
 }
@@ -341,7 +345,7 @@ for ($intento = 1; $intento -le 3; $intento++) {
     }
     foreach ($x in $problemas) { Write-Log "Control de calidad (intento $intento): $x" }
     $etAhora = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, "Eastern Standard Time")
-    if ($intento -eq 3 -or $etAhora.TimeOfDay -gt [TimeSpan]'08:52:00') { break }
+    if ($intento -eq 3 -or (-not $forzar -and $etAhora.TimeOfDay -gt [TimeSpan]'08:52:00')) { break }
     Write-Log "Reintentando en 60 s para que el gamma_daemon y TradingView se pongan al dia..."
     Start-Sleep -Seconds 60
 }
@@ -449,6 +453,7 @@ $etLaunch = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::Utc
 $deadlineEt = New-Object DateTime($etLaunch.Year, $etLaunch.Month, $etLaunch.Day, 9, 15, 0)
 $minutosDisponibles = [int][Math]::Floor(($deadlineEt - $etLaunch).TotalMinutes)
 $timeoutMin = [Math]::Max(10, [Math]::Min(35, $minutosDisponibles))
+if ($forzar) { $timeoutMin = 35 }
 Write-Log "Techo de esta corrida: $timeoutMin min (son las $($etLaunch.ToString('HH:mm')) ET, tope 09:15 ET)."
 $docxEsperado = Join-Path (Join-Path $logDir "..\documentos premercado") "$($etNow.ToString('MMddyyyy'))_premercado claude.docx"
 

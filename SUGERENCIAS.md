@@ -664,9 +664,130 @@ Escribirlo es parte de la propuesta: mientras no exista, el Auditor devuelve `SI
 > veto no sabe distinguirlos. El artefacto del delta «supuesto» del 12-oct no llegó a
 > ninguna ejecución (1 de 86 con delta supuesto, y no vetó). Sigue sin juez `juzgar_DIR_5`.
 
+> **Actualizada el 2026-10-22 (revisión semanal, 16 a 22-oct): se sigue achicando.** La semana
+> sumó 4 bajistas, todas del 22-oct: **vetadas 3, ganan 2, +$30** (+130, −260, +160); **pasa 1,
+> −$270**. Acumulado 17-ago a 22-oct: **vetadas n=19, 47%, −$65,0 por trade (−$1.235)**; pasan
+> n=35, 57%, −$27,7 por trade (−$970). La brecha bajó de −$105 (1-oct) a −$58 (15-oct) y a
+> **−$37 por trade**. La dirección no se invirtió, pero cada semana de octubre la acerca a cero.
+> Sigue sin juez. No se re-propone.
+
+---
+
+### 12. La vertical de CRÉDITO alcista pierde con 62% de aciertos — DIRECCIONAL, impacto ALTO
+
+**Anotado:** 2026-10-22 (revisión semanal del jueves) · **Declarada:** `DIR-6` en `PROPUESTAS`
+· **Código:** `selectStrategy` (`src/spx.js`): hoy elige crédito si el GEX es positivo y
+`ivRank > 30 || vix > 20`
+
+**Qué se propone:** en TENDENCIA **alcista**, operar siempre la vertical de **débito** (Bull
+Call), también con GEX positivo. La mitad bajista no se toca (hoy ya es 100% débito: 54 Bear
+Put y 0 Bear Call comparables). El IC no se toca.
+
+**El número** — TENDENCIA comparables (`resultadoOficial.comparable`), 2-sep a 22-oct:
+
+| | n | aciertos | P&L | por trade | ganancia media | pérdida media | aciertos para empatar |
+|---|---|---|---|---|---|---|---|
+| **Bull Put (crédito)** | 39 | 62% (24) | **−$1.030** | **−$26,4** | +$49 | −$146 | **75%** |
+| Bull Call (débito) | 38 | 68% (26) | +$1.365 | +$35,9 | +$154 | −$219 | 59% |
+
+- **Por mes, las dos veces del mismo lado:** septiembre Bull Put −$32,2 por trade (n=16) contra
+  Bull Call +$26,7 (n=15); octubre −$22,4 (n=23) contra +$30,0 (n=10).
+- ⚠️ **Por quincena no es estable**, y hay que decirlo: 1–15 sep −$87,5 (n=4), 16–30 sep
+  −$13,8 (12), **1–15 oct +$10,4 (13, 85% de aciertos)**, 16–22 oct −$65,0 (10). El 15-oct la
+  anoté como «se da vuelta por mes» y no la propuse; con esta semana dejó de darse vuelta por
+  mes, pero la primera quincena de octubre fue positiva. **Una semana mala es la que cambió la
+  lectura.**
+- El problema no es el acierto sino la geometría: TP al 30% del crédito contra SL a 1,5× el
+  crédito. La ganancia media es un **tercio** de la pérdida media, y para empatar hace falta
+  acertar el 75%. El robot acierta el 62%.
+
+**Qué se espera que cambie, en magnitud:** ~**5 entradas por semana** pasan de crédito a débito
+(39 en 7,5 semanas). Si el débito rindiera en esos momentos lo que rinde hoy, el techo es
+**+$62 por trade, ~+$320 por semana**. **Es un techo y probablemente no se alcanza**: ver
+el confundido de abajo.
+
+**Qué podría moverse sin querer:**
+1. **El confundido es el régimen, y es serio.** El crédito sale **solo** con GEX positivo; el
+   débito alcista sale casi siempre con GEX negativo. Comparar Bull Put contra Bull Call es,
+   en buena parte, comparar días de pin contra días de movimiento. Un débito con TP de 30% en
+   un día de pin puede rendir **peor** que el crédito. La tabla de arriba no lo descarta.
+2. **La pérdida media sube**: de −$146 a ~−$219 por trade perdedor. Con débito, el listón tras
+   pérdida y el freno diario se disparan antes.
+3. **El gate de Crédito/Riesgo deja de aplicar** (el débito está exento): las 8 señales que
+   esta semana murieron ahí habrían llegado a orden.
+4. **El veto de muro en sombra empieza a evaluar los alcistas** (solo aplica a débito), así
+   que la muestra alcista del veto crece — sin cambiar la bajista de DIR-5.
+5. El 21-oct el crédito/débito lo decidió el **GEX interno** (Sigma caído, ver la anotación
+   semanal): 6 Bull Put con GEX interno positivo, 1 Bull Call en el rato que dio negativo.
+
+**Instrumento: no existe, y es parte de la propuesta.** Lo que el Auditor necesita es el
+contrafactual en el **mismo instante**: qué habría hecho el Bull Call que `selectStrategy`
+habría elegido en cada uno de los 39 Bull Put. Lo más cercano que hay es `shadowExits`
+(`src/salidas_alternativas.js`), y **hoy está mal para las 41 verticales de crédito que
+analizó**: las trata como débito de **calls** con el crédito como prima pagada (ver la
+anotación semanal, hallazgo de calidad). Corregido eso, la misma función puede valorar con el
+mismo Black-Scholes la vertical de débito alternativa (delta 0,30, mismo ancho, misma vela de
+entrada) y su TP 30% / SL 50%. **Sin eso el Auditor devuelve `SIN INSTRUMENTO`.** Y el juez
+no puede ser `comparar()` sobre win rate: la diferencia está en el **tamaño**, no en el
+acierto (62% contra 68%, los Wilson se solapan) — tiene que comparar P&L por trade sobre los
+mismos instantes.
+
+⚠️ **Sexta ALTO abierta sobre DIRECCIONAL** (1, 4, 6, 10, 11 y esta). Una por ventana; DIR-1
+sigue primera. Lo esperable del Auditor mañana: `SIN INSTRUMENTO`.
+
 ---
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
+
+### 2026-10-22 (bis) · revisión SEMANAL del jueves, 16 a 22-oct — 1 PROPUESTA (DIR-6)
+
+3.482 evaluaciones en 5 sesiones contra 1.510 en la ventana previa. ⚠️ **La previa está
+recortada**: el log arranca el 13-oct a las 12:33 ET, faltan ~16,1 h de sesión. Comparo por
+proporción.
+
+**Propuestas por familia:**
+
+| Familia | Propuesta | Por qué |
+|---|---|---|
+| TENDENCIA | **DIR-6** (propuesta 12): alcista siempre en débito | Bull Put n=39, −$26,4/trade, contra Bull Call n=38, +$35,9. Confundido por régimen; instrumento por construir |
+| TENDENCIA | DIR-5 actualizada, no re-propuesta | Vetadas −$65 contra −$27,7 por trade (n=19/35); la brecha se sigue cerrando |
+| REVERSION | Ninguna | Apertura: n=3, todos del mismo día (−$280), y el interruptor apagado desde el 20-oct. Media mañana en sombra |
+| NEUTRAL | Ninguna | 0 IC 0DTE. IC 1DTE n=14, −$360; los 5 que llegaron al cierre de las 10:30 perdieron (−$530). n chico |
+| MEDIODIA | Ninguna | n=13, −$960. TP 4 (+$745), cierre de las 15:30 5 (−$1.505). «Tocó TP o no» es el resultado, no una regla |
+
+**Calidad del dato**
+- **Sigma caído casi todo el 21-oct.** 300 de 307 decisiones con spot de **Yahoo** y GEX/muros
+  del **cálculo interno** (sesgo negativo medido). Sigma solo a las 13:43–13:44 y 15:47. Ese
+  día: MEDIODIA no abrió (`MEDIODIA_SIN_MVS`, 0 lecturas en 16 intentos), el gate del IC 0DTE
+  y el crédito/débito de las 7 TENDENCIA los decidió el GEX interno. El 16-oct, igual hasta las
+  ~11:34 (52 decisiones). Por eso la semana bajó a 78% Sigma (antes 99%). El respaldo funcionó
+  como está diseñado; lo que no es mío es por qué se cayó el daemon (Torre).
+- **POSIBLE CORRECCIÓN (bug del instrumento):** `evaluarSalidasAlternativas`
+  (`src/salidas_alternativas.js`) modela **toda** vertical como débito: `opt` = call si es
+  alcista, prima pagada = `|entryFillPrice|`. En un Bull Put valora calls sobre strikes de puts
+  y toma el crédito como débito. Las **41** TENDENCIA de crédito con `shadowExits` (2-sep a
+  21-oct, el 25% de las 166) tienen sombra inválida; 17 dan TP 30% «en el minuto 0». Cualquier
+  agregado de salidas alternativas sobre TENDENCIA las mezcla. Se corrige o se excluyen.
+- **Impulso de 15m sin medir (bug escalado el 14-oct, sigue abierto):** esta semana funcionó
+  el 19 y el 20; el 16, 21 y 22 no. Sin commit de arreglo.
+- **Frescura:** n=1.607, mediana 15 s, p90 33 s, máx 163 s, 8 sobre 120 s (0,5%).
+- **Sellos:** 128 de 383, backlog congelado; todo lo nuevo viene sellado. **Libro:** los 5 de
+  siempre.
+- **Completitud:** `CIERRE_PRE_CLOSE_30MIN` 5/5 y `VENCIMIENTO` 1/1 sin cotización (por
+  diseño, falta declararlos exentos en el motor). `MANUAL_FORZADO`: fuente 3/20, `paperExit`
+  2/20, `paperEntry` 1/20.
+
+**Lo que cambió en el embudo (por proporción):**
+- TENDENCIA `NO_PULLBACK_2M` 43% (antes 43%): sin cambio.
+- TENDENCIA `SCORE_FAIL` 125 (3,6%, antes 2,4%): **95 son el listón tras pérdida** (85% y 75%
+  contra 90%, tras −$250 el 19, −$110 y −$260 el 20).
+- TENDENCIA `SIGNAL_BUILT` 107 (antes 52): no es mercado. El 19-oct, 15 órdenes atascadas sin
+  llenar entre 10:43 y 11:01 y 3 más a las 12:16. Órdenes reales en la semana: ~36, 16
+  llenaron. El motor dice «99 llegaron a orden» (bug del motor, anotado el 30-sep).
+- TENDENCIA `NO_STRIKES` 28 (antes 0): 21 el 21-oct, el día sin Sigma.
+- REVERSION `SIGNAL_BUILT` 117 (antes 20): sombra con duplicados por vela. `NO_STRIKES` 55
+  (32% de los post-score; REV-9 ya declarada).
+- NEUTRAL `GATE_FAIL` 121: 81 por GEX negativo (67%).
 
 ### 2026-10-15 (bis) · revisión SEMANAL del jueves, 9 a 15-oct — SIN PROPUESTA
 
