@@ -3198,3 +3198,207 @@ a capturar: SPX, TSLA, PYPL, UBER, NU, F, CCL, NIO, GAP, JBLU
 [captura] no importa: se cierra igual y el daemon no se entera.
 [Mon 10/19/2026 15:42:15.13] Terminado con codigo 1 
 [Mon 10/19/2026 15:42:15.15] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Tue 10/20/2026  9:45:01.89] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, JBLU, PYPL, TSLA, F, UBER, NIO, NU
+
+[SPX]
+   FALLO SPX: el panel muestra "CCL" y se pidio "SPX" -- no se guarda
+
+[GAP]
+   FALLO GAP: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[JBLU]
+   FALLO JBLU: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[PYPL]
+   FALLO PYPL: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[TSLA]
+   FALLO TSLA: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[F]
+   FALLO F: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[UBER]
+   FALLO UBER: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NIO]
+   FALLO NIO: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NU]
+   FALLO NU: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 1 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 2 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 3 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[captura] no se pudo devolver la pestaña auxiliar a SPX;
+[captura] no importa: se cierra igual y el daemon no se entera.
+ERROR: The process with PID 17436 (child process of PID 37312) could not be terminated.
+Reason: There is no running instance of the task.
+[Tue 10/20/2026  9:48:19.30] Terminado con codigo 1 
+[Tue 10/20/2026  9:48:19.59] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Tue 10/20/2026 15:40:02.90] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57
+            this.#timeoutError = new TimeoutError(opts.message);
+                                 ^
+
+TimeoutError: Navigation timeout of 90000 ms exceeded
+    at new Deferred (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57:34)
+    at Deferred.create (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:18:16)
+    at new LifecycleWatcher (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/LifecycleWatcher.js:66:46)
+    at CdpFrame.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:146:29)
+    at CdpFrame.<anonymous> (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/decorators.js:101:27)
+    at CdpPage.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:570:43)
+    at ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:218:14)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:736:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Tue 10/20/2026 15:42:05.86] Terminado con codigo 1 
+[Tue 10/20/2026 15:42:05.89] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Wed 10/21/2026 12:07:54.65] Iniciando captura de niveles 
+[sigma] no se pudo limpiar el perfil (spawnSync powershell.exe ETIMEDOUT) -- se intenta lanzar igual
+
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+ErrorEvent {
+  Symbol(kTarget): WebSocket {
+    _events: [Object: null prototype] {
+      open: [Function: onOpen] {
+        Symbol(kIsForOnEventAttribute): false,
+        Symbol(kListener): [Function (anonymous)]
+      },
+      error: [Function: onError] {
+        Symbol(kIsForOnEventAttribute): false,
+        Symbol(kListener): [Function (anonymous)]
+      }
+    },
+    _eventsCount: 2,
+    _maxListeners: undefined,
+    _binaryType: 'nodebuffer',
+    _closeCode: 1006,
+    _closeFrameReceived: false,
+    _closeFrameSent: false,
+    _closeMessage: Buffer(0) [Uint8Array] [],
+    _closeTimer: null,
+    _errorEmitted: true,
+    _extensions: {},
+    _paused: false,
+    _protocol: '',
+    _readyState: 3,
+    _receiver: null,
+    _sender: null,
+    _socket: null,
+    _bufferedAmount: 0,
+    _isServer: false,
+    _redirects: 0,
+    _autoPong: true,
+    _closeTimeout: 30000,
+    _url: 'ws://127.0.0.1:53255/devtools/browser/6cabbf2b-de25-44d1-85b0-12ea63bd2a45',
+    _originalIpc: false,
+    _originalSecure: false,
+    _originalHostOrSocketPath: '127.0.0.1:53255',
+    _req: null,
+    Symbol(shapeMode): false,
+    Symbol(kCapture): false
+  },
+  Symbol(kType): 'error',
+  Symbol(kError): Error: read ECONNRESET
+      at TCP.onStreamRead (node:internal/stream_base_commons:216:20) {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read'
+  },
+  Symbol(kMessage): 'read ECONNRESET'
+}
+
+Node.js v24.15.0
+[Wed 10/21/2026 12:10:43.98] Terminado con codigo 1 
+[Wed 10/21/2026 12:10:44.00] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Wed 10/21/2026 16:13:31.09] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57
+            this.#timeoutError = new TimeoutError(opts.message);
+                                 ^
+
+TimeoutError: Navigation timeout of 90000 ms exceeded
+    at new Deferred (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:57:34)
+    at Deferred.create (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/Deferred.js:18:16)
+    at new LifecycleWatcher (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/LifecycleWatcher.js:66:46)
+    at CdpFrame.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/cdp/Frame.js:146:29)
+    at CdpFrame.<anonymous> (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/util/decorators.js:101:27)
+    at CdpPage.goto (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:570:43)
+    at ensurePage (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:218:14)
+    at async pestanaAuxiliar (file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/sigma.js:736:21)
+    at async file:///C:/Users/gcarv/bitacora-tasty/gamma_daemon/capturar_niveles.mjs:184:11
+
+Node.js v24.15.0
+[Wed 10/21/2026 16:15:37.02] Terminado con codigo 1 
+[Wed 10/21/2026 16:15:37.06] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Thu 10/22/2026  9:45:01.31] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, JBLU, F, UBER, NIO, NU
+
+[SPX]
+   FALLO SPX: el panel muestra "CCL" y se pidio "SPX" -- no se guarda
+
+[GAP]
+   FALLO GAP: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[JBLU]
+   FALLO JBLU: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[F]
+   FALLO F: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[UBER]
+   FALLO UBER: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NIO]
+   FALLO NIO: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NU]
+   FALLO NU: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 1 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 2 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 3 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[captura] no se pudo devolver la pestaña auxiliar a SPX;
+[captura] no importa: se cierra igual y el daemon no se entera.
+[Thu 10/22/2026  9:47:21.11] Terminado con codigo 1 
+[Thu 10/22/2026  9:47:21.13] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 
+[Thu 10/22/2026 15:40:00.42] Iniciando captura de niveles 
+[sigma] perfil liberado antes de lanzar
+a capturar: SPX, GAP, JBLU, F, UBER, NIO, NU
+
+[SPX]
+   FALLO SPX: el panel muestra "CCL" y se pidio "SPX" -- no se guarda
+
+[GAP]
+   FALLO GAP: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[JBLU]
+   FALLO JBLU: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[F]
+   FALLO F: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[UBER]
+   FALLO UBER: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NIO]
+   FALLO NIO: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[NU]
+   FALLO NU: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 1 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 2 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+[captura] intento 3 de restaurar fallo: no aparecio el buscador de simbolo tras abrir el desplegable
+
+[captura] no se pudo devolver la pestaña auxiliar a SPX;
+[captura] no importa: se cierra igual y el daemon no se entera.
+[Thu 10/22/2026 15:42:08.35] Terminado con codigo 1 
+[Thu 10/22/2026 15:42:08.37] *** REVISAR: la captura fallo. Si Sigma quedo en otro simbolo, el daemon no operara. 

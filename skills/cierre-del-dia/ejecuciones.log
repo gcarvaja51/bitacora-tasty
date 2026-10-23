@@ -378,3 +378,84 @@ Listo el informe de cierre de hoy: `documentos premercado\10192026_cierre del di
 Fuentes de la búsqueda web: [fedratecalc – calendario de octubre 2026](https://fedratecalc.com/us-economic-calendar/october-2026/), [Guggenheim – 2026 U.S. Economic Calendar](https://www.guggenheiminvestments.com/services/advisor-resources/us-economic-calendar)
 [Mon 10/19/2026 15:07:57.92] Finalizado (codigo 0) 
  
+[Tue 10/20/2026 15:00:02.55] Iniciando cierre del dia 
+Listo: el informe de cierre de hoy está en `documentos premercado\10202026_cierre del dia.docx`. Lo generé a las 16:08 ET, solo en Word. No envié nada a nadie y no toqué TradingView.
+
+**Cómo fue la corrida:**
+- **Día de mercado:** `esDiaDeMercado` dijo que sí y el .docx de hoy no existía, así que lo creé.
+- **Sigma:** usé el `lastLevels` de las **16:05 ET**: GEX −12,9 B, régimen negativo, muros entre 7.710 y 7.715. Revisé que los datos fijos del texto (como el DEX de −1,3 B) coinciden con esa lectura.
+- **Investing:** esta vez Chrome sí conectó.
+  - **Pestaña Hoy:** no hay eventos de 3 estrellas, así que hoy no fue D19 y el día cuenta para la asertividad.
+  - **Pestaña Mañana:** sale el crudo de la AIE a las 10:30 ET con 3 estrellas. **Mañana es D19: día sin trade.**
+
+**Calificación del día:**
+- **¿Acertamos?:** **NO.**
+  - **Favorito bajista (41 %):** se activó a las 09:30 y se invalidó a las 09:45 sin llegar a su T1.
+  - **Alcista (26 %), el menos probable:** se activó a las 10:00 y cumplió T1 y T2 en la vela de las 10:15. Ese fue el que se validó.
+- **Tercera vela:** a las 10:15 la hipótesis activa ya era la alcista, y esa sí acertó.
+- **Llamada de ayer para hoy** (BAJISTA bajo 7.685): **ACIERTO.** Se activó a las 09:30, tocó el T1 de 7.670 a las 09:45 y se invalidó después, a las 10:00.
+
+**Llamada para el miércoles 21:** BAJISTA, convicción 52 %.
+- **Se activa** con un cierre de 15m bajo 7.700.
+- **Se invalida** con un cierre de 15m sobre 7.725.
+- **Objetivos:** T1 7.680 y T2 7.670, sacados de `memoria_niveles`.
+- **Pantalla:** en TRADENATION:US500 los niveles son los mismos, porque la base es +0,08 y redondea a 0.
+
+**Registro:**
+- **Log:** en la entrada del 20-oct quedaron `resultado` y `llamada_siguiente` (`para_fecha` 2026-10-21, marcada como D19).
+- **Excel:** en la fila 85 agregué el "CIERRE DEL DÍA" al Detalle.
+- **Backups:** `*_bak_20261020_cierre`.
+- **Script:** `control premercado\cierre_10202026.py`.
+
+**Una aclaración:** seguí lo que hicieron los cierres anteriores y no escribí el resultado de la llamada de ayer en su propio campo del log. Ese campo lo llena el postmercado; el ACIERTO quedó anotado en la nota de acierto de hoy.
+[Tue 10/20/2026 15:09:03.12] Finalizado (codigo 0) 
+ 
+[Wed 10/21/2026 15:00:02.15] Iniciando cierre del dia 
+El cierre de hoy quedó en `documentos premercado\10212026_cierre del dia.docx`, solo en Word, generado a las 16:06 ET. No envié nada a nadie y no toqué TradingView.
+
+**Cómo fue la corrida:**
+- **Día de mercado:** `esDiaDeMercado` dijo que sí y el .docx de hoy no existía.
+- **Hoy no hubo premercado.** La corrida automática no arrancó entre 08:15 y 09:05 ET. El único rastro del lanzador es un SKIP a las 09:23 hora Colombia (10:23 ET), fuera de la ventana, y no hay paquete del colector. No sé por qué no corrió: puede que el PC estuviera apagado o suspendido. Vale la pena revisarlo. Igual que el 16 y el 19, creé la entrada mínima en el log y la fila "No generado" en el Excel.
+- **Sigma:** usé la lectura de las **16:05 ET**: GEX +37,7 B, régimen positivo, muros entre 7.750 y 7.760. Es la cadena que vence hoy.
+- **Investing:** esta vez Chrome conectó.
+  - **Pestaña Hoy:** el único evento de 3 estrellas fue el crudo de la AIE a las 10:30 ET (−3,060 M contra −0,100 M previsto). Ya estaba marcado como D19 desde ayer y no apareció ningún otro.
+  - **Pestaña Mañana:** solo los subsidios por desempleo, a las 08:30 ET. **Mañana no es D19.**
+
+**Calificación:**
+- **¿Acertamos?:** **NO APLICA.** No hubo premercado y además era D19.
+- **Llamada de ayer** (BAJISTA bajo 7.700): **NO_ACTIVO.** El cierre de 15m más bajo fue 7.713 y quedó invalidada a las 09:45.
+
+**Llamada para el jueves 22:** ALCISTA, convicción 54 %.
+- **Se activa** con un cierre de 15m sobre 7.770.
+- **Se invalida** con un cierre de 15m bajo 7.740.
+- **Objetivos:** T1 7.800, sacado de `memoria_niveles`. Arriba de ese nivel la herramienta no sugiere nada, así que el T2 es el máximo del 12-oct, 7.820.
+- **Pantalla:** con la base +0,08 los niveles son los mismos.
+
+**Un error en el texto de la llamada.** En la tesis puse que "el ES fuera de hora sube", pero la apertura implícita calculada da un gap de apenas +3. El ES está en 7.802,5 a las 15:56 ET, que es casi lo mismo que al cierre. Además, la diferencia ES-SPX estaba en el borde alto de la banda. El documento sí trae la cifra correcta en la sección de fuera de hora. No corregí la frase porque la llamada no se edita.
+
+**Registro:**
+- **Log:** entrada del 21-oct con `resultado` y `llamada_siguiente` (`para_fecha` 2026-10-22).
+- **Excel:** fila 86.
+- **Backups:** `*_bak_20261021_cierre`.
+- **Script:** `control premercado\cierre_10212026.py`.
+[Wed 10/21/2026 15:07:25.59] Finalizado (codigo 0) 
+ 
+[Thu 10/22/2026 15:00:02.04] Iniciando cierre del dia 
+Listo: el informe del cierre del día de hoy (jueves 22-oct) está creado. Hubo mercado según `esDiaDeMercado` y no existía un `.docx` previo.
+
+**Lo que quedó escrito:**
+- **Informe:** `documentos premercado\10222026_cierre del dia.docx`. Es solo Word, con el formato del último script de `control premercado\` (`cierre_10212026.py`).
+- **Log:** se llenaron `resultado` y `llamada_siguiente` en la entrada del 22-oct (`para_fecha` 2026-10-23). Antes se guardó el backup `.bak_20261022_cierre`.
+- **Excel:** se añadió "CIERRE DEL DÍA" al Detalle de la fila 87, con backup `_bak_20261022_cierre.xlsx`.
+- **Sigma:** usé la lectura de las **16:05 ET** de `status.json`, la de la cadena ya vencida.
+- **Script:** `control premercado\cierre_10222026.py`, con las rutas armadas con `os.path.join`.
+
+**Lo que no se pudo hacer: Investing quedó sin leer.** La extensión de Chrome no conectó: Chrome estaba abierto, pero no aparecía ningún navegador conectado. Reintenté y siguió igual, y WebFetch no tenía permiso. Por la regla de no dar nada por 3 estrellas sin verlo en Investing, quedaron dos huecos, y así lo dicen el informe y el log:
+- **Hoy:** no pude revisar si apareció un 3 estrellas a las 10:15 ET o después que el premercado no tuviera. El "SÍ" de hoy queda con el D19 sin confirmar.
+- **Mañana:** no hay catalizadores. En el log, `llamada_siguiente.d19` quedó en `null` con su nota; lo resuelve el premercado del 23-oct.
+
+Si reconectas la extensión, puedo leer las dos pestañas y completar esa parte.
+
+No envié nada a nadie, no hice PDF y no toqué TradingView.
+[Thu 10/22/2026 15:05:56.89] Finalizado (codigo 0) 
+ 

@@ -1,5 +1,45 @@
 [
  {
+  "timestamp": "2026-10-22T14:30:07.010Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "STRIKES_RECHAZADOS",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "la cadena se capturo con spot 7680.42 y se esta decidiendo con 7657.34 (23.1 pts de desfase, maximo 10): precios de otro momento, no se opera",
+  "snapshot": {
+   "spxPrice": 7657.34,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7665,
+    "putWall": 7650,
+    "gammaFlip": 7734,
+    "maxPain": 7745
+   },
+   "escenario": "bajista"
+  }
+ },
+ {
+  "timestamp": "2026-10-20T14:30:05.093Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_RECORRIDO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "El precio (7742.73) ya superó todos los objetivos del escenario alcista: no queda recorrido que comprar",
+  "snapshot": {
+   "spxPrice": 7742.73,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7750,
+    "putWall": 7700,
+    "gammaFlip": 7715,
+    "maxPain": 7720
+   },
+   "escenario": "alcista"
+  }
+ },
+ {
   "timestamp": "2026-10-19T14:30:07.513Z",
   "strategyFamily": "PREMERCADO",
   "stage": "SIN_PREMERCADO",
