@@ -22,6 +22,9 @@ const NOMBRE = { BULL_PUT_SPREAD: 'Bull Put Spread', BEAR_CALL_SPREAD: 'Bear Cal
                  BULL_CALL_SPREAD: 'Bull Call Spread', BEAR_PUT_SPREAD: 'Bear Put Spread' };
 const usd = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
 
+// 🐂 alcista / 🐻 bajista en el título del ntfy (el emoji en el texto se ve también en el iPhone)
+const bicho = (d) => (d === 'BULLISH' ? '🐂' : d === 'BEARISH' ? '🐻' : '');
+
 function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital = 2000, maxAbiertas = 3 }) {
   const ARCHIVO = path.join(dataDir, 'ironballs_demo.json');
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return []; } };
@@ -122,7 +125,7 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
            + `${credito ? 'Crédito' : 'Débito'} demo $${precio.toFixed(2)} (Pipe $${p.prima.toFixed(2)} · ${usd(r.diferenciaVsPipe * 100)} vs Pipe)\n`
            + `Riesgo máx $${riesgoMaxUsd} · Ganancia máx $${r.gananciaMaxUsd} · comisión apertura $${dr.fees.toFixed(2)}\n`
            + `SPX ${spx ?? '?'} · alerta con ${meta.edadMin ?? '?'} min · DEMO TastyTrade (dry-run)`,
-             `${pr}Iron Balls abrió: ${nombre} ${v.shortStrike}/${v.longStrike} (demo)`, 'bell');
+             `${pr}💣 ${bicho(v.direction)} Iron Balls abrió: ${nombre} ${v.shortStrike}/${v.longStrike} (demo)`, 'bell');
       return { ok: true, estado: 'DEMO_ABIERTA', motivo: `${nombre} ${v.shortStrike}/${v.longStrike} a ${precio} (Pipe ${p.prima})`, registro: r };
     });
   }
@@ -159,7 +162,7 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
            + (pipe ? `Pipe reportó: ${pipe.pct != null ? pipe.pct + '%' : '?'}${pipe.resultadoDolares != null ? ` · ${usd(pipe.resultadoDolares)}` : ''}\n` : '')
            + `Tiempo: ${dur} · Motivo: ${motivo}\n`
            + (r.prueba ? 'Prueba: no cuenta en el saldo' : `Saldo demo Iron Balls: $${s.saldo.toFixed(2)}`) + ' · DEMO TastyTrade (dry-run)',
-             `${pr}${r.pnlUsd >= 0 ? '✅ GANÓ' : '🔻 PERDIÓ'} ${usd(r.pnlUsd)} · Iron Balls ${r.nombre} (demo)`,
+             `${pr}${r.pnlUsd >= 0 ? '✅ GANÓ' : '🔻 PERDIÓ'} ${usd(r.pnlUsd)} · 💣 ${bicho(r.direccion)} Iron Balls ${r.nombre} (demo)`,
              r.pnlUsd >= 0 ? 'white_check_mark' : 'small_red_triangle_down');
       return { ok: true, estado: 'DEMO_CERRADA', motivo: `${r.precioEntrada} → ${precio}, neto ${usd(r.pnlUsd)}`, registro: r };
     });
