@@ -8288,8 +8288,10 @@ async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada, p
   if (yaCerrada) return terminar('YA_CERRADA', 'el CLOSED llegó junto con la alerta: Pipe ya había salido');
   if (v.expiry < fecha) return terminar('VENCIDA', `vence ${v.expiry}, hoy es ${fecha}`);
   if (edadMin > (cfg.maxEdadAlertaMin ?? 5)) return terminar('TARDE', `la alerta tiene ${edadMin} min (máximo ${cfg.maxEdadAlertaMin ?? 5})`);
-  if (!isMarketHours()) return terminar('FUERA_DE_HORARIO', 'mercado cerrado');
-  if (!calendario.enVentanaET(hhmmAMin(cfg.ventanaDesdeET, 571), hhmmAMin(cfg.ventanaHastaET, 915))) {
+  // la prueba forzada puede correr fuera de horario (2026-11-03, Guillermo desde Madrid: "una prueba ficticia ahora"):
+  // de madrugada las opciones del SPX cotizan en la sesion global de Cboe (GTH). Solo toca la demo, nunca Tradier.
+  if (!prueba && !isMarketHours()) return terminar('FUERA_DE_HORARIO', 'mercado cerrado');
+  if (!prueba && !calendario.enVentanaET(hhmmAMin(cfg.ventanaDesdeET, 571), hhmmAMin(cfg.ventanaHastaET, 915))) {
     return terminar('FUERA_DE_HORARIO', `fuera de la ventana ${cfg.ventanaDesdeET || '09:31'}–${cfg.ventanaHastaET || '15:15'} ET`);
   }
 
