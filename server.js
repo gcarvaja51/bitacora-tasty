@@ -17,6 +17,7 @@ const calendario = require('./src/calendario_nyse');
 const pinDominante = require('./src/pin_dominante');   // MODO SOMBRA: no opera, ver vigilarPinSombra
 const ibAtmSombra = require('./src/ib_atm_sombra');    // MODO SOMBRA: no opera, ver vigilarIbAtmSombra
 const mediodia = require('./src/mediodia');            // IB de las 12:30 en el MVS — OPERA en el sandbox, ver checkMediodia
+const ironballs = require('./src/ironballs');          // Alertas de Pipe (Iron Balls) leidas de WhatsApp — ver POST /api/ironballs/alerta
 const isMarketHours     = calendario.enHorarioDeMercado;   // 9:30-16:00 ET (13:00 en medio dia), sin fines de semana ni feriados
 const esDiaDeMercadoET  = calendario.esDiaDeMercado;       // solo el dia: habil y no feriado
 const esMedioDiaNYSE    = calendario.esMedioDia;
@@ -4906,6 +4907,17 @@ const SPX_CONFIG_DEFAULTS = {
     mediodia: {
       tradierAutoExecute: true,
     },
+    // IRONBALLS (2026-11-01): copia en el sandbox las alertas de Pipe del Canal
+    // Oficial de Iron Balls (WhatsApp). NACE APAGADA (en sombra: registra cada
+    // alerta y su cotizacion en vivo, no opera) — norma 2, se enciende con
+    // autorizacion de Guillermo. Ver POST /api/ironballs/alerta.
+    ironballs: {
+      tradierAutoExecute: false,
+      maxEdadAlertaMin:   5,        // una alerta con mas de 5 min ya no se copia (0DTE de minutos)
+      maxAbiertas:        3,        // posiciones IRONBALLS vivas a la vez
+      ventanaDesdeET:     '09:31',
+      ventanaHastaET:     '15:15',  // el seguro cierra a las 15:30 el dia del vencimiento
+    },
     // Alejamiento de SMA — reversion a la media (playbook Luis Silva, Sigma Trade).
     // Pipeline independiente, parametros propios (puede ajustarse tras el curso del
     // usuario con Luis Silva, por eso todo vive en config y no hardcodeado).
@@ -5002,6 +5014,12 @@ function loadSPXConfig() {
     if (saved?.trading && saved.trading.mediodia === undefined) {
       console.log('[SPX] Sumando config de MEDIODIA (no existia)');
       saved.trading.mediodia = SPX_CONFIG_DEFAULTS.trading.mediodia;
+      saveSPXConfig(saved);
+    }
+    // IRONBALLS (2026-11-01): mismo patron, acotado a su clave. Nace apagada.
+    if (saved?.trading && saved.trading.ironballs === undefined) {
+      console.log('[SPX] Sumando config de IRONBALLS (no existia, nace en sombra)');
+      saved.trading.ironballs = { ...SPX_CONFIG_DEFAULTS.trading.ironballs };
       saveSPXConfig(saved);
     }
     // REVERSION de apertura (2026-09-28): el bloque nace APAGADO. Sin el, el
@@ -5243,6 +5261,8 @@ const KILL_SWITCH = {
   // interruptor vive DENTRO de smaReversion pero es independiente del de media
   // manana (REVERSION, hoy en sombra). Apagado = evalua y registra, no opera.
   REVERSION_APERTURA: cfg => cfg.trading.smaReversion?.apertura,
+  // IRONBALLS (2026-11-01): las alertas de Pipe. Apagado = registra en sombra, no opera.
+  IRONBALLS:   cfg => cfg.trading.ironballs,
 };
 app.get('/api/spx/strategies', (req, res) => {
   const cfg = loadSPXConfig();
@@ -5560,6 +5580,8 @@ function hasLocalOpenSPXWPosition() {
     if (e.strategyFamily === 'MEDIODIA') return false;
     // CLIC_TV tampoco (2026-10-12): los clics de Guillermo y el robot van por separado.
     if (e.strategyFamily === 'CLIC_TV') return false;
+    // IRONBALLS tampoco (2026-11-01): copia las alertas de Pipe, no compite con el robot.
+    if (e.strategyFamily === 'IRONBALLS') return false;
     if (e.closeOrderSentAt &&
         (Date.now() - new Date(e.closeOrderSentAt).getTime()) > CIERRE_ENVIADO_GRACIA_SPXW_MS) {
       return false;   // el cierre se mando hace rato: ya no cuenta como abierta
@@ -5588,7 +5610,8 @@ async function todoLoAbiertoConvive() {
 
     const patasLibres = new Set();
     for (const e of loadTradierExecutions()) {
-      if (e.strategyFamily !== 'REVERSION' && e.strategyFamily !== 'MEDIODIA' && e.strategyFamily !== 'CLIC_TV' && e.expType !== '1DTE') continue;
+      if (e.strategyFamily !== 'REVERSION' && e.strategyFamily !== 'MEDIODIA' && e.strategyFamily !== 'CLIC_TV' &&
+          e.strategyFamily !== 'IRONBALLS' && e.expType !== '1DTE') continue;
       if (e.status !== 'submitted' && e.status !== 'filled') continue;
       for (const s of Object.values(e.legs || {})) if (typeof s === 'string') patasLibres.add(s);
     }
@@ -8127,6 +8150,203 @@ app.post('/api/spx/clic', async (req, res) => {
     console.error('[CLIC_TV] Error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// ── IRONBALLS — alertas de Pipe → vertical en Tradier sandbox (Guillermo 2026-11-01) ──
+//
+// El lector local (ironballs/lector.js, en el PC: GOWA vive en 127.0.0.1) vigila el grupo
+// "📈 Canal Oficial - Iron Balls 📈" de la linea USA y manda aca cada "Options Alert" y cada
+// "⚠️ CLOSED" con su texto CRUDO. El servidor re-parsea con src/ironballs.js: no confia en lo
+// que le diga el lector. Mismo molde que CLIC_TV —clave propia, familia propia que no cruza
+// con nadie, cierre por pedido en checkDirectionalTPSL— con dos diferencias: los strikes y el
+// vencimiento los pone Pipe (no findStrikesByDelta), y nace en SOMBRA (kill-switch apagado).
+//
+// Cada alerta queda en ironballs_alertas.json con su desenlace (ABIERTA, SOMBRA, TARDE,
+// YA_CERRADA, NO_SOPORTADA...) y, si se pudo, la cotizacion EN VIVO de la cadena de Tasty en
+// ese instante, para medir cuanto se pierde por copiar tarde contra lo que publico Pipe.
+//
+// Sin IRONBALLS_TOKEN en Railway el endpoint queda apagado.
+const IRONBALLS_ALERTAS_FILE = path.join(DATA_DIR, 'ironballs_alertas.json');
+const IRONBALLS_ALERTAS_MAX = 1000;
+function loadIronBallsAlertas() {
+  try { return JSON.parse(fs.readFileSync(IRONBALLS_ALERTAS_FILE, 'utf8')); } catch (e) { return []; }
+}
+function guardarIronBallsAlerta(reg) {
+  const lista = loadIronBallsAlertas();
+  lista.unshift(reg);
+  fs.writeFileSync(IRONBALLS_ALERTAS_FILE, JSON.stringify(lista.slice(0, IRONBALLS_ALERTAS_MAX), null, 2), 'utf8');
+}
+function ironBallsVivas() {
+  return loadTradierExecutions().filter(e => e.strategyFamily === 'IRONBALLS' && (e.status === 'submitted' || e.status === 'filled'));
+}
+function hhmmAMin(s, porDefecto) {
+  const m = String(s || '').match(/^(\d{1,2}):(\d{2})$/);
+  return m ? (+m[1]) * 60 + (+m[2]) : porDefecto;
+}
+let ironBallsEnCurso = Promise.resolve();   // serializa: dos alertas seguidas no deben pisarse el cupo
+
+app.post('/api/ironballs/alerta', async (req, res) => {
+  const clave = process.env.IRONBALLS_TOKEN;
+  if (!clave) return res.status(503).json({ ok: false, error: 'IRONBALLS_TOKEN no configurado: lector apagado' });
+  const dada = String(req.get('x-ironballs-token') || '');
+  if (dada.length !== clave.length || !require('crypto').timingSafeEqual(Buffer.from(dada), Buffer.from(clave))) {
+    return res.status(401).json({ ok: false, error: 'clave inválida' });
+  }
+  const { alertId, mensajeAt, texto, yaCerrada } = req.body || {};
+  if (!alertId || !texto || !mensajeAt || isNaN(new Date(mensajeAt))) {
+    return res.status(400).json({ ok: false, error: 'faltan alertId, mensajeAt (ISO) o texto' });
+  }
+  const trabajo = ironBallsEnCurso.then(() => procesarAlertaIronBalls({ alertId: String(alertId), mensajeAt, texto: String(texto), yaCerrada: !!yaCerrada }));
+  ironBallsEnCurso = trabajo.catch(() => {});
+  try {
+    res.json(await trabajo);
+  } catch (e) {
+    console.error('[IRONBALLS] Error:', e.message);
+    logStrategyEvent({ strategyFamily: 'IRONBALLS', stage: 'ERROR', passed: false, reason: `Excepción no manejada: ${e.message}` });
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada }) {
+  // Idempotente por id del mensaje de WhatsApp: el lector puede reenviar tras un corte.
+  const previa = loadIronBallsAlertas().find(a => a.alertId === alertId);
+  if (previa) return { ok: true, repetida: true, estado: previa.estado, motivo: 'ya procesada', id: previa.execId || null };
+
+  const p = ironballs.parsearMensaje(texto, mensajeAt);
+  const ahora = new Date();
+  const minET = calendario.minutosET(ahora);
+  const etTime = `${Math.floor(minET / 60)}:${String(minET % 60).padStart(2, '0')}`;
+  const edadMin = +((ahora - new Date(mensajeAt)) / 60000).toFixed(1);
+  const base = { alertId, mensajeAt, recibidaAt: ahora.toISOString(), edadMin, version: ironballs.VERSION };
+  const terminar = (estado, motivo, extra = {}) => {
+    const reg = { ...base, tipo: p?.tipo || 'desconocido', estado, motivo, parse: p, ...extra };
+    guardarIronBallsAlerta(reg);
+    logStrategyEvent({ strategyFamily: 'IRONBALLS', etTime, stage: `IRONBALLS_${estado}`, passed: estado === 'ABIERTA' || estado === 'CIERRE_PEDIDO',
+      reason: `${p?.tipo || '?'} ${p?.clave || ''}: ${motivo}`, snapshot: { alertId, edadMin, ...extra } });
+    console.log(`[IRONBALLS] ${estado} — ${p?.clave || alertId}: ${motivo}`);
+    return { ok: true, estado, motivo, clave: p?.clave || null, ...extra };
+  };
+
+  if (!p) return terminar('IGNORADA', 'no es ni una "Options Alert" ni un "CLOSED"');
+
+  // ── CIERRE ──
+  if (p.tipo === 'cierre') {
+    if (!p.ok) return terminar('CIERRE_ILEGIBLE', p.motivo);
+    const pipe = { pct: p.pct, resultadoDolares: p.resultadoDolares };
+    let marcada = null;
+    await withExecutionsLock(() => {
+      const execs = loadTradierExecutions();
+      const ex = execs.find(e => e.strategyFamily === 'IRONBALLS' && (e.status === 'submitted' || e.status === 'filled') &&
+                                 !e.cierreIronPedido && e.ironballs?.clave === p.clave);
+      if (ex) {
+        ex.cierreIronPedido = ahora.toISOString();
+        ex.ironballs = { ...ex.ironballs, cierre: { alertId, mensajeAt, ...pipe } };
+        marcada = { id: ex.id, status: ex.status, orderId: ex.orderId };
+        saveTradierExecutions(execs);
+      }
+    });
+    if (!marcada) return terminar('CIERRE_SIN_POSICION', 'Pipe cerró algo que no tenemos abierto (sombra, tarde o segundo cierre parcial)', { pipe });
+    // Si la entrada todavia no lleno, el monitor la cierra apenas llene (o la limpia cleanupStalePendingOrders).
+    if (marcada.status === 'filled' && isMarketHours()) await checkDirectionalTPSL();
+    const ex = loadTradierExecutions().find(e => e.id === marcada.id) || {};
+    return terminar('CIERRE_PEDIDO', marcada.status === 'filled'
+      ? `cierre mandado (${ex.closeReason || 'en curso'})` : 'la entrada no había llenado: se cierra apenas llene',
+      { pipe, execId: marcada.id, closeOrderSentAt: ex.closeOrderSentAt || null });
+  }
+
+  // ── APERTURA ──
+  if (!p.ok) return terminar('NO_SOPORTADA', p.motivo);
+  const v = p.vertical;
+  const cfg = (loadSPXConfig().trading || {}).ironballs || {};
+  const fecha = calendario.fechaET(ahora);
+  const dte = Math.round((new Date(v.expiry + 'T12:00:00Z') - new Date(fecha + 'T12:00:00Z')) / 86400000);
+
+  if (yaCerrada) return terminar('YA_CERRADA', 'el CLOSED llegó junto con la alerta: Pipe ya había salido');
+  if (v.expiry < fecha) return terminar('VENCIDA', `vence ${v.expiry}, hoy es ${fecha}`);
+  if (edadMin > (cfg.maxEdadAlertaMin ?? 5)) return terminar('TARDE', `la alerta tiene ${edadMin} min (máximo ${cfg.maxEdadAlertaMin ?? 5})`);
+  if (!isMarketHours()) return terminar('FUERA_DE_HORARIO', 'mercado cerrado');
+  if (!calendario.enVentanaET(hhmmAMin(cfg.ventanaDesdeET, 571), hhmmAMin(cfg.ventanaHastaET, 915))) {
+    return terminar('FUERA_DE_HORARIO', `fuera de la ventana ${cfg.ventanaDesdeET || '09:31'}–${cfg.ventanaHastaET || '15:15'} ET`);
+  }
+
+  // Cotizacion EN VIVO (Tasty) — se toma aunque este en sombra: es la medicion.
+  const sym = (k) => tradier.buildOccSymbol('SPXW', v.expiry, v.tipo, k);
+  const legs = { shortSym: sym(v.shortStrike), longSym: sym(v.longStrike) };
+  let vivo = null;
+  try {
+    const cot = await cotizarPatasFresco([legs.shortSym, legs.longSym], 'IRONBALLS');
+    if (cot) {
+      const neto = +(Number(cot.q[legs.shortSym].mark) - Number(cot.q[legs.longSym].mark)).toFixed(2);
+      vivo = { neto: Math.abs(neto), edadSeg: cot.edadSeg, fuente: cot.fuente,
+               diferenciaVsPipe: +(Math.abs(neto) - p.prima).toFixed(2) };   // + = mejor que Pipe en credito
+    }
+  } catch (e) { /* la medicion nunca bloquea */ }
+  const spot = await precioSPXFresco({ rapido: true }).catch(() => null);
+  const medicion = { primaPipe: p.prima, vivo, spotPipe: p.spot, spotAhora: spot?.price ?? null };
+
+  if (cfg.tradierAutoExecute === false) return terminar('SOMBRA', 'IRONBALLS apagada: se registra, no se opera', medicion);
+  if (!IS_PRODUCTION) return terminar('LOCAL', 'servidor local: no ejecuta', medicion);
+
+  const vivas = ironBallsVivas();
+  if (vivas.some(e => e.ironballs?.clave === p.clave)) return terminar('DUPLICADA', 'ya hay una abierta con esos strikes', medicion);
+  if (vivas.length >= (cfg.maxAbiertas ?? 3)) return terminar('CUPO_LLENO', `${vivas.length} abiertas (máximo ${cfg.maxAbiertas ?? 3})`, medicion);
+
+  // Precio limite: sobre el mid EN VIVO si lo hay; si no, sobre la prima que publico Pipe.
+  const premiumBase = vivo?.neto > 0 ? vivo.neto : p.prima;
+  const ctx = { etTime, spxPrice: spot?.price ?? null };
+  const strikes = { shortStrike: v.shortStrike, longStrike: v.longStrike, expiry: v.expiry, premium: premiumBase,
+                    spreadWidth: v.ancho, primaPipe: p.prima };
+  let order;
+  try {
+    order = await tradier.placeSpreadOrder({
+      strategy: v.strategy, underlyingRoot: 'SPXW', expiry: v.expiry,
+      shortStrike: v.shortStrike, longStrike: v.longStrike, quantity: 1,
+      netLimitPrice: limiteDeAperturaVertical(v.strategy, premiumBase),
+    });
+  } catch (e) {
+    await anotarFalloDeOrden({ familia: 'IRONBALLS', error: e, ctx, strikes });
+    return terminar('RECHAZADA', `el broker rechazó la orden: ${e.message}`, medicion);
+  }
+  anotarOrdenAceptada({ familia: 'IRONBALLS', ctx });
+  const paperEntry = await marcarPaper(order.legs, 'apertura');
+  const execId = `tex-${Date.now()}`;
+  await withExecutionsLock(() => {
+    const executions = loadTradierExecutions();
+    executions.unshift({
+      id: execId, signalId: null, timestamp: ahora.toISOString(), fechaET: fecha,
+      strategy: v.strategy, strategyFamily: 'IRONBALLS', direction: v.direction,
+      algoVersion: { huella: ironballs.VERSION, familia: 'IRONBALLS',
+                     commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || null,
+                     sellado: ahora.toISOString(), parametros: cfg },
+      isCredit: v.strategy === 'BULL_PUT_SPREAD' || v.strategy === 'BEAR_CALL_SPREAD',
+      expType: `${dte}DTE`, strikes, expiry: v.expiry, contracts: 1,
+      orderId: order.orderId, legs: order.legs, status: 'submitted',
+      entryFillPrice: null, creditReceived: null,
+      tpPct: null, slMult: null, debitTpPct: null, debitSlPct: null,   // SIN TP/SL: sale con el CLOSED de Pipe
+      fractalLevel: null, pocLevel: null, entrySpx: ctx.spxPrice, entryAtr2m: null,
+      cierreForzadoET: '15:30',
+      ironballs: { alertId, mensajeAt, clave: p.clave, primaPipe: p.prima, dtePipe: p.dte, spotPipe: p.spot,
+                   enlace: p.enlace, edadMin, vivo },
+      paperEntry, paperExit: null, paperPnl: null,
+      filledAt: null, closedAt: null, closeReason: null, pnl: null, pnlSource: null,
+    });
+    saveTradierExecutions(executions);
+  });
+  return terminar('ABIERTA', `${v.strategy} ${v.shortStrike}/${v.longStrike} ${v.expiry} — límite sobre ${premiumBase} ` +
+    `(Pipe ${p.prima}${vivo ? `, vivo ${vivo.neto}` : ''}). Orden ${order.orderId}.`, { ...medicion, execId, orderId: order.orderId });
+}
+
+// Lo que llego y que paso con cada alerta — para el informe y para la Torre.
+app.get('/api/ironballs/alertas', (req, res) => {
+  const lista = loadIronBallsAlertas();
+  const limite = Math.min(Number(req.query.limit) || 100, IRONBALLS_ALERTAS_MAX);
+  const porEstado = {};
+  for (const a of lista) porEstado[a.estado] = (porEstado[a.estado] || 0) + 1;
+  const cfg = (loadSPXConfig().trading || {}).ironballs || {};
+  res.json({ ok: true, encendida: cfg.tradierAutoExecute !== false, lectorConfigurado: !!process.env.IRONBALLS_TOKEN,
+             total: lista.length, porEstado, vivas: ironBallsVivas().map(e => ({ id: e.id, strategy: e.strategy,
+             clave: e.ironballs?.clave, status: e.status, cierreIronPedido: e.cierreIronPedido || null })),
+             alertas: lista.slice(0, limite) });
 });
 
 // ── Clic REAL en TastyTrade (Guillermo 2026-10-19) — ver src/clic_real.js ──
@@ -11848,7 +12068,15 @@ async function checkDirectionalTPSLImpl() {
       // CLIC_TV (2026-10-12, decision de Guillermo): sin TP/SL ni stop tecnico. Sale cuando el queda sin
       // posicion en TradingView (cierreClicPedido) o, como seguro, 30 min antes del cierre del mercado.
       if (ex.strategyFamily === 'CLIC_TV') cerrarPor = ex.cierreClicPedido ? 'CIERRE_CLIC_TV' : null;
-      if (!cerrarPor && debeForzarCierrePorHorario(ex)) {
+      // IRONBALLS (2026-11-01): mismo criterio que CLIC_TV — las alertas de Pipe no traen TP ni SL,
+      // sale cuando llega su "⚠️ CLOSED" (cierreIronPedido). Seguro: 15:30 SOLO el dia del vencimiento
+      // (un 1DTE o un swing de varios dias no se cierra a las 15:30 del dia en que entro).
+      if (ex.strategyFamily === 'IRONBALLS') {
+        cerrarPor = ex.cierreIronPedido ? 'CIERRE_IRONBALLS'
+          : (ex.expiry && ex.expiry <= calendario.fechaET() && debeForzarCierrePorHorario({ ...ex, expType: '0DTE' })
+              ? 'CIERRE_PRE_CLOSE_30MIN' : null);
+      }
+      if (!cerrarPor && ex.strategyFamily !== 'IRONBALLS' && debeForzarCierrePorHorario(ex)) {
         cerrarPor = 'CIERRE_PRE_CLOSE_30MIN';
         console.log(`[Tradier-DIR-TPSL] ⏰ Cierre forzado por horario (30 min antes del cierre) — orden ${ex.orderId}`);
       }

@@ -1564,7 +1564,7 @@ async function togglePanic(next) {
 // se portaron a la tabla "Estrategias Cerradas" de Reportes, ver
 // ORIGEN_LABELS/CIERRE_LABELS/toggleTradeError/showChecksDetail mas
 // abajo y loadReportsTradier() (fetch de executions/signals/informes).
-const ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor', PREMERCADO: 'Premercado', MEDIODIA: 'IB Mediodía', RUEDA: 'La Rueda', CLIC_TV: 'Clic TradingView' };
+const ORIGEN_LABELS = { TENDENCIA: 'Direccional', REVERSION: 'Reversión SMA', NEUTRAL: 'Iron Condor', PREMERCADO: 'Premercado', MEDIODIA: 'IB Mediodía', RUEDA: 'La Rueda', CLIC_TV: 'Clic TradingView', IRONBALLS: 'Iron Balls' };
 
 // Familia normalizada de una estrategia (2026-08-01, filtro Estrategia en
 // Historial/Reportes) — s.strategyFamily ya viene de metrics.strategies para
@@ -1626,6 +1626,7 @@ const CIERRE_LABELS = {
   PRECIO_OBJETIVO: '🤖 Auto (Objetivo SMA8)', PRECIO_INVALIDACION: '🤖 Auto (Invalidación)',
   TECHNICAL_STOP: '🤖 Auto (Técnico)', TIME_STOP: '🤖 Auto (Tiempo)',
   MANUAL: '👤 Manual', PARTIAL_FILL_EMERGENCY: '🚨 Emergencia',
+  CIERRE_IRONBALLS: '💣 CLOSED de Pipe', CIERRE_PRE_CLOSE_30MIN: '⏰ Seguro 15:30',
 };
 
 // Marcar/desmarcar una estrategia como bug/error de implementacion (2026-07-28,

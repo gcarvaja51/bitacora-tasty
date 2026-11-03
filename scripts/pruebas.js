@@ -1142,6 +1142,39 @@ const sk = md.strikesMariposa(7700, '2026-09-29');
 chequear('MEDIODIA: las dos cortas en el centro y las alas a 15',
          sk.shortStrike === 7700 && sk.callShortStrike === 7700 && sk.longStrike === 7685 && sk.callLongStrike === 7715);
 
+seccion('IRONBALLS: las alertas de Pipe (src/ironballs.js)');
+
+// Mensajes REALES del Canal Oficial de Iron Balls (WhatsApp), copiados tal cual.
+const ibm = require('../src/ironballs');
+const IB_BPS = '🔔 *Options Alert — Sigma Trade*\n\n📌 *SPX — Bull Put Spread*\n\n──────────\n🟢 Buy 1× Put 7640 (Oct 26, 2026) @ $6.57\n🔴 Sell 1× Put 7645 (Oct 26, 2026) @ $7.77\n\n💰 *Net Credit:* $120.00\n\n──────────\n💵 *Premium per contract:* $1.20 (credit)\n\n🏆 *Max profit:* $120.00\n\n📉 *Max loss (risk):* $380.00\n\n⚖️ *Breakeven:* $7658.70\n\n📊 *Probability of profit:* 96.47%\n\n⏳ *DTE:* 0\n\n──────────\n🔗 View on Sigma Trade:\nhttps://web.sigma.trade/share/5IG8v9E9VQ/\n\n🏷️ *Current price of SPX:* $7692.72';
+const IB_ES = '🔔 *Options Alert — Sigma Trade*\n\n📌 *SPX — Bear Call Spread*\n\n──────────\n🟢 Compra 1× Call 7710 (Sep 14, 2026) @ $4.70\n🔴 Venta 1× Call 7700 (Sep 14, 2026) @ $6.15\n\n💰 *Net Credit:* $145.00\n\n──────────\n💵 *Premium per contract:* $1.45 (credit)\n\n⏳ *DTE:* 4';
+const IB_IC = '🔔 *Options Alert — Sigma Trade*\n\n📌 *SPX — Iron Condor*\n\n──────────\n🟢 Compra 1× Put 7575 (Sep 10, 2026) @ $1.83\n🔴 Venta 1× Put 7585 (Sep 10, 2026) @ $3.02\n🔴 Venta 1× Call 7625 (Sep 10, 2026) @ $2.58\n🟢 Compra 1× Call 7635 (Sep 10, 2026) @ $1.12\n\n💰 *Net Credit:* $265.00\n\n⏳ *DTE:* 0';
+const IB_CLOSED = '⚠️ CLOSED\n(Shared on Oct 26)\n\n✅ SPX October 26 7640/7645 Bull Put Spread @ 83.33%\n\nGain of $100 per position';
+const a1 = ibm.parsearAlerta(IB_BPS);
+chequear('IRONBALLS: Bull Put 7645/7640 del 26-oct — vende 7645, compra 7640, credito 1.20, 0DTE',
+         a1.ok && a1.vertical.strategy === 'BULL_PUT_SPREAD' && a1.vertical.shortStrike === 7645 && a1.vertical.longStrike === 7640 &&
+         a1.expiry === '2026-10-26' && a1.prima === 1.2 && a1.netoDolares === 120 && a1.isCredit === true && a1.dte === 0, JSON.stringify(a1));
+const a2 = ibm.parsearAlerta(IB_ES);
+chequear('IRONBALLS: la alerta en espanol (Compra/Venta) se lee igual — Bear Call vende 7700',
+         a2.ok && a2.vertical.strategy === 'BEAR_CALL_SPREAD' && a2.vertical.shortStrike === 7700 && a2.vertical.longStrike === 7710 && a2.expiry === '2026-09-14');
+const a3 = ibm.parsearAlerta(IB_IC);
+chequear('IRONBALLS: el Iron Condor NO se opera en la v1 (no es vertical)', a3 && !a3.ok && a3.estructura === 'IRON_CONDOR' && /4 verticales/.test(a3.motivo));
+const c1 = ibm.parsearCierre(IB_CLOSED, '2026-10-26T14:58:41Z');
+chequear('IRONBALLS: el CLOSED trae vencimiento (con el año del mensaje), strikes, % y ganancia',
+         c1.ok && c1.expiry === '2026-10-26' && c1.pct === 83.33 && c1.resultadoDolares === 100 && c1.gano === true, JSON.stringify(c1));
+chequear('IRONBALLS: la apertura y su CLOSED tienen la MISMA clave (asi se emparejan)', a1.clave === c1.clave && a1.clave === 'BULL_PUT_SPREAD|2026-10-26|7640/7645');
+{ // CLOSED real del 2-nov-2026: "Closed at 0.96 debit" + "Profit of $124 per position"
+  const c2 = ibm.parsearCierre('⚠️ CLOSED\n(Shared on Nov 2)\n\n✅ SPX November 2 7635/7645 Bear Call Spread @ 56.36%\nClosed at 0.96 debit\n\nProfit of $124 per position', '2026-11-02T17:40:00Z');
+  chequear('IRONBALLS: el CLOSED con "Profit of" (2-nov) trae la ganancia', c2.ok && c2.resultadoDolares === 124 && c2.gano === true && c2.clave === 'BEAR_CALL_SPREAD|2026-11-02|7635/7645', JSON.stringify(c2));
+}
+chequear('IRONBALLS: una perdida sale negativa',ibm.parsearCierre(IB_CLOSED.replace('✅', '❌').replace('Gain of $100', 'Loss of $380'), '2026-10-26T15:00:00Z').resultadoDolares === -380);
+chequear('IRONBALLS: un CLOSED de diciembre que nombra enero es del año siguiente',
+         ibm.parsearCierre(IB_CLOSED.replace('October 26', 'January 4'), '2026-12-31T15:00:00Z').expiry === '2027-01-04');
+chequear('IRONBALLS: mapas, capsulas y enlaces de Zoom no son nada', ibm.parsearMensaje('MAPA INSTITUCIONAL IRON BALLS LUNES 26 DE OCTUBRE, 2026.') === null &&
+         ibm.parsearMensaje('Join Zoom Meeting https://us06web.zoom.us/j/868') === null);
+chequear('IRONBALLS: si el titulo contradice las patas, no se opera',
+         ibm.parsearAlerta(IB_BPS.replace('Bull Put Spread', 'Bear Put Spread')).ok === false);
+
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
 
 const cal = require('../src/calendario_nyse');

@@ -137,6 +137,13 @@
     },
     "mediodia": {
       "tradierAutoExecute": true
+    },
+    "ironballs": {
+      "tradierAutoExecute": false,
+      "maxEdadAlertaMin": 5,
+      "maxAbiertas": 3,
+      "ventanaDesdeET": "09:31",
+      "ventanaHastaET": "15:15"
     }
   },
   "entryMode": "pullback",

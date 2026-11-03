@@ -127,3 +127,10 @@ _scratch/
 # generados. El motor es scripts/informe_semanal.py; el PDF final vive en
 # 01_Sigma\mentoria alejandro\informes bitacora\.
 informes_semanales/
+
+# Lector de Iron Balls (2026-11-01): estado y logs de runtime, y la clave en ironballs/.env
+ironballs/estado.json
+ironballs/status.json
+ironballs/lector.log
+ironballs/lector_consola.log
+ironballs/.env
