@@ -1175,6 +1175,25 @@ chequear('IRONBALLS: mapas, capsulas y enlaces de Zoom no son nada', ibm.parsear
 chequear('IRONBALLS: si el titulo contradice las patas, no se opera',
          ibm.parsearAlerta(IB_BPS.replace('Bull Put Spread', 'Bear Put Spread')).ok === false);
 
+seccion('IRONBALLS: demo propia en TastyTrade (src/ironballs_demo.js, TastyTrade falso)');
+{
+  let d = {};
+  try {
+    const out = require('child_process').execFileSync(process.execPath, [require('path').join(__dirname, 'prueba_ironballs_demo.js')], { encoding: 'utf8', timeout: 30000 });
+    d = JSON.parse(out.trim().split('\n').pop());
+  } catch (e) { d = { error: e.message }; }
+  chequear('IRONBALLS demo: NUNCA llama a /orders sin dry-run (no puede mandar una orden real)', d.soloDryRun === true, JSON.stringify(d));
+  chequear('IRONBALLS demo: abre al medio - 0.05 en un crédito (2.15) con riesgo de $785', d.abrio && d.precioEntrada === 2.15 && d.riesgo === 785, JSON.stringify(d));
+  chequear('IRONBALLS demo: no abre dos veces los mismos strikes', d.duplicada === 'DUPLICADA');
+  chequear('IRONBALLS demo: el CLOSED la cierra al medio + 0.05 (1.05), neto de comisiones del dry-run', d.cerro && d.precioSalida === 1.05 && d.pnlBruto === 110 && d.pnlNeto === 106.56, JSON.stringify(d));
+  chequear('IRONBALLS demo: un segundo CLOSED no encuentra nada', d.segundoCierre === 'SIN_DEMO');
+  chequear('IRONBALLS demo: el saldo arranca en $2.000 y suma el neto', d.saldo === 2106.56, JSON.stringify(d));
+  chequear('IRONBALLS demo: ntfy al abrir y al cerrar (2 avisos)', d.avisos === 2, JSON.stringify(d));
+}
+const fuente = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+chequear('IRONBALLS: el servidor cierra la demo con el CLOSED y la abre antes del kill-switch de Tradier',
+         /ironBallsDemo\.cerrar\(\{ clave: p\.clave/.test(fuente) && fuente.indexOf('ironBallsDemo.abrir(') < fuente.indexOf("cfg.tradierAutoExecute === false) {"));
+
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
 
 const cal = require('../src/calendario_nyse');

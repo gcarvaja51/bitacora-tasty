@@ -4915,6 +4915,7 @@ const SPX_CONFIG_DEFAULTS = {
       tradierAutoExecute: false,
       maxEdadAlertaMin:   5,        // una alerta con mas de 5 min ya no se copia (0DTE de minutos)
       maxAbiertas:        3,        // posiciones IRONBALLS vivas a la vez
+      demoTasty:          true,     // 2026-11-03: copia en la demo propia de TastyTrade (dry-run) + ntfy al abrir y cerrar
       ventanaDesdeET:     '09:31',
       ventanaHastaET:     '15:15',  // el seguro cierra a las 15:30 el dia del vencimiento
     },
@@ -8185,6 +8186,20 @@ function hhmmAMin(s, porDefecto) {
 }
 let ironBallsEnCurso = Promise.resolve();   // serializa: dos alertas seguidas no deben pisarse el cupo
 
+// Demo PROPIA de Iron Balls en TastyTrade (Guillermo 2026-11-03): dry-run + llenado simulado, $2.000 aparte de la
+// demo del Clic, ntfy al abrir y al cerrar. Nunca manda una orden real (ver src/ironballs_demo.js).
+// Se apaga con trading.ironballs.demoTasty = false.
+const { crearIronBallsDemo } = require('./src/ironballs_demo');
+const ironBallsDemo = crearIronBallsDemo({
+  tt, dataDir: DATA_DIR, horaETmin,
+  avisar: (texto, titulo, tag = 'bell') => fetch('https://ntfy.sh/', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic: 'bitacora_gcarvaja51', title: titulo, message: texto, priority: 4, tags: [tag] }),
+  }).catch(() => {}),
+});
+ironBallsDemo.vigilar();
+app.get('/api/ironballs/demo', (req, res) => res.json(ironBallsDemo.resumen()));
+
 app.post('/api/ironballs/alerta', async (req, res) => {
   const clave = process.env.IRONBALLS_TOKEN;
   if (!clave) return res.status(503).json({ ok: false, error: 'IRONBALLS_TOKEN no configurado: lector apagado' });
@@ -8192,11 +8207,12 @@ app.post('/api/ironballs/alerta', async (req, res) => {
   if (dada.length !== clave.length || !require('crypto').timingSafeEqual(Buffer.from(dada), Buffer.from(clave))) {
     return res.status(401).json({ ok: false, error: 'clave inválida' });
   }
-  const { alertId, mensajeAt, texto, yaCerrada } = req.body || {};
+  const { alertId, mensajeAt, texto, yaCerrada, prueba } = req.body || {};
   if (!alertId || !texto || !mensajeAt || isNaN(new Date(mensajeAt))) {
     return res.status(400).json({ ok: false, error: 'faltan alertId, mensajeAt (ISO) o texto' });
   }
-  const trabajo = ironBallsEnCurso.then(() => procesarAlertaIronBalls({ alertId: String(alertId), mensajeAt, texto: String(texto), yaCerrada: !!yaCerrada }));
+  // prueba:true = prueba forzada de punta a punta (2026-11-03): solo la demo de Tasty, marcada aparte; nunca Tradier
+  const trabajo = ironBallsEnCurso.then(() => procesarAlertaIronBalls({ alertId: String(alertId), mensajeAt, texto: String(texto), yaCerrada: !!yaCerrada, prueba: prueba === true }));
   ironBallsEnCurso = trabajo.catch(() => {});
   try {
     res.json(await trabajo);
@@ -8207,7 +8223,7 @@ app.post('/api/ironballs/alerta', async (req, res) => {
   }
 });
 
-async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada }) {
+async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada, prueba = false }) {
   // Idempotente por id del mensaje de WhatsApp: el lector puede reenviar tras un corte.
   const previa = loadIronBallsAlertas().find(a => a.alertId === alertId);
   if (previa) return { ok: true, repetida: true, estado: previa.estado, motivo: 'ya procesada', id: previa.execId || null };
@@ -8217,11 +8233,11 @@ async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada })
   const minET = calendario.minutosET(ahora);
   const etTime = `${Math.floor(minET / 60)}:${String(minET % 60).padStart(2, '0')}`;
   const edadMin = +((ahora - new Date(mensajeAt)) / 60000).toFixed(1);
-  const base = { alertId, mensajeAt, recibidaAt: ahora.toISOString(), edadMin, version: ironballs.VERSION };
+  const base = { alertId, mensajeAt, recibidaAt: ahora.toISOString(), edadMin, version: ironballs.VERSION, ...(prueba ? { prueba: true } : {}) };
   const terminar = (estado, motivo, extra = {}) => {
     const reg = { ...base, tipo: p?.tipo || 'desconocido', estado, motivo, parse: p, ...extra };
     guardarIronBallsAlerta(reg);
-    logStrategyEvent({ strategyFamily: 'IRONBALLS', etTime, stage: `IRONBALLS_${estado}`, passed: estado === 'ABIERTA' || estado === 'CIERRE_PEDIDO',
+    logStrategyEvent({ strategyFamily: 'IRONBALLS', etTime, stage: `IRONBALLS_${estado}`, passed: ['ABIERTA', 'CIERRE_PEDIDO', 'DEMO_ABIERTA', 'CIERRE_DEMO'].includes(estado),
       reason: `${p?.tipo || '?'} ${p?.clave || ''}: ${motivo}`, snapshot: { alertId, edadMin, ...extra } });
     console.log(`[IRONBALLS] ${estado} — ${p?.clave || alertId}: ${motivo}`);
     return { ok: true, estado, motivo, clave: p?.clave || null, ...extra };
@@ -8233,6 +8249,13 @@ async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada })
   if (p.tipo === 'cierre') {
     if (!p.ok) return terminar('CIERRE_ILEGIBLE', p.motivo);
     const pipe = { pct: p.pct, resultadoDolares: p.resultadoDolares };
+    // Demo de Tasty primero (2026-11-03): si hay una demo abierta con esa clave, se cierra y avisa por ntfy.
+    let demo = null;
+    try {
+      const d = await ironBallsDemo.cerrar({ clave: p.clave, motivo: 'CLOSED_PIPE', pipe });
+      demo = { estado: d.estado, motivo: d.motivo, pnlUsd: d.registro?.pnlUsd ?? null, id: d.registro?.id || null };
+    } catch (e) { demo = { estado: 'DEMO_ERROR', motivo: e.message }; }
+    if (prueba) return terminar('CIERRE_DEMO', `prueba: ${demo.motivo}`, { pipe, demo });
     let marcada = null;
     await withExecutionsLock(() => {
       const execs = loadTradierExecutions();
@@ -8245,13 +8268,14 @@ async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada })
         saveTradierExecutions(execs);
       }
     });
-    if (!marcada) return terminar('CIERRE_SIN_POSICION', 'Pipe cerró algo que no tenemos abierto (sombra, tarde o segundo cierre parcial)', { pipe });
+    if (!marcada && demo?.estado === 'DEMO_CERRADA') return terminar('CIERRE_DEMO', `demo Tasty: ${demo.motivo}`, { pipe, demo });
+    if (!marcada) return terminar('CIERRE_SIN_POSICION', 'Pipe cerró algo que no tenemos abierto (sombra, tarde o segundo cierre parcial)', { pipe, demo });
     // Si la entrada todavia no lleno, el monitor la cierra apenas llene (o la limpia cleanupStalePendingOrders).
     if (marcada.status === 'filled' && isMarketHours()) await checkDirectionalTPSL();
     const ex = loadTradierExecutions().find(e => e.id === marcada.id) || {};
     return terminar('CIERRE_PEDIDO', marcada.status === 'filled'
       ? `cierre mandado (${ex.closeReason || 'en curso'})` : 'la entrada no había llenado: se cierra apenas llene',
-      { pipe, execId: marcada.id, closeOrderSentAt: ex.closeOrderSentAt || null });
+      { pipe, demo, execId: marcada.id, closeOrderSentAt: ex.closeOrderSentAt || null });
   }
 
   // ── APERTURA ──
@@ -8284,7 +8308,20 @@ async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada })
   const spot = await precioSPXFresco({ rapido: true }).catch(() => null);
   const medicion = { primaPipe: p.prima, vivo, spotPipe: p.spot, spotAhora: spot?.price ?? null };
 
-  if (cfg.tradierAutoExecute === false) return terminar('SOMBRA', 'IRONBALLS apagada: se registra, no se opera', medicion);
+  // Demo de Iron Balls en TastyTrade (2026-11-03): dry-run + llenado simulado + ntfy. Independiente del kill-switch
+  // de Tradier; se apaga con demoTasty: false.
+  if (cfg.demoTasty !== false || prueba) {
+    try {
+      const d = await ironBallsDemo.abrir(p, { alertId, mensajeAt, edadMin, prueba });
+      medicion.demo = { estado: d.estado, motivo: d.motivo, id: d.registro?.id || null, precio: d.registro?.precioEntrada ?? null };
+    } catch (e) { medicion.demo = { estado: 'DEMO_ERROR', motivo: e.message }; }
+  }
+  if (prueba) return terminar(medicion.demo?.estado || 'DEMO_ERROR', `prueba: ${medicion.demo?.motivo || ''}`, medicion);
+
+  if (cfg.tradierAutoExecute === false) {
+    return terminar(medicion.demo?.estado === 'DEMO_ABIERTA' ? 'DEMO_ABIERTA' : 'SOMBRA',
+      `Tradier apagado${medicion.demo ? ` · demo Tasty: ${medicion.demo.motivo}` : ': se registra, no se opera'}`, medicion);
+  }
   if (!IS_PRODUCTION) return terminar('LOCAL', 'servidor local: no ejecuta', medicion);
 
   const vivas = ironBallsVivas();
