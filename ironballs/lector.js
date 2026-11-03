@@ -1,5 +1,8 @@
 // ── Lector de Iron Balls — corre en el PC, NO se despliega (2026-11-01) ─────
 //
+// Tambien corre en la nube (Vultr 64.176.24.14, servicio ironballs-lector) con su propio GOWA vinculado
+// a la linea USA; el servidor es idempotente por alertId, asi que dos lectores no duplican.
+//
 // Vigila el grupo de WhatsApp "📈 Canal Oficial - Iron Balls 📈" (linea USA) a traves
 // de GOWA en 127.0.0.1:3001 —que solo existe en este PC, por eso el lector no puede
 // vivir en Railway— y manda cada "Options Alert" y cada "⚠️ CLOSED" a
@@ -26,7 +29,7 @@ const calendario = require('../src/calendario_nyse');
 
 const DIR = __dirname;
 const WHATSAPP_DIR = 'C:/Users/gcarv/Documents/CARPETA PERSONAL/whatsapp';
-const GOWA = 'http://127.0.0.1:3001';
+const GOWA = process.env.GOWA_URL || 'http://127.0.0.1:3001';   // en la nube (Vultr) tambien 127.0.0.1:3001
 const CANAL_JID = '120363233546136336@g.us';   // 📈 Canal Oficial - Iron Balls 📈
 const PIPE_JID = '14077487451@s.whatsapp.net'; // solo cuentan los mensajes de Pipe
 const CICLO_MS = 15 * 1000;
@@ -58,6 +61,12 @@ function log(msg) {
 }
 
 function cabecerasGowa() {
+  // en la nube (Vultr, 2026-11-03): credenciales por entorno (GOWA_USER/GOWA_PASS/GOWA_DEVICE opcional)
+  if (ENV.GOWA_USER) {
+    const h = { Authorization: 'Basic ' + Buffer.from(`${ENV.GOWA_USER}:${ENV.GOWA_PASS || ''}`).toString('base64') };
+    if (ENV.GOWA_DEVICE) h['X-Device-Id'] = ENV.GOWA_DEVICE;
+    return h;
+  }
   const cred = {};
   for (const l of fs.readFileSync(path.join(WHATSAPP_DIR, 'credenciales.txt'), 'utf8').split(/\r?\n/)) {
     const i = l.indexOf(':');
