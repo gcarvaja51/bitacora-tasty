@@ -180,6 +180,22 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   }
   const leerOrden = async (id) => (await tt._req(`/accounts/${cuenta()}/orders/${id}`))?.data || {};
 
+  // medio de la estructura para el fill simulado, en precio positivo (débito pagado / crédito cobrado): mediana de 4
+  // lecturas en ~1,2 s, más el medio del preview al abrir y las lecturas de los últimos 20 s de la tabla al cerrar.
+  async function medioDemo(rec, abrir) {
+    const n = rec.contratos || 1;
+    const tope = rec.ancho || (rec.riesgoMaxUsd != null && rec.gananciaMaxUsd != null ? (rec.riesgoMaxUsd + rec.gananciaMaxUsd) / (100 * n) : null);
+    const pos = (v) => { const x = rec.credito ? -v : v; return tope ? Math.max(0, Math.min(tope, x)) : Math.max(0, x); };
+    const vals = [];
+    for (let i = 0; i < 4; i++) {
+      try { vals.push(pos((await cotizar(rec.legs)).medio)); } catch (e) { /* una lectura menos */ }
+      if (i < 3) await dormir(400);
+    }
+    if (abrir && Number.isFinite(rec.precioMedio)) vals.push(rec.precioMedio);
+    if (!abrir && rec.id) for (const x of (lecturas.get(rec.id) || [])) if (Date.now() - x.ts <= 20000) vals.push(rec.credito ? -x.medio : x.medio);
+    return vals.length ? mediana(vals) : null;
+  }
+
   // manda la orden y la persigue: precios = [medio, ..., natural]. Devuelve {lleno, precio, orderId} o {lleno:false}
   async function mandarYPerseguir(rec, precios, abrir, esperaMs = 8000) {
     // comisiones que TastyTrade calcula para esta orden (dry-run); se descuentan del P&L (2026-10-19). En la apertura
@@ -189,7 +205,18 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     if (rec.modo !== 'real') {          // solo un registro marcado 'real' manda órdenes; cualquier otro se simula
       // demo (Guillermo 2026-10-19): llena al medio + 0.05 en contra (el segundo escalon), un deslizamiento tipico
       // de los spreads 0DTE del SPX; si el natural esta al medio, al natural.
-      const precio = precios[Math.min(1, precios.length - 1)];
+      // 2026-11-05: el medio sale de la MEDIANA de varias lecturas (ver medioDemo), no de una sola. Con las patas
+      // cotizadas a horas distintas, el Bear Put 7460/7455 ofrecido a 1.95 se "llenó" a 1.35 y el 7415/7410 ofrecido a
+      // 2.30 a 1.35: la demo regalaba o quitaba $60-100 por trade que en la real no existen.
+      let precio = precios[Math.min(1, precios.length - 1)];
+      try {
+        const m = await medioDemo(rec, abrir);
+        if (m != null) {
+          // abrir: se paga más / se cobra menos; cerrar: se cobra menos / se paga más
+          const contra = abrir ? (rec.credito ? -TICK : TICK) : (rec.credito ? TICK : -TICK);
+          precio = Math.max(TICK, r05(m + contra, contra > 0));
+        }
+      } catch (e) { /* sin cotizacion: la escalera de siempre */ }
       return { lleno: true, precio, orderId: 'DRYRUN', simulado: true, fees };
     }
     let orderId = null;
