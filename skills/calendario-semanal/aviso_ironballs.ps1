@@ -26,7 +26,12 @@
 # ============================================================
 param([switch]$Prueba, [switch]$Seco)
 
-$GRUPO = "120363233546136336@g.us"   # Canal Oficial - Iron Balls, cuenta usa
+# 2026-11-05: se suma el CHAT V.I.P (Guillermo: las invitaciones aparecen "de un momento a otro"
+# en los canales de Iron Balls, no solo en el Canal Oficial).
+$GRUPOS = @(
+    "120363233546136336@g.us",   # Canal Oficial - Iron Balls, cuenta usa
+    "120363399540609677@g.us"    # CHAT V.I.P, cuenta usa
+)
 $datos = "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\calendario semanal\ironballs"
 if (-not (Test-Path $datos)) { New-Item -ItemType Directory -Force $datos | Out-Null }
 $sesionesF = Join-Path $datos "sesiones.json"
@@ -114,21 +119,45 @@ function Get-Mensajes {
         'X-Device-Id' = $cuentas.usa.device_id
     }
     $n = $(if ($Seco) { 100 } else { 30 })
-    # Normalmente responde en 0.2 s; el 15-oct hubo dos baches de >60 s. Dos intentos de 25 s.
-    try { (Invoke-RestMethod "http://127.0.0.1:3001/chat/$GRUPO/messages?limit=$n" -Headers $h -TimeoutSec 25).results.data }
-    catch {
-        Log "WhatsApp lento ($($_.Exception.Message)); reintento"
-        (Invoke-RestMethod "http://127.0.0.1:3001/chat/$GRUPO/messages?limit=$n" -Headers $h -TimeoutSec 25).results.data
+    # Normalmente responde en 0.2 s; el 15-oct hubo dos baches de >60 s. Dos intentos de 25 s
+    # por grupo. Si un grupo falla, se sigue con el otro (un chat lento no apaga el aviso).
+    $todos = @(); $fallos = 0
+    foreach ($g in $GRUPOS) {
+        try { $todos += @((Invoke-RestMethod "http://127.0.0.1:3001/chat/$g/messages?limit=$n" -Headers $h -TimeoutSec 25).results.data) }
+        catch {
+            Log "WhatsApp lento en $g ($($_.Exception.Message)); reintento"
+            try { $todos += @((Invoke-RestMethod "http://127.0.0.1:3001/chat/$g/messages?limit=$n" -Headers $h -TimeoutSec 25).results.data) }
+            catch { $fallos++; Log "ERROR leyendo $g : $($_.Exception.Message)" }
+        }
     }
+    if ($fallos -eq $GRUPOS.Count) { throw "no se pudo leer ningun grupo" }
+    $todos | Where-Object { $_ }
 }
 
+# 2026-11-05: el 25-oct un cierre brusco dejo sesiones.json y avisos.json llenos de bytes
+# nulos y el script murio en cada ciclo durante 11 dias ("Invalid JSON primitive"). Ahora un
+# archivo ilegible se aparta como .corrupto y se arranca vacio, y se escribe via temporal.
 function Leer-Json($f) {
     $d = @{}
     if (Test-Path $f) {
-        $o = Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($o) { $o.PSObject.Properties | ForEach-Object { $d[$_.Name] = $_.Value } }
+        try {
+            $raw = Get-Content $f -Raw -Encoding UTF8
+            if ($raw -and $raw.Trim([char]0, ' ', "`r", "`n", "`t")) {
+                $o = $raw | ConvertFrom-Json
+                if ($o) { $o.PSObject.Properties | ForEach-Object { $d[$_.Name] = $_.Value } }
+            }
+        } catch {
+            Log "AVISO: $f ilegible ($($_.Exception.Message)); se aparta como .corrupto y se arranca vacio"
+            Move-Item -Force $f "$f.corrupto"
+        }
     }
     $d
+}
+
+function Guardar-Json($obj, $f) {
+    $tmp = "$f.tmp"
+    $obj | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $tmp
+    Move-Item -Force $tmp $f
 }
 
 $et = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
@@ -267,9 +296,9 @@ try {
     # limpieza: sesiones y avisos de los ultimos 14 dias
     $corte = $ahora.AddDays(-14).ToString('yyyy-MM-dd')
     $s2 = [ordered]@{}; foreach ($k in ($sesiones.Keys | Sort-Object)) { if ($k -ge $corte) { $s2[$k] = $sesiones[$k] } }
-    $s2 | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $sesionesF
+    Guardar-Json $s2 $sesionesF
     $a2 = [ordered]@{}; foreach ($k in ($avisos.Keys | Sort-Object)) { if ($avisos[$k].Substring(0, 10) -ge $corte) { $a2[$k] = $avisos[$k] } }
-    $a2 | ConvertTo-Json | Set-Content -Encoding UTF8 $avisosF
+    Guardar-Json $a2 $avisosF
 
     # 4) Google Calendar (azul): lo hace claude -p. Solo si hay sesiones futuras que no
     #    estan en en_calendario.json, y como mucho un intento cada 30 min.
