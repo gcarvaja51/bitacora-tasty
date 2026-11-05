@@ -8470,7 +8470,7 @@ function claveClicOk(req) {
 }
 app.post('/api/spx/clic-real', async (req, res) => {
   if (!claveClicOk(req)) return res.status(401).json({ ok: false, error: 'clave inválida' });
-  const { accion, direccion, previewId, estructura, centro, alas, modo } = req.body || {};
+  const { accion, direccion, previewId, estructura, centro, alas, modo, contratos } = req.body || {};
   // ranura: 'principal' (clic de TV) o 'adicional' (IB del botón, Guillermo 2026-10-20)
   const ranura = String((req.body || {}).ranura || '') === 'adicional' ? 'adicional' : 'principal';
   try {
@@ -8480,12 +8480,18 @@ app.post('/api/spx/clic-real', async (req, res) => {
     if (accion === 'preview') {
       const d = String(direccion || '').toUpperCase();
       if (!['BULLISH', 'BEARISH'].includes(d)) return res.status(400).json({ ok: false, error: 'direccion BULLISH/BEARISH' });
-      return res.json(await clicReal.preview(d));
+      return res.json(await clicReal.preview(d, contratos));
     }
     // modo: 'real' | 'dryrun', el último botón del PC (2026-10-22)
     if (accion === 'ejecutar') return res.json(await clicReal.ejecutar(String(previewId || ''), modo));
-    if (accion === 'cerrar') return res.json(await clicReal.cerrar(ranura === 'adicional' ? 'CIERRE_BOTON_IB' : 'CIERRE_CLIC', ranura));
-    return res.status(400).json({ ok: false, error: 'accion: preview | ejecutar | cerrar' });
+    // varios contratos (2026-11-05): cerrar con `contratos` < los abiertos = cierre parcial; agregar = mismos strikes
+    if (accion === 'cerrar') {
+      const parcial = ranura !== 'adicional' && contratos != null ? contratos : null;
+      return res.json(await clicReal.cerrar(ranura === 'adicional' ? 'CIERRE_BOTON_IB' : (parcial ? 'CIERRE_PARCIAL_CLIC' : 'CIERRE_CLIC'), ranura, parcial));
+    }
+    if (accion === 'cotizar_agregar') return res.json(await clicReal.cotizarAgregar(contratos));
+    if (accion === 'agregar') return res.json(await clicReal.agregar(contratos));
+    return res.status(400).json({ ok: false, error: 'accion: preview | ejecutar | cerrar | cotizar_agregar | agregar' });
   } catch (e) {
     console.error('[CLIC_REAL] Error:', e.message);
     res.status(500).json({ ok: false, error: e.message });

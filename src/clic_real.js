@@ -35,6 +35,13 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   const permitidos = () => modo() === 'real' ? ['real', 'dryrun'] : modo() === 'dryrun' ? ['dryrun'] : [];
   const soloDemo = () => permitidos().length === 1 && permitidos()[0] === 'dryrun';
   const frenoUsd = () => Number(process.env.CLIC_REAL_FRENO_USD || 400);
+  // Varios contratos (2026-11-05, Guillermo: "que me permita poner 1, 2, 3, 5, 10 contratos... igual en el cierre"):
+  // la cantidad sale de la del Paper Trading del US500; agregar va a los MISMOS strikes (precio promedio) y cerrar
+  // puede ser parcial. Tope: 5 contratos ("3. 5 contratos").
+  const maxContratos = () => Math.max(1, Number(process.env.CLIC_MAX_CONTRATOS || 5));
+  const nContratos = (c) => Math.max(1, Math.min(maxContratos(), Math.round(Number(c) || 1)));
+  // comisiones de los contratos que siguen abiertos (feesApertura queda como total pagado al abrir, para los informes)
+  const feesAbiertas = (rec) => (rec.feesAbiertas ?? rec.feesApertura ?? 0);
   // Guillermo 2026-10-20: "no abre porque he perdido mucho, quita la restricción": el freno diario ya no frena la DEMO
   // (dryrun); sigue frenando la cuenta real (modo 'real') hasta que él diga otra cosa.
   const frenado = (m = 'real') => m === 'real' && pnlHoy('real') <= -frenoUsd();
@@ -275,9 +282,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const desde = demoDesde();
     const l = cargar().filter((x) => x.modo === 'dryrun' && x.abiertaEn >= desde && x.estado !== 'no_llenada').reverse();
     const cerr = l.filter((x) => x.estado === 'cerrada' && x.pnlUsd != null);
-    const realizado = cerr.reduce((a, x) => a + x.pnlUsd, 0);
     const abiertos = l.filter((x) => x.estado === 'abierta' || x.estado === 'cerrando');
-    const reservado = abiertos.reduce((a, x) => a + (x.riesgoMaxUsd || 0) + 2 * (x.feesApertura || 0), 0);
+    // lo realizado incluye los cierres parciales de los clics que siguen abiertos (2026-11-05)
+    const realizado = cerr.reduce((a, x) => a + x.pnlUsd, 0) + abiertos.reduce((a, x) => a + (x.pnlParcialUsd || 0), 0);
+    const reservado = abiertos.reduce((a, x) => a + (x.riesgoMaxUsd || 0) + 2 * feesAbiertas(x), 0);
     let eq = demoCapital(), pico = eq, dd = 0;
     const curva = [{ t: desde, saldo: eq }];
     for (const x of cerr) { eq += x.pnlUsd; pico = Math.max(pico, eq); dd = Math.max(dd, pico - eq); curva.push({ t: x.cerradaEn, saldo: +eq.toFixed(2) }); }
@@ -306,8 +314,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     return null;
   }
 
-  async function preview(direccion) {
+  async function preview(direccion, contratos = 1) {
     if (!permitidos().length) return { ok: false, error: 'clic real apagado (CLIC_REAL_MODO)' };
+    const nC = nContratos(contratos);
     const fuera = fueraDeVentana();
     if (fuera) return { ok: false, error: fuera };
     const noche = nocturna();
@@ -351,19 +360,19 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const lejos = (corto) => (a.tipo === 'C') === a.credito ? corto + ancho : corto - ancho;   // la comprada
     const armar = async (clave, etiqueta, corto) => {
       const largo = lejos(corto);
-      const rec = { credito: a.credito, contratos: 1, legs: { comprada: occ(largo), vendida: occ(corto) } };
+      const rec = { credito: a.credito, contratos: nC, legs: { comprada: occ(largo), vendida: occ(corto) } };
       const q = await cotizarEstable(rec.legs);
       const precioMedio = a.credito ? r05(-q.medio, false) : r05(q.medio, true);
       const dr = await dryRun(cuerpoOrden(rec, precioMedio, true));
       const v = {
         id: 'pv-' + Date.now() + '-' + clave, creado: Date.now(), direccion, estrategia: sig.strategy, nombre: a.nombre,
-        credito: a.credito, legs: rec.legs, contratos: 1, vence: k.expiry, corto, largo, ancho, ubicacion: clave, etiqueta,
+        credito: a.credito, legs: rec.legs, contratos: nC, vence: k.expiry, corto, largo, ancho, ubicacion: clave, etiqueta,
         precioMedio, natural: a.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true), deltaNeto: q.deltaNeto,
         spx, sesion: noche ? 'nocturna' : 'regular', bp: dr?.data?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
         fees: dr?.data?.['fee-calculation']?.['total-fees'] ?? null, avisosDryRun: dr?.data?.warnings || [],
       };
-      v.riesgoMaxUsd = Math.round((v.credito ? ancho - precioMedio : precioMedio) * 100);
-      v.gananciaMaxUsd = Math.round((v.credito ? precioMedio : ancho - precioMedio) * 100);
+      v.riesgoMaxUsd = Math.round((v.credito ? ancho - precioMedio : precioMedio) * 100 * nC);
+      v.gananciaMaxUsd = Math.round((v.credito ? precioMedio : ancho - precioMedio) * 100 * nC);
       // mismas reglas del clic: credito >= 1.20 / debito <= 3.80; si no cumple, la opcion no se ofrece
       if (v.credito ? precioMedio < 1.20 - 1e-9 : precioMedio > 3.80 + 1e-9) {
         v.noCumple = v.credito ? `crédito $${precioMedio.toFixed(2)} < $1.20` : `débito $${precioMedio.toFixed(2)} > $3.80`;
@@ -465,8 +474,8 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         if (fuera) return { ok: false, error: `${msg} y quedo fuera de los limites del clic (${p.credito ? 'credito < 1.20' : 'debito > 3.80'})` };
         const p2 = { ...p, id: 'pv-' + Date.now(), creado: Date.now(), precioAnterior: p.precioMedio, precioMedio: medio, natural: nat,
                      deltaNeto: q.deltaNeto };
-        p2.riesgoMaxUsd = Math.round((p2.credito ? p2.ancho - medio : medio) * 100);
-        p2.gananciaMaxUsd = Math.round((p2.credito ? medio : p2.ancho - medio) * 100);
+        p2.riesgoMaxUsd = Math.round((p2.credito ? p2.ancho - medio : medio) * 100 * (p2.contratos || 1));
+        p2.gananciaMaxUsd = Math.round((p2.credito ? medio : p2.ancho - medio) * 100 * (p2.contratos || 1));
         previews.set(p2.id, p2);
         return { ok: false, recotizado: true, error: msg, preview: p2, modo: m, modosPermitidos: permitidos(), cuenta: cuenta() };
       }
@@ -480,7 +489,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       }
       if (!precios.length) return { ok: false, error: `fuera de los limites del clic (${p.credito ? 'credito < 1.20' : 'debito > 3.80'})` };
       if (m === 'dryrun') {
-        const riesgo = Math.round((p.credito ? p.ancho - precios[0] : precios[0]) * 100);
+        const riesgo = Math.round((p.credito ? p.ancho - precios[0] : precios[0]) * 100 * (p.contratos || 1));
         const disp = cuentaDemo().disponible;
         if (riesgo > disp) return { ok: false, error: `cuenta demo: el riesgo del vertical ($${riesgo}) supera el saldo disponible ($${disp})` };
       }
@@ -490,7 +499,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       const lista = cargar();
       const rec = {
         id: 'cr-' + Date.now(), modo: m, cuenta: cuenta(), fecha: fechaET(), direccion: p.direccion, estrategia: p.estrategia,
-        nombre: p.nombre, credito: p.credito, legs: p.legs, contratos: 1, vence: p.vence, corto: p.corto, largo: p.largo,
+        nombre: p.nombre, credito: p.credito, legs: p.legs, contratos: p.contratos || 1, vence: p.vence, corto: p.corto, largo: p.largo,
         ancho: p.ancho, spxEntrada: p.spx, deltaEntrada: q.deltaNeto, vendidasEntrada: q.vendidas || null, ordenApertura: r.orderId, abiertaEn: new Date().toISOString(),
         estructura: p.estructura || 'VERTICAL', strikesTxt: p.strikesTxt || null, sesion: p.sesion || 'regular',
         ranura: p.ranura || 'principal',
@@ -500,12 +509,13 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         guardar(lista);
         return { ok: false, error: r.motivo, orderId: r.orderId };
       }
-      Object.assign(rec, { estado: 'abierta', precioEntrada: r.precio, simulado: !!r.simulado, feesApertura: r.fees || 0, segEjecApertura: segEjec });
-      rec.riesgoMaxUsd = Math.round((p.credito ? p.ancho - r.precio : r.precio) * 100);
-      rec.gananciaMaxUsd = Math.round((p.credito ? r.precio : p.ancho - r.precio) * 100);
+      Object.assign(rec, { estado: 'abierta', precioEntrada: r.precio, simulado: !!r.simulado, feesApertura: r.fees || 0,
+                           feesAbiertas: r.fees || 0, contratosMax: rec.contratos, segEjecApertura: segEjec });
+      rec.riesgoMaxUsd = Math.round((p.credito ? p.ancho - r.precio : r.precio) * 100 * rec.contratos);
+      rec.gananciaMaxUsd = Math.round((p.credito ? r.precio : p.ancho - r.precio) * 100 * rec.contratos);
       lista.unshift(rec);
       guardar(lista);
-      avisar(`${p.nombre} ${p.strikesTxt || `${p.largo}/${p.corto}`} · ${p.credito ? 'crédito' : 'débito'} $${r.precio.toFixed(2)} · `
+      avisar(`${p.nombre} ${p.strikesTxt || `${p.largo}/${p.corto}`} · ${rec.contratos} contrato(s) · ${p.credito ? 'crédito' : 'débito'} $${r.precio.toFixed(2)} · `
              + `riesgo máx $${rec.riesgoMaxUsd} · ganancia máx $${rec.gananciaMaxUsd}${r.simulado ? ' · DEMO (dry-run)' : ''}`,
              `Clic SPX abierto: ${p.nombre}${r.simulado ? ' (demo)' : ''}`, 'chart_with_upwards_trend');
       return { ok: true, registro: rec };
@@ -514,10 +524,80 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     }
   }
 
-  async function cerrar(motivo = 'CIERRE_CLIC', ranura = 'principal') {
+  // ── Agregar contratos al clic abierto, a los MISMOS strikes (2026-11-05, Guillermo: "1. a los mismos") ──
+  // cotizarAgregar: precio y riesgo de los k contratos nuevos, para que Guillermo lo apruebe en el PC.
+  async function cotizarAgregar(k) {
+    const rec = abierta('principal');
+    if (!rec) return { ok: false, error: 'no hay un clic abierto al que agregar' };
+    if (rec.estructura === 'IB') return { ok: false, error: 'al Iron Butterfly no se le agregan contratos' };
+    const libres = maxContratos() - (rec.contratos || 1);
+    if (libres <= 0) return { ok: false, error: `ya tienes ${rec.contratos} contratos (máximo ${maxContratos()})` };
+    k = Math.min(Math.max(1, Math.round(Number(k) || 1)), libres);
+    const q = await cotizarEstable(rec.legs);
+    const precioMedio = rec.credito ? r05(-q.medio, false) : r05(q.medio, true);
+    const natural = rec.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true);
+    const riesgo = Math.round((rec.credito ? rec.ancho - precioMedio : precioMedio) * 100 * k);
+    return { ok: true, contratos: k, contratosAhora: rec.contratos, precioMedio, natural, riesgoAdicionalUsd: riesgo,
+             nombre: rec.nombre, strikes: rec.strikesTxt || `${rec.largo}/${rec.corto}`, credito: rec.credito, modo: rec.modo,
+             precioEntradaAhora: rec.precioEntrada, disponibleDemo: rec.modo === 'dryrun' ? cuentaDemo().disponible : null };
+  }
+
+  async function agregar(k) {
+    const rec0 = abierta('principal');
+    if (!rec0) return { ok: false, error: 'no hay un clic abierto al que agregar' };
+    if (rec0.estructura === 'IB') return { ok: false, error: 'al Iron Butterfly no se le agregan contratos' };
+    if (ocupado) return { ok: false, error: 'ya hay una orden en curso' };
+    const libres = maxContratos() - (rec0.contratos || 1);
+    if (libres <= 0) return { ok: false, error: `ya tienes ${rec0.contratos} contratos (máximo ${maxContratos()})` };
+    k = Math.min(Math.max(1, Math.round(Number(k) || 1)), libres);
+    if (rec0.modo === 'real' && frenado('real')) return { ok: false, error: `freno diario de la real: P&L de hoy ${pnlHoy('real').toFixed(0)} <= -${frenoUsd()}` };
+    ocupado = true;
+    try {
+      const q = await cotizarEstable(rec0.legs);
+      const medio = rec0.credito ? r05(-q.medio, false) : r05(q.medio, true);
+      const nat = rec0.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true);
+      const precios = [];
+      for (let x = medio; rec0.credito ? x >= nat - 1e-9 : x <= nat + 1e-9; x = +(x + (rec0.credito ? -TICK : TICK)).toFixed(2)) {
+        precios.push(x);
+        if (precios.length >= 4) break;
+      }
+      if (!precios.length) precios.push(medio);
+      if (rec0.modo === 'dryrun') {
+        const riesgo = Math.round((rec0.credito ? rec0.ancho - precios[0] : precios[0]) * 100 * k);
+        const disp = cuentaDemo().disponible;
+        if (riesgo > disp) return { ok: false, error: `cuenta demo: el riesgo de ${k} contrato(s) más ($${riesgo}) supera el saldo disponible ($${disp})` };
+      }
+      const r = await mandarYPerseguir({ ...rec0, contratos: k, precioMedio: medio, feesConocidas: null }, precios, true);
+      if (!r.lleno) return { ok: false, error: r.motivo };
+      const lista = cargar();
+      const rec = lista.find((x) => x.id === rec0.id);
+      const n = rec.contratos || 1;
+      rec.precioEntrada = +((rec.precioEntrada * n + r.precio * k) / (n + k)).toFixed(3);   // precio promedio
+      rec.contratos = n + k;
+      rec.contratosMax = Math.max(rec.contratosMax || n, rec.contratos);
+      rec.feesApertura = +((rec.feesApertura || 0) + (r.fees || 0)).toFixed(2);
+      rec.feesAbiertas = +(feesAbiertas(rec0) + (r.fees || 0)).toFixed(2);
+      rec.riesgoMaxUsd = Math.round((rec.credito ? rec.ancho - rec.precioEntrada : rec.precioEntrada) * 100 * rec.contratos);
+      rec.gananciaMaxUsd = Math.round((rec.credito ? rec.precioEntrada : rec.ancho - rec.precioEntrada) * 100 * rec.contratos);
+      (rec.agregados = rec.agregados || []).push({ en: new Date().toISOString(), contratos: k, precio: r.precio, fees: r.fees || 0, orden: r.orderId });
+      guardar(lista);
+      avisar(`+${k} contrato(s) a ${r.precio.toFixed(2)} · ahora ${rec.contratos} a ${rec.precioEntrada.toFixed(2)} promedio · `
+             + `riesgo máx $${rec.riesgoMaxUsd}${r.simulado ? ' · DEMO (dry-run)' : ''}`,
+             `Clic SPX: agregados ${k} a ${rec.nombre}${r.simulado ? ' (demo)' : ''}`, 'heavy_plus_sign');
+      return { ok: true, agregados: k, precio: r.precio, registro: rec };
+    } finally {
+      ocupado = false;
+    }
+  }
+
+  // contratos: null = todo; k < contratos abiertos = cierre PARCIAL (2026-11-05: "poder cerrar 1, 2, 4, 5 o mas")
+  async function cerrar(motivo = 'CIERRE_CLIC', ranura = 'principal', contratos = null) {
     const rec0 = abierta(ranura);
     if (!rec0) return { ok: true, nada: true };
     if (ocupado) return { ok: false, error: 'ya hay una orden en curso' };
+    const kParcial = contratos != null && Math.round(Number(contratos)) > 0 && Math.round(Number(contratos)) < (rec0.contratos || 1)
+      ? Math.round(Number(contratos)) : null;
+    if (kParcial) return cerrarParcial(rec0, kParcial, motivo);
     ocupado = true;
     try {
       let lista = cargar();
@@ -550,10 +630,16 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         return { ok: false, error: r.motivo };
       }
       rec.estado = 'cerrada'; rec.cerradaEn = new Date().toISOString(); rec.precioSalida = r.precio; rec.ordenCierre = r.orderId;
-      rec.feesCierre = r.fees || 0;
       rec.segEjecCierre = segEjecCierre;
-      rec.pnlBrutoUsd = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * rec.contratos);
-      rec.pnlUsd = +(rec.pnlBrutoUsd - (rec.feesApertura || 0) - rec.feesCierre).toFixed(2);   // neto de comisiones
+      // con cierres parciales antes: el resultado del trade suma lo realizado en cada parte (2026-11-05)
+      const brutoFinal = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * rec.contratos);
+      const netoFinal = brutoFinal - feesAbiertas(rec) - (r.fees || 0);
+      rec.feesCierre = +((rec.feesCierreParcial || 0) + (r.fees || 0)).toFixed(2);
+      rec.contratosCierreFinal = rec.contratos;
+      if (rec.contratosMax) rec.contratos = rec.contratosMax;       // los informes muestran el tamaño máximo del trade
+      rec.feesAbiertas = 0;
+      rec.pnlBrutoUsd = Math.round(brutoFinal + (rec.pnlParcialBrutoUsd || 0));
+      rec.pnlUsd = +(netoFinal + (rec.pnlParcialUsd || 0)).toFixed(2);   // neto de comisiones
       rec.dayTrade = rec.fecha === fechaET();
       rec.spxSalida = await spxSal;          // SPX al cerrar, para el informe del trade (informativo)
       guardar(lista);
@@ -584,6 +670,50 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     }
   }
 
+  // cierre parcial: se deshacen k de los n contratos, se registra lo realizado y el resto sigue abierto
+  async function cerrarParcial(rec0, k, motivo) {
+    ocupado = true;
+    try {
+      const q = await cotizarEstable(rec0.legs);
+      const medio = rec0.credito ? r05(-q.medio, true) : r05(q.medio, false);
+      const nat = rec0.credito ? r05(-q.ventaNat, true) : r05(Math.max(0, q.ventaNat), false);
+      const precios = [];
+      for (let x = medio; rec0.credito ? x <= nat + 1e-9 : x >= nat - 1e-9; x = +(x + (rec0.credito ? TICK : -TICK)).toFixed(2)) {
+        precios.push(Math.max(0.05, x));
+        if (precios.length >= 6) break;
+      }
+      if (!precios.length) precios.push(Math.max(0.05, nat));
+      const r = await mandarYPerseguir({ ...rec0, contratos: k, feesConocidas: null }, precios, false, 7000);
+      if (!r.lleno) {
+        avisar(`${r.motivo}. Revisar en TastyTrade.`, `⚠️ Clic SPX: NO se pudo cerrar ${k} contrato(s)`, 'warning');
+        return { ok: false, error: r.motivo };
+      }
+      const lista = cargar();
+      const rec = lista.find((x) => x.id === rec0.id);
+      const n = rec.contratos || 1;
+      const feesParte = +(feesAbiertas(rec) * k / n).toFixed(2);           // la parte de la apertura de estos k
+      const bruto = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * k);
+      const neto = +(bruto - feesParte - (r.fees || 0)).toFixed(2);
+      rec.contratos = n - k;
+      rec.feesAbiertas = +(feesAbiertas(rec) - feesParte).toFixed(2);
+      rec.feesCierreParcial = +((rec.feesCierreParcial || 0) + (r.fees || 0)).toFixed(2);
+      rec.pnlParcialBrutoUsd = Math.round((rec.pnlParcialBrutoUsd || 0) + bruto);
+      rec.pnlParcialUsd = +((rec.pnlParcialUsd || 0) + neto).toFixed(2);
+      rec.riesgoMaxUsd = Math.round((rec.credito ? rec.ancho - rec.precioEntrada : rec.precioEntrada) * 100 * rec.contratos);
+      rec.gananciaMaxUsd = Math.round((rec.credito ? rec.precioEntrada : rec.ancho - rec.precioEntrada) * 100 * rec.contratos);
+      (rec.parciales = rec.parciales || []).push({ en: new Date().toISOString(), contratos: k, precio: r.precio, pnlUsd: neto,
+                                                   fees: r.fees || 0, motivo, orden: r.orderId });
+      guardar(lista);
+      const usd = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
+      avisar(`${rec.nombre} ${rec.strikesTxt || `${rec.largo}/${rec.corto}`}: cerrados ${k} de ${n} a ${r.precio.toFixed(2)} `
+             + `(entrada ${rec.precioEntrada.toFixed(2)}) = ${usd(neto)} neto · quedan ${rec.contratos}${r.simulado ? ' · DEMO (dry-run)' : ''}`,
+             `Clic SPX: cierre parcial ${usd(neto)}${r.simulado ? ' (demo)' : ''}`, neto >= 0 ? 'white_check_mark' : 'small_red_triangle_down');
+      return { ok: true, parcial: true, cerrados: k, quedan: rec.contratos, precio: r.precio, pnlUsd: neto, registro: rec };
+    } finally {
+      ocupado = false;
+    }
+  }
+
   let cacheEstado = { ts: 0, data: null };
   async function estado() {
     // 1,5 s (era 4): la tabla de TV pide cada 2 s y el P&L no debe tener más de ~3,5 s (Guillermo 2026-10-20)
@@ -602,7 +732,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
           const neto = (valor) => {
             const salida = rec.credito ? -valor : valor;
             return +(Math.round((rec.credito ? rec.precioEntrada - salida : salida - rec.precioEntrada) * 100 * rec.contratos)
-                     - 2 * (rec.feesApertura || 0)).toFixed(2);
+                     - 2 * feesAbiertas(rec)).toFixed(2);
           };
           pnl = neto(v.medio);              // al medio, estable (ver valorEstable)
           pnlNatural = neto(v.ventaNat);    // si cierras ya, al natural
@@ -623,6 +753,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         riesgoMaxUsd: rec.riesgoMaxUsd, gananciaMaxUsd: rec.gananciaMaxUsd, deltaEntrada: rec.deltaEntrada, deltaAhora: delta,
         vendidas, spxEntrada: rec.spxEntrada, abiertaEn: rec.abiertaEn, cerradaEn: rec.cerradaEn || null, motivoCierre: rec.motivoCierre || null,
         cierrePedido: rec.estado === 'cerrando', pnl, pnlNatural, ivAhora: iv, spxAhora, simulado: !!rec.simulado, sesion: rec.sesion || 'regular',
+        // varios contratos (2026-11-05): pnl/pnlNatural son de los contratos ABIERTOS; lo ya cerrado en parciales, aparte
+        pnlParcial: rec.estado !== 'cerrada' ? (rec.pnlParcialUsd || 0) : 0, parciales: (rec.parciales || []).length,
+        agregados: (rec.agregados || []).length, maxContratos: maxContratos(),
         ranura: rec.ranura || 'principal',
       };
     };
@@ -708,7 +841,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     }, 20000);
   }
 
-  return { preview, previewIB, ejecutar, cerrar, estado, vigilar, modo, resumen, demo, _cuerpoOrden: cuerpoOrden, _r05: r05 };
+  return { preview, previewIB, ejecutar, cerrar, cotizarAgregar, agregar, maxContratos, estado, vigilar, modo, resumen, demo, _cuerpoOrden: cuerpoOrden, _r05: r05 };
 }
 
 module.exports = { crearClicReal, ACCION };
