@@ -370,6 +370,73 @@ function gexPorStrike(strikes, spxPrice) {
   return Object.entries(m).map(([k, v]) => ({ strike: +k, gex: v })).sort((a, b) => a.strike - b.strike);
 }
 
+// ── Muros propios con la REGLA DE SIGMA TERMINAL (2026-11-05) ──────────────
+//
+// POR QUE EXISTE. El 2026-11-05 el usuario deja Sigma Terminal. El premercado y el
+// gate dependian de sus 7 niveles. calcGEX no sirve de reemplazo: suma 4
+// vencimientos y toma la gamma NETA sin mirar de que lado del spot cae el strike
+// — contra Sigma coincidia exacto ~47% (comparacion de julio).
+//
+// LA REGLA (ingenieria inversa, no documentacion de Sigma). Solo el vencimiento
+// que se pide (el 0DTE), gamma en dolares POR LADO, sin netear:
+//   callWall = strike >= spot con mas gamma de CALLS
+//   putWall  = strike <= spot con mas gamma de PUTS
+//   mvs      = strike con mas gamma ABSOLUTA (calls + puts)
+// El "por debajo del spot" del put wall lo noto el usuario en Sigma (chat con
+// Alejandro, 19-ago).
+//
+// VALIDACION (142 pares rejilla 0DTE vs historial de Sigma cada 2 min, 19-oct a
+// 3-nov): callWall exacto 91,5% / <=5 pts 95,0%; putWall 92,3% / 95,1%; mvs
+// 87,3%; regimen 137/142. Sin las tomas de la apertura (spot propio malo a las
+// 9:30) los muros suben a 92,5% / 93,2%, y 18 de los 19 fallos que quedan son
+// EMPATES: el strike de Sigma tiene <15% menos gamma que el nuestro en nuestros
+// datos (Polygon vs TastyTrade). Ningun desempate (cercano, lejano, redondo)
+// mejoro el maximo puro: probado. gammaFlip y maxPain NO estan validados.
+//
+// Funcion pura: la cadena entra, los niveles salen. Sin red, sin estado.
+function murosReglaSigma(strikes, spot, expiry) {
+  if (!(spot > 0) || !Array.isArray(strikes) || !strikes.length) return null;
+  const rej = gexAbsPorStrike(strikes, spot);
+  if (!rej.length) return null;
+
+  const mayor = (lista, campo) => lista.reduce((best, x) => (!best || x[campo] > best[campo] ? x : best), null);
+  const cw  = mayor(rej.filter(x => x.strike >= spot && x.calls > 0), 'calls');
+  const pw  = mayor(rej.filter(x => x.strike <= spot && x.puts  > 0), 'puts');
+  const mvs = mayor(rej, 'total');
+
+  const netGex = rej.reduce((a, x) => a + x.calls - x.puts, 0);
+  let netDex = 0;
+  for (const s of strikes) {
+    netDex += (s.call?.delta || 0) * (s.call?.oi || 0) * 100 * spot;
+    netDex += (s.put?.delta  || 0) * (s.put?.oi  || 0) * 100 * spot;
+  }
+
+  return {
+    callWall:    cw ? cw.strike : null,
+    putWall:     pw ? pw.strike : null,
+    mvs:         mvs ? mvs.strike : null,
+    gexMuroCall: cw ? cw.calls : null,   // dolares de gamma por 1%, solo calls del strike
+    gexMuroPut:  pw ? pw.puts  : null,
+    netGex,
+    netDex,
+    regime:      netGex > 0 ? 'POSITIVO' : 'NEGATIVO',
+    // Sin validar contra Sigma — se entregan marcados, ver VALIDACION_MUROS_SIGMA.
+    gammaFlip:   expiry ? calcGammaFlipSweep([{ expiry, strikes }], spot) : null,
+    maxPain:     calcMaxPain(strikes),
+    nStrikes:    rej.length,
+  };
+}
+
+const VALIDACION_MUROS_SIGMA = {
+  regla: 'callWall = max gamma calls con strike>=spot; putWall = max gamma puts con strike<=spot; mvs = max gamma absoluta; solo el vencimiento pedido',
+  muestra: '142 pares, 19-oct a 3-nov-2026, rejilla 0DTE vs historial de Sigma Terminal',
+  callWall: { exacto: 0.915, a5pts: 0.950 },
+  putWall:  { exacto: 0.923, a5pts: 0.951 },
+  mvs:      { exacto: 0.873 },
+  regimen:  { coincide: 137 / 142 },
+  sinValidar: ['gammaFlip', 'maxPain', 'netGex (magnitud)', 'netDex (magnitud)'],
+};
+
 // El strike del muro viene de Sigma Terminal y la rejilla es nuestra: pueden no
 // caer en el mismo punto. Se busca el strike más cercano dentro de `tolerancia`
 // (la rejilla del SPX es de 5 puntos cerca del dinero). Fuera de eso devuelve
@@ -1070,4 +1137,4 @@ function buildSignalSummary(strategy, strikes, sel, context) {
   };
 }
 
-module.exports = { calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, calcPinState, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexEnStrike, gexPorStrike, gexAbsPorStrike, dominanciaRejilla, medirMuro, bandaAlejandro, UMBRALES_MURO };
+module.exports = { murosReglaSigma, VALIDACION_MUROS_SIGMA, calcGEX, calcGammaFlipSweep, calcMaxPain, selectStrategy, evaluateIronCondorGate, calcPinState, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexEnStrike, gexPorStrike, gexAbsPorStrike, dominanciaRejilla, medirMuro, bandaAlejandro, UMBRALES_MURO };

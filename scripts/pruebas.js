@@ -975,6 +975,28 @@ chequear('con menos de dos strikes no inventa dominancia',
          dominanciaRejilla([{ strike: 7700, calls: 1, puts: 1, total: 2 }]) === null);
 chequear('con la rejilla vacia devuelve null', dominanciaRejilla([]) === null);
 
+// Muros propios con la regla de Sigma (2026-11-05). El caso que la destapo: el
+// 19-ago, spot 7717, habia 12B de puts en 7720 y 2B en 7700, y Sigma marcaba el
+// put wall en 7700 — el mayor POR DEBAJO del spot, no el mayor a secas.
+seccion('Muros propios, regla de Sigma (src/spx.js murosReglaSigma)');
+const { murosReglaSigma } = require('../src/spx');
+const cad19ago = [
+  { strike: 7700, call: { gamma: 0.010, oi: 300,  delta: 0.6 }, put: { gamma: 0.010, oi: 200,  delta: -0.4 } },
+  { strike: 7720, call: { gamma: 0.010, oi: 400,  delta: 0.5 }, put: { gamma: 0.010, oi: 1200, delta: -0.5 } },
+  { strike: 7750, call: { gamma: 0.008, oi: 900,  delta: 0.3 }, put: { gamma: 0.004, oi: 100,  delta: -0.7 } },
+];
+const m19 = murosReglaSigma(cad19ago, 7717, '2026-08-19');
+chequear('el put wall es el mayor de puts POR DEBAJO del spot (7700), no el mayor a secas (7720)',
+         m19 && m19.putWall === 7700, `dio ${m19 && m19.putWall}`);
+chequear('el call wall es el mayor de calls POR ENCIMA del spot',
+         m19 && m19.callWall === 7750, `dio ${m19 && m19.callWall}`);
+chequear('el MVS es el de mas gamma absoluta, sin importar el lado (7720)',
+         m19 && m19.mvs === 7720, `dio ${m19 && m19.mvs}`);
+chequear('el regimen sale del signo del GEX neto (aqui puts > calls: NEGATIVO)',
+         m19 && m19.regime === 'NEGATIVO' && m19.netGex < 0);
+chequear('sin spot no inventa muros', murosReglaSigma(cad19ago, 0) === null);
+chequear('con la cadena vacia devuelve null', murosReglaSigma([], 7700) === null);
+
 // El PIN por strike dominante (2026-09-10), en MODO SOMBRA. No opera, pero lo que
 // apunta es la muestra con la que se va a decidir si algun dia opera: si la regla
 // o el P&L salen mal aqui, la muestra entera nace torcida. Casos con las cifras

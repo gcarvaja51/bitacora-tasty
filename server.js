@@ -4659,7 +4659,7 @@ app.post('/api/wheel-trading/adopt', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
-const { calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexPorStrike, gexAbsPorStrike, dominanciaRejilla, medirMuro, bandaAlejandro, UMBRALES_MURO } = require('./src/spx');
+const { murosReglaSigma, VALIDACION_MUROS_SIGMA, calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexPorStrike, gexAbsPorStrike, dominanciaRejilla, medirMuro, bandaAlejandro, UMBRALES_MURO } = require('./src/spx');
 const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray, calcCompasMedias5m, calcPOC } = require('./src/spx_indicators');
 // Nota: calcRSI ya existe como funcion local en este archivo (linea ~1243, usada por el
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
@@ -9473,6 +9473,60 @@ app.get('/api/spx/sigma-velas', (req, res) => {
   if (!f) return res.status(400).json({ ok: false, error: 'm debe ser 2, 5 o 15' });
   try { res.json({ ok: true, ...JSON.parse(fs.readFileSync(f, 'utf8')) }); }
   catch (e) { res.status(404).json({ ok: false, error: 'sin velas guardadas' }); }
+});
+
+// ── Muros propios del 0DTE con la regla de Sigma (2026-11-05) ──────────────
+// Reemplazo de Sigma Terminal para el PREMERCADO (el usuario lo deja el 5-nov).
+// SOLO LECTURA: ninguna estrategia decide con esto; effectiveGex no cambia.
+// Calcula en el momento sobre la cadena de TastyTrade (no depende del ciclo de
+// la rejilla, que solo corre 9:00-16:05 ET: el premercado lo pide a las 8:30).
+//   ?expiry=YYYY-MM-DD  vencimiento (por defecto: el de hoy ET, si no el primero)
+//   ?spot=NNNN          fuerza el spot (por defecto precioSPXFresco, y si no hay,
+//                       el underlyingPrice de la cadena)
+// Regla y validacion: murosReglaSigma en src/spx.js.
+app.get('/api/spx/muros-propios', async (req, res) => {
+  try {
+    const r = await fetch(`http://localhost:${process.env.PORT || 3000}/api/option-chain/SPX`);
+    const chain = await r.json();
+    const exps = chain.expirations || [];
+    if (!exps.length) return res.status(503).json({ ok: false, error: 'la cadena de SPX vino vacia' });
+
+    const hoyET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const pedido = req.query.expiry ? String(req.query.expiry) : null;
+    const exp = pedido ? exps.find(e => e.expiry === pedido)
+                       : (exps.find(e => e.expiry === hoyET) || exps.find(e => e.expiry >= hoyET) || exps[0]);
+    if (!exp) return res.status(404).json({ ok: false, error: `no hay vencimiento ${pedido} en la cadena`,
+      disponibles: exps.map(e => e.expiry) });
+
+    // Spot: nunca crudo (ver precioSPXFresco en CLAUDE.md). Se publica la fuente y
+    // la edad para que quien lo use sepa con que precio se partio la rejilla.
+    let spot = Number(req.query.spot) || null, spotFuente = spot ? 'parametro' : null, spotEdadSeg = null;
+    if (!spot) {
+      const f = await precioSPXFresco().catch(() => null);
+      if (f && f.price > 1000) { spot = f.price; spotFuente = f.fuente; spotEdadSeg = f.edadSeg; }
+    }
+    if (!spot && chain.underlyingPrice > 1000) { spot = chain.underlyingPrice; spotFuente = 'cadena'; }
+    if (!(spot > 1000)) return res.status(503).json({ ok: false, error: 'sin spot fiable del SPX' });
+
+    const strikes = (exp.strikes || []).map(s => ({
+      strike: s.strike,
+      call: { delta: s.call?.delta || 0, gamma: s.call?.gamma || 0, oi: s.call?.oi || 0, iv: s.call?.iv || 0 },
+      put:  { delta: s.put?.delta  || 0, gamma: s.put?.gamma  || 0, oi: s.put?.oi  || 0, iv: s.put?.iv  || 0 },
+    }));
+    const m = murosReglaSigma(strikes, spot, exp.expiry);
+    if (!m) return res.status(503).json({ ok: false, error: 'la rejilla del vencimiento salio vacia (sin gamma u OI)' });
+
+    res.json({
+      ok: true, fuente: 'propio_regla_sigma', symbol: 'SPX',
+      expiry: exp.expiry, dte: exp.dte ?? null, esHoy: exp.expiry === hoyET,
+      spxPrice: spot, spotFuente, spotEdadSeg,
+      ...m,
+      calculadoEn: new Date().toISOString(),
+      validacion: VALIDACION_MUROS_SIGMA,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 app.get('/api/spx/sigma-levels', (req, res) => {
