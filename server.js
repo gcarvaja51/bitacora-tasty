@@ -2842,7 +2842,14 @@ app.get('/api/option-chain/:symbol', async (req, res) => {
     // 2. Precio actual del subyacente desde Yahoo Finance (v8 no requiere crumb)
     let underlyingPrice = 0;
     let ivBase = 0.40;
-    try {
+    // ?cerca (cadena del clic): el subyacente de TastyTrade, en vivo (2026-11-05, "todo o la mayoria por tastytrade")
+    if (parseFloat(req.query.cerca) > 0) {
+      try {
+        const q = await tt._req(`/market-data?symbols[]=${encodeURIComponent(symbol)}`);
+        underlyingPrice = parseFloat(q?.data?.items?.[0]?.last || 0);
+      } catch (e) { /* cae a Yahoo */ }
+    }
+    if (!(underlyingPrice > 0)) try {
       const qR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`,
         { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const qJ = await qR.json();
@@ -7330,6 +7337,29 @@ async function processDirectionalEntry(direction, meta = {}) {
       const ctxRes = await fetch(`http://localhost:${process.env.PORT||3000}/api/spx/context`);
       ctx = await ctxRes.json();
     }
+    // CLIC_REAL = demo/real de TastyTrade (2026-11-05, Guillermo: "para este demo tasty, vamos con la cadena de
+    // tastytrade... todo o la mayoria por tastytrade"). El 5-nov a las 12:22 el clic armo 7440/7435 con el spot de
+    // Sigma en 7439.5 cuando el SPX estaba en ~7426 (Sigma empuja cada ~2 min y se acepta hasta 180 s): strikes 13 pts
+    // dentro del dinero. Para el clic: SPX y VIX en vivo de TastyTrade, IV Rank de TastyTrade y, mas abajo, el regimen
+    // de Gamma y los muros del calculo interno sobre la cadena de TastyTrade. El robot de Tradier no cambia (norma 7).
+    const clicTasty = meta.familia === 'CLIC_REAL';
+    if (clicTasty) {
+      try {
+        const d = await tt._req('/market-data?symbols[]=SPX&symbols[]=VIX');
+        const it = {}; for (const x of (d?.data?.items || [])) it[x.symbol] = x;
+        const spxTt = Number(it.SPX?.last), vixTt = Number(it.VIX?.last);
+        if (spxTt > 0) {
+          ctx.spxPrice = spxTt; ctx.spotFuente = 'tastytrade'; ctx.spotFiable = true;
+          ctx.spotEdadSeg = it.SPX['updated-at'] ? Math.max(0, Math.round((Date.now() - Date.parse(it.SPX['updated-at'])) / 1000)) : 0;
+        }
+        if (vixTt > 0) { ctx.vix = vixTt; ctx.vixFuente = 'tastytrade'; }
+      } catch (e) { console.error('[CLIC] SPX/VIX de TastyTrade fallo, se usa el contexto:', e.message); }
+      if (ctx.ivRankTasty != null) {
+        ctx.ivRank = ctx.ivRankTasty; ctx.ivRankFuente = 'tastytrade';
+        ctx.ivRankCredito = loadSPXConfig()?.trading?.ivRankCreditoTasty ?? 30;
+      }
+      diag.fuentes = { spx: ctx.spotFuente, vix: ctx.vixFuente, ivRank: ctx.ivRankFuente, gex: ctx.gex?.regime ? 'tasty_interno' : 'sigma' };
+    }
     diag.ctxMs = Date.now() - _t0;
 
     // No abrir con un precio viejo (2026-08-16, ver spotFiable en
@@ -7364,7 +7394,12 @@ async function processDirectionalEntry(direction, meta = {}) {
     // frescura <5min) en vez de un "effectiveDex" aparte -- si no hay dato de
     // Sigma Terminal fresco, queda undefined y regimen_institucional cae solo
     // al fallback GEX-solo (ver calcPlaybookScore).
-    const effectiveGex = sigmaLevelsWebhook
+    // CLIC_REAL: regimen y muros del calculo interno (calcGEX sobre la cadena de TastyTrade), ver clicTasty arriba
+    const effectiveGex = (clicTasty && ctx.gex?.regime)
+      ? { regime: ctx.gex.regime, netDex: ctx.gex.netDex, netDexFuente: ctx.gex.netDex != null ? 'interno' : null,
+          callWall: ctx.gex.callWall, putWall: ctx.gex.putWall, gammaFlip: ctx.gex.gammaFlip, maxPain: ctx.gex.maxPain,
+          maxPainFuente: 'interno', source: 'tasty_interno' }
+      : sigmaLevelsWebhook
       ? { regime: sigmaLevelsWebhook.regime, netDex: sigmaLevelsWebhook.netDex, callWall: sigmaLevelsWebhook.callWall, putWall: sigmaLevelsWebhook.putWall, gammaFlip: sigmaLevelsWebhook.gammaFlip,
           // 2026-08-22, a pedido del usuario: EL MAX PAIN SALE DE SIGMA, SIEMPRE.
           //
