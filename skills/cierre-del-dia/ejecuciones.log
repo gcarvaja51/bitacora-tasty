@@ -459,3 +459,111 @@ Si reconectas la extensión, puedo leer las dos pestañas y completar esa parte.
 No envié nada a nadie, no hice PDF y no toqué TradingView.
 [Thu 10/22/2026 15:05:56.89] Finalizado (codigo 0) 
  
+[Fri 10/23/2026 15:00:01.59] Iniciando cierre del dia 
+Ya está el informe del cierre del día de hoy, viernes 23-oct. Según `esDiaDeMercado` hubo mercado, y no existía un `.docx` previo.
+
+**Lo que quedó escrito:**
+- **Informe:** `documentos premercado\10232026_cierre del dia.docx`, solo Word y en su carpeta. Revisé que el archivo abre bien y que trae sus 2 tablas.
+- **Sigma:** usé la lectura de las **16:05 ET** de `status.json`, la de la cadena 0DTE de hoy, que ya venció. La pasé como tono, no como muros para el lunes.
+- **Log:** se llenaron `resultado` y `llamada_siguiente` en la entrada del 23-oct, con `para_fecha` 2026-10-26. Antes se guardó el backup `.bak_20261023_cierre`.
+- **Excel:** se añadió "CIERRE DEL DÍA" al Detalle de la fila 88, con backup `_bak_20261023_cierre.xlsx`.
+- **Script:** `control premercado\cierre_10232026.py`, armado sobre `cierre_10222026.py` (el último que se usó) y con las rutas hechas con `os.path.join`.
+
+**Dos cosas que pesan en la puntuación de hoy:**
+- La activación del bajista fue por **27 centavos**: el cierre fue 7.626,73 contra un umbral de 7.627.
+- El rebote de media mañana se quedó a **2 puntos** de invalidarlo.
+
+En la mecánica cuenta como SÍ, pero estuvo muy justo. Lo dejé dicho en el informe.
+
+**Lo que no se pudo hacer: Investing quedó sin leer otra vez.** La extensión de Chrome no conectó; lo intenté dos veces, igual que ayer. Quedaron tres huecos, y así lo dicen el informe y el log:
+- **Hoy:** no pude revisar si apareció un 3 estrellas a las 10:15 ET o después que el premercado no tuviera. El D19 de hoy queda sin confirmar.
+- **PMI de las 09:45:** no tengo los valores reales. Una búsqueda web tampoco los encontró, así que el log los deja en `null`. Lo que sí se ve es que la vela de las 09:45 casi no se movió.
+- **Lunes:** no hay catalizadores. En el log, `llamada_siguiente.d19` quedó en `null`; lo resuelve el premercado del 26-oct.
+
+Ya son dos días seguidos sin conexión de la extensión. Si la reconectas, puedo leer las pestañas y completar esa parte.
+
+No envié nada a nadie, no hice PDF y no toqué TradingView.
+
+Fuente consultada (sin resultados para octubre de 2026): [S&P Global – Flash US PMI](https://www.spglobal.com/marketintelligence/en/mi/research-analysis/flash-us-pmi-lifts-higher-but-still-signals-weak-growth-at-start-of-q4-oct19.html)
+[Fri 10/23/2026 15:08:03.12] Finalizado (codigo 0) 
+ 
+[Mon 10/26/2026 15:00:04.81] Iniciando cierre del dia 
+Listo. El informe de cierre de hoy quedó generado en `documentos premercado\10262026_cierre del dia.docx` (solo Word), con hora del informe 16:07 ET.
+
+**Cómo fue la corrida:**
+- **Mercado y archivo:** `esDiaDeMercado` dio que hoy sí hubo mercado, y el `.docx` de hoy no existía, así que no se pisó nada.
+- **Sigma:** usé la lectura de las **16:05 ET** (20:05:58Z), la más reciente de `status.json`. Alcanzó a llegar antes de guardar.
+- **Investing:** esta vez Chrome sí conectó.
+  - **Pestaña Hoy:** sin ningún 3 estrellas, así que hoy **no es D19** y sí suma a la asertividad.
+  - **Pestaña Mañana:** confianza del consumidor de The Conference Board y ventas de viviendas nuevas, las dos a las 10:00 ET. Ninguna cae a las 10:15 ET o después, así que mañana no es D19.
+- **Resultado del premercado:** no acertamos. El favorito era el bajista y nunca se activó; el escenario que se cumplió completo fue el alcista. La llamada del viernes para hoy falló: se invalidó a las 09:45 sin llegar a activarse.
+- **Registro:**
+  - En `premercado_hipotesis_log.json` quedaron `resultado` y `llamada_siguiente` para el 27-oct, con backup `.bak_20261026_cierre`.
+  - En `control_premercado.xlsx`, fila 89, se añadió al Detalle el "CIERRE DEL DÍA", con backup `_bak_20261026_cierre.xlsx`.
+- **Scripts:** el informe se generó con `control premercado\cierre_10262026.py` y las velas se bajaron con `datos_10262026.py`, armando las rutas con `os.path.join`. Usé de molde `cierre_10232026.py`, el último script, que está en `control premercado\` y no en `scripts\` del skill.
+
+No envié nada a nadie, no hice PDF y no toqué TradingView.
+[Mon 10/26/2026 15:07:29.94] Finalizado (codigo 0) 
+ 
+[Tue 10/27/2026 15:00:01.40] Iniciando cierre del dia 
+Listo. El cierre del día de hoy (martes 27-oct) quedó generado.
+
+- **Archivo:** `documentos premercado\10272026_cierre del dia.docx`, solo en Word. Antes de crearlo comprobé que no existía.
+- **Mercado:** `esDiaDeMercado` confirmó que hoy hubo sesión. El siguiente día de mercado es el 28-oct.
+- **Sigma:** usé la lectura de las **16:05 ET** (20:05:53Z), la más reciente de `status.json`. Es la cadena del 0DTE de hoy, que ya venció.
+- **Investing (Chrome):**
+  - En la pestaña Hoy solo estaban Conference Board y viviendas nuevas, las dos a las 10:00 ET. No apareció ningún 3 estrellas a las 10:15 ET ni después, así que hoy no es D19.
+  - En la pestaña Mañana salen el crudo de la AIE a las 10:30 ET y la Fed a las 14:00 y 14:30 ET. **Mañana es D19.**
+- **Registro:**
+  - En `premercado_hipotesis_log.json` llené `resultado` y `llamada_siguiente` de hoy. El backup es `.bak_20261027_cierre`.
+  - En `control_premercado.xlsx` agregué el "CIERRE DEL DÍA" en la fila 90. El backup es `_bak_20261027_cierre.xlsx`.
+  - El script que generó todo es `control premercado\cierre_10272026.py`, armado sobre el del 26-oct y con las rutas hechas con `os.path.join`.
+- **Una corrección:** el texto fijo de la lección decía GEX +18,4 B, que era la lectura de las 16:01. La de las 16:05 da +18,0 B, así que lo corregí en el log y en el script. En el Word ese número ya salía de la lectura de las 16:05, y los muros eran los mismos en las dos lecturas.
+
+No envié nada a nadie, no hice PDF y no toqué TradingView. La pestaña de Investing que abrí ya está cerrada.
+[Tue 10/27/2026 15:08:24.72] Finalizado (codigo 0) 
+ 
+[Wed 10/28/2026 15:00:02.92] Iniciando cierre del dia 
+You've hit your 5-hour limit · resets 3:20pm (America/Bogota)
+[Wed 10/28/2026 15:00:27.42] Finalizado (codigo 1) 
+ 
+[Thu 10/29/2026 15:00:16.09] Iniciando cierre del dia 
+Listo: el informe de cierre del día del jueves 29-oct-2026 está creado, solo en Word.
+
+- **Archivo:** `documentos premercado\10292026_cierre del dia.docx`, con hora del informe 16:15 ET. Antes de crearlo, `esDiaDeMercado` confirmó que hoy hubo mercado y verifiqué que el archivo no existía. Para el formato usé de molde `cierre_10272026.py`; el script de hoy es `control premercado\cierre_10292026.py`.
+- **Sigma:** usé el `lastLevels` más reciente de status.json, el de las **16:06 ET**, que coincide con el cierre oficial (7.720). Esa lectura no trae King Node, y el informe lo dice.
+- **Investing (Chrome, filtro EE.UU. 3 estrellas):**
+  - **Hoy:** solo los cuatro datos de las 08:30 ET que ya tenía el premercado. No apareció nada a las 10:15 ET ni después, así que no es D19.
+  - **Mañana (viernes 30):** no hay eventos de 3 estrellas («No hay eventos programados»), así que tampoco es D19.
+- **Registro:**
+  - En `premercado_hipotesis_log.json` (con backup `.bak_20261029_cierre`) quedaron llenos `resultado` y `llamada_siguiente`, con `para_fecha` 2026-10-30.
+  - En `control_premercado.xlsx` (con backup `_bak_20261029_cierre`) se añadió el «CIERRE DEL DÍA» al Detalle de la fila 92.
+- **Llamada de ayer:** no había ninguna que puntuar, porque el 28-oct no se hizo informe de cierre. El informe lo dice.
+- **Correcciones después de generar el archivo:** dos datos del texto estaban escritos a mano y no cuadraban con los valores al momento de correr. Los corregí en el .docx, en el log y en el script:
+  - GEX: decía −22 B y la lectura de las 16:06 da −21 B.
+  - Apertura implícita: decía «cerca del mínimo de hoy» y ya estaba por debajo.
+
+  También quité un «King Node sin dato» repetido.
+- **ES fuera de hora:** cayó unos 30 puntos entre las 15:53 y las 16:05 ET, y la apertura implícita provisoria quedó en ~7.683. No encontré la causa y el informe lo dice tal cual.
+
+No envié nada a nadie, no generé PDF y no toqué TradingView ni el premercado.
+[Thu 10/29/2026 15:16:58.16] Finalizado (codigo 0) 
+ 
+[Tue 11/03/2026 16:07:19.09] Iniciando cierre del dia 
+El informe de cierre de hoy está listo: `documentos premercado\11032026_cierre del dia.docx`, hora del informe 16:13 ET. Es solo Word, sin PDF, y no envié nada a nadie.
+
+- **Antes de crearlo:** `esDiaDeMercado` confirmó que hoy hubo mercado y el archivo no existía. Usé de molde el último script de cierre, que está en `control premercado\cierre_10292026.py` y no en `scripts\` del skill. El de hoy es `control premercado\cierre_11032026.py`, con rutas armadas con `os.path.join`.
+- **Sigma:** usé el `lastLevels` más reciente de status.json, de las **16:05 ET**. Su spot coincide con el cierre oficial (7.569). El daemon está en modo normal y sin fallos.
+- **Investing (Chrome, filtro EE.UU. 3 estrellas):**
+  - Desde el 1-nov EE.UU. está en horario de invierno, así que la hora de Investing (GMT-5) ya es la hora ET. Ya no se suma la hora de Colombia + 1 que dice el skill.
+  - **Hoy:** solo el JOLTS de las 10:00 ET, que ya tenía el premercado. No apareció nada a las 10:15 ET ni después, así que hoy no es D19.
+  - **Mañana (miércoles 4):** ADP a las 08:15, PMI de servicios a las 09:45, ISM no manufacturero a las 10:00 e inventarios de petróleo crudo a las 10:30 ET. Los inventarios son un 3 estrellas después de las 10:15, así que **mañana es D19, día sin trade**. La llamada para mañana quedó escrita igual, para que se puntúe.
+- **Puntuación:** el favorito bajista no se activó, así que no acertamos. Como no es día D19, suma a la asertividad. El alcista se activó, pero se quedó a 0,4 puntos del T1. No había llamada del 2-nov que puntuar, porque ese día no se hizo informe de cierre.
+- **Objetivos bajistas de la llamada:** memoria_niveles no encontró ninguno por debajo de 7.540, porque sus velas de 15m no llegan tan atrás. Los saqué de mínimos diarios anteriores, y el informe lo dice.
+- **Registro:**
+  - En `premercado_hipotesis_log.json` (backup `.bak_20261103_cierre`) quedaron llenos `resultado` y `llamada_siguiente`, con `para_fecha` 2026-11-04 y `d19: true`.
+  - En `control_premercado.xlsx` (backup `_bak_20261103_cierre`) se añadió el «CIERRE DEL DÍA» al Detalle de la fila 95.
+
+No toqué TradingView ni el premercado. La pestaña de Chrome que abrí ya está cerrada.
+[Tue 11/03/2026 16:13:54.06] Finalizado (codigo 0) 
+ 

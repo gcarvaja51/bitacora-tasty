@@ -671,6 +671,13 @@ Escribirlo es parte de la propuesta: mientras no exista, el Auditor devuelve `SI
 > **−$37 por trade**. La dirección no se invirtió, pero cada semana de octubre la acerca a cero.
 > Sigue sin juez. No se re-propone.
 
+> **Actualizada el 2026-10-29 (revisión semanal, 23 a 29-oct): queda ABSORBIDA por la propuesta
+> 13 (`DIR-7`).** La semana sumó 1 vetada (29-oct, 11,6 pts al Put Wall, −$240) y 6 que pasan
+> (5 ganan, +$155). Acumulado 17-ago a 29-oct: **vetadas n=20, 45%, −$73,8 por trade**; pasan
+> n=41, 61%, −$19,9. La brecha volvió a abrirse (−$37 → −$54). Pero 18 de las 20 vetadas tienen
+> menos de 10 pts al muro: la 13 contiene a esta y además cubre el lado alcista y el crédito,
+> que esta no mira. Si la 13 se aprueba, esta se retira.
+
 ---
 
 ### 12. La vertical de CRÉDITO alcista pierde con 62% de aciertos — DIRECCIONAL, impacto ALTO
@@ -735,9 +742,146 @@ mismos instantes.
 ⚠️ **Sexta ALTO abierta sobre DIRECCIONAL** (1, 4, 6, 10, 11 y esta). Una por ventana; DIR-1
 sigue primera. Lo esperable del Auditor mañana: `SIN INSTRUMENTO`.
 
+> **Actualizada el 2026-10-29 (revisión semanal, 23 a 29-oct).** ⚠️ **Corrección de mi tabla
+> del 22-oct:** la fila Bull Call decía «2-sep a 22-oct» pero salía del 17-ago. Del 2-sep al
+> 22-oct es **n=25, 64%, +$700, +$28,0 por trade** (no 38 / +$35,9). La dirección no cambia.
+> La semana sumó **10 Bull Put, 7 ganan, +$45 (+$4,5 por trade)** y 1 Bull Call (−$50, el stop
+> técnico nacido roto del 27-oct). Acumulado 17-ago a 29-oct: Bull Put n=49, 63%, −$985
+> (−$20,1); Bull Call n=39, +$1.315 (+$33,7). **Ver la propuesta 13: 16 de los 49 Bull Put
+> entraron a menos de 10 pts del Call Wall y cargan −$920 de los −$985.** Los otros 33 dan
+> −$2,0 por trade. Si la 13 se aplica, la evidencia de esta se queda casi sin número.
+
+---
+
+### 13. Entrar pegado al muro: menos de 10 pts hasta el muro hacia el que va el trade — DIRECCIONAL, impacto ALTO
+
+**Anotado:** 2026-10-29 (revisión semanal del jueves) · **Declarada:** `DIR-7` en `PROPUESTAS`
+· **Reemplaza a:** la propuesta 11 (`DIR-5`), que es su mitad bajista con otro umbral
+
+**Qué se propone:** en TENDENCIA, **no entrar** si el aire entre el spot y el muro hacia el que
+va el trade es **≥ 0 y < 10 pts**: Call Wall − spot en alcista, spot − Put Wall en bajista.
+**Las dos direcciones, crédito y débito.** Si el precio ya pasó el muro (aire < 0) no se veta.
+Es un umbral fijo en puntos de índice, no el «TP exige más que el aire» de DIR-5, que solo
+existe para débito y en crédito dice «el TP no exige recorrer puntos».
+
+**Por qué ahora:** cuatro días de esta semana tuvieron el mismo perdedor — la última entrada
+del tramo, con el movimiento hecho y contra el muro: 23-oct Bear Put a 17,9 pts del Put Wall
+(−$300), 26-oct Bull Put a 2,6 del Call Wall (−$160), 27-oct Bull Put a 8,0 (−$215), 29-oct
+Bear Put a 11,6 (−$240). Y el contraejemplo del 28-oct: dos Bull Put a 35 y 39 pts, dos TP. Ni
+DIR-5 ni ningún otro instrumento registra la mitad alcista: el veto de muro **no mira crédito**.
+
+**El número** — TENDENCIA comparables (`resultadoOficial.comparable`), 17-ago a 29-oct, 149 de
+149 con `entrySpx`, `entryCallWall` y `entryPutWall` grabados en la ejecución:
+
+| | n | aciertos | P&L | por trade | ganancia media | pérdida media |
+|---|---|---|---|---|---|---|
+| **Aire 0 a 10 pts** | 52 | **50%** | **−$2.530** | **−$48,7** | +$114 | −$212 |
+| El resto | 97 | 67% | +$570 | +$5,9 | +$100 | −$185 |
+
+Por dirección e instrumento, el mismo lado en todas:
+
+| | aire 0-10 | resto |
+|---|---|---|
+| Alcista | n=26, 54%, −$36,3 | n=62, 69%, +$20,6 |
+| Bajista | n=26, 46%, −$61,0 | n=35, 63%, −$20,1 |
+| Bull Put (crédito) | n=16, 50%, −$57,5 | n=33, 70%, −$2,0 |
+| Bull Call (débito) | n=10, 60%, −$2,5 | n=29, 69%, +$46,2 |
+
+- **No lo hace un día.** 31 sesiones distintas en el lado vetado; quitando cualquiera, queda
+  entre **−$63 y −$41 por trade**, y el resto entre −$3 y +$10.
+- **Las cinco quincenas del mismo lado:** 17-31 ago +$10 contra +$39 (n=6/19); 1-15 sep −$132
+  contra −$36 (12/10); 16-30 sep −$52 contra +$7 (8/22); 1-15 oct −$6 contra +$25 (14/24);
+  16-29 oct −$42 contra −$26 (12/22). Septiembre es el grueso (−$2.000 de −$2.530): sin
+  septiembre, −$16,6 contra +$11,8 (n=32/65). La dirección aguanta; el tamaño no es el mismo.
+- **El corte de 10 lo elegí mirando los datos**, y hay que decirlo. Lo que sostiene que no es
+  un corte afinado es que todos los vecinos dan negativo: < 5 pts −$64,4 (n=26), < 7,5 −$39,7
+  (34), < 12,5 −$50,0 (66), < 15 −$41,4 (70). Y **no es «más lejos, mejor»**: de 20 a 30 pts
+  da −$21,9 (n=21). Lo que la tabla dice es que pegado al muro es malo, no que lejos sea bueno.
+- **Aire negativo** (el precio ya pasó el muro): n=9, −$5,0. No se veta.
+
+**Qué se espera que cambie, en magnitud:** ~**5 entradas menos por semana** (52 en 10,5
+semanas). Sobre la muestra, TENDENCIA pasa de **−$1.960 a +$570** (+$2.530, unos **+$240 por
+semana**) y el acierto de 61% a 67%, a cambio de perder 26 ganadores (~+$2.960). **Es un techo,
+no una promesa** (ver abajo).
+
+**Qué podría moverse sin querer:**
+1. **El veto no apaga la ventana.** La evaluación siguiente puede entrar minutos después,
+   ya pasado el muro o rebotado lejos de él. Ese trade de reemplazo no está en la muestra.
+2. **El listón tras pérdida dispara menos.** 24 de las 52 cerraron por SL; cada una evitada
+   deja el listón en 80 el resto del día y cambia qué entra después.
+3. **Absorbe a DIR-5:** 18 de sus 20 vetadas tienen aire < 10. Si esta entra, DIR-5 se retira.
+   No se aplican las dos.
+4. **Se come la evidencia de DIR-6** (propuesta 12): los Bull Put lejos del muro dan −$2,0 por
+   trade. Si esta se aplica primero, DIR-6 hay que volver a medirla desde cero.
+5. **El muro depende de la fuente.** El 21-oct los muros vinieron del cálculo interno (Sigma
+   caído), y el muro se mueve en la sesión (16-oct, se corrió con el precio). El veto lee el
+   muro del instante de entrada, como hoy lo graba la ejecución.
+
+⚠️ **Lo que el Auditor va a decir:** los dos lados pasan de 30, pero los Wilson del acierto se
+solapan (50% [36,9–63,1] contra 67% [57,2–75,6]), así que `comparar()` sobre win rate devuelve
+**MUESTRA INSUFICIENTE**. La diferencia está en el acierto **y** en el tamaño de la pérdida
+(−$212 contra −$185); el juez tiene que comparar **P&L por trade**, no solo aciertos.
+
+**Instrumento: el dato existe, el juez no.** Cada ejecución desde el 17-ago trae `entrySpx`,
+`entryCallWall`, `entryPutWall`, `direction` y `resultadoOficial`. Falta `juzgar_DIR_7` en
+`veredicto_sombra.py` que parta las comparables por aire y compare P&L por trade (con un
+intervalo, p. ej. bootstrap). **Escribirlo es parte de la propuesta**: sin él, el Auditor
+devuelve `SIN INSTRUMENTO` («declarado pero sin juez escrito»).
+
+⚠️ **No suma una ALTO a la cola: reemplaza a DIR-5.** La cola de DIRECCIONAL queda en 1, 4, 6,
+10, 12 y esta. DIR-1 sigue primera salvo que Guillermo decida otra cosa: esta es la que tiene
+más n y la evidencia más directa, pero eso es una decisión, no un dato.
+
 ---
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
+
+### 2026-10-29 (bis) · revisión SEMANAL del jueves, 23 a 29-oct — 1 PROPUESTA (DIR-7)
+
+2.846 evaluaciones en 5 sesiones contra 2.146 en la ventana previa. ⚠️ **La previa está
+recortada**: el log arranca el 19-oct a las 12:36 ET (tope de 5.000 filas), faltan ~9,6 h de
+sesión. Comparo por proporción.
+
+**Propuestas por familia:**
+
+| Familia | Propuesta | Por qué |
+|---|---|---|
+| TENDENCIA | **DIR-7** (propuesta 13): no entrar con < 10 pts al muro, las dos direcciones | n=52, −$48,7/trade, contra n=97, +$5,9. Reemplaza a DIR-5 |
+| TENDENCIA | DIR-5 y DIR-6 actualizadas, no re-propuestas | DIR-5: vetadas n=20, −$73,8; pasan n=41, −$19,9. DIR-6: la semana dio Bull Put +$4,5/trade (n=10) |
+| REVERSION | Ninguna | 0 trades en la semana: la apertura sigue con el interruptor apagado (2 días aptos, 23 y 29-oct, con señal y sin orden). Media mañana en sombra con duplicados |
+| NEUTRAL | Ninguna | 0 IC 0DTE (GEX negativo, posición ocupada). IC 1DTE: 3 TP (+$50). n total 22, −$115 |
+| MEDIODIA | Ninguna | n=18, −$1.190. Ver abajo: hay una variable candidata pero n=14 sin los manuales |
+
+**MEDIODIA — anotado, no propuesto.** De los 14 sin cierre manual: **TP 6 de 6 ganan** (+$1.155),
+**cierre de las 15:30 8 de 8 pierden** (−$2.145). Con el centro **por encima** del spot al
+entrar: 7 de los 8 que llegaron a las 15:30 y 2 de los 6 TP. Con el centro debajo o a menos de
+3 pts: 4 de 6 TP. Distancia absoluta no separa: hubo TP a 18 y 12 pts y 15:30 a 0,5. La n es
+14 y la variable salió de mirar la serie: se sigue anotando.
+
+**Calidad del dato**
+- **Velas de Sigma (2m/5m/15m) congeladas desde el 23-oct 17:00Z**, 4 días de mercado. Sin
+  impulso de 15m (la escalera de TP no actuó en toda la semana), `atr15m` null (el piso de
+  1,5×ATR del stop técnico no corrió), `pocLevel` null el 28 y 29. La apertura y la sombra de
+  reversión decidieron con velas de Yahoo, el respaldo previsto. Escalado como posible
+  corrección desde el 26-oct; sin commit de arreglo.
+- **Spot:** n=1.359, mediana 18 s, p90 31 s, máx 142 s, 2 sobre 120 s (0,1%). **Sigma 1.355
+  (99,7%)** contra 78% la semana anterior. Yahoo 4.
+- **Sellos:** 128 de 409, el backlog congelado; todo lo nuevo viene sellado. **Libro:** los 5
+  de siempre.
+- **Completitud:** `CIERRE_PRE_CLOSE_30MIN` sin fuente/edad 8 de 9: son los de MEDIODIA, cierre
+  por hora. Sigue sin estar en `exentosSinCotizacion`. `VENCIMIENTO` 1/1 es el manual del 28-sep.
+- **Posible corrección del 27-oct** (sigue abierta): el stop técnico aceptó un POC 19 pts por
+  encima de una entrada alcista y disparó a los 51 s. No verifiqué de qué velas salió ese POC.
+
+**Lo que cambió en el embudo (por proporción):**
+- TENDENCIA `NO_PULLBACK_2M` 36,8% (antes 44,0%). `SCORE_FAIL` 79 (2,8%, antes 5,6%): las tres
+  razones principales son el listón tras pérdida (85% contra 90% tras −$300, −$100, −$160).
+- TENDENCIA `POSITION_OPEN` 146 (5,1%, antes 2,9%) y NEUTRAL `POSITION_OPEN` 106 (antes 38):
+  semana de entradas encadenadas (18 TENDENCIA con fill) y el IC 0DTE parado por ocupación el 28.
+- TENDENCIA `NO_STRIKES` 2 (antes 24) y `GATE_CREDITO_RIESGO` 0 (antes 8): con Sigma arriba
+  toda la semana, desaparecieron.
+- REVERSION `SIN_ALEJAMIENTO` 26,1% (antes 18,9%): el 28-oct, 193 en un día de rango de 22 pts.
+- MEDIODIA `MEDIODIA_SIN_MVS` 0 (antes 16, el día sin Sigma).
 
 ### 2026-10-22 (bis) · revisión SEMANAL del jueves, 16 a 22-oct — 1 PROPUESTA (DIR-6)
 

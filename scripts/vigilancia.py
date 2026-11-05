@@ -55,7 +55,11 @@ def _get_json(url, timeout=45, reintentos=2):
 
 
 def ahora_et():
-    return datetime.now(timezone.utc) - timedelta(hours=4)
+    # Hora real de Nueva York (EDT/EST). Con el -4 fijo, desde el cambio a
+    # horario de invierno (1-nov-2026) el motor iba una hora adelantado: daba
+    # por abierto el mercado a las 8:30 EST y lo cerraba a las 15:00 EST.
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/New_York")).replace(tzinfo=None)
 
 
 def mercado_abierto(t=None):
@@ -131,6 +135,13 @@ def chequear(frenos=False):
         colgadas = []
         for e in ex:
             if e.get("status") in ("closed", "canceled"):
+                continue
+            # Las mismas excepciones que hasLocalOpenSPXWPosition() (server.js): estas
+            # familias no bloquean a nadie, asi que una posicion suya viva por horas
+            # (MEDIODIA dura 12:30-15:30 por diseno) no es una apertura atascada.
+            # Falso positivo del 2026-11-05 13:00 ET con el IB de MEDIODIA.
+            if (e.get("strategyFamily") in ("REVERSION", "MEDIODIA", "CLIC_TV", "IRONBALLS")
+                    or e.get("expType") == "1DTE"):
                 continue
             edad = edad_min(e.get("timestamp") or e.get("filledAt"))
             if edad is not None and edad > APERTURA_ATASCADA_MIN:

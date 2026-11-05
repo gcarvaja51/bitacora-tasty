@@ -330,10 +330,14 @@ PROPUESTAS = [
         # 22-oct. Vetadas 3 (+130, -260, +160 = +$30); pasa 1 (-$270). Acumulado
         # 17-ago a 22-oct: vetadas n=19 WR 47% -$65.0/trade; pasan n=35 WR 57%
         # -$27.7/trade. La brecha: -$105 (1-oct), -$58 (15-oct), -$37 (22-oct).
+        #
+        # ACTUALIZADA 2026-10-29: vetadas n=20 WR 45% -$73.8/trade; pasan n=41 WR
+        # 61% -$19.9. ABSORBIDA POR DIR-7: 18 de las 20 vetadas tienen aire < 10
+        # pts al muro. Si DIR-7 se aprueba, esta se retira; no se aplican las dos.
         "declarada": "2026-10-01",
-        "actualizada": "2026-10-22",
+        "actualizada": "2026-10-29",
         "instrumento": "executions.vetoMuroSombra",
-        "espera": "DIR-1 sigue primera en la cola de DIRECCIONAL; una ALTO por ventana",
+        "espera": "absorbida por DIR-7 (2026-10-29); se retira si DIR-7 se aprueba",
     },
     {
         "id": "DIR-6", "familia": "DIRECCIONAL", "nivel": "alto",
@@ -369,9 +373,49 @@ PROPUESTAS = [
         # de debito alternativa. Y el juez no puede ser comparar() sobre win rate:
         # 24/39 contra 26/38 se solapan y la diferencia esta en el TAMANO; tiene
         # que comparar P&L por trade sobre los mismos instantes.
+        #
+        # ACTUALIZADA 2026-10-29. Correccion: la fila Bull Call de arriba sale del
+        # 17-ago, no del 2-sep (del 2-sep son n=25, +$28.0/trade). Acumulado
+        # 17-ago a 29-oct: Bull Put n=49 -$20.1/trade; Bull Call n=39 +$33.7. Ver
+        # DIR-7: 16 de los 49 Bull Put entraron a < 10 pts del Call Wall y cargan
+        # -$920 de los -$985; los otros 33 dan -$2.0/trade. Si DIR-7 se aplica
+        # antes, esta hay que medirla de nuevo.
         "declarada": "2026-10-22",
+        "actualizada": "2026-10-29",
         "instrumento": None,
         "espera": "sexta ALTO abierta en DIRECCIONAL; DIR-1 sigue primera, una ALTO por ventana",
+    },
+    {
+        "id": "DIR-7", "familia": "DIRECCIONAL", "nivel": "alto",
+        "titulo": "Entrar pegado al muro: < 10 pts hasta el muro hacia el que va el trade",
+        "pregunta": ("¿No entrar en TENDENCIA cuando el aire hasta el muro (Call Wall - spot "
+                     "en alcista, spot - Put Wall en bajista) esta en [0, 10) pts mejora el "
+                     "P&L por trade?"),
+        # Declarada el 2026-10-29 (revision semanal 23-29 oct). SUGERENCIAS
+        # propuesta 13. Las dos direcciones, credito y debito. Aire < 0 (el precio
+        # ya paso el muro) no se veta. REEMPLAZA a DIR-5 en la cola, no suma.
+        #
+        # El numero, TENDENCIA comparables (resultadoOficial), 17-ago a 29-oct,
+        # 149 de 149 con entrySpx/entryCallWall/entryPutWall:
+        #   aire [0,10)  n=52  WR 50.0% [36.9-63.1]  -$2,530  -$48.7/trade
+        #   el resto     n=97  WR 67.0% [57.2-75.6]  +$570    +$5.9/trade
+        #   alcista 26 (-$36.3) vs 62 (+$20.6); bajista 26 (-$61.0) vs 35 (-$20.1)
+        # 31 sesiones en el lado vetado; quitando cualquiera, -$63 a -$41 vs -$3
+        # a +$10. Las cinco quincenas del mismo lado; septiembre pesa -$2,000.
+        # El corte de 10 se eligio mirando los datos: <5 -$64.4, <7.5 -$39.7,
+        # <12.5 -$50.0, <15 -$41.4. No es monotono lejos: 20-30 pts -$21.9 (n=21).
+        #
+        # Lo esperable de comparar() sobre win rate: MUESTRA INSUFICIENTE (los
+        # dos lados pasan de 30 pero los Wilson se solapan). La diferencia esta
+        # en acierto Y tamaño: el juez tiene que comparar P&L por trade con un
+        # intervalo (p. ej. bootstrap), no solo aciertos.
+        #
+        # INSTRUMENTO: el dato existe en cada ejecucion (entrySpx, entryCallWall,
+        # entryPutWall, direction, resultadoOficial). Falta juzgar_DIR_7. Escribirlo
+        # es parte de la propuesta; sin el, evaluar() devuelve SIN INSTRUMENTO.
+        "declarada": "2026-10-29",
+        "instrumento": "executions.entryCallWall/entryPutWall",
+        "espera": "reemplaza a DIR-5; el orden frente a DIR-1 lo decide Guillermo",
     },
 ]
 

@@ -118,3 +118,105 @@ Dejé la marca en `semanas\2026-10-19_cargada.json`. No mandé nada por WhatsApp
 [2026-10-21 12:09:08] semana del 2026-10-19 ya cargada: nada que hacer
 [Wed 10/21/2026 12:09:10.22] Fase 1 termino con codigo 1 - NO se arranca Claude 
  
+[Mon 10/26/2026 11:00:00.82] Iniciando calendario semanal 
+[2026-10-26 11:00:20] agenda encontrada (publicada 2026-10-26T09:39:42Z): 11 sesiones
+[Mon 10/26/2026 11:00:21.09] Fase 2, intento 1 de 3 
+Las 11 sesiones de Sigma Club de la semana del 26 de octubre al 1 de noviembre ya están en Google Calendar, y escribí `semanas\2026-10-26_cargada.json`.
+
+- **Agenda:** el JSON coincidía con el texto original, sin diferencias.
+- **Duplicados:** no había ninguna sesión cargada antes, así que se crearon las 11.
+- **Configuración:** todos los eventos van con `timeZone` America/New_York, 1 hora de duración, en dorado, sin invitados y con `notificationLevel` NONE.
+- **Horas:** al crearlos, Google Calendar devolvió horas de Colombia correctas. Hasta el viernes cada sesión cae una hora antes en Colombia: por ejemplo, la de 9:15am ET queda a las 8:15am. El domingo 1 de noviembre EE. UU. cambia al horario de invierno, así que la Planeación semanal de las 6:30pm es la misma hora en ambos países. Lo dejé anotado en `notas`.
+
+No mandé nada por WhatsApp; el parte lo envía la fase 3.
+[Mon 10/26/2026 11:01:45.63] Fase 2 terminada tras 1 intento(s) 
+[2026-10-26 11:01:46] aviso a Guillermo: OK
+[2026-10-26 11:01:46] parte a Guillermo: enviado
+[Mon 10/26/2026 11:01:47.04] Finalizado (codigo 0) 
+ 
+[Tue 10/27/2026 11:00:01.42] Iniciando calendario semanal 
+[2026-10-27 11:00:02] semana del 2026-10-26 ya cargada: nada que hacer
+[Tue 10/27/2026 11:00:02.27] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Wed 10/28/2026 11:00:01.10] Iniciando calendario semanal 
+[2026-10-28 11:00:03] semana del 2026-10-26 ya cargada: nada que hacer
+[Wed 10/28/2026 11:00:03.39] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Tue 11/03/2026  2:28:00.79] Iniciando calendario semanal 
+AVISO: el puerto 3001 sigue ocupado tras 15s; el arranque puede fallar.
+GOWA (modo REST) en http://127.0.0.1:3001
+Panel web -> usuario: gcarv   password: sigma2026
+Claude accede a traves de mcp-whatsapp.mjs
+Arrancado con PID 28612
+Escuchando en 127.0.0.1:3001
+[2026-11-03 02:37:06] GOWA no responde, arrancandolo
+[2026-11-03 03:10:37] GOWA no responde y no arranca
+[Tue 11/03/2026  3:10:52.44] Fase 1 termino con codigo 4 - NO se arranca Claude 
+ 
+[Tue 11/03/2026 11:00:01.14] Iniciando calendario semanal 
+[2026-11-03 11:00:03] agenda encontrada (publicada 2026-11-02T16:34:47Z): 0 sesiones
+[Tue 11/03/2026 11:00:03.62] Fase 2, intento 1 de 3 
+No cargué nada en el calendario y tampoco escribí el `_cargada.json`.
+
+**Qué pasó:** la fase 1 guardó un mensaje que no es la agenda. El archivo `semanas/2026-11-02_agenda.txt` solo trae una corrección que publicaron en el grupo el lunes a las 11:34 hora Colombia:
+
+> "La sesión de Rocío es a las 12:00, hubo un error en la agenda semanal. Disculpad 🙏"
+
+Por eso `2026-11-02_agenda.json` tiene `sesiones: []`. Sin el texto de la agenda no hay nada que cargar, y me pediste no leer WhatsApp.
+
+**Estado del calendario:** Google Calendar respondió en el segundo intento (el primero se cortó). Del lunes 2 al domingo 8 de noviembre no hay ningún evento "Sigma Club".
+
+**Por qué no escribí el `_cargada.json`:** ese archivo marca la semana como hecha. Con él, el miércoles no se reintentaría y la semana quedaría sin sesiones en el calendario. Sin él, la fase 3 te avisará del fallo.
+
+**Ojo con el miércoles:** probablemente la fase 1 vuelve a quedarse con este mismo mensaje. Supongo que lo tomó porque contiene "agenda semanal" en minúsculas, pero no pude revisar `agenda.py` porque no tengo permiso para leerlo. Si es así, el miércoles fallará igual. Hay dos salidas:
+- Corregir la búsqueda en `agenda.py` para que exija "📅 AGENDA SEMANAL – SIGMA CLUB" y "Semana del 2".
+- Correr `/calendario-semanal` a mano en una sesión normal. Ahí sí se lee WhatsApp, se carga la agenda de verdad y se aplica la corrección de Rocío a las 12:00.
+[Tue 11/03/2026 11:01:41.03] Claude no dejo el _cargada.json - reintento en 2 min 
+[Tue 11/03/2026 11:03:42.09] Fase 2, intento 2 de 3 
+No cargué nada en Google Calendar y no escribí `semanas\2026-11-02_agenda_cargada.json` (es decir, `2026-11-02_cargada.json`). La fase 1 bajó un mensaje equivocado del grupo, así que no había sesiones que cargar.
+
+- **`2026-11-02_agenda.txt`** no tiene la agenda semanal. Solo trae el aviso de corrección que mandó Sigma: *"La sesión de Rocío es a las 12:00, hubo un error en la agenda semanal. Disculpad 🙏"* (mensaje `3A88230ED60DCB7E10A5`, publicado el 2-nov a las 16:34 UTC).
+- **`2026-11-02_agenda.json`** está vacío: `sesiones: []` y `avisos: []`.
+- **Google Calendar** se pudo consultar y no tiene ningún evento "Sigma Club" entre el 2 y el 8 de noviembre.
+
+Si hubiera escrito el `_cargada.json` con `creadas` vacía, la semana quedaría marcada como hecha sin ninguna sesión en el calendario. Sin ese archivo, la fase 3 te avisa del fallo y la tarea de mañana miércoles a las 11:00 lo vuelve a intentar.
+
+**El riesgo:** probablemente la fase 1 de mañana vuelva a quedarse con este mismo mensaje. Lo más seguro es que `agenda.py` acepte cualquier mensaje que contenga "agenda semanal", y este lo contiene en minúscula. No pude comprobarlo porque no tengo permiso para leer `agenda.py`. Habría que exigir el encabezado `📅 AGENDA SEMANAL – SIGMA CLUB` junto con `Semana del 2 de noviembre`.
+
+Para no perder la semana puedes:
+- **Correr la rutina a mano:** `/calendario-semanal` en una sesión normal busca la agenda real en WhatsApp. Al cargarla debe usar 12:00 ET para la sesión de Rocío, como dice la corrección.
+- **Corregir el filtro de `agenda.py`** antes de mañana a las 11:00, para que la tarea automática encuentre la agenda buena.
+[Tue 11/03/2026 11:05:22.90] Claude no dejo el _cargada.json - reintento en 2 min 
+[Tue 11/03/2026 11:07:23.89] Fase 2, intento 3 de 3 
+No cargué nada en Google Calendar y tampoco escribí `semanas\2026-11-02_agenda.json`… perdón, el que no escribí es `semanas\2026-11-02_cargada.json`. La fase 1 bajó un mensaje equivocado del grupo y la semana se tiene que reintentar.
+
+**Qué hay en disco:**
+- `2026-11-02_agenda.txt` no trae la agenda. Trae una corrección publicada el lunes a las 16:34Z (11:34am hora Colombia): *"La sesión de Rocío es a las 12:00, hubo un error en la agenda semanal. Disculpad 🙏"*.
+- `2026-11-02_agenda.json` tiene `sesiones: []`, así que no había ninguna sesión que cargar.
+- En el calendario no hay ningún evento "Sigma Club" entre el 2 y el 8 de noviembre.
+
+**Por qué no escribí el `_cargada.json`:** ese archivo marca la semana como hecha. Si lo dejaba vacío, el miércoles no se reintentaría y la semana se quedaría sin sesiones en el calendario. Sin él, la fase 3 avisará del fallo y la tarea volverá a intentarlo.
+
+**Lo que hay que arreglar en `agenda.py`:** casi seguro el filtro que busca el mensaje acepta cualquier texto que diga "agenda semanal", y se quedó con este aviso, que es posterior a la agenda de verdad. No pude confirmarlo porque no tengo permiso para leer `agenda.py`. El arreglo sería exigir que el mensaje diga `Semana del 2 de noviembre` y tenga encabezados de día con sesiones con hora. Si no se corrige, el reintento del miércoles podría volver a tomar este mismo mensaje. Lo más rápido para esta semana es cargarla a mano con `/calendario-semanal` en una sesión normal, que sí lee WhatsApp.
+
+Ojo también: la agenda real tenía mal la hora de la sesión de Rocío. Va a las 12:00, sin zona horaria dicha y sin día, así que hay que corregirla cuando se cargue.
+[Tue 11/03/2026 11:08:16.76] Fase 2 terminada tras 3 intento(s) 
+[2026-11-03 11:08:17] aviso a Guillermo: OK
+[2026-11-03 11:08:17] parte a Guillermo: enviado
+[Tue 11/03/2026 11:08:18.07] Finalizado (codigo 0) 
+ 
+[Wed 11/04/2026 19:51:18.22] Iniciando calendario semanal 
+[2026-11-04 19:52:09] agenda encontrada (publicada 2026-11-02T16:34:47Z): 0 sesiones
+[Wed 11/04/2026 19:52:13.33] Fase 2, intento 1 de 3 
+API Error: Unable to connect to API: Self-signed certificate detected (SELF_SIGNED_CERT_IN_CHAIN). The certificate comes from an authority Claude Code doesn't trust, usually a TLS-inspecting corporate proxy or a gateway signed by a private CA: set NODE_EXTRA_CA_CERTS to that CA bundle, or add it to the system certificate store · see https://code.claude.com/docs/en/network-config
+[Wed 11/04/2026 19:57:23.69] Claude no dejo el _cargada.json - reintento en 2 min 
+[Wed 11/04/2026 19:59:25.16] Fase 2, intento 2 de 3 
+API Error: Unable to connect to API: Self-signed certificate detected (SELF_SIGNED_CERT_IN_CHAIN). The certificate comes from an authority Claude Code doesn't trust, usually a TLS-inspecting corporate proxy or a gateway signed by a private CA: set NODE_EXTRA_CA_CERTS to that CA bundle, or add it to the system certificate store · see https://code.claude.com/docs/en/network-config
+[Wed 11/04/2026 20:06:03.49] Claude no dejo el _cargada.json - reintento en 2 min 
+[Wed 11/04/2026 20:08:05.17] Fase 2, intento 3 de 3 
+API Error: Unable to connect to API: Self-signed certificate detected (SELF_SIGNED_CERT_IN_CHAIN). The certificate comes from an authority Claude Code doesn't trust, usually a TLS-inspecting corporate proxy or a gateway signed by a private CA: set NODE_EXTRA_CA_CERTS to that CA bundle, or add it to the system certificate store · see https://code.claude.com/docs/en/network-config
+[Wed 11/04/2026 20:10:39.27] Fase 2 terminada tras 3 intento(s) 
+[2026-11-04 20:10:41] aviso a Guillermo: 401 {"code":"AUTHENTICATION_ERROR","message":"you are not connect to services server, please reconnect"}
+[2026-11-04 20:10:41] parte a Guillermo: NO salio
+[Wed 11/04/2026 20:10:41.22] Finalizado (codigo 5) 
+ 
