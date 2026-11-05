@@ -134,6 +134,20 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     return { medio: +medio.toFixed(2), compraNat: +compraNat.toFixed(2), ventaNat: +ventaNat.toFixed(2), deltaNeto: +deltaNeto.toFixed(3), vendidas, iv };
   }
 
+  // Cotizacion estable para los PRECIOS QUE VE GUILLERMO (2026-11-05): mediana de `n` lecturas separadas ~300 ms.
+  // Con una sola lectura la ventana ofrecio el Bear Put protegido 7390/7385 a 1.25 y el ATM 7385/7380 a 3.80 (al
+  // reves de lo posible); al ejecutar se recotizo a 2.40 y luego 2.70 y pidio validar dos veces.
+  async function cotizarEstable(legs, n = 3) {
+    const l = [];
+    for (let i = 0; i < n; i++) {
+      try { l.push(await cotizar(legs)); } catch (e) { if (i === n - 1 && !l.length) throw e; }
+      if (i < n - 1) await dormir(300);
+    }
+    const med = (k) => +mediana(l.map((q) => q[k])).toFixed(2);
+    const ult = l[l.length - 1];
+    return { ...ult, medio: med('medio'), compraNat: med('compraNat'), ventaNat: med('ventaNat') };
+  }
+
   // P&L abierto estable (2026-11-05, Guillermo: "veo unos saltos raros en el p&l"). Bear Put 7455/7450 con el SPX
   // cayendo 50 pts: cada pata tiene delta ~-0.58 ($58/pt) pero el spread ~$2/pt, y /market-data trae cada pata con su
   // propia hora (4 s de desfase medido). Con el SPX moviéndose rápido eso daba saltos de -$171 a +$138 entre lecturas
@@ -338,7 +352,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const armar = async (clave, etiqueta, corto) => {
       const largo = lejos(corto);
       const rec = { credito: a.credito, contratos: 1, legs: { comprada: occ(largo), vendida: occ(corto) } };
-      const q = await cotizar(rec.legs);
+      const q = await cotizarEstable(rec.legs);
       const precioMedio = a.credito ? r05(-q.medio, false) : r05(q.medio, true);
       const dr = await dryRun(cuerpoOrden(rec, precioMedio, true));
       const v = {
@@ -390,7 +404,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const legs = [{ sym: occ('P', centro), lado: -1 }, { sym: occ('C', centro), lado: -1 },
                   { sym: occ('P', centro - alas), lado: 1 }, { sym: occ('C', centro + alas), lado: 1 }];
     const rec = { credito: true, contratos: 1, legs };
-    const q = await cotizar(legs);
+    const q = await cotizarEstable(legs);
     if (q.medio >= 0) return { ok: false, error: 'el Iron Butterfly no da credito con esos strikes' };
     const precioMedio = r05(-q.medio, false);
     const dr = await dryRun(cuerpoOrden(rec, precioMedio, true));
@@ -436,7 +450,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     ocupado = true;
     previews.delete(previewId);
     try {
-      const q = await cotizar(p.legs);
+      const q = await cotizarEstable(p.legs);
       const medio = p.credito ? r05(-q.medio, false) : r05(q.medio, true);
       const nat = p.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true);
       const peor = p.credito ? p.precioMedio - medio : medio - p.precioMedio;
@@ -510,7 +524,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       let rec = lista.find((x) => x.id === rec0.id);
       rec.estado = 'cerrando'; rec.cierrePedido = new Date().toISOString(); rec.motivoCierre = motivo;
       guardar(lista);
-      const q = await cotizar(rec.legs);
+      const q = await cotizarEstable(rec.legs);
       // cerrar: un debito se VENDE (recibo, baja hacia ventaNat); un credito se RECOMPRA (pago, sube hacia compraNat)
       const medio = rec.credito ? r05(-q.medio, true) : r05(q.medio, false);
       const nat = rec.credito ? r05(-q.ventaNat, true) : r05(Math.max(0, q.ventaNat), false);
