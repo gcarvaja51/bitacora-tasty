@@ -781,6 +781,28 @@ escritura sin que el usuario lo pida explícitamente y entienda el trade-off.
 
 ## Paso 3 — Capa de Derivados (Greeks / Gamma)
 
+> 🆕 **2026-11-05 — LOS MUROS YA NO SALEN DE SIGMA TERMINAL.** Guillermo dejó Sigma
+> Terminal. `bundle.sigma` (misma clave, mismos campos) ahora trae el **cálculo propio**
+> con la regla de Sigma: `bundle.sigma.fuente === 'propio_regla_sigma'`
+> (`premercado_collector/muros_propios.mjs` → `murosReglaSigma` en `src/spx.js`).
+> Regla: solo el 0DTE; Call Wall = strike ≥ spot con más gamma de calls; Put Wall =
+> strike ≤ spot con más gamma de puts; MVS = strike con más gamma absoluta.
+>
+> **Cómo presentarlo en el informe (obligatorio):**
+> - Rotular la capa como **"Muros: cálculo propio (regla Sigma), cadena TastyTrade"**,
+>   nunca como "Sigma Terminal".
+> - Call Wall / Put Wall: validados ~92% exacto y ~95% a ≤5 pts contra Sigma (142 pares,
+>   19-oct a 3-nov). Cuando un muro esté en **empate** (otro strike del mismo lado con
+>   ≥85% de su gamma: ver `gexMuroCall`/`gexMuroPut` y la cadena), decirlo y dar los dos
+>   strikes — es exactamente donde nuestro dato y el de Sigma divergían.
+> - MVS ~87%. Régimen GEX (signo) fiable (137/142).
+> - **Gamma Flip, Max Pain y la MAGNITUD de Net GEX/DEX: SIN VALIDAR.** Usarlos como
+>   referencia, marcados "(sin validar)", y no apoyar un escenario solo en ellos. La
+>   escala de Alejandro en billones va sobre el neto de Sigma; la nuestra puede diferir
+>   varias veces en magnitud: **no** aplicar sus umbrales a nuestro Net GEX.
+> - Antes de las 9:30 el spot es el cierre anterior (`spotFuente`/`spotEdadSeg`): un muro
+>   pegado al spot puede cambiar de lado al abrir — decirlo si pasa.
+
 ⚠️ **SUPERADO (2026-07-30) — el "Ciclo de refresco" descrito más abajo (leer Sigma
 Terminal vía `read_page`, `pane_focus`+`indicator_set_inputs`, repetir cada 2 min
 con `/loop`) ya NO se ejecuta con un agente de Claude.** Se reemplazó por

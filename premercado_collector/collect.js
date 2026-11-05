@@ -25,6 +25,7 @@
 // falta ("el ultimo disponible") sin necesidad de tocar el navegador para nada.
 import { connectToSpxWindow, SYMBOL_MATCH } from '../gamma_daemon/tv.js';
 import { esperarSigmaDeHoy, diagnosticoDaemon } from './elegir_sigma.mjs';
+import { obtenerMurosPropios } from './muros_propios.mjs';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { spawn } from 'child_process';
 import path from 'path';
@@ -73,6 +74,12 @@ const SIGMA_MAX_ANTIGUEDAD_MIN = Number(process.env.SIGMA_MAX_ANTIGUEDAD_MIN || 
 // con TradingView, asi que en un dia normal no suma nada: la primera lectura ya sale OK.
 const SIGMA_ESPERA_MS = Number(process.env.SIGMA_ESPERA_MS || 6 * 60 * 1000);
 const SIGMA_PASO_MS = Number(process.env.SIGMA_PASO_MS || 20000);
+// De donde salen los muros (2026-11-05). El usuario deja Sigma Terminal ese dia:
+// por defecto 'propio' = murosReglaSigma sobre la cadena 0DTE (muros_propios.mjs).
+// MUROS_FUENTE=sigma vuelve al camino anterior (gamma_daemon/status.json). El
+// bundle conserva la clave `sigma` para no romper al gate, al chart ni al skill;
+// lo que distingue el origen es `bundle.sigma.fuente` y `bundle.murosFuente`.
+const MUROS_FUENTE = (process.env.MUROS_FUENTE || 'propio').toLowerCase();
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -664,12 +671,13 @@ async function main() {
   const outDir = path.join(OUT_ROOT, stamp);
   mkdirSync(outDir, { recursive: true });
 
-  const bundle = { collectedAt: new Date().toISOString(), tradingview: null, sigma: null, errors: [] };
+  const bundle = { collectedAt: new Date().toISOString(), tradingview: null, sigma: null, murosFuente: MUROS_FUENTE, errors: [] };
 
   // Sigma arranca YA y en paralelo: si hay que esperar al daemon, la espera se solapa
   // con los ~30-200s de TradingView en vez de sumarse. No lanza: los errores viajan
   // dentro del resultado y se registran abajo, en su orden de siempre.
-  const sigmaP = esperarSigmaDeHoy({
+  // Con los muros propios no se espera a Sigma: serian 6 minutos por un dato que ya no llega.
+  const sigmaP = MUROS_FUENTE !== 'sigma' ? null : esperarSigmaDeHoy({
     leerStatus: () => JSON.parse(readFileSync(GAMMA_STATUS_PATH, 'utf8')),
     ahora: () => Date.now(),
     dormir: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -688,7 +696,26 @@ async function main() {
     log(`[tv] FALLO: ${e.message}`);
   }
 
-  try {
+  if (MUROS_FUENTE !== 'sigma') {
+    try {
+      const spotTV = bundle.tradingview?.indicadores?.['30']?.cierre
+        ?? bundle.tradingview?.indicadores?.D?.cierre ?? null;
+      const m = await obtenerMurosPropios({ spotTV, log });
+      bundle.sigma = {
+        ...m,
+        asOf: m.calculadoEn,
+        capturadoEn: m.calculadoEn,
+        antiguedadMin: 0,
+        rancio: false,
+      };
+      log(`[muros] OK (propio regla Sigma, via ${m.via}, spot ${m.spxPrice} de ${m.spotFuente}) -- `
+        + `Call Wall ${m.callWall}, Put Wall ${m.putWall}, MVS ${m.mvs}, Gamma Flip ${m.gammaFlip} (sin validar), `
+        + `Max Pain ${m.maxPain} (sin validar), regimen ${m.regime}, vto ${m.expiry}`);
+    } catch (e) {
+      bundle.errors.push(`muros propios: ${e.message}`);
+      log(`[muros] FALLO: ${e.message}`);
+    }
+  } else try {
     // Cual de las dos lecturas de status.json vale, y si sirve como dato de hoy:
     // vive en elegir_sigma.mjs, con sus pruebas (elegir_sigma.test.mjs). Se saco de
     // aqui porque este archivo llama a main() al importarse y no habia forma de

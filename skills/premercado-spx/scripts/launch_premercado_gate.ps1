@@ -287,9 +287,13 @@ try {
 
 # 4.7) CONTROL DE CALIDAD DE LOS DATOS (2026-10-13) -- lo que el premercado NECESITA
 #      para poder escribirse. Si falta algo de esta lista, el informe NO se genera:
-#        Sigma:  lectura de HOY (vencimiento = fecha de hoy, no rancia), simbolo SPX,
+#        Muros:  lectura de HOY (vencimiento = fecha de hoy, no rancia), simbolo SPX,
 #                y los 7 niveles con los que se arman los escenarios: spot, Call Wall,
 #                Put Wall, Gamma Flip, Max Pain, MVS y Net GEX.
+#                Desde el 2026-11-05 salen del CALCULO PROPIO con la regla de Sigma
+#                (premercado_collector/muros_propios.mjs -> murosReglaSigma en src/spx.js):
+#                el usuario dejo Sigma Terminal. La clave del bundle sigue siendo `sigma`;
+#                `sigma.fuente` dice de donde salio. MUROS_FUENTE=sigma vuelve al daemon.
 #        TradingView (TVC:SPX): EMAs + MACD en 30m, diario y semanal, y la captura de 30m.
 #      Antes de rendirse lo intenta resolver solo: relanza el preflight de TV y el
 #      recolector (que ya espera hasta ~6 min a que el gamma_daemon traiga Sigma fresco).
@@ -307,15 +311,16 @@ function Get-ProblemasDatos {
     }
 
     $s = $b.sigma
+    $fm = if ($s -and $s.fuente) { "Muros ($($s.fuente))" } else { "Muros" }
     if (-not $s) {
-        $p += "Sigma: no hay lectura."
+        $p += "Muros: no hay lectura (ni calculo propio ni Sigma)."
     } else {
-        if ($s.rancio -eq $true) { $p += "Sigma: dato RANCIO de $($s.antiguedadMin) min (son muros de otra sesion)." }
-        if ($s.expiry -ne $hoyEt) { $p += "Sigma: el vencimiento leido es $($s.expiry), no el de hoy ($hoyEt)." }
-        if ($s.symbol -and $s.symbol -ne 'SPX') { $p += "Sigma: el simbolo es $($s.symbol), no SPX." }
+        if ($s.rancio -eq $true) { $p += "${fm}: dato RANCIO de $($s.antiguedadMin) min (son muros de otra sesion)." }
+        if ($s.expiry -ne $hoyEt) { $p += "${fm}: el vencimiento leido es $($s.expiry), no el de hoy ($hoyEt)." }
+        if ($s.symbol -and $s.symbol -ne 'SPX') { $p += "${fm}: el simbolo es $($s.symbol), no SPX." }
         $faltan = @('spxPrice', 'callWall', 'putWall', 'gammaFlip', 'maxPain', 'mvs', 'netGex') |
             Where-Object { $null -eq $s.$_ }
-        if ($faltan.Count) { $p += "Sigma: faltan niveles ($($faltan -join ', '))." }
+        if ($faltan.Count) { $p += "${fm}: faltan niveles ($($faltan -join ', '))." }
     }
 
     $tv = $b.tradingview
@@ -340,7 +345,7 @@ for ($intento = 1; $intento -le 3; $intento++) {
     Invoke-Recolector
     $problemas = @(Get-ProblemasDatos)
     if ($problemas.Count -eq 0) {
-        Write-Log "Control de calidad: OK (intento $intento) -- Sigma de hoy y TradingView completos."
+        Write-Log "Control de calidad: OK (intento $intento) -- muros de hoy y TradingView completos."
         break
     }
     foreach ($x in $problemas) { Write-Log "Control de calidad (intento $intento): $x" }
