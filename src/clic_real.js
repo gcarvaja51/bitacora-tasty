@@ -109,8 +109,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const L = patas(legs);
     const d = await tt._req(`/market-data?${L.map((x) => `symbols[]=${encodeURIComponent(x.sym)}`).join('&')}`);
     const q = {};
-    for (const it of d?.data?.items || []) q[it.symbol] = { bid: Number(it.bid), ask: Number(it.ask), delta: Number(it.delta || 0) };
+    for (const it of d?.data?.items || []) q[it.symbol] = { bid: Number(it.bid), ask: Number(it.ask), delta: Number(it.delta || 0), iv: Number(it.volatility) };
     let medio = 0, compraNat = 0, ventaNat = 0, deltaNeto = 0;
+    const ivs = L.map((x) => q[x.sym]?.iv).filter((v) => Number.isFinite(v) && v > 0);
+    const iv = ivs.length ? +(ivs.reduce((a, b) => a + b, 0) / ivs.length).toFixed(4) : null;
     const vendidas = [];   // Guillermo 2026-10-20: "solo el delta de la put o call vendida" (el IB trae dos)
     for (const x of L) {
       const c = q[x.sym];
@@ -127,7 +129,28 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       ventaNat += x.lado > 0 ? c.bid : -c.ask;
       deltaNeto += x.lado * c.delta;
     }
-    return { medio: +medio.toFixed(2), compraNat: +compraNat.toFixed(2), ventaNat: +ventaNat.toFixed(2), deltaNeto: +deltaNeto.toFixed(3), vendidas };
+    return { medio: +medio.toFixed(2), compraNat: +compraNat.toFixed(2), ventaNat: +ventaNat.toFixed(2), deltaNeto: +deltaNeto.toFixed(3), vendidas, iv };
+  }
+
+  // P&L abierto estable (2026-11-05, Guillermo: "veo unos saltos raros en el p&l"). Bear Put 7455/7450 con el SPX
+  // cayendo 50 pts: cada pata tiene delta ~-0.58 ($58/pt) pero el spread ~$2/pt, y /market-data trae cada pata con su
+  // propia hora (4 s de desfase medido). Con el SPX moviéndose rápido eso daba saltos de -$171 a +$138 entre lecturas
+  // de 5 s. Arreglo: (1) el valor de la estructura se acota a lo que puede valer [0, ancho]; (2) mediana de las lecturas
+  // de los últimos 20 s. El P&L principal va al MEDIO (como el P/L de TastyTrade); el natural se da aparte como
+  // "si cierras ya".
+  const lecturas = new Map();   // rec.id -> [{ ts, medio, ventaNat }]
+  const mediana = (a) => { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  function valorEstable(rec, q) {
+    const n = rec.contratos || 1;
+    const tope = rec.riesgoMaxUsd != null && rec.gananciaMaxUsd != null ? (rec.riesgoMaxUsd + rec.gananciaMaxUsd) / (100 * n) : null;
+    // en "valor de comprar la estructura": debito >= 0, credito <= 0
+    const acota = (v) => (tope == null ? v : rec.credito ? Math.min(0, Math.max(-tope, v)) : Math.max(0, Math.min(tope, v)));
+    const ahora = Date.now();
+    const l = (lecturas.get(rec.id) || []).filter((x) => ahora - x.ts <= 20000);
+    l.push({ ts: ahora, medio: acota(q.medio), ventaNat: acota(q.ventaNat) });
+    lecturas.set(rec.id, l);
+    for (const k of [...lecturas.keys()]) if (k !== rec.id && !(lecturas.get(k) || []).some((x) => ahora - x.ts <= 60000)) lecturas.delete(k);
+    return { medio: mediana(l.map((x) => x.medio)), ventaNat: mediana(l.map((x) => x.ventaNat)), n: l.length };
   }
 
   function cuerpoOrden(rec, precio, abrir) {
@@ -523,14 +546,20 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const rec = abierta() || l.find((x) => x.fecha === hoy && x.estado === 'cerrada' && permitidos().includes(x.modo)
                                          && (x.ranura || 'principal') === 'principal');
     const vista = async (rec) => {
-      let pnl = rec.pnlUsd ?? null, delta = rec.deltaEntrada, vendidas = rec.vendidasEntrada || null, spxAhora = null;
+      let pnl = rec.pnlUsd ?? null, pnlNatural = null, iv = null, delta = rec.deltaEntrada, vendidas = rec.vendidasEntrada || null, spxAhora = null;
       if (rec.estado !== 'cerrada') {
         try {
           const q = await cotizar(rec.legs);
-          const salida = rec.credito ? -q.ventaNat : q.ventaNat;   // lo que cuesta/da cerrar ya, al natural
-          // neto estimado: cierre al natural y comisiones de ida + otras tantas de vuelta
-          pnl = +(Math.round((rec.credito ? rec.precioEntrada - salida : salida - rec.precioEntrada) * 100 * rec.contratos)
-                  - 2 * (rec.feesApertura || 0)).toFixed(2);
+          const v = valorEstable(rec, q);
+          // neto estimado con comisiones de ida + otras tantas de vuelta; valor = lo que da/cuesta deshacer la estructura
+          const neto = (valor) => {
+            const salida = rec.credito ? -valor : valor;
+            return +(Math.round((rec.credito ? rec.precioEntrada - salida : salida - rec.precioEntrada) * 100 * rec.contratos)
+                     - 2 * (rec.feesApertura || 0)).toFixed(2);
+          };
+          pnl = neto(v.medio);              // al medio, estable (ver valorEstable)
+          pnlNatural = neto(v.ventaNat);    // si cierras ya, al natural
+          iv = q.iv;
           delta = q.deltaNeto;
           vendidas = q.vendidas;
         } catch (e) { /* sin cotizacion: se muestra sin P&L */ }
@@ -546,7 +575,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         strikes: rec.strikesTxt || `${rec.corto}/${rec.largo}`, primaPts: rec.precioEntrada, primaUsd: Math.round(rec.precioEntrada * 100 * rec.contratos),
         riesgoMaxUsd: rec.riesgoMaxUsd, gananciaMaxUsd: rec.gananciaMaxUsd, deltaEntrada: rec.deltaEntrada, deltaAhora: delta,
         vendidas, spxEntrada: rec.spxEntrada, abiertaEn: rec.abiertaEn, cerradaEn: rec.cerradaEn || null, motivoCierre: rec.motivoCierre || null,
-        cierrePedido: rec.estado === 'cerrando', pnl, spxAhora, simulado: !!rec.simulado, sesion: rec.sesion || 'regular',
+        cierrePedido: rec.estado === 'cerrando', pnl, pnlNatural, ivAhora: iv, spxAhora, simulado: !!rec.simulado, sesion: rec.sesion || 'regular',
         ranura: rec.ranura || 'principal',
       };
     };
