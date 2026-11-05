@@ -45,7 +45,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   // Reinicio 2026-10-22 (Guillermo: "dejar en la sombra los trades demo hechos hasta ahora y reiniciar con 2000 dólares
   // desde hoy, esos trades eran los necesarios para afinar el algoritmo"): la demo nunca arranca antes de DEMO_REINICIO,
   // aunque CLIC_DEMO_DESDE en Railway diga una fecha anterior. Los de antes quedan como sombra (no se borran).
-  const DEMO_REINICIO = '2026-10-22T13:00:00Z';                   // 9:00 ET del 22-oct
+  // Reinicio 2026-11-05 (Guillermo: "vamos a reiniciar el demo, vamos a empezar de cero nuevamente... deja estos en la
+  // sombra"): los 23 trades del 22-oct al 5-nov (-$418.88, saldo $1,581.12) pasan a la sombra; vuelve a $2,000.
+  const DEMO_REINICIO = '2026-11-05T17:15:00Z';                   // 12:15 ET del 5-nov
   const demoCapital = () => Number(process.env.CLIC_DEMO_CAPITAL || 2000);
   const demoDesde = () => [process.env.CLIC_DEMO_DESDE || '', DEMO_REINICIO].sort().pop();
   const previews = new Map();
