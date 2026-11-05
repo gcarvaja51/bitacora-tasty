@@ -329,7 +329,11 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     // debito mas barato. La estructura (credito o debito) la sigue eligiendo la Bitacora; la comprada va a +-ancho.
     const spx = out.ctx?.spxPrice ?? null;
     const atm = Math.round((spx || (k.shortStrike + k.longStrike) / 2) / 5) * 5;
-    const otm = a.tipo === 'C' ? 5 : -5;
+    // 2026-11-05 (Guillermo: "el objetivo de estar a 5 puntos es estar un poco mas protegidos... hagamos el cambio"):
+    // en un CREDITO, alejar la vendida fuera del dinero protege; en un DEBITO hacia lo contrario (Bear Put 7400/7395
+    // con el SPX en 7400: mas barato pero necesita mas caida). En el debito la opcion protegida va 5 pts DENTRO del
+    // dinero (Bear Put 7410/7405, Bull Call 7390/7395): cuesta mas y gana menos, pero gana con el SPX quieto.
+    const otm = (a.tipo === 'C' ? 5 : -5) * (a.credito ? 1 : -1);
     const lejos = (corto) => (a.tipo === 'C') === a.credito ? corto + ancho : corto - ancho;   // la comprada
     const armar = async (clave, etiqueta, corto) => {
       const largo = lejos(corto);
