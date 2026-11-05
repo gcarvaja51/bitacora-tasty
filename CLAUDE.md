@@ -286,6 +286,12 @@ Estas no son preferencias técnicas, son reglas de trabajo.
 6. **Nunca se paga por rolar.** Si ningún strike/fecha da crédito neto, no se rola.
 7. **Sigma Terminal es la fuente por defecto** de spot y muros: *"yo en sigma terminal estoy
    pagando"*. Los demás son plan B y C.
+   **Excepción: el clic de TastyTrade (`CLIC_REAL`, demo y real)** va todo por TastyTrade desde
+   el 2026-11-05 (*"para este demo tasty, vamos con la cadena de tastytrade... todo o la mayoria
+   por tastytrade"*): SPX y VIX en vivo de `/market-data`, IV Rank de `/market-metrics`, régimen
+   de Gamma y muros de `calcGEX` sobre la cadena de TastyTrade (`clicTasty` en
+   `processDirectionalEntry`). Motivo: el spot de Sigma llega cada ~2 min y en un día rápido el
+   clic eligió strikes 13 pts dentro del dinero.
 
 ---
 
