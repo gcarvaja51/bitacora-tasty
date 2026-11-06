@@ -100,6 +100,35 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
 
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return []; } };
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l, null, 2), 'utf8');
+
+  // ── Correcciones puntuales de fills demo (una sola vez, idempotente; queda el original en rec.correccion) ──
+  // 2026-11-06 (Guillermo: "dale"): Bull Call 7415/7420 x2 cerrado a 2.40 por una pata atrasada (ver
+  // teoricoSincronizado). SPX 7436.06 al cerrar: Black-Scholes 2.86-3.07 (IV 14-22 %); 2.90 justo - 0.05 de la regla
+  // demo = 2.85. Solo se aplica si el registro sigue con los valores originales.
+  const CORRECCIONES = [
+    { id: 'cr-1793976369118', modo: 'dryrun', antes: { precioSalida: 2.4, pnlUsd: -53.76 }, salida: 2.85,
+      motivo: 'fill demo de cierre con una pata atrasada (SPX 7443->7431 en el minuto); 2.40 corregido a 2.85 (teorico 2.90 - 0.05)' },
+  ];
+  (function aplicarCorrecciones() {
+    try {
+      const l = cargar();
+      let cambio = false;
+      for (const c of CORRECCIONES) {
+        const r = l.find((x) => x.id === c.id && x.modo === c.modo && x.estado === 'cerrada');
+        if (!r || r.correccion || r.precioSalida !== c.antes.precioSalida || r.pnlUsd !== c.antes.pnlUsd) continue;
+        const fees = (r.feesApertura || 0) + (r.feesCierre || 0);
+        const bruto = Math.round((r.credito ? r.precioEntrada - c.salida : c.salida - r.precioEntrada) * 100 * r.contratos);
+        r.correccion = { en: new Date().toISOString(), motivo: c.motivo, precioSalidaOriginal: r.precioSalida,
+                         pnlBrutoOriginal: r.pnlBrutoUsd, pnlUsdOriginal: r.pnlUsd };
+        r.precioSalida = c.salida;
+        r.pnlBrutoUsd = bruto;
+        r.pnlUsd = +(bruto - fees).toFixed(2);
+        cambio = true;
+        console.log(`[clic_real] corrección ${c.id}: salida ${r.correccion.precioSalidaOriginal} -> ${c.salida}, neto ${r.correccion.pnlUsdOriginal} -> ${r.pnlUsd}`);
+      }
+      if (cambio) guardar(l);
+    } catch (e) { console.warn('[clic_real] correcciones:', e.message); }
+  })();
   // Ranuras (Guillermo 2026-10-20: "ajusta para que me permita abrir el IB adicional a la posición que tengo"):
   // 'principal' = la del clic de TradingView (vertical, o IB con BUY de 2 desde plano) y 'adicional' = el Iron Butterfly
   // que se abre con el botón IB del gráfico, sin tocar la posición de Paper Trading. Una posición por ranura.
