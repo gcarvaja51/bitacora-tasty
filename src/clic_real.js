@@ -118,8 +118,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const L = patas(legs);
     const d = await tt._req(`/market-data?${L.map((x) => `symbols[]=${encodeURIComponent(x.sym)}`).join('&')}`);
     const q = {};
-    for (const it of d?.data?.items || []) q[it.symbol] = { bid: Number(it.bid), ask: Number(it.ask), delta: Number(it.delta || 0), iv: Number(it.volatility) };
+    for (const it of d?.data?.items || []) q[it.symbol] = { bid: Number(it.bid), ask: Number(it.ask), delta: Number(it.delta || 0), iv: Number(it.volatility),
+                                                         ts: Date.parse(it['updated-at']) || null };
     let medio = 0, compraNat = 0, ventaNat = 0, deltaNeto = 0;
+    const patasQ = [];     // por pata: strike, tipo, lado, medio, iv y hora de la cotización (para teoricoSincronizado)
     const ivs = L.map((x) => q[x.sym]?.iv).filter((v) => Number.isFinite(v) && v > 0);
     const iv = ivs.length ? +(ivs.reduce((a, b) => a + b, 0) / ivs.length).toFixed(4) : null;
     const vendidas = [];   // Guillermo 2026-10-20: "solo el delta de la put o call vendida" (el IB trae dos)
@@ -131,6 +133,12 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         vendidas.push({ tipo: m ? (m[1] === 'C' ? 'call' : 'put') : null, strike: m ? Number(m[2]) / 1000 : null, delta: +c.delta.toFixed(3) });
       }
       medio += x.lado * (c.bid + c.ask) / 2;
+      {
+        const m = /([CP])(\d{8})$/.exec(String(x.sym).trim());
+        const f = /(\d{6})[CP]\d{8}$/.exec(String(x.sym).trim());
+        if (m) patasQ.push({ tipo: m[1], strike: Number(m[2]) / 1000, lado: x.lado, medio: (c.bid + c.ask) / 2, iv: c.iv, ts: c.ts,
+                             vence: f ? `20${f[1].slice(0, 2)}-${f[1].slice(2, 4)}-${f[1].slice(4, 6)}` : null });
+      }
       // compraNat: abrir ya (lo comprado al ask, lo vendido al bid); en un credito, -compraNat es lo que se cobra al
       // abrir ya. ventaNat: deshacer ya (lo comprado al bid, lo vendido al ask); en un credito, -ventaNat es lo que
       // cuesta recomprarlo ya.
@@ -138,7 +146,74 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       ventaNat += x.lado > 0 ? c.bid : -c.ask;
       deltaNeto += x.lado * c.delta;
     }
-    return { medio: +medio.toFixed(2), compraNat: +compraNat.toFixed(2), ventaNat: +ventaNat.toFixed(2), deltaNeto: +deltaNeto.toFixed(3), vendidas, iv };
+    const res = { medio: +medio.toFixed(2), compraNat: +compraNat.toFixed(2), ventaNat: +ventaNat.toFixed(2), deltaNeto: +deltaNeto.toFixed(3), vendidas, iv,
+                  patas: patasQ };
+    try { registrarCalib(L, res); } catch (e) { /* solo calibración */ }
+    return res;
+  }
+
+  // ── Valor teórico SINCRONIZADO de la estructura (2026-11-06, Guillermo: "hice una posición que pensaba estaba en
+  // positivo y me la reporta en negativo"). Bull Call 7415/7420 x2: el SPX subió 12 pts (7423.8 -> 7436.1) y la demo
+  // la cerró a 2.40 contra 2.60 de entrada (-$53.76); con el SPX en 7436 valía ~2.85-3.05. En ese minuto el SPX tocó
+  // 7443 y cayó a 7431, y /market-data trae cada pata con su propia hora: una pata ya con la caída y la otra todavía
+  // arriba dan un medio del spread que no existió. Arreglo: de la pata cotizada MÁS RECIENTE se despeja el SPX que su
+  // precio implica (con su propia IV, que ya trae la sonrisa) y TODAS las patas se revalúan con Black-Scholes a ese
+  // mismo SPX. Devuelve null si no se puede (sin IV, sin hora, pata casi sin delta).
+  const Nc = (x) => { const t = 1 / (1 + 0.2316419 * Math.abs(x)); const d = 0.3989423 * Math.exp(-x * x / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return x > 0 ? 1 - p : p; };
+  function bs(tipo, S, K, T, v) {
+    const sT = v * Math.sqrt(T), d1 = (Math.log(S / K) + 0.5 * v * v * T) / sT, d2 = d1 - sT;
+    return tipo === 'C' ? { p: S * Nc(d1) - K * Nc(d2), d: Nc(d1) } : { p: K * Nc(-d2) - S * Nc(-d1), d: Nc(d1) - 1 };
+  }
+  // años (calendario, como la IV de TastyTrade) hasta las 16:00 ET del vencimiento
+  function aniosAlVence(vence) {
+    if (!vence) return null;
+    const guess = Date.parse(`${vence}T21:00:00Z`);
+    const hET = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(new Date(guess)));
+    const fin = guess + (16 - hET) * 3600000;
+    const T = (fin - Date.now()) / (365 * 86400000);
+    return T > 60 / (365 * 86400) ? T : null;        // menos de 1 min al vencimiento: sin modelo
+  }
+  function teoricoSincronizado(q, vence) {
+    const L = q && q.patas;
+    const T = aniosAlVence(vence || (L && L[0] && L[0].vence));
+    if (!T || !L || L.length < 2 || L.some((x) => !(x.iv > 0) || !x.ts || !(x.medio > 0))) return null;
+    const fresca = L.reduce((a, b) => (b.ts > a.ts ? b : a));
+    let S = fresca.strike;
+    for (let i = 0; i < 30; i++) {                     // Newton: S tal que BS(S) = medio de la pata fresca
+      const r = bs(fresca.tipo, S, fresca.strike, T, fresca.iv);
+      if (Math.abs(r.d) < 0.03 || Math.abs(r.d) > 0.97) return null;   // casi sin delta: el SPX implícito no es confiable
+      const paso = (r.p - fresca.medio) / r.d;
+      S -= Math.max(-50, Math.min(50, paso));
+      if (Math.abs(paso) < 1e-4) break;
+    }
+    if (!Number.isFinite(S)) return null;
+    const v = L.reduce((a, x) => a + x.lado * bs(x.tipo, S, x.strike, T, x.iv).p, 0);
+    const ts = L.map((x) => x.ts);
+    return { valor: +v.toFixed(3), spxImplicito: +S.toFixed(2), desfaseSeg: +((Math.max(...ts) - Math.min(...ts)) / 1000).toFixed(1) };
+  }
+  // tolerancia entre el medio de mercado y el teórico sincronizado antes de corregir el fill demo
+  const tolTeo = () => Number(process.env.CLIC_DEMO_TOL_TEO || 0.35);
+  // Sesgo fijo modelo-mercado (medido en vivo el 6-nov): con las patas frescas (desfase 0,5 s) el Bull Call ATM da
+  // medio 2.95 y teórico 2.64; en puts ~0. La IV de TastyTrade no reproduce exacto el medio de cada pata. Por eso el
+  // teórico nunca se usa solo: se le suma el sesgo (medio - teórico) medido en lecturas FRESCAS (desfase <= 1 s) de las
+  // mismas patas en los últimos 2 min (la tabla del trade cotiza cada ~2 s, el preview y la ejecución también).
+  const DESFASE_FRESCO = 1.0;
+  const calib = new Map();          // clave de patas -> [{ ts, off }]
+  const clavePatas = (legs) => patas(legs).map((x) => `${x.lado}${x.sym}`).join('|');
+  function registrarCalib(legs, q) {
+    const t = teoricoSincronizado(q);
+    if (!t || t.desfaseSeg > DESFASE_FRESCO) return;
+    const k = clavePatas(legs), ahora = Date.now();
+    const l = (calib.get(k) || []).filter((x) => ahora - x.ts <= 120000);
+    l.push({ ts: ahora, off: q.medio - t.valor });
+    calib.set(k, l.slice(-60));
+    if (calib.size > 50) for (const [kk, v] of calib) if (!v.some((x) => ahora - x.ts <= 120000)) calib.delete(kk);
+  }
+  function sesgoCalib(legs) {
+    const ahora = Date.now();
+    const l = (calib.get(clavePatas(legs)) || []).filter((x) => ahora - x.ts <= 120000);
+    return l.length ? mediana(l.map((x) => x.off)) : null;
   }
 
   // Cotizacion estable para los PRECIOS QUE VE GUILLERMO (2026-11-05): mediana de `n` lecturas separadas ~300 ms.
@@ -209,15 +284,42 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const n = rec.contratos || 1;
     const tope = rec.ancho || (rec.riesgoMaxUsd != null && rec.gananciaMaxUsd != null ? (rec.riesgoMaxUsd + rec.gananciaMaxUsd) / (100 * n) : null);
     const pos = (v) => { const x = rec.credito ? -v : v; return tope ? Math.max(0, Math.min(tope, x)) : Math.max(0, x); };
-    const vals = [];
+    const crudas = [];
     for (let i = 0; i < 4; i++) {
-      try { vals.push(pos((await cotizar(rec.legs)).medio)); } catch (e) { /* una lectura menos */ }
+      try { const q = await cotizar(rec.legs); crudas.push({ q, t: teoricoSincronizado(q, rec.vence) }); } catch (e) { /* una lectura menos */ }
       if (i < 3) await dormir(400);
     }
-    if (abrir && Number.isFinite(rec.precioMedio)) vals.push(rec.precioMedio);
-    if (!abrir && rec.id) for (const x of (lecturas.get(rec.id) || [])) if (Date.now() - x.ts <= 20000) vals.push(rec.credito ? -x.medio : x.medio);
-    return vals.length ? mediana(vals) : null;
+    // 2026-11-06: una lectura con las patas desfasadas (> 1 s) y cuyo medio se aleja más de la tolerancia del teórico
+    // sincronizado + sesgo trae una pata atrasada -> vale el teórico + sesgo. Sin sesgo medido, solo se corrige si el
+    // desvío es grande (2x la tolerancia) y se usa el teórico solo. Las lecturas frescas valen tal cual.
+    const sesgo = sesgoCalib(rec.legs);           // ya incluye las lecturas frescas de este mismo lote
+    const vals = [], refs = [], detalle = [];
+    let corregidas = 0;
+    for (const { q, t } of crudas) {
+      const mkt = pos(q.medio);
+      const ref = t ? pos(t.valor + (sesgo ?? 0)) : null;
+      const desf = t ? t.desfaseSeg : null;
+      const malo = ref != null && desf > DESFASE_FRESCO && Math.abs(mkt - ref) > (sesgo == null ? 2 : 1) * tolTeo();
+      if (ref != null && sesgo != null) refs.push(ref);
+      if (malo) corregidas++;
+      vals.push(malo ? ref : mkt);
+      detalle.push({ mkt: +mkt.toFixed(2), ref: ref == null ? null : +ref.toFixed(2), spx: t ? t.spxImplicito : null, desfaseSeg: desf });
+    }
+    // el precio del preview (al abrir) y las lecturas de la tabla (al cerrar) solo entran si son coherentes con el
+    // teórico + sesgo (o, sin referencia, con la mediana de las lecturas de ahora)
+    const teoMed = refs.length ? mediana(refs) : (vals.length ? mediana(vals) : null);
+    const ok = (v) => teoMed == null || Math.abs(v - teoMed) <= tolTeo();
+    const extras = [];
+    if (abrir && Number.isFinite(rec.precioMedio)) extras.push(rec.precioMedio);
+    if (!abrir && rec.id) for (const x of (lecturas.get(rec.id) || [])) if (Date.now() - x.ts <= 20000) extras.push(rec.credito ? -x.medio : x.medio);
+    const descartadas = extras.filter((v) => !ok(v)).length;
+    vals.push(...extras.filter(ok));
+    const valor = vals.length ? mediana(vals) : null;
+    ultimoAjusteDemo = { en: new Date().toISOString(), abrir, valor, referencia: teoMed, sesgo: sesgo == null ? null : +sesgo.toFixed(3),
+                         corregidas, descartadas, lecturas: detalle };
+    return valor;
   }
+  let ultimoAjusteDemo = null;
 
   // manda la orden y la persigue: precios = [medio, ..., natural]. Devuelve {lleno, precio, orderId} o {lleno:false}
   async function mandarYPerseguir(rec, precios, abrir, esperaMs = 8000) {
@@ -232,6 +334,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       // cotizadas a horas distintas, el Bear Put 7460/7455 ofrecido a 1.95 se "llenó" a 1.35 y el 7415/7410 ofrecido a
       // 2.30 a 1.35: la demo regalaba o quitaba $60-100 por trade que en la real no existen.
       let precio = precios[Math.min(1, precios.length - 1)];
+      ultimoAjusteDemo = null;
       try {
         const m = await medioDemo(rec, abrir);
         if (m != null) {
@@ -240,7 +343,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
           precio = Math.max(TICK, r05(m + contra, contra > 0));
         }
       } catch (e) { /* sin cotizacion: la escalera de siempre */ }
-      return { lleno: true, precio, orderId: 'DRYRUN', simulado: true, fees };
+      return { lleno: true, precio, orderId: 'DRYRUN', simulado: true, fees, fillDemo: ultimoAjusteDemo };
     }
     let orderId = null;
     for (let i = 0; i < precios.length; i++) {
@@ -511,6 +614,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       }
       Object.assign(rec, { estado: 'abierta', precioEntrada: r.precio, simulado: !!r.simulado, feesApertura: r.fees || 0,
                            feesAbiertas: r.fees || 0, contratosMax: rec.contratos, segEjecApertura: segEjec });
+      if (r.fillDemo) rec.fillDemoApertura = r.fillDemo;
       rec.riesgoMaxUsd = Math.round((p.credito ? p.ancho - r.precio : r.precio) * 100 * rec.contratos);
       rec.gananciaMaxUsd = Math.round((p.credito ? r.precio : p.ancho - r.precio) * 100 * rec.contratos);
       lista.unshift(rec);
@@ -631,6 +735,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       }
       rec.estado = 'cerrada'; rec.cerradaEn = new Date().toISOString(); rec.precioSalida = r.precio; rec.ordenCierre = r.orderId;
       rec.segEjecCierre = segEjecCierre;
+      if (r.fillDemo) rec.fillDemoCierre = r.fillDemo;
       // con cierres parciales antes: el resultado del trade suma lo realizado en cada parte (2026-11-05)
       const brutoFinal = Math.round((rec.credito ? rec.precioEntrada - r.precio : r.precio - rec.precioEntrada) * 100 * rec.contratos);
       const netoFinal = brutoFinal - feesAbiertas(rec) - (r.fees || 0);
@@ -841,7 +946,8 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     }, 20000);
   }
 
-  return { preview, previewIB, ejecutar, cerrar, cotizarAgregar, agregar, maxContratos, estado, vigilar, modo, resumen, demo, _cuerpoOrden: cuerpoOrden, _r05: r05 };
+  return { preview, previewIB, ejecutar, cerrar, cotizarAgregar, agregar, maxContratos, estado, vigilar, modo, resumen, demo, _cuerpoOrden: cuerpoOrden, _r05: r05,
+           _teoricoSincronizado: teoricoSincronizado, _medioDemo: medioDemo, _cotizar: cotizar, _ultimoAjusteDemo: () => ultimoAjusteDemo };
 }
 
 module.exports = { crearClicReal, ACCION };
