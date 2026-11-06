@@ -678,6 +678,16 @@ Escribirlo es parte de la propuesta: mientras no exista, el Auditor devuelve `SI
 > menos de 10 pts al muro: la 13 contiene a esta y además cubre el lado alcista y el crédito,
 > que esta no mira. Si la 13 se aprueba, esta se retira.
 
+> **Actualizada el 2026-11-05 (revisión semanal, 30-oct a 5-nov): VUELVE a ser la propuesta de
+> TENDENCIA, delante de la 13.** Es la primera semana **fuera de muestra** para las dos, y dieron
+> al revés. Esta semana, BEARISH comparables con el veto evaluado: **vetadas n=8, 4 ganan, −$630
+> (−$78,8 por trade)**; **pasan n=5, 5 ganan, +$440 (+$88,0)**. El 5-nov las dos SL marcadas
+> (−$360 y −$360) tenían **17,6 y 19,3 pts** al Put Wall: la 13 (corte fijo de 10) no las veía;
+> esta sí, porque el débito pedía más puntos que el aire. Acumulado 17-ago a 5-nov: **vetadas
+> n=28, 46%, −$2.105 (−$75,2 por trade)**; pasan n=46, 65%, −$375 (−$8,2). La brecha volvió a
+> **−$67 por trade** (era −$37 el 22-oct). Sigue sin juez `juzgar_DIR_5`; con win rate,
+> `comparar()` dará MUESTRA INSUFICIENTE (28 < 30). El juez tiene que comparar P&L por trade.
+
 ---
 
 ### 12. La vertical de CRÉDITO alcista pierde con 62% de aciertos — DIRECCIONAL, impacto ALTO
@@ -832,9 +842,96 @@ devuelve `SIN INSTRUMENTO` («declarado pero sin juez escrito»).
 10, 12 y esta. DIR-1 sigue primera salvo que Guillermo decida otra cosa: esta es la que tiene
 más n y la evidencia más directa, pero eso es una decisión, no un dato.
 
+> **Actualizada el 2026-11-05 (revisión semanal, 30-oct a 5-nov): FUERA DE MUESTRA NO SE
+> SOSTUVO.** Primera semana después de declararla, 26 TENDENCIA comparables (−$1.205):
+> **aire 0-10 n=5, 3 ganan, −$60 (−$12,0 por trade)**; **el resto n=21, 48%, −$1.145
+> (−$54,5)**. Al revés de lo que decía la muestra. Sin el 4-nov (Sigma muerto todo el día,
+> muros del cálculo interno) sigue al revés: n=3, −$16,7 contra n=14, −$42,9. Las pérdidas de
+> la semana entraron con **10 a 21 pts** de aire: el 4-nov tres Bull Put a 11, 17 y 21 pts del
+> Call Wall interno (−$130, −$160, −$170) y el 5-nov dos Bear Put a 17,6 y 19,3 del Put Wall
+> que aguantó (−$360 y −$360). Acumulado 17-ago a 5-nov: aire 0-10 n=57, −$45,4 por trade;
+> el resto n=118, −$4,9. La brecha sigue, pero el corte de 10 —que elegí mirando los datos—
+> no aguantó su primera semana nueva, y DIR-5 (que mide el aire contra los puntos que pide el
+> TP) sí. **Pasa a la espera detrás de DIR-5.** No se retira: n=5 fuera de muestra no la
+> refuta, solo le quita la prioridad.
+
 ---
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
+
+### 2026-11-05 (bis) · revisión SEMANAL del jueves, 30-oct a 5-nov — 1 PROPUESTA (DIR-5 vuelve delante de DIR-7)
+
+3.071 evaluaciones contra 1.927 en la ventana previa. ⚠️ **La previa está recortada**: el log
+arranca el 26-oct a las 10:48 ET (tope de 5.000 filas), faltan ~7,8 h de sesión. Comparo por
+proporción. Ningún commit de la semana tocó la señal de TENDENCIA, REVERSION, NEUTRAL ni
+MEDIODIA (los de la semana son CLIC REAL, IRONBALLS, muros propios y premercado): es la primera
+semana limpia fuera de muestra para DIR-5 y DIR-7.
+
+**Resultado de la semana (comparables, `resultadoOficial`):** TENDENCIA 26, 13 ganan, −$1.205
+(30-oct +$460 con 4 de 4 · 2-nov −$215 · 3-nov −$365 · 4-nov −$555 en 9 Bull Put · 5-nov −$530
+en 7 Bear Put). MEDIODIA 2, +$175. NEUTRAL 1 (IC 1DTE del 4-nov, −$610). REVERSION 0.
+
+**Propuestas por familia:**
+
+| Familia | Propuesta | Por qué |
+|---|---|---|
+| TENDENCIA | **DIR-5** (propuesta 11) vuelve a ser la de la familia, **delante de DIR-7** | Fuera de muestra: DIR-5 vetadas n=8, −$78,8/trade, contra pasan n=5, +$88,0. DIR-7 al revés: aire 0-10 n=5, −$12,0, contra el resto n=21, −$54,5. Acumulado DIR-5: n=28, −$75,2 contra n=46, −$8,2. No es una ALTO nueva: es reordenar dos ya declaradas |
+| REVERSION | Ninguna | 0 trades: la apertura sigue apagada (pánico desde el 16-oct) y la media mañana en sombra. No hay número |
+| NEUTRAL | Ninguna | IC 1DTE n=18, −$920 en total (ver abajo). n < 30, y el modo captura es una decisión del usuario para juntar muestra; además no hay instrumento que diga qué habría hecho un stop |
+| MEDIODIA | Ninguna | n=16 sin manuales, y la variable candidata sacó 1 de 2 fuera de muestra (ver abajo) |
+
+**NEUTRAL — anotado, no propuesto.** IC 1DTE comparables, 27-ago a 5-nov: n=18, 56%, −$920
+(−$51,1 por trade). **TP 10, +$180 (+$18 por trade); hora tope 6 de 6 pierden, −$1.140
+(−$190).** Con esa geometría hace falta que el 91% llegue al TP para empatar; llega el 62% (10
+de 16 sin manuales). Pero dos pérdidas hacen el 81% del total (21-oct −$320, 4-nov −$610) y
+sin el 4-nov la familia da −$310. Si en ~12 trades más (30) el hora tope sigue en ~−$190, la
+pregunta va a ser la geometría (TP 30% de ~$70 contra el ancho de 5), no la entrada.
+⚠️ **Dato para el Contador, no lo dictamino:** el del 4-nov es 1 contrato de 5 pts de ancho
+con $0,80 de crédito (riesgo máximo teórico $420) y el libro propio dice **−$610** (el broker
+−$380). Pasa el máximo teórico por $190: o el cierre a la hora tope cruzó spreads muy anchos,
+o el libro valora mal ese cierre.
+
+**MEDIODIA — anotado, no propuesto.** Por el lado del centro contra el spot al entrar (16 sin
+manuales): **centro por encima del spot n=9, 2 TP, −$1.270 (−$141)**; centro debajo o igual
+n=7, 5 TP, +$455 (+$65). Fuera de muestra desde que se anotó (29-oct): 3-nov centro 6 pts
+debajo → TP (cumple); 5-nov centro 21,7 pts debajo → 15:30, −$30 (no cumple: el MVS saltó de
+7475/7500 a 7360 dentro de la ventana y la tendencia atravesó el ala). Se sigue anotando.
+
+**TENDENCIA — lo demás, anotado.** Premisa del listón tras pérdida (DIR-3), 17-ago a 5-nov:
+trades después de una pérdida real del mismo día n=65, −$23,8 por trade; sin pérdida previa
+n=110, −$14,7. La diferencia es chica y no sostiene ni tumba la regla. Por orden en el día: el
+3º trade n=31, −$48,9; el 4º n=20, +$39,2. Ruido, sin patrón monótono.
+
+**Calidad del dato**
+- **Sigma degradado 3 de 5 días.** 30-oct sin lecturas desde las 13:34; 2-nov desde las
+  10:09; **4-nov: 0 capturas en todo el día** (`/api/spx/sigma-levels?history=true` devuelve
+  `count: 0`); 5-nov hueco 10:01-10:24. El 4-nov —el peor día de TENDENCIA, 9 Bull Put de
+  crédito— se decidió entero con GEX y muros del **cálculo interno** (crédito porque el interno
+  dio positivo), y MEDIODIA no abrió (16 `MEDIODIA_SIN_MVS`). Es el respaldo funcionando como
+  está diseñado, no un dato inválido; pero el aire al muro de DIR-7 de ese día se midió contra
+  el muro interno.
+- **Velas de Sigma (2m/5m/15m) congeladas desde el 23-oct**, 9º día de mercado: la escalera
+  de TP y el listón de impulso no actuaron en toda la semana (IMPULSO «sin velas de 15m» en
+  todos los casos). Escalado como posible corrección desde el 26-oct; sin arreglo.
+- **Spot:** n=1.373, mediana 9 s, p90 31 s, máx 180 s, 14 sobre 120 s (1,0%). Sigma 780
+  (mediana 18 s), Yahoo 587 (3 s), TastyTrade 6 (1 s, el CLIC REAL desde el 5-nov). Ninguna
+  entrada con spot de más de 120 s según los partes diarios.
+- **Sellos:** 128 de 438, el backlog de siempre; todo lo nuevo viene sellado. **Libro:** los 5
+  ids de siempre.
+- **Completitud:** `CIERRE_PRE_CLOSE_30MIN` sin fuente/edad 9 de 10 (cierre por hora de
+  MEDIODIA; sigue sin estar en `exentosSinCotizacion`). `NO_PULLBACK_2M` no guarda snapshot
+  (ni precio ni fase): la etapa que más rechaza (39%) no se puede reconstruir.
+
+**Lo que cambió en el embudo (por proporción):**
+- TENDENCIA `NO_PULLBACK_2M` 39,4% (antes 33,9%). En días de cascada (5-nov) lo que frena es
+  el pullback de 2m, no el 15m; en días laterales (2 y 3-nov) es «marco 15m sin Fase 2 ni 4».
+  `SCORE_FAIL` 1,1% (antes 2,0%), casi todo el listón tras pérdida.
+- NEUTRAL `GATE_FAIL` 96 (3,1%, antes 2,1%), 75 por GEX negativo (antes 10): semana de gamma
+  negativo. 0 IC 0DTE.
+- REVERSION `SIN_ALEJAMIENTO` 21,0% (antes 29,5%): murió por abajo el 3-nov (0,03-0,05%) y por
+  ARRIBA el 5-nov (−0,35 a −0,95%). `SIGNAL_BUILT` 134 (antes 22): duplicados de la sombra
+  minuto a minuto. `NO_STRIKES` 30, 29 a delta 0,50.
+- MEDIODIA `MEDIODIA_SIN_MVS` 32 (antes 0): 2-nov y 4-nov, los dos días sin Sigma al mediodía.
 
 ### 2026-10-29 (bis) · revisión SEMANAL del jueves, 23 a 29-oct — 1 PROPUESTA (DIR-7)
 

@@ -1,5 +1,77 @@
 [
  {
+  "timestamp": "2026-11-06T15:50:43.737Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "CIERRE_TP",
+  "passed": true,
+  "etTime": "10:50",
+  "reason": "SPX 7428.27 alcanzo el nivel del premercado 7425",
+  "snapshot": {
+   "spxPrice": 7428.27,
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-11-06",
+    "largaStrike": 7400,
+    "cortaStrike": 7425,
+    "nivelProfit": 7425,
+    "nivelProfitDeclarado": 7470,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 12.5,
+    "limite": 12.5,
+    "maxGanancia": 12.5,
+    "maxPerdida": 12.5,
+    "rr": 1,
+    "breakeven": 7412.5,
+    "pctDelAncho": 50,
+    "razon": "Larga 7400 (arranque) / corta 7425 (objetivo del escenario alcista). Paga maximo si el precio llega a 7425."
+   }
+  }
+ },
+ {
+  "timestamp": "2026-11-06T15:30:23.428Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXECUTED",
+  "passed": true,
+  "etTime": "10:30",
+  "reason": "DEBIT_VERTICAL enviado a Tradier: 41265019",
+  "snapshot": {
+   "spxPrice": 7409.72,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7450,
+    "putWall": 7400,
+    "gammaFlip": 7509,
+    "maxPain": 7560
+   },
+   "escenario": "alcista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-11-06",
+    "largaStrike": 7400,
+    "cortaStrike": 7425,
+    "nivelProfit": 7425,
+    "nivelProfitDeclarado": 7470,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 12.5,
+    "limite": 12.5,
+    "maxGanancia": 12.5,
+    "maxPerdida": 12.5,
+    "rr": 1,
+    "breakeven": 7412.5,
+    "pctDelAncho": 50,
+    "razon": "Larga 7400 (arranque) / corta 7425 (objetivo del escenario alcista). Paga maximo si el precio llega a 7425."
+   },
+   "orderId": 41265019
+  }
+ },
+ {
   "timestamp": "2026-11-05T15:31:11.276Z",
   "strategyFamily": "PREMERCADO",
   "stage": "CIERRE_SL",

@@ -334,10 +334,18 @@ PROPUESTAS = [
         # ACTUALIZADA 2026-10-29: vetadas n=20 WR 45% -$73.8/trade; pasan n=41 WR
         # 61% -$19.9. ABSORBIDA POR DIR-7: 18 de las 20 vetadas tienen aire < 10
         # pts al muro. Si DIR-7 se aprueba, esta se retira; no se aplican las dos.
+        #
+        # ACTUALIZADA 2026-11-05 (revision semanal 30-oct a 5-nov): VUELVE DELANTE DE
+        # DIR-7. Primera semana fuera de muestra: vetadas n=8 WR 50% -$78.8/trade;
+        # pasan n=5 WR 100% +$88.0. DIR-7 dio al reves esa misma semana. Las dos SL
+        # vetadas del 5-nov tenian 17.6 y 19.3 pts al Put Wall: DIR-7 no las veia.
+        # Acumulado 17-ago a 5-nov: vetadas n=28 WR 46% -$75.2/trade; pasan n=46
+        # WR 65% -$8.2/trade. Sigue sin juez: comparar() sobre win rate daria
+        # MUESTRA INSUFICIENTE (28 < 30); el juez tiene que comparar P&L por trade.
         "declarada": "2026-10-01",
-        "actualizada": "2026-10-29",
+        "actualizada": "2026-11-05",
         "instrumento": "executions.vetoMuroSombra",
-        "espera": "absorbida por DIR-7 (2026-10-29); se retira si DIR-7 se aprueba",
+        "espera": "propuesta de TENDENCIA de la semana (2026-11-05), delante de DIR-7; falta juzgar_DIR_5",
     },
     {
         "id": "DIR-6", "familia": "DIRECCIONAL", "nivel": "alto",
@@ -413,9 +421,16 @@ PROPUESTAS = [
         # INSTRUMENTO: el dato existe en cada ejecucion (entrySpx, entryCallWall,
         # entryPutWall, direction, resultadoOficial). Falta juzgar_DIR_7. Escribirlo
         # es parte de la propuesta; sin el, evaluar() devuelve SIN INSTRUMENTO.
+        #
+        # ACTUALIZADA 2026-11-05: FUERA DE MUESTRA NO SE SOSTUVO. Semana 30-oct a
+        # 5-nov: aire [0,10) n=5 -$12.0/trade; el resto n=21 -$54.5/trade (al reves).
+        # Sin el 4-nov (Sigma muerto, muros internos): n=3 -$16.7 vs n=14 -$42.9.
+        # Acumulado 17-ago a 5-nov: n=57 -$45.4 vs n=118 -$4.9. No se retira (n=5 no
+        # la refuta), pero pierde la prioridad frente a DIR-5.
         "declarada": "2026-10-29",
+        "actualizada": "2026-11-05",
         "instrumento": "executions.entryCallWall/entryPutWall",
-        "espera": "reemplaza a DIR-5; el orden frente a DIR-1 lo decide Guillermo",
+        "espera": "detras de DIR-5 desde 2026-11-05 (fuera de muestra al reves); no se aplican las dos",
     },
 ]
 

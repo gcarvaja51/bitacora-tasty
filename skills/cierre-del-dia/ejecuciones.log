@@ -567,3 +567,24 @@ El informe de cierre de hoy está listo: `documentos premercado\11032026_cierre 
 No toqué TradingView ni el premercado. La pestaña de Chrome que abrí ya está cerrada.
 [Tue 11/03/2026 16:13:54.06] Finalizado (codigo 0) 
  
+[Thu 11/05/2026 16:00:02.70] Iniciando cierre del dia 
+El informe del cierre del día de hoy está listo: `documentos premercado\11052026_cierre del dia.docx`, solo en Word. No mandé nada a nadie y no toqué TradingView.
+
+- **Hubo mercado:** `esDiaDeMercado` dio que sí y el `.docx` de hoy no existía, así que lo creé sin sobrescribir nada.
+- **Sigma:** usé la lectura de las **16:05 ET** de `status.json`, que ya estaba al correr el script (16:10 ET).
+- **Investing (Chrome, filtro EE.UU. 3 estrellas):**
+  - **Hoy:** solo los subsidios de las 08:30 ET. No apareció nada a las 10:15 ET ni después, así que el día no es D19 y suma a la asertividad.
+  - **Mañana:** nóminas no agrícolas, tasa de desempleo e ingresos por hora, todos a las 08:30 ET. Tampoco es D19.
+- **Registro:**
+  - En `premercado_hipotesis_log.json` llené `resultado` y `llamada_siguiente` (para el 6-nov). Antes hice el backup `.bak_20261105_cierre`.
+  - En el Excel añadí "CIERRE DEL DIA" a la fila 96. El backup es `_bak_20261105_cierre.xlsx`.
+- **Script:** `control premercado\cierre_11052026.py`, hecho sobre el molde del 3-nov y con las rutas armadas con `os.path.join`.
+
+Cosas que conviene que sepas:
+
+1. **Corregí un argumento de la llamada después de generarla.** Entre que escribí el texto y que corrió el script, el ES cerró la sesión en 7.375, con apertura implícita de 7.348 (gap −6). Eso dejó falsa la frase "el ES fuera de hora no siguió la caída de la última media hora", que estaba entre los argumentos del lado contrario. La borré del `.docx` y de la `tesis` del log un minuto después. No cambié la dirección, la convicción ni los niveles.
+2. **El acierto de hoy tiene salvedad.** El premercado se escribió a mano a las ~10:20 ET porque el gate de las 08:30 se bloqueó. A esa hora la tercera vela ya había cerrado y llevaba más de 150 puntos de caída. El informe lo dice así; no lo presenté como un acierto limpio.
+3. **No había llamada que puntuar hoy:** el 4-nov no se hizo cierre del día. La llamada del 3-nov para el 4-nov sigue en el log sin puntuar; no era parte de este informe.
+4. **La apertura implícita es poco fiable.** La base ES−SPX de hoy fue muy inestable (entre 25 y 40 puntos), así que el gap de −6 tiene un margen de unos ±10 puntos. Además falta el informe de empleo de las 08:30.
+[Thu 11/05/2026 16:11:45.28] Finalizado (codigo 0) 
+ 
