@@ -1,7 +1,7 @@
 {
-  "name": "Bitácora Tradier",
-  "short_name": "Tradier",
-  "description": "Dashboard de trading personal - Tradier (sandbox)",
+  "name": "DEMO-TASTY",
+  "short_name": "DEMO-TASTY",
+  "description": "DEMO-TASTY: bitácora de demostración (demo de TastyTrade y sandbox de Tradier), sin dinero real",
   "start_url": "/tradier.html",
   "display": "standalone",
   "background_color": "#0b0d12",

@@ -7,11 +7,11 @@
 <meta name="theme-color" content="#4f8eff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Bitácora Tradier">
+<meta name="apple-mobile-web-app-title" content="DEMO-TASTY">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
 
-<title>Bitácora Tradier</title>
+<title>DEMO-TASTY</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -24,14 +24,14 @@
   <button class="mob-hamburger" onclick="toggleSidebar()">
     <span></span><span></span><span></span>
   </button>
-  <div class="mob-title">Bitácora Tradier</div>
+  <div class="mob-title">DEMO-TASTY</div>
 </div>
 
 <!-- ════════ SIDEBAR ════════ -->
 <aside class="sidebar">
   <div class="sidebar-logo">
-    <div class="logo-mark">TRADIER<span>.</span></div>
-    <div class="logo-account" id="sb-account">🧪 Sandbox</div>
+    <div class="logo-mark">DEMO-TASTY<span>.</span></div>
+    <div class="logo-account" id="sb-account" title="Bitácora de demostración: el direccional ejecuta en la demo de TastyTrade y el resto de las estrategias en el sandbox de Tradier. Ninguna mueve dinero real.">🧪 Demo · sin dinero real</div>
   </div>
   <nav class="sidebar-nav">
     <div class="nav-section-label">Principal</div>
@@ -55,7 +55,7 @@
   <div class="sidebar-footer">
     <div class="status-row">
       <div class="dot" id="dot"></div>
-      <span id="conn-status">Bitácora Tradier — sandbox</span>
+      <span id="conn-status">DEMO-TASTY — sin dinero real</span>
     </div>
     <div style="margin-top:6px;">Etapa 1: Reportes · Backtester · La Rueda (Automatizada) · Alejandro</div>
     <button id="refresh-btn" onclick="refreshCurrentTab()" style="margin-top:12px;width:100%;padding:8px;border-radius:6px;border:1px solid var(--border2);background:var(--card2);color:var(--bright);font-weight:700;font-size:11px;cursor:pointer;">🔄 Actualizar</button>
@@ -4979,7 +4979,7 @@ function marked(text) {
 
 function loadAITradier() {
   if (aiHistoryTradier.length === 0) {
-    addAIMsgTradier('bot', `¡Hola! 👋 Soy tu coach de trading con IA para Bitácora Tradier.\n\nTengo acceso a los datos reales de la cuenta sandbox (SPX 0DTE/1DTE + La Rueda automatizada). Puedes preguntarme cualquier cosa:\n\n• **"¿Por qué gané todos los Bull Call Spread?"**\n• **"¿Debo cerrar la put de ANET?"**\n• **"¿Qué familia de estrategia está funcionando mejor?"**\n\nO usa el botón **⚡ Análisis General** para un diagnóstico completo.`);
+    addAIMsgTradier('bot', `¡Hola! 👋 Soy tu coach de trading con IA para DEMO-TASTY.\n\nTengo acceso a los datos reales de la cuenta sandbox (SPX 0DTE/1DTE + La Rueda automatizada). Puedes preguntarme cualquier cosa:\n\n• **"¿Por qué gané todos los Bull Call Spread?"**\n• **"¿Debo cerrar la put de ANET?"**\n• **"¿Qué familia de estrategia está funcionando mejor?"**\n\nO usa el botón **⚡ Análisis General** para un diagnóstico completo.`);
   }
 }
 

@@ -852,6 +852,11 @@ todo" — para volver al sizing por % de capital, la fórmula anterior era
 (`sizeContractsByRisk`, ver abajo); IC y Long Put Condor quedan fijos en 1.
 
 ### Ejecutor — Tradier o demo de TastyTrade (`src/ejecutor_tasty.js`, 2026-11-09)
+La bitácora de `public/tradier.html` se llama **DEMO-TASTY** desde el 2026-11-09 (pedido de
+Guillermo: diferenciarla de la Bitácora Tasty, que es la cuenta con dinero real). Solo cambió el
+nombre visible y el manifiesto; la URL `/tradier.html` y los identificadores del código siguen
+igual. En iOS hay que borrar el icono viejo y volver a crearlo para ver el nombre nuevo.
+
 Interruptor **`trading.ejecutorTendencia`**: `tradier` (default) | `tasty_demo` | `tasty_real` (no
 implementado: con ese valor el direccional **no abre** y lo deja en el log). Se mueve con
 `POST /api/tendencia/ejecutor {modo}` y se lee con `GET /api/tendencia/ejecutor`. Solo afecta a
