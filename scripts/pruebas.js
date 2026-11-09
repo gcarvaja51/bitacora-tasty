@@ -1422,8 +1422,10 @@ seccion('Ejecutor del direccional en TastyTrade (src/ejecutor_tasty.js)');
 
   // Estaticas sobre el codigo: las puertas por donde un trade demo podia terminar en Tradier
   const fsE = require('fs'), pathE = require('path');
-  const srcS = fsE.readFileSync(pathE.join(__dirname, '..', 'server.js'), 'utf8');
-  const srcE = fsE.readFileSync(pathE.join(__dirname, '..', 'src', 'ejecutor_tasty.js'), 'utf8');
+  // Se normalizan los saltos de linea: en Windows git puede dejar el archivo en CRLF al cambiar de rama, y las
+  // busquedas de varias lineas fallarian sin que el codigo haya cambiado (paso en el primer push, 2026-11-09).
+  const srcS = fsE.readFileSync(pathE.join(__dirname, '..', 'server.js'), 'utf8').replace(/\r\n/g, '\n');
+  const srcE = fsE.readFileSync(pathE.join(__dirname, '..', 'src', 'ejecutor_tasty.js'), 'utf8').replace(/\r\n/g, '\n');
   chequear('el ejecutor no tiene ninguna ruta de orden real', !/\/orders(?!\/dry-run)[`'"/]/.test(srcE));
   chequear('la conciliacion de Tradier excluye los trades demo',
     srcS.includes("executions.filter(e => (e.status === 'submitted' || e.status === 'filled') && !esDemoTasty(e))"));
