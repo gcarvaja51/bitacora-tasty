@@ -3574,6 +3574,8 @@ async function renderScreeners() {
         </div>
       </div>
       ${hasResults ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:6px;">${chips}</div>` : ''}
+      ${!isLoading && sc._error ? `<div style="margin-top:6px;padding:6px 10px;border-radius:7px;font-size:11px;border:1px solid var(--red,#f04f5a);background:rgba(240,79,90,.1);color:var(--red,#f04f5a);">⚠️ Fuente caída — ${String(sc._error).replace(/</g,'&lt;')}. La lista vacía NO significa que no haya candidatos.</div>` : ''}
+      ${!isLoading && !sc._error && sc._ran && !hasResults ? `<div style="margin-top:6px;font-size:11px;color:var(--muted);">Sin resultados hoy.</div>` : ''}
       ${(()=>{
         const ar = scAutoResults[sc.id];
         if (!ar || ar._loading) return ar?._loading ? '<div style="padding:8px;color:var(--muted);font-size:11px;">⏳ Evaluando tickers con Playbook Alejandro...</div>' : '';
@@ -3639,12 +3641,14 @@ async function renderScreeners() {
 async function scRun(id) {
   scInfo = scInfo.map(s => s.id===id ? {...s, _loading:true} : s);
   renderScreeners();
+  let error = null, ran = true;
   try {
     scData[id] = await api('/api/screener/'+id);
   } catch(e) {
     scData[id] = [];
+    error = e.message || 'error desconocido';
   }
-  scInfo = scInfo.map(s => s.id===id ? {...s, _loading:false} : s);
+  scInfo = scInfo.map(s => s.id===id ? {...s, _loading:false, _error:error, _ran:ran} : s);
   renderScreeners();
 }
 

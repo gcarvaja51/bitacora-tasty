@@ -2312,6 +2312,10 @@ app.get('/api/screener-eval/:id', async (req, res) => {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html,application/xhtml+xml' }
         });
         const html = await r.text();
+        if (!r.ok || /<title>Just a moment/i.test(html)) {
+          if (tickers.length) break;
+          throw new Error(`Finviz respondió ${r.status}${/Just a moment/i.test(html) ? ' (bloqueo Cloudflare)' : ''}`);
+        }
         const matches = [...html.matchAll(/data-boxover-ticker="([A-Z]+)"/g)];
         const pageTickers = [...new Set(matches.map(m => m[1]))];
         if (!pageTickers.length) break;
@@ -2552,6 +2556,9 @@ app.get('/api/screener/:id', async (req, res) => {
     return res.json(_screenerCache[id].data);
   }
 
+  // Un fallo de la fuente se devuelve como 502 con el motivo, NUNCA como [] y nunca se
+  // guarda en caché: desde nov-2026 Finviz responde 403 "Just a moment..." (Cloudflare)
+  // y el viejo `res.json([])` lo hacía pasar por "screener sin resultados".
   try {
     const tickers = [];
     for (let page = 1; page <= 5; page++) {
@@ -2563,6 +2570,11 @@ app.get('/api/screener/:id', async (req, res) => {
         }
       });
       const html = await r.text();
+      if (!r.ok || /<title>Just a moment/i.test(html)) {
+        // Si una página posterior a la primera falla, lo ya leído sigue siendo útil.
+        if (tickers.length) break;
+        throw new Error(`Finviz respondió ${r.status}${/Just a moment/i.test(html) ? ' (bloqueo Cloudflare)' : ''}`);
+      }
       // Múltiples patrones para capturar tickers en distintas versiones del HTML de Finviz
       const m1 = [...html.matchAll(/data-boxover-ticker="([A-Z]{1,6})"/g)].map(m => m[1]);
       const m2 = [...html.matchAll(/ticker=([A-Z]{1,6})&/g)].map(m => m[1]);
@@ -2576,8 +2588,8 @@ app.get('/api/screener/:id', async (req, res) => {
     _screenerCache[id] = { ts: Date.now(), data: unique };
     res.json(unique);
   } catch(e) {
-    console.error(`[Screener ${id}]`, e.message);
-    res.json([]);
+    console.error(`[Screener ${id}] FUENTE CAÍDA:`, e.message);
+    res.status(502).json({ error: e.message, fuenteCaida: true });
   }
 });
 
@@ -3104,7 +3116,12 @@ async function checkWheelCandidates() {
       try {
         const finvizRes = await fetch(`http://localhost:${process.env.PORT || 3000}/api/screener/${cfg.screener.finvizScreenerId}`);
         const finvizTickers = await finvizRes.json();
-        if (Array.isArray(finvizTickers)) tickers.push(...finvizTickers);
+        if (!finvizRes.ok || !Array.isArray(finvizTickers)) {
+          console.error(`[WHEEL] ⚠️ Screener "${cfg.screener.finvizScreenerId}" CAÍDO (${finvizRes.status}: ${finvizTickers?.error || 'respuesta inválida'}) — hoy el universo sale solo de la lista manual/watchlist`);
+        } else {
+          if (!finvizTickers.length) console.warn(`[WHEEL] Screener "${cfg.screener.finvizScreenerId}" devolvió 0 tickers`);
+          tickers.push(...finvizTickers);
+        }
       } catch(e) {
         console.error('[WHEEL] Error obteniendo screener Finviz:', e.message);
       }

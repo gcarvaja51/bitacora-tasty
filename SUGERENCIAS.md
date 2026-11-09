@@ -855,6 +855,30 @@ más n y la evidencia más directa, pero eso es una decisión, no un dato.
 > TP) sí. **Pasa a la espera detrás de DIR-5.** No se retira: n=5 fuera de muestra no la
 > refuta, solo le quita la prioridad.
 
+### 14. Screeners Paradigma: cambiar Finviz por el escáner de TradingView — WATCHLIST + RUEDA AUTO, impacto MEDIO
+
+**Anotado:** 2026-11-09 · **Aplicar:** vie 13 / sáb 14-nov
+
+**Qué pasa:** desde ~nov-2026 Finviz pone a `screener.ashx` detrás de un desafío de
+Cloudflare (403 "Just a moment..."). Los 8 screeners (`SCREENERS` en `server.js`) salen
+vacíos en producción. El 09-nov se arregló la parte de **bug** (la ruta devolvía `[]` como
+si fuera un resultado; ahora responde 502 con el motivo, no guarda en caché el vacío, la
+tarjeta muestra "⚠️ Fuente caída" y `checkWheelCandidates` lo deja en el log). **Pero
+los screeners siguen sin datos.** No se intenta saltar Cloudflare.
+
+**Propuesta:** pedir los mismos filtros a `POST https://scanner.tradingview.com/america/scan`
+(JSON público, sin login; probado el 09-nov, responde). Hay equivalente para precio, volumen
+promedio y relativo, rendimiento del día/YTD, máximos de 52 semanas, gap, beta, RSI, P/E,
+dividendo, SMA20 (cruce)/SMA200, current ratio y capitalización. **Sin equivalente exacto:**
+"tiene opciones / shortable" (`sh_opt_option`, `op_option_optionshort`) y la recomendación
+de analistas (`an_recom_buybetter`) → buscar la aproximación y declararla en el `desc`.
+Mantener el botón "↗ Finviz" como enlace manual.
+
+**Por qué es ajuste y no bug:** cambia el universo de candidatos de **La Rueda
+automatizada** (`wheel_trading.js`, `finvizScreenerId: 'rueda'`). Los resultados no van a
+ser idénticos a los de Finviz. Mientras tanto la Rueda auto corre solo con
+`cfg.screener.tickers` (o la watchlist si esa lista está vacía).
+
 ---
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
