@@ -855,9 +855,17 @@ más n y la evidencia más directa, pero eso es una decisión, no un dato.
 > TP) sí. **Pasa a la espera detrás de DIR-5.** No se retira: n=5 fuera de muestra no la
 > refuta, solo le quita la prioridad.
 
-### 14. Screeners Paradigma: cambiar Finviz por el escáner de TradingView — WATCHLIST + RUEDA AUTO, impacto MEDIO
+### 14. Screener `rueda`: pasarlo de Finviz al escáner de TradingView — RUEDA AUTO, impacto MEDIO
 
 **Anotado:** 2026-11-09 · **Aplicar:** vie 13 / sáb 14-nov
+
+> **Actualización 09-nov (tarde):** los otros 7 screeners (solo watchlist, no operan) ya se
+> pasaron a TradingView por decisión de Guillermo. Queda **solo `rueda`**: basta con
+> agregarle un bloque `tv` en `SCREENERS` (ver los otros como modelo; `obtenerTickersScreener`
+> elige la fuente sola). Para la Rueda: `cap_midover` → market_cap > 2e9,
+> `fa_curratio_o1` → current_ratio > 1, `fa_div_o1` → dividends_yield_current > 1,
+> `fa_pe_u28` → price_earnings_ttm 0–28, precio 15–200, beta_1_year < 1.3,
+> close > SMA200, RSI < 65 (`ta_rsi_nob65`), `sh_opt_option` → aproximado por la cap.
 
 **Qué pasa:** desde ~nov-2026 Finviz pone a `screener.ashx` detrás de un desafío de
 Cloudflare (403 "Just a moment..."). Los 8 screeners (`SCREENERS` en `server.js`) salen

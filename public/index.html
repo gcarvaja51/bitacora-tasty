@@ -3561,6 +3561,7 @@ async function renderScreeners() {
         <div>
           <span style="font-size:14px;font-weight:700;color:var(--bright);">${sc.label}</span>
           <span style="font-size:11px;color:var(--muted);margin-left:8px;">${sc.desc}</span>
+          ${sc.fuente ? `<span style="font-size:9px;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:6px;" title="Fuente de datos del screener">${sc.fuente}</span>` : ''}
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
           ${hasResults ? `<span style="font-size:10px;color:var(--muted);">${results.length} tickers · ${newCount} nuevos</span>` : ''}

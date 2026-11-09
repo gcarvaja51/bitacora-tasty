@@ -2245,49 +2245,174 @@ app.delete('/api/playbooks/:id', (req, res) => {
   res.json({ok:true});
 });
 
-// ── Screeners Paradigma (Finviz scraping) ────────────────────
+// ── Screeners Paradigma ──────────────────────────────────────
+// Fuente: escáner público de TradingView (`tv`). Desde nov-2026 Finviz responde 403
+// (Cloudflare) a cualquier consulta del servidor; `url` queda solo para el botón
+// "↗ Finviz" (abrirlo a mano). Un screener SIN `tv` sigue yendo a Finviz — hoy solo
+// `rueda`, que alimenta La Rueda automatizada y se migra en ventana vie/sáb
+// (SUGERENCIAS.md #14).
+// Aproximaciones declaradas (TradingView no tiene el campo exacto):
+//  - "tiene opciones / shortable" (Finviz sh_opt_option, op_option_optionshort)
+//    → capitalización > 500M.
+//  - "analistas Compra o mejor" (Finviz an_recom_buybetter, escala 1–5)
+//    → recommendation_mark ≤ 1.5 (escala TV: 1 compra, 2 mantener, 3 venta).
+// Volumen relativo: `relative_volume_intraday|5` (ajustado a la hora del día). El
+// `relative_volume_10d_calc` compara el acumulado contra un día ENTERO y a las 10am da
+// ~0.1 en todo el mercado, dejando vacíos Volumazo/Gapeadoras/Cerca EMAs.
+const TV_F = (left, operation, right) => ({ left, operation, right });
+const TV_OPCIONABLE = TV_F('market_cap_basic', 'greater', 500e6);
 const SCREENERS = {
   fuerza: {
     label: '💪 Fuerza',
     desc:  'Mercado baja pero estos suben hoy',
     url:   'https://finviz.com/screener.ashx?v=111&f=an_recom_buybetter,sh_avgvol_o500,sh_price_o20,ta_perf2_dp&ft=4',
+    tv: { sort: 'change', filter: [
+      TV_F('recommendation_mark', 'eless', 1.5),
+      TV_F('average_volume_30d_calc', 'greater', 500e3),
+      TV_F('close', 'greater', 20),
+      TV_F('change', 'greater', 0),
+    ]},
   },
   x2: {
     label: '🚀 X2',
     desc:  'Doblan en el año (+100% YTD)',
     url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o500,sh_price_o20,ta_perf_ytd100o&ft=4',
+    tv: { sort: 'Perf.YTD', filter: [
+      TV_F('average_volume_30d_calc', 'greater', 500e3),
+      TV_F('close', 'greater', 20),
+      TV_F('Perf.YTD', 'greater', 100),
+    ]},
   },
   maximos: {
     label: '📈 Máximos Anuales',
     desc:  'Nuevos máximos de 52 semanas',
     url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o500,sh_price_o20,ta_highlow52w_nh&ft=4',
+    tv: { sort: 'market_cap_basic', filter: [
+      TV_F('average_volume_30d_calc', 'greater', 500e3),
+      TV_F('close', 'greater', 20),
+      TV_F('high', 'egreater', 'price_52_week_high'),
+    ]},
   },
   gangas: {
     label: '🎯 Gangas',
     desc:  'P/E bajo, dividendo, oversold',
     url:   'https://finviz.com/screener.ashx?v=111&f=fa_div_o1,fa_pe_u25,op_option_optionshort,sh_opt_option,sh_price_u30,ta_beta_u1,ta_rsi_os40&ft=4',
+    tv: { sort: 'RSI', asc: true, filter: [
+      TV_F('dividends_yield_current', 'greater', 1),
+      TV_F('price_earnings_ttm', 'in_range', [0, 25]),
+      TV_OPCIONABLE,
+      TV_F('close', 'less', 30),
+      TV_F('beta_1_year', 'less', 1),
+      TV_F('RSI', 'less', 40),
+    ]},
   },
   volumazo: {
     label: '💥 Volumazo',
     desc:  'Volumen relativo +5x en alza',
     url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o1000,sh_price_o10,sh_relvol_o5,ta_perf2_dp&ft=4',
+    tv: { sort: 'relative_volume_intraday|5', filter: [
+      TV_F('average_volume_30d_calc', 'greater', 1e6),
+      TV_F('close', 'greater', 10),
+      TV_F('relative_volume_intraday|5', 'greater', 5),
+      TV_F('change', 'greater', 0),
+    ]},
   },
   gapeadoras: {
     label: '⚡ Gapeadoras',
     desc:  'Gap up +3% con volumen',
     url:   'https://finviz.com/screener.ashx?v=111&f=sh_avgvol_o500,sh_gap_u3,sh_price_o20,sh_relvol_o3,ta_perf2_dp&ft=4',
+    tv: { sort: 'gap', filter: [
+      TV_F('average_volume_30d_calc', 'greater', 500e3),
+      TV_F('gap', 'greater', 3),
+      TV_F('close', 'greater', 20),
+      TV_F('relative_volume_intraday|5', 'greater', 3),
+      TV_F('change', 'greater', 0),
+    ]},
   },
   cercaemas: {
     label: '📍 Cerca EMAs',
     desc:  'Precio cruzando SMA20 | Beta >1.5 | Vol >1M | RelVol >1',
     url:   'https://finviz.com/screener.ashx?v=111&f=op_option_optionshort,sh_avgvol_o1000,sh_relvol_o1,ta_beta_o1.5,ta_sma20_cross&ft=4',
+    tv: { sort: 'relative_volume_intraday|5', filter: [
+      TV_OPCIONABLE,
+      TV_F('average_volume_30d_calc', 'greater', 1e6),
+      TV_F('relative_volume_intraday|5', 'greater', 1),
+      TV_F('beta_1_year', 'greater', 1.5),
+      TV_F('close', 'crosses', 'SMA20'),
+    ]},
   },
   rueda: {
     label: '🔄 La Rueda',
     desc:  'Candidatos para CSP: opciones, precio $15-$200, Beta <1.3, sobre SMA200, volumen >500k',
     url:   'https://finviz.com/screener.ashx?v=111&f=cap_midover,fa_curratio_o1,fa_div_o1,fa_pe_u28,sh_avgvol_o500,sh_opt_option,sh_price_o15,sh_price_u200,ta_beta_u1.3,ta_sma200_pa,ta_rsi_nob65&ft=4',
+    // Sin `tv` a propósito: alimenta la Rueda automatizada → SUGERENCIAS.md #14.
   },
 };
+
+const TICKER_OK = /^[A-Z]{1,6}$/; // mismo criterio que el scraping de Finviz (sin BRK.B y similares)
+
+async function fetchTradingViewTickers(sc, limit = 100) {
+  const body = {
+    filter: [
+      TV_F('type', 'equal', 'stock'),
+      TV_F('is_primary', 'equal', true),
+      TV_F('exchange', 'in_range', ['NASDAQ', 'NYSE', 'AMEX']), // Finviz no incluye OTC
+      ...sc.tv.filter,
+    ],
+    columns: ['name'],
+    sort: { sortBy: sc.tv.sort || 'market_cap_basic', sortOrder: sc.tv.asc ? 'asc' : 'desc' },
+    range: [0, limit],
+    markets: ['america'],
+  };
+  const r = await fetch('https://scanner.tradingview.com/america/scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) throw new Error(`TradingView respondió ${r.status}`);
+  const j = await r.json();
+  if (!Array.isArray(j?.data)) throw new Error('TradingView: respuesta sin "data"');
+  return [...new Set(j.data.map(x => x.d?.[0]).filter(t => TICKER_OK.test(t || '')))];
+}
+
+async function fetchFinvizTickers(sc, maxPages = 5) {
+  const tickers = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const pageUrl = sc.url + `&r=${(page-1)*20+1}`;
+    const r = await fetch(pageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+      }
+    });
+    const html = await r.text();
+    if (!r.ok || /<title>Just a moment/i.test(html)) {
+      if (tickers.length) break; // lo ya leído de páginas anteriores sigue sirviendo
+      throw new Error(`Finviz respondió ${r.status}${/Just a moment/i.test(html) ? ' (bloqueo Cloudflare)' : ''}`);
+    }
+    // Múltiples patrones para capturar tickers en distintas versiones del HTML de Finviz
+    const m1 = [...html.matchAll(/data-boxover-ticker="([A-Z]{1,6})"/g)].map(m => m[1]);
+    const m2 = [...html.matchAll(/ticker=([A-Z]{1,6})&/g)].map(m => m[1]);
+    const m3 = [...html.matchAll(/quote\.ashx\?t=([A-Z]{1,6})"/g)].map(m => m[1]);
+    const pageTickers = [...new Set([...m1, ...m2, ...m3])];
+    if (!pageTickers.length) break;
+    tickers.push(...pageTickers);
+    if (pageTickers.length < 20) break; // última página
+  }
+  return [...new Set(tickers)];
+}
+
+// La única puerta para "dame los tickers del screener X". Un fallo de la fuente se
+// LANZA (nunca se devuelve [] ni se guarda en caché): una lista vacía tiene que
+// significar "hoy no hay candidatos", no "la fuente está caída".
+async function obtenerTickersScreener(id) {
+  const sc = SCREENERS[id];
+  if (_screenerCache[id] && Date.now() - _screenerCache[id].ts < CACHE_TTL) return _screenerCache[id].data;
+  const data = sc.tv ? await fetchTradingViewTickers(sc) : await fetchFinvizTickers(sc);
+  _screenerCache[id] = { ts: Date.now(), data };
+  return data;
+}
 
 const _screenerCache = {};
 const CACHE_TTL = 15 * 60 * 1000; // 15 min
@@ -2300,33 +2425,12 @@ app.get('/api/screener-eval/:id', async (req, res) => {
   const sc = SCREENERS[id];
   if (!sc) return res.status(404).json({ error: 'Screener no encontrado' });
 
-  // Obtener tickers del screener (usar caché si existe)
+  // Obtener tickers del screener (usa la caché compartida)
   let tickers = [];
-  if (_screenerCache[id] && Date.now() - _screenerCache[id].ts < CACHE_TTL) {
-    tickers = _screenerCache[id].data;
-  } else {
-    try {
-      for (let page = 1; page <= 3; page++) {
-        const pageUrl = sc.url + `&r=${(page-1)*20+1}`;
-        const r = await fetch(pageUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html,application/xhtml+xml' }
-        });
-        const html = await r.text();
-        if (!r.ok || /<title>Just a moment/i.test(html)) {
-          if (tickers.length) break;
-          throw new Error(`Finviz respondió ${r.status}${/Just a moment/i.test(html) ? ' (bloqueo Cloudflare)' : ''}`);
-        }
-        const matches = [...html.matchAll(/data-boxover-ticker="([A-Z]+)"/g)];
-        const pageTickers = [...new Set(matches.map(m => m[1]))];
-        if (!pageTickers.length) break;
-        tickers.push(...pageTickers);
-        if (pageTickers.length < 20) break;
-      }
-      tickers = [...new Set(tickers)].slice(0, 60);
-      _screenerCache[id] = { ts: Date.now(), data: tickers };
-    } catch(e) {
-      return res.status(500).json({ error: 'Error cargando screener: ' + e.message });
-    }
+  try {
+    tickers = (await obtenerTickersScreener(id)).slice(0, 60);
+  } catch(e) {
+    return res.status(500).json({ error: 'Error cargando screener: ' + e.message });
   }
 
   // Helpers
@@ -2540,7 +2644,7 @@ app.get('/api/screener-eval/:id', async (req, res) => {
 
 app.get('/api/screeners', (req, res) => {
   const info = Object.entries(SCREENERS).map(([id, s]) => ({
-    id, label: s.label, desc: s.desc, url: s.url,
+    id, label: s.label, desc: s.desc, url: s.url, fuente: s.tv ? 'TradingView' : 'Finviz',
     cached: !!(_screenerCache[id] && Date.now() - _screenerCache[id].ts < CACHE_TTL),
   }));
   res.json(info);
@@ -2548,45 +2652,9 @@ app.get('/api/screeners', (req, res) => {
 
 app.get('/api/screener/:id', async (req, res) => {
   const id = req.params.id;
-  const sc = SCREENERS[id];
-  if (!sc) return res.status(404).json({ error: 'Screener no encontrado' });
-
-  // Caché válida
-  if (_screenerCache[id] && Date.now() - _screenerCache[id].ts < CACHE_TTL) {
-    return res.json(_screenerCache[id].data);
-  }
-
-  // Un fallo de la fuente se devuelve como 502 con el motivo, NUNCA como [] y nunca se
-  // guarda en caché: desde nov-2026 Finviz responde 403 "Just a moment..." (Cloudflare)
-  // y el viejo `res.json([])` lo hacía pasar por "screener sin resultados".
+  if (!SCREENERS[id]) return res.status(404).json({ error: 'Screener no encontrado' });
   try {
-    const tickers = [];
-    for (let page = 1; page <= 5; page++) {
-      const pageUrl = sc.url + `&r=${(page-1)*20+1}`;
-      const r = await fetch(pageUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-        }
-      });
-      const html = await r.text();
-      if (!r.ok || /<title>Just a moment/i.test(html)) {
-        // Si una página posterior a la primera falla, lo ya leído sigue siendo útil.
-        if (tickers.length) break;
-        throw new Error(`Finviz respondió ${r.status}${/Just a moment/i.test(html) ? ' (bloqueo Cloudflare)' : ''}`);
-      }
-      // Múltiples patrones para capturar tickers en distintas versiones del HTML de Finviz
-      const m1 = [...html.matchAll(/data-boxover-ticker="([A-Z]{1,6})"/g)].map(m => m[1]);
-      const m2 = [...html.matchAll(/ticker=([A-Z]{1,6})&/g)].map(m => m[1]);
-      const m3 = [...html.matchAll(/quote\.ashx\?t=([A-Z]{1,6})"/g)].map(m => m[1]);
-      const pageTickers = [...new Set([...m1, ...m2, ...m3])];
-      if (!pageTickers.length) break;
-      tickers.push(...pageTickers);
-      if (pageTickers.length < 20) break; // última página
-    }
-    const unique = [...new Set(tickers)];
-    _screenerCache[id] = { ts: Date.now(), data: unique };
-    res.json(unique);
+    res.json(await obtenerTickersScreener(id));
   } catch(e) {
     console.error(`[Screener ${id}] FUENTE CAÍDA:`, e.message);
     res.status(502).json({ error: e.message, fuenteCaida: true });
