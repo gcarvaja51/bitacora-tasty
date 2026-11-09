@@ -2248,9 +2248,8 @@ app.delete('/api/playbooks/:id', (req, res) => {
 // ── Screeners Paradigma ──────────────────────────────────────
 // Fuente: escáner público de TradingView (`tv`). Desde nov-2026 Finviz responde 403
 // (Cloudflare) a cualquier consulta del servidor; `url` queda solo para el botón
-// "↗ Finviz" (abrirlo a mano). Un screener SIN `tv` sigue yendo a Finviz — hoy solo
-// `rueda`, que alimenta La Rueda automatizada y se migra en ventana vie/sáb
-// (SUGERENCIAS.md #14).
+// "↗ Finviz" (abrirlo a mano). Un screener SIN `tv` sigue yendo a Finviz (hoy ninguno;
+// `rueda` fue el último, migrado el 2026-11-09).
 // Aproximaciones declaradas (TradingView no tiene el campo exacto):
 //  - "tiene opciones / shortable" (Finviz sh_opt_option, op_option_optionshort)
 //    → capitalización > 500M.
@@ -2345,7 +2344,20 @@ const SCREENERS = {
     label: '🔄 La Rueda',
     desc:  'Candidatos para CSP: opciones, precio $15-$200, Beta <1.3, sobre SMA200, volumen >500k',
     url:   'https://finviz.com/screener.ashx?v=111&f=cap_midover,fa_curratio_o1,fa_div_o1,fa_pe_u28,sh_avgvol_o500,sh_opt_option,sh_price_o15,sh_price_u200,ta_beta_u1.3,ta_sma200_pa,ta_rsi_nob65&ft=4',
-    // Sin `tv` a propósito: alimenta la Rueda automatizada → SUGERENCIAS.md #14.
+    // Alimenta la Rueda automatizada (wheel_trading.js, finvizScreenerId: 'rueda').
+    // Migrado 2026-11-09 por pedido explícito de Guillermo (fuera de la ventana vie/sáb).
+    // sh_opt_option queda cubierto por cap_midover (> 2B): todas tienen opciones listadas.
+    tv: { sort: 'market_cap_basic', filter: [
+      TV_F('market_cap_basic', 'greater', 2e9),          // cap_midover
+      TV_F('current_ratio', 'greater', 1),               // fa_curratio_o1
+      TV_F('dividends_yield_current', 'greater', 1),     // fa_div_o1
+      TV_F('price_earnings_ttm', 'in_range', [0, 28]),   // fa_pe_u28
+      TV_F('average_volume_30d_calc', 'greater', 500e3), // sh_avgvol_o500
+      TV_F('close', 'in_range', [15, 200]),              // sh_price_o15 + sh_price_u200
+      TV_F('beta_1_year', 'less', 1.3),                  // ta_beta_u1.3
+      TV_F('close', 'greater', 'SMA200'),                // ta_sma200_pa
+      TV_F('RSI', 'less', 65),                           // ta_rsi_nob65
+    ]},
   },
 };
 

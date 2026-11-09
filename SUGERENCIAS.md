@@ -855,9 +855,11 @@ más n y la evidencia más directa, pero eso es una decisión, no un dato.
 > TP) sí. **Pasa a la espera detrás de DIR-5.** No se retira: n=5 fuera de muestra no la
 > refuta, solo le quita la prioridad.
 
-### 14. Screener `rueda`: pasarlo de Finviz al escáner de TradingView — RUEDA AUTO, impacto MEDIO
+### 14. ✅ APLICADA 2026-11-09 — Screener `rueda`: pasarlo de Finviz al escáner de TradingView — RUEDA AUTO, impacto MEDIO
 
-**Anotado:** 2026-11-09 · **Aplicar:** vie 13 / sáb 14-nov
+**Anotado:** 2026-11-09 · **Aplicada:** 2026-11-09 (lunes), **fuera de la ventana vie/sáb por
+pedido explícito de Guillermo** ("la rueda, hazlo ya"). Primer día: 63 candidatos.
+Ojo al medir la Rueda auto: el universo cambió de fuente ese día.
 
 > **Actualización 09-nov (tarde):** los otros 7 screeners (solo watchlist, no operan) ya se
 > pasaron a TradingView por decisión de Guillermo. Queda **solo `rueda`**: basta con
