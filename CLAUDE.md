@@ -851,6 +851,36 @@ todo" — para volver al sizing por % de capital, la fórmula anterior era
 `Math.max(1, Math.floor(capital*pct/(width*100)))`. Reversión usa su propio método
 (`sizeContractsByRisk`, ver abajo); IC y Long Put Condor quedan fijos en 1.
 
+### Ejecutor — Tradier o demo de TastyTrade (`src/ejecutor_tasty.js`, 2026-11-09)
+Interruptor **`trading.ejecutorTendencia`**: `tradier` (default) | `tasty_demo` | `tasty_real` (no
+implementado: con ese valor el direccional **no abre** y lo deja en el log). Se mueve con
+`POST /api/tendencia/ejecutor {modo}` y se lee con `GET /api/tendencia/ejecutor`. Solo afecta a
+TENDENCIA: el clic, la Reversión, el IC y el Mediodía siguen en Tradier.
+
+En **`tasty_demo`** el direccional no toca Tradier:
+- **Apertura**: marca cruzando el spread en la cadena de TastyTrade (`marcarPaper`, la misma del
+  libro propio) + `POST /orders/dry-run` contra la cuenta real (`CLIC_REAL_CUENTA` o
+  `TT_ACCOUNT_NUMBER`), que devuelve las comisiones reales. **Nunca se manda una orden.** Si la
+  marca no es confiable o el dry-run falla, **no se abre** (decisión de Guillermo) y queda la etapa
+  `DEMO_TASTY_NO_ABRIO` + ntfy (máx. uno cada 15 min). El registro nace `filled` con
+  `broker: 'tasty_demo'`, `feesApertura` y `dryRunApertura`.
+- **Posición abierta**: manda el registro local; no se le pregunta a Tradier.
+- **Cierre**: el monitor de siempre decide TP/SL/técnico/hora; al disparar, marca de salida + dry-run
+  de cierre y queda `closed` **en el acto** (`asentarCierreDemo`, `pnlSource: 'tasty_demo'`). Un
+  dry-run de cierre fallido **nunca** bloquea: se usa la comisión de la apertura y queda
+  `feesCierreEstimadas: true`.
+- **Conciliación de Tradier, limpieza de zombis, confirmación de fill**: excluyen `esDemoTasty(ex)`.
+  ⚠️ La conciliación da por cerrado todo `filled` cuyas patas no ve en el broker: sin la exclusión
+  un trade demo se cerraría como MANUAL apenas abierto.
+- **Cuenta demo**: $10.000 (`TENDENCIA_DEMO_CAPITAL`) + P&L oficial − comisiones reales;
+  `GET /api/tendencia-demo/cuenta`, tarjeta en el Dashboard. Posiciones arma las patas demo
+  aparte de las reales del sandbox.
+
+**Histórico**: nada se reescribe. Sin campo `broker` = Tradier. Historial tiene el filtro
+*Ejecutado en* y la etiqueta *TT demo*. La huella de versión no cambia con `tradier` (sigue
+`f85c9f8e`); con `tasty_demo` nace una propia. Comisiones medidas en el dry-run del 9-nov:
+**$3.44 por lado** ($6.88 ida y vuelta, contra los $4.20 que se asumían con la tarifa de Tradier).
+
 ## 2 · Iron Condor (0DTE + 1DTE)
 
 **No depende de una alerta de Pine** — CIARG_V1 nunca manda `direction: NEUTRAL`, y el gate

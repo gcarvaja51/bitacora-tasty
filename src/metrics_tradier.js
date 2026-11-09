@@ -170,7 +170,13 @@ function mapSpxExecution(ex) {
     pnlBroker:        typeof ex.pnl === 'number' ? ex.pnl : null,
     entradaCadenaReal: marcaApertura,
     salidaCadenaReal:  libro ? libro.salida : null,
-    commissionEstimate: estimateSpxCommission(ex),
+    // Donde se ejecuto (2026-11-09). Los registros anteriores al ejecutor de TastyTrade no traen el campo: sin
+    // `broker` = Tradier. El historico de Tradier no se toca ni se reescribe.
+    ejecutor:         ex.broker || 'tradier',
+    // Demo de TastyTrade: comisiones REALES del dry-run; Tradier: la estimacion por tarifa publicada.
+    commissionEstimate: ex.broker === 'tasty_demo'
+      ? +((Number(ex.feesApertura) || 0) + (ex.feesCierre != null ? Number(ex.feesCierre) : (Number(ex.feesApertura) || 0))).toFixed(2)
+      : estimateSpxCommission(ex),
     amPm:             getAmPm(ex.filledAt || ex.timestamp),
     durationDays:     Math.round((new Date(closeDate) - new Date(openDate)) / 86400000),
     durationCat:      getDurationCat(openDate, closeDate),

@@ -45,6 +45,8 @@ function chequear(nombre, condicion, detalle) {
 }
 
 function seccion(t) { console.log(`\n--- ${t} ---`); }
+// Promesas de pruebas de unidad asincronas: el resumen final las espera.
+const pruebasAsync = [];
 
 // ── 1. El dinero: la unica puerta a "cuanto gano este trade" ────────────────
 seccion('El numero oficial (src/pnl_oficial.js)');
@@ -1302,6 +1304,136 @@ chequear(`el calendario NYSE todavia cubre hoy (llega a ${cal.HASTA})`,
            ps.includes('calendario_nyse.json'));
 }
 
+// ── 2b. Ejecutor del direccional en TastyTrade (2026-11-09) ─────────────────
+//
+// El direccional deja de mandar ordenes al sandbox de Tradier: valida con el dry-run de TastyTrade y llena cruzando
+// el spread con la marca del libro propio. Lo que NO puede romperse: (1) que nunca salga una orden de verdad, (2) que
+// el P&L sea el mismo numero que ya mide el libro (serie historica comparable), (3) que con el interruptor en
+// 'tradier' nada cambie, y (4) que la conciliacion de Tradier no "cierre" un trade demo por no verlo en el broker.
+seccion('Ejecutor del direccional en TastyTrade (src/ejecutor_tasty.js)');
+{
+  const ejT = require('../src/ejecutor_tasty');
+  const { calcularHuella } = require('../src/algo_version');
+
+  chequear('simbolo Tradier -> TastyTrade (raiz padeada a 6)',
+    ejT.aSimboloTasty('SPXW261109P07545000') === 'SPXW  261109P07545000');
+  chequear('simbolo invalido -> null', ejT.aSimboloTasty('basura') === null);
+  chequear('modo desconocido cae a tradier', ejT.modoValido('loquesea') === 'tradier' && ejT.modoValido(undefined) === 'tradier');
+
+  const legsBP = { shortSym: 'SPXW261109P07545000', longSym: 'SPXW261109P07535000' };
+  const abreCred = ejT.cuerpoOrden({ legs: legsBP, contratos: 1, credito: true }, 1.55, true);
+  chequear('abrir un credito cobra (Credit)', abreCred['price-effect'] === 'Credit' && abreCred.price === '1.55');
+  chequear('abrir: vende la corta y compra la larga',
+    abreCred.legs[0].action === 'Sell to Open' && abreCred.legs[1].action === 'Buy to Open'
+    && abreCred.legs[0].symbol === 'SPXW  261109P07545000');
+  const cierraCred = ejT.cuerpoOrden({ legs: legsBP, contratos: 1, credito: true }, 2.30, false);
+  chequear('cerrar un credito paga (Debit)', cierraCred['price-effect'] === 'Debit');
+  chequear('cerrar: recompra la corta y vende la larga',
+    cierraCred.legs[0].action === 'Buy to Close' && cierraCred.legs[1].action === 'Sell to Close');
+  chequear('abrir un debito paga (Debit)',
+    ejT.cuerpoOrden({ legs: legsBP, contratos: 1, credito: false }, 4.2, true)['price-effect'] === 'Debit');
+
+  // Cliente falso de TastyTrade: registra cada ruta pedida. El ejecutor solo puede tocar /orders/dry-run.
+  const fakeTT = (respuesta) => {
+    const rutas = [];
+    return { rutas, accountNumber: 'CTA', _req: async (ruta) => { rutas.push(ruta); return respuesta(ruta); } };
+  };
+  const marca = (neto, confiable = true) => async (legs, lado) =>
+    ({ lado, confiable, neto, netoAlMedio: neto, costoCruce: 0.08, fuente: 'tasty', at: '2026-11-09T18:49:44.850Z',
+       motivo: confiable ? undefined : 'pata vieja' });
+  const okFees = () => ({ data: { 'fee-calculation': { 'total-fees': '2.28' }, warnings: [] } });
+  const silencioso = { warn: () => {} };
+
+  pruebasAsync.push((async () => {
+    const tt1 = fakeTT(okFees);
+    let a = await ejT.crearEjecutorTasty({ tt: tt1, marcar: marca(1.55) }).abrirDemo({ legs: legsBP, contratos: 1, credito: true });
+    chequear('demo abre un credito al precio cruzando de la marca', a.ok && a.precio === 1.55, JSON.stringify(a).slice(0, 120));
+    chequear('demo toma las comisiones reales del dry-run', a.fees === 2.28, `dio ${a.fees}`);
+    chequear('demo SOLO usa /orders/dry-run (nunca manda una orden)',
+      tt1.rutas.length === 1 && /\/orders\/dry-run$/.test(tt1.rutas[0]), tt1.rutas.join(','));
+
+    a = await ejT.crearEjecutorTasty({ tt: fakeTT(okFees), marcar: marca(1.55, false) })
+      .abrirDemo({ legs: legsBP, credito: true });
+    chequear('sin marca confiable NO abre', !a.ok && a.etapa === 'marca');
+    a = await ejT.crearEjecutorTasty({ tt: fakeTT(okFees), marcar: marca(-0.40) })
+      .abrirDemo({ legs: legsBP, credito: true });
+    chequear('un credito que pagaria al abrir NO abre (cadena rota)', !a.ok && a.etapa === 'marca');
+
+    const rechazo = () => { throw new Error('TT API 422 /accounts/CTA/orders/dry-run: {"error":{"message":"Insufficient buying power"}}'); };
+    a = await ejT.crearEjecutorTasty({ tt: fakeTT(rechazo), marcar: marca(1.55) }).abrirDemo({ legs: legsBP, credito: true });
+    chequear('dry-run rechazado -> NO abre (decision de Guillermo)', !a.ok && a.etapa === 'dry-run');
+    chequear('el motivo del rechazo llega legible', /Insufficient buying power/.test(a.motivo || ''), a.motivo);
+    const caido = () => { throw new Error('TT API 503 /accounts/CTA/orders/dry-run: '); };
+    a = await ejT.crearEjecutorTasty({ tt: fakeTT(caido), marcar: marca(1.55) }).abrirDemo({ legs: legsBP, credito: true });
+    chequear('TastyTrade caido -> tampoco abre', !a.ok && a.dryRun?.tipo === 'red');
+
+    // Cierre: un dry-run fallido NUNCA deja el trade colgado
+    let c = await ejT.crearEjecutorTasty({ tt: fakeTT(rechazo), marcar: marca(-2.30), log: silencioso })
+      .cerrarDemo({ legs: legsBP, contratos: 1, credito: true, feesApertura: 2.28 });
+    chequear('dry-run de cierre fallido: cierra igual', c.ok === true && c.precio === 2.30);
+    chequear('...con la comision de la apertura como estimado', c.fees === 2.28 && c.feesEstimadas === true);
+    c = await ejT.crearEjecutorTasty({ tt: fakeTT(okFees), marcar: async () => ({ confiable: false, motivo: 'sin cotizacion' }) })
+      .cerrarDemo({ legs: legsBP, credito: true });
+    chequear('sin ningun precio de salida no cierra (reintenta)', c.ok === false);
+
+    // El caso real del 9-nov (tex-1794250185147): Bull Put 7545/7535, libro 1.55 -> -2.30 = -$75 en la cadena real.
+    const exReal = { broker: 'tasty_demo', status: 'filled', contracts: 1, isCredit: true,
+      feesApertura: 2.28, paperEntry: { confiable: true, neto: 1.55, costoCruce: 0.08 },
+      strikes: { shortStrike: 7545, longStrike: 7535 }, timestamp: '2026-11-09T18:49:42Z' };
+    c = await ejT.crearEjecutorTasty({ tt: fakeTT(okFees), marcar: marca(-2.30) })
+      .cerrarDemo({ legs: legsBP, contratos: 1, credito: true, feesApertura: 2.28 });
+    Object.assign(exReal, ejT.asentarCierreDemo(exReal, c, '2026-11-09T19:18:47Z'));
+    chequear('cierre demo: P&L bruto identico al del libro (-$75)', exReal.paperPnl.bruto === -75, `dio ${exReal.paperPnl.bruto}`);
+    chequear('cierre demo: neto con comisiones REALES (2.28 + 2.28)', exReal.paperPnl.neto === -79.56, `dio ${exReal.paperPnl.neto}`);
+    chequear('cierre demo: queda cerrado en el acto', exReal.status === 'closed' && exReal.pnlSource === 'tasty_demo');
+    const ro = resultadoOficial(exReal);
+    chequear('el P&L oficial lo cuenta como cadena real y comparable',
+      ro.fuente === 'cadena_real' && ro.comparable && ro.pnl === -75, JSON.stringify(ro));
+
+    const exDeb = { broker: 'tasty_demo', contracts: 1, isCredit: false, feesApertura: 2.28,
+      paperEntry: { confiable: true, neto: -4.20, costoCruce: 0.1 } };
+    Object.assign(exDeb, ejT.asentarCierreDemo(exDeb, { marca: { confiable: true, neto: 5.45, costoCruce: 0.1 }, fees: 2.28 }));
+    chequear('debito: -4.20 -> +5.45 = +$125', exDeb.paperPnl.bruto === 125, `dio ${exDeb.paperPnl.bruto}`);
+
+    // Cuenta demo: $10.000 + netos de los trades de la demo; los de Tradier no cuentan
+    const cta = ejT.cuentaDemoTendencia([
+      exReal,
+      { ...exDeb, closedAt: '2026-11-10T15:00:00Z' },
+      { status: 'closed', pnl: 999, paperPnl: { bruto: 999, confiable: true } },                // Tradier
+      { broker: 'tasty_demo', status: 'filled', isCredit: true, contracts: 1,
+        strikes: { shortStrike: 7600, longStrike: 7590 }, paperEntry: { neto: 1.90 } },        // abierta
+    ], { capital: 10000, pnlDe: (e) => resultadoOficial(e).pnl });
+    chequear('cuenta demo: saldo = 10000 - 79.56 + 120.44', cta.saldo === 10040.88, `dio ${cta.saldo}`);
+    chequear('cuenta demo: ignora los trades de Tradier', cta.cerrados === 2, `dio ${cta.cerrados}`);
+    chequear('cuenta demo: reserva el riesgo de la abierta (10 - 1.90)', cta.reservado === 810, `dio ${cta.reservado}`);
+  })().catch(e => chequear('pruebas del ejecutor sin excepciones', false, e.stack)));
+
+  // Huella: con el interruptor en 'tradier' la version vigente no cambia
+  const cfgProd = { entryMode: 'pullback', minScore: 80, minScoreTrasPerdida: 90,
+    weights: { fase_weinstein: 45, regimen_institucional: 10, patrones_estructurales: 20, ema_10_20_alineadas: 10,
+               volumen_rompimiento: 0, macd_cruce_pendiente: 15, confirmacion_algoritmica: 0 },
+    trading: { targetDelta: 0.3, tpPct: 30, slMult: 1.5, debit: { tpPct: 30, slPct: 50 } } };
+  const hBase = calcularHuella(cfgProd, 'TENDENCIA');
+  chequear('huella vigente intacta (f85c9f8e)', hBase === 'f85c9f8e', `dio ${hBase}`);
+  chequear('interruptor en tradier no mueve la huella',
+    calcularHuella({ ...cfgProd, trading: { ...cfgProd.trading, ejecutorTendencia: 'tradier' } }, 'TENDENCIA') === hBase);
+  chequear('la demo de TastyTrade nace con huella propia',
+    calcularHuella({ ...cfgProd, trading: { ...cfgProd.trading, ejecutorTendencia: 'tasty_demo' } }, 'TENDENCIA') !== hBase);
+
+  // Estaticas sobre el codigo: las puertas por donde un trade demo podia terminar en Tradier
+  const fsE = require('fs'), pathE = require('path');
+  const srcS = fsE.readFileSync(pathE.join(__dirname, '..', 'server.js'), 'utf8');
+  const srcE = fsE.readFileSync(pathE.join(__dirname, '..', 'src', 'ejecutor_tasty.js'), 'utf8');
+  chequear('el ejecutor no tiene ninguna ruta de orden real', !/\/orders(?!\/dry-run)[`'"/]/.test(srcE));
+  chequear('la conciliacion de Tradier excluye los trades demo',
+    srcS.includes("executions.filter(e => (e.status === 'submitted' || e.status === 'filled') && !esDemoTasty(e))"));
+  chequear('la apertura demo no le pregunta a Tradier por la posicion',
+    srcS.includes("const tradierDiceAbierto = viaTasty ? false : await tradier.hasOpenPosition('SPXW');"));
+  const iDemo = srcS.indexOf('const rc = await ejecutorTasty.cerrarDemo({ legs: ex.legs, contratos: ex.contracts,\n            credito: esCredito');
+  chequear('el monitor cierra la demo antes de llegar a Tradier',
+    iDemo > 0 && iDemo < srcS.indexOf('const closeResultDir = await tradier.closeSpreadOrder('));
+}
+
 // ── 3. Humo: que TODOS los endpoints respondan ──────────────────────────────
 //
 // Excluidos a proposito, con su razon. Un GET no deberia tener efectos, pero
@@ -1557,6 +1689,8 @@ async function humoPost(base = BASE) {
 }
 
 (async () => {
+  // Pruebas de unidad asincronas (2026-11-09, ejecutor de TastyTrade): se esperan antes del resumen.
+  await Promise.all(pruebasAsync);
   if (LOCAL) await conServidorLocal(async (base) => { await humo(base); await humoPost(base); });
   if (HUMO) await humo();
   console.log('\n' + '='.repeat(70));

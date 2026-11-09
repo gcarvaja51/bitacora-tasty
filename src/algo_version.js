@@ -43,6 +43,10 @@ function parametrosRelevantes(cfg = {}) {
       tpPct:               t.tpPct ?? null,
       slMult:              t.slMult ?? null,
       debit:               t.debit ?? null,
+      // Ejecutor (2026-11-09): solo entra en la huella cuando NO es Tradier, para que la huella vigente
+      // (f85c9f8e) no cambie mientras el interruptor siga en 'tradier'. Al pasar a 'tasty_demo' nace una
+      // huella nueva y los trades quedan separados por version sin depender de fechas.
+      ...(t.ejecutorTendencia && t.ejecutorTendencia !== 'tradier' ? { ejecutor: t.ejecutorTendencia } : {}),
     },
     REVERSION: {
       minScore:            rev.minScore ?? null,

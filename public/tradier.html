@@ -83,6 +83,15 @@
           <div class="loader"><div class="spinner"></div></div>
         </div>
       </div>
+      <!-- Cuenta demo del direccional en TastyTrade (2026-11-09) — ver src/ejecutor_tasty.js -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">Direccional · demo TastyTrade
+          <span style="color:var(--muted);font-size:10px;margin-left:6px;">cuenta demo de $10.000: llenado cruzando el spread en la cadena real y comisiones reales de TastyTrade</span>
+        </div>
+        <div class="card-body" id="dash-demo-tasty">
+          <div class="loader"><div class="spinner"></div></div>
+        </div>
+      </div>
       <div class="filters">
         <span class="filter-label">Estrategia</span>
         <select id="dash-familia" onchange="loadDashboardTradier()">
@@ -292,6 +301,12 @@
           <option value="PREMERCADO">Premercado</option>
           <option value="MEDIODIA">Mediodía</option>
           <option value="RUEDA">La Rueda</option>
+        </select>
+        <span class="filter-label">Ejecutado en</span>
+        <select id="hist-ejecutor" onchange="loadHistoryTradier()" title="Desde el 2026-11-09 el direccional puede ejecutarse en la demo de TastyTrade. Lo anterior se ejecutó en el sandbox de Tradier y se conserva igual.">
+          <option value="">Todos</option>
+          <option value="tradier">Tradier (sandbox)</option>
+          <option value="tasty_demo">TastyTrade (demo)</option>
         </select>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;" title="Trades marcados a mano (columna Error, en la tabla de abajo) como bug/error de implementación (ej. roll con reapertura fallida, orden fantasma del sandbox) — no reflejan la calidad real de la estrategia.">
           <input type="checkbox" id="hist-incluir-errores" onchange="loadHistoryTradier()"> Incluir trades con error de implementación
@@ -2677,7 +2692,9 @@ function consolidateStrategies(legs) {
         // lo que dijo el sandbox, para poder ver la diferencia sin salir de la tabla.
         pnlFuente:leg.pnlFuente, pnlBroker:leg.pnlBroker,
         entradaCadenaReal:leg.entradaCadenaReal, salidaCadenaReal:leg.salidaCadenaReal,
-        closeReason:leg.closeReason, entryFillPrice:leg.entryFillPrice });
+        closeReason:leg.closeReason, entryFillPrice:leg.entryFillPrice,
+        // 2026-11-09: donde se ejecuto ('tradier' | 'tasty_demo'). Sin el campo = Tradier (historico).
+        ejecutor:leg.ejecutor || 'tradier' });
     }
     const s = map.get(key);
     s.openValue  += leg.openValue  || 0;
@@ -2764,6 +2781,7 @@ async function loadHistoryTradier() {
   try {
     const sd = $('hist-from').value, ed = $('hist-to').value;
     const familia = $('hist-familia').value;
+    const ejecutorF = $('hist-ejecutor')?.value || '';
     const incluirErrores = !!$('hist-incluir-errores')?.checked;
     // Fusion 2026-08-01 (portado de la extinta pagina Demo Tradier): trae en
     // paralelo el registro RAW de ejecuciones SPX (direccion, strikes, esquema
@@ -2781,7 +2799,8 @@ async function loadHistoryTradier() {
     const legs = (data.metrics?.strategies || []).filter(s => incluirErrores || !s.flaggedError);
     const strategies = consolidateStrategies(legs)
       .filter(s => s.closeDate && s.closeDate >= sd && s.closeDate <= ed)
-      .filter(s => !familia || getFamilia(s) === familia);
+      .filter(s => !familia || getFamilia(s) === familia)
+      .filter(s => !ejecutorF || (s.ejecutor || 'tradier') === ejecutorF);
 
     // Enriquecer con el registro RAW — solo existe para estrategias con
     // registro local propio (key sin prefijo "broker-"); las reconciliadas
@@ -2864,7 +2883,9 @@ async function loadHistoryTradier() {
               <td class="td-mono dim">${s.isOpen ? '<span class="badge badge-blue" style="font-size:9px;">🔵 ABIERTA</span>' : (s.closeDate||'—')}</td>
               <td class="td-mono dim">${s.openDate||'—'}</td>
               <td class="${s.direction==='BULLISH'?'pos':s.direction==='BEARISH'?'neg':'dim'}">${s.direction||'—'}</td>
-              <td style="font-size:11px;">${origenLabel}</td>
+              <td style="font-size:11px;">${origenLabel}${s.ejecutor === 'tasty_demo'
+                ? ' <span class="badge" title="Ejecutado en la demo de TastyTrade (dry-run + llenado cruzando el spread)" style="font-size:9px;background:rgba(255,170,60,.14);color:#e0a040;border:1px solid rgba(255,170,60,.35);">TT demo</span>'
+                : ''}</td>
               <td class="td-bright">${s.underlying||'—'}</td>
               <td><span class="badge badge-blue" style="font-size:9px;">${tipoCorto(s)}</span></td>
               <td class="td-mono">${strikesLabel}</td>
@@ -3680,7 +3701,9 @@ function buildPosRowTradier(g) {
   const pct = absPrem > 0 ? (g.unrealizedPnL / absPrem * 100) : 0;
   return `<tr>
     <td class="td-bright" style="font-weight:700;${g.isStock ? '' : 'cursor:pointer;'}" ${g.isStock ? '' : `onclick="osShowPopup('${g.underlying}',event)" title="Ver en OptionStrat"`}>${g.underlying} <span style="font-size:9px;color:var(--muted);">${!g.isStock && osTieneLink(g.underlying) ? '🔗' : ''}</span></td>
-    <td class="dim">${strat}</td>
+    <td class="dim">${strat}${g.ejecutor === 'tasty_demo'
+      ? ' <span class="badge" title="Ejecutado en la demo de TastyTrade (no existe en Tradier)" style="font-size:9px;background:rgba(255,170,60,.14);color:#e0a040;border:1px solid rgba(255,170,60,.35);">TT demo</span>'
+      : ''}</td>
     <td><span class="badge ${dirBadge}">${g.direction}</span></td>
     <td class="td-mono dim">${strikes}</td>
     <td class="td-mono dim">${g.expiry||'—'}</td>
@@ -3710,6 +3733,11 @@ function celdaCierreTradier(g) {
   if (!syms.length) return `<td><span class="dim" style="font-size:10px;">—</span></td>`;
   const id = 'pos-' + syms[0];
   const etiqueta = `${g.underlying} ${[...new Set((g.legs||[]).map(l=>l.strike))].join('/')} (${syms.length} pata${syms.length>1?'s':''})`;
+  // Trade de la demo de TastyTrade (2026-11-09): no hay nada en Tradier que cerrar por simbolos. Se cierra en la
+  // demo, por su registro, al precio cruzando de ahora.
+  if (g.ejecutor === 'tasty_demo' && g.execId) {
+    return `<td><button id="close-btn-${g.execId}" onclick="cerrarManualTradier('${g.execId}','${etiqueta} · demo TastyTrade')" title="Cierre manual en la demo de TastyTrade: cierra al precio cruzando de ahora." style="background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.35);color:var(--red,#ff6b6b);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">✖ Cerrar</button></td>`;
+  }
   return `<td><button id="close-btn-${id}" onclick="cerrarPorSimbolosTradier('${syms.join(',')}','${etiqueta}','${id}')" title="Cierre manual forzado: cancela órdenes que estén bloqueando las patas y manda el cierre de todas las patas en una sola orden." style="background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.35);color:var(--red,#ff6b6b);border-radius:6px;padding:3px 9px;font-size:10px;font-weight:600;cursor:pointer;">✖ Cerrar</button></td>`;
 }
 
@@ -4769,10 +4797,35 @@ async function toggleEstrategia(nombre, enabled, despues){
   }catch(e){ alert('Error: '+e.message); }
 }
 
+// Cuenta demo del direccional en TastyTrade (2026-11-09). Va aparte, como los interruptores: un fallo del resto
+// del Dashboard no la deja con el spinner, y ella tampoco frena al resto.
+async function loadDemoTastyTradier() {
+  const box = $('dash-demo-tasty');
+  if (!box) return;
+  try {
+    const d = await api('/api/tendencia/ejecutor');
+    const c = d.cuentaDemo || {};
+    const MODOS = { tradier: ['Tradier (sandbox)', 'dim'], tasty_demo: ['TastyTrade demo', 'pos'], tasty_real: ['TastyTrade REAL', 'neg'] };
+    const [modoTxt, modoCls] = MODOS[d.modo] || [d.modo || '—', 'dim'];
+    const resultado = (c.saldo ?? c.capital ?? 0) - (c.capital ?? 0);
+    const wr = c.cerrados ? Math.round((c.ganadores || 0) / c.cerrados * 100) + '%' : '—';
+    box.innerHTML = `<div class="kpi-row cols-5">${[
+      kpiCard('Ejecuta en', modoTxt, d.modo === 'tasty_demo' ? 'el robot abre aquí' : 'la demo está en espera', modoCls),
+      kpiCard('Saldo demo', fa$(c.saldo ?? c.capital ?? 0), `${f$(resultado)} sobre ${fa$(c.capital ?? 0)}`, cc(resultado)),
+      kpiCard('Disponible', fa$(c.disponible ?? 0), `${fa$(c.reservado ?? 0)} en ${c.abiertos || 0} abierta(s)`, 'dim'),
+      kpiCard('Trades cerrados', c.cerrados || 0, `aciertos ${wr} · comisiones ${fa$(c.comisiones || 0)}`, 'dim'),
+      kpiCard('Peor racha', c.maxDrawdown ? '-' + fa$(c.maxDrawdown) : '$0', 'caída máxima del saldo', c.maxDrawdown ? 'neg' : 'dim'),
+    ].join('')}</div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="error-box">No se pudo leer la cuenta demo: ${e.message}</div>`;
+  }
+}
+
 async function loadDashboardTradier() {
   // Los interruptores van arriba de todo: se piden primero y aparte, para que un
   // fallo del resto del Dashboard no los deje con el spinner.
   loadSwitchesTradier();
+  loadDemoTastyTradier();
   try {
     const [bp, curveData, txData, posData] = await Promise.all([
       api('/api/bp-dashboard-tradier'),

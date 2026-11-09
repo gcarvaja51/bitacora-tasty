@@ -268,6 +268,19 @@ tt.startAutoRefresh();
 // ── Cliente Tradier (sandbox) — ejecución automática de spreads SPX ──
 const tradier = new TradierClient({});
 
+// ── Ejecutor del direccional en TastyTrade (2026-11-09) — ver src/ejecutor_tasty.js ──
+// Interruptor: spxConfig.trading.ejecutorTendencia = 'tradier' (default, como siempre) | 'tasty_demo' | 'tasty_real'.
+// En 'tasty_demo' el direccional NO toca Tradier: valida la orden con /orders/dry-run de TastyTrade, llena cruzando
+// el spread con la misma marca del libro propio (marcarPaper) y lleva su cuenta demo de $10.000. 'tasty_real' todavia
+// no esta implementado: con ese valor el direccional no abre nada y lo deja en el log (nunca cae a otro modo solo).
+const { crearEjecutorTasty, cuentaDemoTendencia, asentarCierreDemo, modoValido: modoEjecutorValido } = require('./src/ejecutor_tasty');
+const ejecutorTasty = crearEjecutorTasty({
+  tt,
+  cuenta: () => process.env.CLIC_REAL_CUENTA || tt.accountNumber,
+  marcar: (legs, lado) => marcarPaper(legs, lado),   // declarada mas abajo (hoisting de funcion)
+});
+const CAPITAL_DEMO_TENDENCIA = Number(process.env.TENDENCIA_DEMO_CAPITAL || 10000);
+
 const _cache = new Map();
 function cached(k, s, fn) {
   const h = _cache.get(k);
@@ -5399,6 +5412,37 @@ app.post('/api/spx/strategies/:nombre', (req, res) => {
   res.json({ ok: true, estrategia: nombre, enabled });
 });
 
+// ── Ejecutor del direccional: interruptor y cuenta demo (2026-11-09, ver src/ejecutor_tasty.js) ──
+// GET  /api/tendencia/ejecutor            -> { modo, cuentaDemo }
+// POST /api/tendencia/ejecutor {modo}     -> 'tradier' | 'tasty_demo'. 'tasty_real' se rechaza: no existe todavia.
+// Cambiar de ejecutor con un trade abierto es seguro: cada registro se gestiona por SU broker (campo `broker`),
+// asi que un trade de Tradier abierto antes del cambio sigue cerrandose por Tradier.
+app.get('/api/tendencia/ejecutor', (req, res) => {
+  try {
+    res.json({ ok: true, modo: ejecutorTendencia(), cuentaDemo: cuentaDemoTendenciaActual() });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/tendencia/ejecutor', (req, res) => {
+  const modo = String(req.body?.modo || '');
+  if (!['tradier', 'tasty_demo'].includes(modo)) {
+    return res.status(400).json({ ok: false,
+      error: modo === 'tasty_real' ? 'tasty_real todavía no está implementado' : 'modo debe ser tradier o tasty_demo' });
+  }
+  const cfg = loadSPXConfig();
+  cfg.trading = cfg.trading || {};
+  const antes = modoEjecutorValido(cfg.trading.ejecutorTendencia);
+  cfg.trading.ejecutorTendencia = modo;
+  saveSPXConfig(cfg);
+  console.log(`[SPX] Ejecutor del direccional: ${antes} -> ${modo}`);
+  logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'EJECUTOR_CAMBIADO', passed: null,
+    reason: `Ejecutor del direccional: ${antes} -> ${modo}` });
+  res.json({ ok: true, antes, modo });
+});
+app.get('/api/tendencia-demo/cuenta', (req, res) => {
+  try { res.json({ ok: true, ...cuentaDemoTendenciaActual() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // El boton de panico apaga TODAS las estrategias de KILL_SWITCH (2026-09-28,
 // pedido del usuario: "el boton de panico debe apagar todas las estrategias").
 //
@@ -5558,6 +5602,39 @@ function logStrategyEvent(entry) {
 // El registro por intento NO cambia. Cada rechazo sigue siendo su propia fila de
 // ORDEN_RECHAZADA porque cada uno es un setup que la estrategia acerto y no pudo
 // operar; lo unico que se suma es la marca de si cayo dentro de un apagon.
+// ── La demo de TastyTrade no abrio (2026-11-09) ─────────────────────────────
+// Decision de Guillermo: si el dry-run (o el precio) de TastyTrade no valida la orden, no hay trade y se avisa.
+// Cada intento queda en el log (etapa DEMO_TASTY_NO_ABRIO); el ntfy sale como maximo uno cada 15 min, por la misma
+// razon que el del apagon: veinte avisos iguales se silencian.
+let ultimoAvisoDemoTasty = 0;
+async function anotarNoAbrioDemoTasty({ familia, ctx, strikes, motivo, etapa }) {
+  try {
+    logStrategyEvent({ strategyFamily: familia, etTime: ctx?.etTime, stage: 'DEMO_TASTY_NO_ABRIO', passed: false,
+      reason: `La demo de TastyTrade no abrio (${etapa || '?'}): ${motivo}`,
+      snapshot: buildStrategySnapshot(ctx, { strikes, motivo, etapa }) });
+  } catch { /* registrar el fallo no puede provocar otro */ }
+  if (Date.now() - ultimoAvisoDemoTasty < 15 * 60 * 1000) return;
+  ultimoAvisoDemoTasty = Date.now();
+  try {
+    await fetch('https://ntfy.sh/bitacora_gcarvaja51', {
+      method: 'POST',
+      headers: { 'Title': 'Direccional: la demo de TastyTrade no abrio', 'Priority': 'high',
+                 'Tags': 'warning', 'Content-Type': 'text/plain' },
+      body: `Senal ${familia} ${strikes?.shortStrike ?? '?'}/${strikes?.longStrike ?? '?'} sin abrir. ` +
+            `Etapa: ${etapa || '?'}. Motivo: ${String(motivo || '').slice(0, 300)}`,
+    });
+  } catch (e) { console.error('[DEMO-TASTY] Error enviando ntfy:', e.message); }
+}
+
+// Cuenta demo del direccional en TastyTrade: $10.000 + P&L oficial (cadena real) - comisiones reales.
+function cuentaDemoTendenciaActual() {
+  const { resultadoOficial } = require('./src/pnl_oficial');
+  return cuentaDemoTendencia(loadTradierExecutions(), {
+    capital: CAPITAL_DEMO_TENDENCIA,
+    pnlDe: (ex) => resultadoOficial(ex)?.pnl ?? null,
+  });
+}
+
 async function anotarFalloDeOrden({ familia, error, ctx, strikes }) {
   const v = apagonBroker.registrarFallo({ familia, mensaje: error.message });
   try {
@@ -5670,6 +5747,16 @@ function buildStrategySnapshot(ctx, extra = {}) {
 // La gracia corta evita el problema opuesto: que se apilen dos posiciones por un
 // cierre que todavia no llena.
 const CIERRE_ENVIADO_GRACIA_SPXW_MS = 90 * 1000;
+
+// ¿Por donde ejecuta el direccional automatico? (2026-11-09, ver src/ejecutor_tasty.js). Solo afecta a TENDENCIA:
+// el clic (CLIC_TV), la Reversion, el Iron Condor y el Mediodia siguen en Tradier.
+function ejecutorTendencia() {
+  try { return modoEjecutorValido(loadSPXConfig()?.trading?.ejecutorTendencia); }
+  catch (e) { return 'tradier'; }
+}
+// Un registro abierto y cerrado por la demo de TastyTrade: nunca tuvo orden en Tradier, asi que ningun proceso de
+// Tradier (confirmar fill, conciliar, cancelar zombis, cierre manual por simbolos) tiene que tocarlo.
+function esDemoTasty(ex) { return ex?.broker === 'tasty_demo'; }
 
 function hasLocalOpenSPXWPosition() {
   const executions = loadTradierExecutions();
@@ -7184,9 +7271,14 @@ async function checkDirectionalAutonomous() {
     // broker contra las patas de las Reversiones registradas, asi que una
     // posicion que no sea de Reversion —de cualquier origen, incluso abierta a
     // mano— bloquea igual.
-    const tradierDiceAbierto = await tradier.hasOpenPosition('SPXW');
+    //
+    // Con el ejecutor de TastyTrade (2026-11-09) el direccional no tiene nada en Tradier: preguntarle al broker
+    // solo traeria las posiciones de las otras familias (que ya figuran en el registro local) y sus desacuerdos.
+    // Manda el libro propio.
+    const usaTradierDir = ejecutorTendencia() === 'tradier';
+    const tradierDiceAbierto = usaTradierDir ? await tradier.hasOpenPosition('SPXW') : false;
     const localDiceAbierto = hasLocalOpenSPXWPosition();
-    if (tradierDiceAbierto !== localDiceAbierto) {
+    if (usaTradierDir && tradierDiceAbierto !== localDiceAbierto) {
       // 2026-08-22: solo se anota el sentido que SORPRENDE.
       //
       // El otro —Tradier si, local no— es lo ESPERADO desde el 2026-08-11: el
@@ -7541,9 +7633,15 @@ async function processDirectionalEntry(direction, meta = {}) {
     // relacion). Usaba tt._req a TastyTrade por error, sizeando el riesgo del 2%
     // contra ~$8,300 de la cuenta personal en vez de los ~$100,000 reales de Tradier.
     let capital = 10000;
+    // Ejecutor del direccional (2026-11-09): en la demo de TastyTrade el capital es el saldo de SU cuenta demo, no el
+    // del sandbox de Tradier. Solo el direccional automatico; el clic (forzado) sigue su camino de siempre.
+    const viaTasty = !forzado && FAM === 'TENDENCIA' && ejecutorTendencia() !== 'tradier';
+    if (viaTasty) {
+      try { capital = cuentaDemoTendenciaActual().saldo; } catch (e) { capital = CAPITAL_DEMO_TENDENCIA; }
+    }
     // 2026-10-20 (Guillermo: "no tiene nada que ver Tradier, lo estamos haciendo todo sobre TastyTrade"): el clic de
     // TastyTrade (soloPreview) va siempre a 1 contrato y no usa este capital; no se espera a Tradier (meta de 5 s).
-    if (!meta.soloPreview) try {
+    else if (!meta.soloPreview) try {
       const balances = await tradier.getBalances();
       capital = parseFloat(balances?.total_equity || capital);
     } catch(e) {}
@@ -7993,9 +8091,10 @@ async function processDirectionalEntry(direction, meta = {}) {
         // Doble capa desde el 2026-07-16 (ver hasLocalOpenSPXWPosition) — se
         // registra si las dos fuentes llegan a discrepar, para poder diagnosticar
         // si el problema de Tradier vuelve a ocurrir.
-        const tradierDiceAbierto = await tradier.hasOpenPosition('SPXW');
+        // Con el ejecutor de TastyTrade (2026-11-09) no se le pregunta a Tradier: ver checkDirectionalAutonomous.
+        const tradierDiceAbierto = viaTasty ? false : await tradier.hasOpenPosition('SPXW');
         const localDiceAbierto = hasLocalOpenSPXWPosition();
-        if (tradierDiceAbierto !== localDiceAbierto) {
+        if (!viaTasty && tradierDiceAbierto !== localDiceAbierto) {
           // 2026-08-22: solo se anota el sentido que SORPRENDE.
       //
       // El otro —Tradier si, local no— es lo ESPERADO desde el 2026-08-11: el
@@ -8021,31 +8120,65 @@ async function processDirectionalEntry(direction, meta = {}) {
         if (yaHayTradeAbierto) {
           signal.tradierOrder = { skipped: true, reason: 'Ya hay un trade abierto en Tradier (no es una Reversión ni un IC 1DTE) — se espera a que cierre.' };
           console.log('[Tradier] ⏳ Señal omitida — hay un trade SPXW abierto que no es una Reversión ni un IC 1DTE.');
+        } else if (viaTasty && ejecutorTendencia() === 'tasty_real') {
+          // Todavia no existe la ejecucion real del direccional en TastyTrade. Nunca se cae a la demo ni a Tradier
+          // en silencio: no se abre y queda escrito.
+          signal.tradierOrder = { skipped: true, reason: 'Ejecutor tasty_real todavía no implementado — no se abre (pasar el interruptor a tasty_demo o tradier).' };
+          await anotarNoAbrioDemoTasty({ familia: FAM, ctx, strikes: signal.strikes,
+            motivo: 'ejecutor tasty_real todavia no implementado', etapa: 'config' });
         } else {
-          const order = await tradier.placeSpreadOrder({
-            strategy:       signal.strategy,
-            underlyingRoot: 'SPXW',
-            expiry:         signal.strikes.expiry,
-            shortStrike:    signal.strikes.shortStrike,
-            longStrike:     signal.strikes.longStrike,
-            quantity:       signal.contracts,
-            // Piso de precio en la entrada — ver limiteDeAperturaVertical.
-            // Si devuelve null la orden va a mercado, como iba antes.
-            netLimitPrice:  limiteDeAperturaVertical(signal.strategy, signal.strikes.premium, spxConfig?.trading),
-          });
-          signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
-          anotarOrdenAceptada({ familia: FAM, ctx });
-          signal.status    = 'EXECUTED';
-          signal.notes     = 'Auto-ejecutado en Tradier sandbox';
-          signal.actionAt  = new Date().toISOString();
-          signal.timingMs  = Date.now() - tStart; // desde que Camino B decidio hasta que se envio la orden
-          console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym} (+${signal.timingMs}ms desde que llegó la alerta — analisis + envio de orden)`);
+          let order, paperEntry, demo = null;
+          if (viaTasty) {
+            // ── Demo de TastyTrade (2026-11-09): dry-run contra la cuenta real + llenado cruzando el spread ──
+            const tipoOpc = /CALL/.test(signal.strategy) ? 'C' : 'P';
+            const legsDemo = {
+              shortSym: tradier.buildOccSymbol('SPXW', signal.strikes.expiry, tipoOpc, signal.strikes.shortStrike),
+              longSym:  tradier.buildOccSymbol('SPXW', signal.strikes.expiry, tipoOpc, signal.strikes.longStrike),
+            };
+            const r = await ejecutorTasty.abrirDemo({ legs: legsDemo, contratos: signal.contracts, credito: !!signal.isCredit });
+            if (!r.ok) {
+              // Decision de Guillermo: si TastyTrade no valida la orden, no hay trade. Se avisa.
+              signal.tradierOrder = { skipped: true, reason: `Demo TastyTrade no abrió: ${r.motivo}` };
+              await anotarNoAbrioDemoTasty({ familia: FAM, ctx, strikes: signal.strikes, motivo: r.motivo, etapa: r.etapa });
+            } else {
+              order = { orderId: `DEMO-${Date.now()}`, status: 'filled', legs: legsDemo };
+              paperEntry = r.marca;
+              demo = { precio: r.precio, fees: r.fees, dryRun: r.dryRun };
+              signal.tradierOrder = { orderId: order.orderId, status: 'filled', legs: legsDemo, broker: 'tasty_demo' };
+              signal.status   = 'EXECUTED';
+              signal.notes    = 'Auto-ejecutado en la demo de TastyTrade (dry-run + llenado cruzando el spread)';
+              signal.actionAt = new Date().toISOString();
+              signal.timingMs = Date.now() - tStart;
+              console.log(`[DEMO-TASTY] ✅ Abierto ${signal.strategy} ${legsDemo.shortSym}/${legsDemo.longSym} a ${r.precio} ` +
+                `(${signal.isCredit ? 'crédito' : 'débito'}, comisiones TastyTrade $${r.fees ?? '?'}) +${signal.timingMs}ms`);
+            }
+          } else {
+            order = await tradier.placeSpreadOrder({
+              strategy:       signal.strategy,
+              underlyingRoot: 'SPXW',
+              expiry:         signal.strikes.expiry,
+              shortStrike:    signal.strikes.shortStrike,
+              longStrike:     signal.strikes.longStrike,
+              quantity:       signal.contracts,
+              // Piso de precio en la entrada — ver limiteDeAperturaVertical.
+              // Si devuelve null la orden va a mercado, como iba antes.
+              netLimitPrice:  limiteDeAperturaVertical(signal.strategy, signal.strikes.premium, spxConfig?.trading),
+            });
+            signal.tradierOrder = { orderId: order.orderId, status: order.status, legs: order.legs };
+            anotarOrdenAceptada({ familia: FAM, ctx });
+            signal.status    = 'EXECUTED';
+            signal.notes     = 'Auto-ejecutado en Tradier sandbox';
+            signal.actionAt  = new Date().toISOString();
+            signal.timingMs  = Date.now() - tStart; // desde que Camino B decidio hasta que se envio la orden
+            console.log(`[Tradier] ✅ Orden enviada: ${order.orderId} (${order.status}) — ${order.legs?.shortSym} / ${order.legs?.longSym} (+${signal.timingMs}ms desde que llegó la alerta — analisis + envio de orden)`);
 
-          // Marca del libro propio, en el instante en que sale la orden — NO
-          // cuando Tradier confirma el fill. Es cuando una orden marketable de
-          // verdad se habria ejecutado; el fill del sandbox puede tardar y
-          // ademas viene de un libro viejo. Ver marcarPaper().
-          const paperEntry = await marcarPaper(order.legs, 'apertura');
+            // Marca del libro propio, en el instante en que sale la orden — NO
+            // cuando Tradier confirma el fill. Es cuando una orden marketable de
+            // verdad se habria ejecutado; el fill del sandbox puede tardar y
+            // ademas viene de un libro viejo. Ver marcarPaper().
+            paperEntry = await marcarPaper(order.legs, 'apertura');
+          }
+          if (order) {
           if (paperEntry.confiable) {
             console.log(`[PAPER] Apertura marcada en ${paperEntry.neto} (cruzando; al medio habria sido ` +
               `${paperEntry.netoAlMedio}, cruce ${paperEntry.costoCruce}) — cotizacion de ${paperEntry.edadSeg}s.`);
@@ -8097,9 +8230,14 @@ async function processDirectionalEntry(direction, meta = {}) {
               contracts:     signal.contracts,
               orderId:       order.orderId,
               legs:          order.legs,
-              status:        'submitted',
-              entryFillPrice: null,
-              creditReceived: null,
+              // Donde se ejecuto (2026-11-09). Los registros viejos no lo traen: sin este campo = Tradier.
+              broker:        demo ? 'tasty_demo' : 'tradier',
+              // La demo de TastyTrade llena en el acto, al precio cruzando de la marca. Mismo signo que el
+              // avg_fill_price de Tradier: negativo = credito cobrado, positivo = debito pagado.
+              status:        demo ? 'filled' : 'submitted',
+              entryFillPrice: demo ? +(-paperEntry.neto).toFixed(2) : null,
+              creditReceived: demo ? demo.precio : null,
+              ...(demo ? { feesApertura: demo.fees, dryRunApertura: demo.dryRun } : {}),
               tpPct:         signal.trading?.tpPct ?? tpPct * 100,
               slMult:        signal.trading?.slMult ?? slMult,
               // Solo se usan si isCredit=false — % de la prima pagada, no un multiplicador.
@@ -8140,7 +8278,7 @@ async function processDirectionalEntry(direction, meta = {}) {
               paperEntry:    paperEntry,
               paperExit:     null,
               paperPnl:      null,
-              filledAt:      null,
+              filledAt:      demo ? paperEntry.at : null,
               closedAt:      null,
               closeReason:   null,
               pnl:           null,
@@ -8148,6 +8286,7 @@ async function processDirectionalEntry(direction, meta = {}) {
             });
             saveTradierExecutions(executions);
           });
+          } // if (order)
         }
       } catch(e) {
         // ORDEN RECHAZADA POR EL BROKER — se registra en el strategy log, no solo
@@ -8164,8 +8303,14 @@ async function processDirectionalEntry(direction, meta = {}) {
         // registrar: significa que la estrategia acerto el setup y perdio el
         // trade por plomeria.
         signal.tradierOrder = { error: e.message };
-        console.error('[Tradier] ❌ Error enviando orden:', e.message);
-        await anotarFalloDeOrden({ familia: FAM, error: e, ctx, strikes: signal.strikes });
+        if (viaTasty) {
+          // Un error de la demo de TastyTrade no es un rechazo de Tradier: no alimenta el detector de apagones.
+          console.error('[DEMO-TASTY] ❌ Error abriendo:', e.message);
+          await anotarNoAbrioDemoTasty({ familia: FAM, ctx, strikes: signal.strikes, motivo: e.message, etapa: 'error' });
+        } else {
+          console.error('[Tradier] ❌ Error enviando orden:', e.message);
+          await anotarFalloDeOrden({ familia: FAM, error: e, ctx, strikes: signal.strikes });
+        }
       }
     } else if (tradierEligible && !tradierEnabled) {
       // Ejecución pausada: se mide en la sombra qué habría pasado con el piso
@@ -12121,8 +12266,12 @@ async function checkDirectionalTPSLImpl() {
       // sido RECHAZADO, y ahi esperar no arregla nada. Eso lo cubre
       // verificarCierreAnterior (2026-08-13) — va antes del cooldown porque un
       // rechazo confirmado ya no es una orden viva que haya que respetar.
-      if (await verificarCierreAnterior(ex, 'Tradier-DIR-TPSL')) cambios = true;
-      if (await frenoDeCierre(ex, 'Tradier-DIR-TPSL')) { cambios = true; continue; }
+      // La demo de TastyTrade (2026-11-09) cierra en el acto: no hay orden de cierre viva que verificar ni rechazos
+      // del broker que frenar.
+      if (!esDemoTasty(ex)) {
+        if (await verificarCierreAnterior(ex, 'Tradier-DIR-TPSL')) cambios = true;
+        if (await frenoDeCierre(ex, 'Tradier-DIR-TPSL')) { cambios = true; continue; }
+      }
 
       const CLOSE_ORDER_COOLDOWN_MS = 2 * 60 * 1000;
       if (ex.closeOrderSentAt && (Date.now() - new Date(ex.closeOrderSentAt).getTime()) < CLOSE_ORDER_COOLDOWN_MS) {
@@ -12147,7 +12296,8 @@ async function checkDirectionalTPSLImpl() {
       // ahora decide Tasty y Tradier es la observacion. `d` sigue significando lo
       // mismo (vivo - diferido), asi que las trazas viejas y nuevas son comparables.
       // Puramente observacional: va en su propio try y no decide nada.
-      try {
+      // En la demo de TastyTrade no hay sandbox con el que comparar: no se le pregunta a Tradier.
+      if (!esDemoTasty(ex)) try {
         const qt = await tradier.getQuotes([shortSym, longSym]);
         const m = {};
         qt.forEach(x => { m[x.symbol] = x.mark; });
@@ -12315,6 +12465,36 @@ async function checkDirectionalTPSLImpl() {
 
       if (!IS_PRODUCTION) {
         console.log(`[Tradier-DIR-TPSL] (local, no ejecuta) tocaría cerrar por ${cerrarPor} — orden ${ex.orderId}.`);
+        continue;
+      }
+
+      // ── Cierre en la demo de TastyTrade (2026-11-09) ──────────────────────
+      // Marca de salida cruzando el spread + dry-run de cierre (comisiones reales). Queda cerrado en el acto, con
+      // su P&L: no hay orden en ningun broker que esperar ni conciliar.
+      if (esDemoTasty(ex)) {
+        try {
+          const rc = await ejecutorTasty.cerrarDemo({ legs: ex.legs, contratos: ex.contracts,
+            credito: esCredito, feesApertura: ex.feesApertura ?? null });
+          if (!rc.ok) {
+            console.warn(`[DEMO-TASTY] ${ex.id}: no se pudo cerrar por ${cerrarPor} (${rc.motivo}) — se reintenta en el próximo ciclo.`);
+            continue;
+          }
+          ex.triggerCierre = { ...dbg, motivo: cerrarPor, at: new Date().toISOString() };
+          sellarCierre(ex, cerrarPor, 'DEMO-TASTY');
+          Object.assign(ex, asentarCierreDemo(ex, rc));
+          logStrategyEvent({
+            strategyFamily: ex.strategyFamily || 'TENDENCIA', stage: 'CIERRE_DISPARADO', passed: true,
+            reason: `${cerrarPor} en ${ex.id} (demo TastyTrade): valor visto ${dbg.valorVisto?.toFixed?.(2) ?? '?'} ` +
+                    `contra base ${dbg.base ?? '?'} | salida ${rc.precio} cruzando | P&L $${ex.paperPnl?.bruto ?? '?'} bruto` +
+                    `${rc.feesEstimadas ? ' (comision de cierre estimada: el dry-run fallo)' : ''}`,
+            snapshot: ex.triggerCierre,
+          });
+          cambios = true;
+          console.log(`[DEMO-TASTY] ✅ ${ex.id} cerrado por ${cerrarPor}: entrada ${ex.paperEntry?.neto} / salida ${rc.marca?.neto} ` +
+            `-> bruto $${ex.paperPnl?.bruto ?? '?'}, neto $${ex.paperPnl?.neto ?? '?'} (comisiones $${ex.paperPnl?.comisionAsumida ?? '?'})`);
+        } catch (eDemo) {
+          console.error(`[DEMO-TASTY] ❌ Error cerrando ${ex.id}:`, eDemo.message);
+        }
         continue;
       }
 
@@ -14198,6 +14378,26 @@ app.post('/api/tradier/executions/:id/close-now', async (req, res) => {
       return res.json({ ok: false, reason: 'local',
         message: 'En local no se colocan órdenes reales (mismo sandbox que producción).' });
     }
+    // Trade de la demo de TastyTrade (2026-11-09): no hay nada en Tradier que cerrar. Se cierra en la demo al
+    // precio cruzando de ahora, con la etiqueta manual.
+    if (esDemoTasty(ex)) {
+      const rc = await ejecutorTasty.cerrarDemo({ legs: ex.legs, contratos: ex.contracts,
+        credito: ex.isCredit !== false, feesApertura: ex.feesApertura ?? null });
+      if (!rc.ok) return res.status(502).json({ error: `No se pudo cerrar en la demo de TastyTrade: ${rc.motivo}` });
+      let cerrado = null;
+      await withExecutionsLock(() => {
+        const lista = loadTradierExecutions();
+        const e2 = lista.find(e => e.id === ex.id);
+        if (!e2 || e2.status === 'closed') return;
+        sellarCierre(e2, 'MANUAL_FORZADO', 'manual');
+        Object.assign(e2, asentarCierreDemo(e2, rc));
+        saveTradierExecutions(lista);
+        cerrado = e2;
+      });
+      if (!cerrado) return res.status(409).json({ error: 'La ejecución ya se había cerrado.' });
+      return res.json({ ok: true, broker: 'tasty_demo', salida: rc.precio, pnl: cerrado.paperPnl?.bruto ?? null,
+                        neto: cerrado.paperPnl?.neto ?? null });
+    }
     const r = await cerrarPosicionPorSimbolos(Object.values(ex.legs || {}), { aMercado: true });
     res.json({ ok: true, ...r });
   } catch (e) {
@@ -15032,7 +15232,11 @@ app.get('/api/tradier/executions', async (req, res) => {
   // una vez hubo al menos una transaccion real (filled en adelante).
   const { estimateSpxCommission } = require('./src/broker_fees');
   for (const ex of executions) {
-    if (ex.status === 'filled' || ex.status === 'closed') {
+    if (esDemoTasty(ex)) {
+      // Demo de TastyTrade: comisiones REALES del dry-run (apertura + cierre; abierta = la de apertura x2 estimada)
+      const ap = Number(ex.feesApertura) || 0;
+      ex.commissionEstimate = +(ap + (ex.feesCierre != null ? Number(ex.feesCierre) : ap)).toFixed(2);
+    } else if (ex.status === 'filled' || ex.status === 'closed') {
       ex.commissionEstimate = estimateSpxCommission(ex);
     }
   }
@@ -15651,7 +15855,9 @@ async function reintentarPnlPendientes() {
 
 async function checkTradierExecutionsImpl() {
   const executions = loadTradierExecutions();
-  const pendientes = executions.filter(e => e.status === 'submitted' || e.status === 'filled');
+  // Los trades de la demo de TastyTrade (2026-11-09) nunca estan en Tradier: si entraran aca, "sus patas no
+  // figuran en el broker" los daria por cerrados (MANUAL) apenas abiertos. Los cierra su propio monitor.
+  const pendientes = executions.filter(e => (e.status === 'submitted' || e.status === 'filled') && !esDemoTasty(e));
   if (!pendientes.length) return;
 
   console.log(`[TRADIER-TRACK] Revisando ${pendientes.length} ejecución(es) en curso...`);
@@ -16052,7 +16258,22 @@ app.get('/api/positions-tradier', async (req, res) => {
     const data = await cached('positions-tradier', 30, async () => {
       const { groupPositionsTradierPorEjecucion } = require('./src/positions_tradier_adapter');
       const positions = await tradier.getPositions();
-      const symbols = positions.map(p => p.symbol).filter(Boolean);
+      // Trades abiertos en la demo de TastyTrade (2026-11-09): no existen en Tradier, asi que se arman sus patas
+      // "virtuales" desde el registro (entrada = la marca de la cadena real) y se agrupan APARTE de las posiciones
+      // reales del sandbox, para que nunca se mezclen aunque compartan simbolo con otra familia.
+      const execsTodas = loadTradierExecutions();
+      const execsDemo = execsTodas.filter(e => esDemoTasty(e) && e.status === 'filled' && e.legs?.shortSym && e.legs?.longSym);
+      const posDemo = execsDemo.flatMap(e => {
+        const n = Math.abs(Number(e.contracts) || 1);
+        const pt = (e.paperEntry?.patas || [])[0] || {};
+        return [
+          { id: `demo-${e.id}-s`, symbol: e.legs.shortSym, quantity: -n, date_acquired: e.filledAt || e.timestamp,
+            cost_basis: -(Number(pt.shortBid) || 0) * 100 * n },
+          { id: `demo-${e.id}-l`, symbol: e.legs.longSym, quantity: n, date_acquired: e.filledAt || e.timestamp,
+            cost_basis: (Number(pt.longAsk) || 0) * 100 * n },
+        ];
+      });
+      const symbols = [...new Set([...positions, ...posDemo].map(p => p.symbol).filter(Boolean))];
       const quotes = symbols.length ? await tradier.getQuotes(symbols) : [];
       const quotesMap = {};
       quotes.forEach(q => { quotesMap[q.symbol] = q; });
@@ -16103,7 +16324,14 @@ app.get('/api/positions-tradier', async (req, res) => {
       // en la 7635P) y la fila salia con la entrada de la otra. Ver
       // groupPositionsTradierPorEjecucion.
       const entradaRealMap = construirEntradaRealMap();
-      const groups = groupPositionsTradierPorEjecucion(positions, quotesMap, entradaRealMap, loadTradierExecutions());
+      const groups = groupPositionsTradierPorEjecucion(positions, quotesMap, entradaRealMap,
+        execsTodas.filter(e => !esDemoTasty(e)))
+        .map(g => ({ ...g, ejecutor: 'tradier' }));
+      if (posDemo.length) {
+        const gruposDemo = groupPositionsTradierPorEjecucion(posDemo, quotesMap, entradaRealMap, execsDemo)
+          .map(g => ({ ...g, ejecutor: 'tasty_demo' }));
+        groups.push(...gruposDemo);
+      }
 
       // Precio del subyacente por grupo — mismo endpoint generico (Yahoo,
       // broker-agnostico) que ya usa loadPositions() de Tasty.
