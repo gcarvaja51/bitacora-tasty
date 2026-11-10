@@ -8,11 +8,18 @@
 #                 intentos que no abrieron (DEMO_TASTY_NO_ABRIO) y alerta si
 #                 aparecio un direccional NUEVO en Tradier despues de activar.
 #
+#  -Modo activar_v2 (09:15 ET del 11-nov): enciende el direccional v2 (freno
+#                 del premercado + DIR-5 + salida TP75/SL75) por
+#                 POST /api/tendencia/v2 y verifica que quedo y que llego el
+#                 premercado del dia.
+#
 #  Todo sale por ntfy. Para volver atras:
 #    POST /api/tendencia/ejecutor {"modo":"tradier"}
-#  Tareas: Bitacora_DemoTasty_Activar / _Revisar1200 / _Revisar1620
+#    POST /api/tendencia/v2 {"activo":false}
+#  Tareas: Bitacora_DemoTasty_Activar / _Revisar1200 / _Revisar1620,
+#          Bitacora_V2_Activar / _V2_Revisar1200 / _V2_Revisar1620 (11-nov)
 # ============================================================
-param([ValidateSet('activar','revisar')][string]$Modo = 'revisar', [switch]$Prueba)
+param([ValidateSet('activar','revisar','activar_v2')][string]$Modo = 'revisar', [switch]$Prueba)
 
 $BASE    = "https://web-production-23473.up.railway.app"
 $logPath = "C:\Users\gcarv\bitacora-tasty\activar_demo_tasty_log.txt"
@@ -78,6 +85,31 @@ if ($Modo -eq 'activar') {
     exit 1
 }
 
+if ($Modo -eq 'activar_v2') {
+    $v = Pedir "/api/tendencia/v2"
+    if (-not $v) {
+        Log "ERROR: produccion no responde; v2 no se encendio"
+        Avisar "🚨 Direccional v2: NO se encendió" "Producción no respondió a las 9:15. El direccional sigue con la versión anterior. Hay que encenderlo a mano." 5 'rotating_light'
+        exit 1
+    }
+    $premTxt = if ($v.premercadoHoy) { "Premercado de hoy: alcista $($v.premercadoHoy.probabilidades.alcista)% / neutral $($v.premercadoHoy.probabilidades.neutral)% / bajista $($v.premercadoHoy.probabilidades.bajista)%." } else { "⚠️ OJO: todavía no llegó el premercado de hoy; hasta que llegue, el freno del premercado deja pasar todo." }
+    if ($v.v2.activo -eq $true) {
+        Log "v2 ya estaba encendido"
+        Avisar "Direccional v2: ya estaba encendido" $premTxt 3
+        exit 0
+    }
+    $r = Pedir "/api/tendencia/v2" 'Post' @{ activo = $true }
+    $ver = Pedir "/api/tendencia/v2"
+    if ($ver -and $ver.v2.activo -eq $true) {
+        Log "v2 ENCENDIDO; premercado de hoy: $(if ($ver.premercadoHoy) { 'si' } else { 'NO' })"
+        Avisar "✅ Direccional v2 encendido" ("Freno del premercado + DIR-5 + salida TP 75% / SL 75%. $premTxt Revisión a las 12:00 y a las 16:20.") 4 'white_check_mark'
+        exit 0
+    }
+    Log "ERROR: el POST no encendio v2 (respuesta: $($r | ConvertTo-Json -Compress))"
+    Avisar "🚨 Direccional v2: NO se encendió" "El interruptor no quedó encendido. Revisar a mano." 5 'rotating_light'
+    exit 1
+}
+
 # ── revisar ────────────────────────────────────────────────
 $estado = Pedir "/api/tendencia/ejecutor"
 $ex     = Pedir "/api/tradier/executions"
@@ -96,12 +128,21 @@ $tradierNuevos = @($ex.executions | Where-Object {
     $_.strategyFamily -eq 'TENDENCIA' -and $_.broker -ne 'tasty_demo' -and $_.timestamp -and $_.timestamp -gt $ACTIVADO_DESDE })
 $nNoAbrio = @($noAbrio).Count
 $ultimoMotivo = if ($nNoAbrio -gt 0) { " Último motivo: $(@($noAbrio)[0].reason)" } else { "" }
+# Direccional v2: estado y cuantas señales freno hoy (o habria frenado, en sombra)
+$v2 = Pedir "/api/tendencia/v2"
+$v2Bloq = Pedir "/api/spx/strategy-log?date=$hoy&family=TENDENCIA&stage=V2_BLOQUEA"
+$v2Filt = Pedir "/api/spx/strategy-log?date=$hoy&family=TENDENCIA&stage=V2_FILTROS"
+$v2Sombra = @($v2Filt | Where-Object { $_.passed -eq $false }).Count
+$v2Linea = if ($v2) {
+    "Direccional v2: $(if ($v2.v2.activo) { 'ENCENDIDO' } else { 'apagado' }). Señales frenadas: $(@($v2Bloq).Count); habría frenado (sombra): $v2Sombra. Premercado de hoy: $(if ($v2.premercadoHoy) { 'cargado' } else { 'NO llegó' })."
+} else { "Direccional v2: sin respuesta." }
 
 $lineas = @(
     "Ejecutor: $($estado.modo).",
     "Trades demo hoy: $($demoHoy.Count) ($($cerrados.Count) cerrados, $($abiertos.Count) abiertos). P&L bruto cerrado: `$$([math]::Round($pnl,2)).",
     "Saldo demo: `$$($estado.cuentaDemo.saldo) (disponible `$$($estado.cuentaDemo.disponible)).",
-    "Intentos que no abrieron: $nNoAbrio.$ultimoMotivo"
+    "Intentos que no abrieron: $nNoAbrio.$ultimoMotivo",
+    $v2Linea
 )
 $texto = $lineas -join "`n"
 Log ($texto -replace "`n", " | ")
