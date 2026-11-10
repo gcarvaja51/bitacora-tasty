@@ -21,11 +21,14 @@ const HTML = `<!doctype html><meta charset="utf-8"><title>Vincular WhatsApp a Vu
 .c{display:inline-block;margin:20px;padding:16px;border:1px solid #444;border-radius:12px}b{font-size:20px}</style>
 <h2>Vincular WhatsApp al servidor de Vultr</h2>
 <p>En cada teléfono: WhatsApp → Dispositivos vinculados → Vincular un dispositivo → escanear.</p>
-<div class="c"><b>Línea USA (+1 770…)</b><br><img id="usa"><div id="eusa"></div></div>
-<div class="c"><b>Línea COLOMBIA (+57 318…)</b><br><img id="colombia"><div id="ecolombia"></div></div>
+<div class="c" id="cusa"><b>Línea USA (+1 770…)</b><br><img id="usa"><div id="eusa"></div></div>
+<div class="c" id="ccolombia"><b>Línea COLOMBIA (+57 318…)</b><br><img id="colombia"><div id="ecolombia"></div></div>
 <script>
+const solo=new URLSearchParams(location.search).get('d');            // ?d=colombia o ?d=usa: una linea a la vez
+const DEVS=solo?[solo]:['usa','colombia'];
+for(const d of ['usa','colombia']) if(!DEVS.includes(d)) document.getElementById('c'+d).style.display='none';
 async function tick(){const e=await (await fetch('/estado')).json();
- for(const d of ['usa','colombia']){const st=(e[d]||'?');document.getElementById('e'+d).textContent='Estado: '+st;
+ for(const d of DEVS){const st=(e[d]||'?');document.getElementById('e'+d).textContent='Estado: '+st;
   if(st!=='logged_in') document.getElementById(d).src='/qr?dev='+d+'&t='+Date.now();
   else document.getElementById(d).src='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><text x="40" y="160" font-size="40" fill="green">VINCULADA ✓</text></svg>');}}
 tick();setInterval(tick,25000);

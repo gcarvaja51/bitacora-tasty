@@ -40,7 +40,7 @@ const AUTORES = {
   '5491132318348@s.whatsapp.net': 'Alejandro',
   '18287810664@s.whatsapp.net': 'Emerson Flores',
 };
-const FUENTES = [
+const TODAS_FUENTES = [
   { id: 'canal', cuenta: 'usa', jid: '120363233546136336@g.us', grupo: 'Canal Oficial', modo: 'pipe' },
   { id: 'vip', cuenta: 'usa', jid: '120363399540609677@g.us', grupo: 'Chat VIP', modo: 'pipe' },
   { id: 'operaciones', cuenta: 'colombia', jid: '120363189733565990@g.us', grupo: 'Operaciones', modo: 'ale' },
@@ -70,6 +70,9 @@ const ENV = { ...leerEnv(), ...process.env };
 const TOKEN = ENV.IRONBALLS_TOKEN || '';
 const URL_SERVIDOR = (ENV.IRONBALLS_URL || 'https://web-production-23473.up.railway.app').replace(/\/$/, '');
 const SECO = args.has('--seco') || !TOKEN;
+// LECTOR_FUENTES=operaciones (Vultr, 2026-11-10): la linea USA no admite un 3er dispositivo, asi que Vultr solo lee
+// el grupo de Alejandro (Colombia) y el PC lee los tres. Sin la variable, lee todos.
+const FUENTES = ENV.LECTOR_FUENTES ? TODAS_FUENTES.filter(f => ENV.LECTOR_FUENTES.split(',').map(x => x.trim()).includes(f.id)) : TODAS_FUENTES;
 
 function log(msg) {
   const linea = `[${new Date().toISOString()}] ${msg}`;
