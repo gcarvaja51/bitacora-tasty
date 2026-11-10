@@ -25,8 +25,11 @@ const usd = (v) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
 // 🐂 alcista / 🐻 bajista en el título del ntfy (el emoji en el texto se ve también en el iPhone)
 const bicho = (d) => (d === 'BULLISH' ? '🐂' : d === 'BEARISH' ? '🐻' : '');
 
-function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital = 2000, maxAbiertas = 3 }) {
-  const ARCHIVO = path.join(dataDir, 'ironballs_demo.json');
+// 2026-11-10: la misma demo sirve para las entradas de ALEJANDRO (foto OptionStrat del grupo Operaciones): instancia aparte
+// con su archivo, su saldo y stop por perdida (stopUsd por contrato). fuente = quien manda la senal (sale en el ntfy).
+function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital = 2000, maxAbiertas = 3,
+                              archivo = 'ironballs_demo.json', fuente = 'Pipe', stopUsd = null }) {
+  const ARCHIVO = path.join(dataDir, archivo);
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return []; } };
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l.slice(0, 2000), null, 2), 'utf8');
   const cuenta = () => process.env.CLIC_REAL_CUENTA || tt.accountNumber;
@@ -112,8 +115,9 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
         id: 'ibd-' + Date.now(), prueba: !!meta.prueba, fecha: fechaET(), estado: 'abierta', simulado: true,
         clave: p.clave, estrategia: v.strategy, nombre, direccion: v.direction, credito, contratos: 1, legs,
         vence: v.expiry, corto: v.shortStrike, largo: v.longStrike, ancho: v.ancho,
-        precioEntrada: precio, medioEntrada: medio, naturalEntrada: nat, primaPipe: p.prima,
-        diferenciaVsPipe: +((credito ? precio - p.prima : p.prima - precio)).toFixed(2),   // + = mejor que Pipe
+        fuenteSenal: fuente, enviadoPor: meta.autor || fuente, stopUsd: stopUsd || null,
+        precioEntrada: precio, medioEntrada: medio, naturalEntrada: nat, primaPipe: p.prima ?? null,
+        diferenciaVsPipe: p.prima != null ? +((credito ? precio - p.prima : p.prima - precio)).toFixed(2) : null,   // + = mejor que la senal
         riesgoMaxUsd, gananciaMaxUsd: Math.round((credito ? precio : v.ancho - precio) * 100),
         feesApertura: dr.fees, avisosDryRun: dr.avisos, spxEntrada: spx, spxPipe: p.spot ?? null,
         alertId: meta.alertId || null, mensajeAt: meta.mensajeAt || null, edadMin: meta.edadMin ?? null,
@@ -121,20 +125,23 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
       };
       const l = cargar(); l.unshift(r); guardar(l);
       const pr = r.prueba ? '[PRUEBA] ' : '';
-      avisar(`${nombre} ${v.shortStrike}/${v.longStrike} · vence ${v.expiry}\n`
-           + `${credito ? 'Crédito' : 'Débito'} demo $${precio.toFixed(2)} (Pipe $${p.prima.toFixed(2)} · ${usd(r.diferenciaVsPipe * 100)} vs Pipe)\n`
+      avisar(`${nombre} ${v.shortStrike}/${v.longStrike} · vence ${v.expiry} · señal de ${r.enviadoPor}\n`
+           + `${credito ? 'Crédito' : 'Débito'} demo $${precio.toFixed(2)}`
+           + (p.prima != null ? ` (${fuente} $${p.prima.toFixed(2)} · ${usd(r.diferenciaVsPipe * 100)} vs ${fuente})\n` : '\n')
            + `Riesgo máx $${riesgoMaxUsd} · Ganancia máx $${r.gananciaMaxUsd} · comisión apertura $${dr.fees.toFixed(2)}\n`
-           + `SPX ${spx ?? '?'} · alerta con ${meta.edadMin ?? '?'} min · DEMO TastyTrade (dry-run)`,
-             `${pr}💣 ${bicho(v.direction)} Iron Balls abrió: ${nombre} ${v.shortStrike}/${v.longStrike} (demo)`, 'bell');
-      return { ok: true, estado: 'DEMO_ABIERTA', motivo: `${nombre} ${v.shortStrike}/${v.longStrike} a ${precio} (Pipe ${p.prima})`, registro: r };
+           + (stopUsd ? `Stop: pérdida de $${stopUsd} por contrato\n` : '')
+           + `SPX ${spx ?? '?'} · señal con ${meta.edadMin ?? '?'} min · DEMO TastyTrade (dry-run)`,
+             `${pr}💣 ${bicho(v.direction)} ${fuente} abrió: ${nombre} ${v.shortStrike}/${v.longStrike} (demo)`, 'bell');
+      return { ok: true, estado: 'DEMO_ABIERTA', motivo: `${nombre} ${v.shortStrike}/${v.longStrike} a ${precio} (${fuente} ${p.prima ?? '?'})`, registro: r };
     });
   }
 
   // cierra la demo con esa clave (CLOSED de Pipe) o por id (seguro 15:30). pipe = { pct, resultadoDolares }
-  function cerrar({ clave = null, id = null, motivo = 'CLOSED_PIPE', pipe = null } = {}) {
+  // ultima: true = la demo abierta mas reciente (el "Fuera" de Alejandro no trae strikes)
+  function cerrar({ clave = null, id = null, ultima = false, motivo = 'CLOSED_PIPE', pipe = null } = {}) {
     return enCola(async () => {
       let l = cargar();
-      const rec = l.find((x) => enCurso(x) && (id ? x.id === id : x.clave === clave));
+      const rec = l.find((x) => enCurso(x) && (ultima ? !x.prueba : id ? x.id === id : x.clave === clave));
       if (!rec) return { ok: false, estado: 'SIN_DEMO', motivo: 'no hay demo abierta con esa clave' };
       const q = await cotizar(rec.legs);
       // cerrar: un credito se recompra (sube hacia el natural), un debito se vende (baja hacia el natural); +0.05 en contra
@@ -159,17 +166,45 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
       const s = saldoDemo();
       avisar(`${r.nombre} ${r.corto}/${r.largo}: ${r.precioEntrada.toFixed(2)} → ${precio.toFixed(2)}\n`
            + `Bruto ${usd(r.pnlBrutoUsd)} · comisiones -$${((r.feesApertura || 0) + fees).toFixed(2)} · NETO ${usd(r.pnlUsd)}\n`
-           + (pipe ? `Pipe reportó: ${pipe.pct != null ? pipe.pct + '%' : '?'}${pipe.resultadoDolares != null ? ` · ${usd(pipe.resultadoDolares)}` : ''}\n` : '')
+           + (pipe ? `${fuente} reportó: ${pipe.pct != null ? pipe.pct + '%' : ''}${pipe.resultadoDolares != null ? ` ${usd(pipe.resultadoDolares)}` : ''}\n` : '')
            + `Tiempo: ${dur} · Motivo: ${motivo}\n`
-           + (r.prueba ? 'Prueba: no cuenta en el saldo' : `Saldo demo Iron Balls: $${s.saldo.toFixed(2)}`) + ' · DEMO TastyTrade (dry-run)',
-             `${pr}${r.pnlUsd >= 0 ? '✅ GANÓ' : '🔻 PERDIÓ'} ${usd(r.pnlUsd)} · 💣 ${bicho(r.direccion)} Iron Balls ${r.nombre} (demo)`,
+           + (r.prueba ? 'Prueba: no cuenta en el saldo' : `Saldo demo Iron Balls (${fuente}): $${s.saldo.toFixed(2)}`) + ' · DEMO TastyTrade (dry-run)',
+             `${pr}${r.pnlUsd >= 0 ? '✅ GANÓ' : '🔻 PERDIÓ'} ${usd(r.pnlUsd)} · 💣 ${bicho(r.direccion)} ${fuente} ${r.nombre} (demo)`,
              r.pnlUsd >= 0 ? 'white_check_mark' : 'small_red_triangle_down');
       return { ok: true, estado: 'DEMO_CERRADA', motivo: `${r.precioEntrada} → ${precio}, neto ${usd(r.pnlUsd)}`, registro: r };
     });
   }
 
+  // anota datos que llegan despues de abrir (nivel de control, "Dentro con X") en la demo abierta mas reciente
+  function anotar(campos) {
+    return enCola(async () => {
+      const l = cargar();
+      const r = l.find((x) => enCurso(x) && !x.prueba);
+      if (!r) return null;
+      Object.assign(r, campos); guardar(l);
+      return r.id;
+    });
+  }
+
+  // stop por perdida (solo si stopUsd): cada 10 s en mercado, si recomprar cuesta stopUsd mas que el credito, se cierra
+  async function revisarStop() {
+    if (!stopUsd) return;
+    const m = horaETmin();
+    if (m < 9 * 60 + 30 || m > 16 * 60) return;
+    for (const rec of abiertas()) {
+      try {
+        const q = await cotizar(rec.legs);
+        // al MEDIO (no al natural): en 0DTE el spread bid/ask se abre y dispararia el stop sin que el precio se mueva
+        const salida = rec.credito ? r05(-q.medio, true) : r05(Math.max(0, q.medio), false);
+        const perdida = Math.round((rec.credito ? salida - rec.precioEntrada : rec.precioEntrada - salida) * 100 * rec.contratos);
+        if (perdida >= stopUsd * rec.contratos) await cerrar({ id: rec.id, motivo: `STOP_${stopUsd}` });
+      } catch (e) { console.error(`[IRONBALLS_DEMO ${fuente}] stop:`, e.message); }
+    }
+  }
+
   // seguro: a las 15:30 ET se cierra toda demo que siga abierta (0DTE)
   function vigilar() {
+    if (stopUsd) setInterval(() => { revisarStop().catch(() => {}); }, 10000);
     setInterval(async () => {
       try {
         if (horaETmin() < 15 * 60 + 30) return;
@@ -189,7 +224,7 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
              abiertas: l.filter(enCurso), lista: l.slice(0, 100) };
   }
 
-  return { abrir, cerrar, vigilar, resumen, _occ: occ };
+  return { abrir, cerrar, anotar, vigilar, resumen, revisarStop, _occ: occ };
 }
 
 module.exports = { crearIronBallsDemo };

@@ -1199,6 +1199,41 @@ chequear('IRONBALLS: mapas, capsulas y enlaces de Zoom no son nada', ibm.parsear
 chequear('IRONBALLS: si el titulo contradice las patas, no se opera',
          ibm.parsearAlerta(IB_BPS.replace('Bull Put Spread', 'Bear Put Spread')).ok === false);
 
+seccion('IRONBALLS: las entradas de Alejandro (src/ironballs_ale.js, foto OptionStrat)');
+{
+  const iba = require('../src/ironballs_ale');
+  // Lecturas como las devolvio Claude sobre las fotos reales del 10-nov-2026 (13:11 y 13:32 NY)
+  const L1 = { es_optionstrat: true, etiquetas: [{ strike: 7495, tipo: 'C', posicion: 'arriba' }, { strike: 7490, tipo: 'C', posicion: 'abajo' }],
+               dia_resaltado: 10, mes_resaltado: 'Nov', net_credit: 195, net_debit: null, max_loss: 305, max_profit: 195, chance_of_profit: 63, breakeven: 'Below 7,491.95' };
+  const L2 = { ...L1, etiquetas: [{ strike: 7485, tipo: 'P', posicion: 'arriba' }, { strike: 7490, tipo: 'P', posicion: 'abajo' }], net_credit: 205 };
+  const f1 = iba.armarDesdeFoto(L1, '2026-11-10');
+  chequear('IRONBALLS ALE: 7495C arriba / 7490C abajo = Bear Call que VENDE 7490 y compra 7495, crédito 1.95, vence hoy',
+           f1.ok && f1.vertical.strategy === 'BEAR_CALL_SPREAD' && f1.vertical.shortStrike === 7490 && f1.vertical.longStrike === 7495 &&
+           f1.expiry === '2026-11-10' && f1.prima === 1.95 && f1.dte === 0 && f1.vertical.direction === 'BEARISH', JSON.stringify(f1));
+  const f2 = iba.armarDesdeFoto(L2, '2026-11-10');
+  chequear('IRONBALLS ALE: 7485P arriba / 7490P abajo = Bull Put que VENDE 7490 y compra 7485',
+           f2.ok && f2.vertical.strategy === 'BULL_PUT_SPREAD' && f2.vertical.shortStrike === 7490 && f2.vertical.longStrike === 7485 && f2.prima === 2.05, JSON.stringify(f2));
+  chequear('IRONBALLS ALE: la clave lleva el prefijo ALE| (no se cruza con las de Pipe)', f1.clave === 'ALE|BEAR_CALL_SPREAD|2026-11-10|7490/7495');
+  chequear('IRONBALLS ALE: un gráfico de velas no es tarjeta', iba.armarDesdeFoto({ es_optionstrat: false, etiquetas: [] }, '2026-11-10').noEsTarjeta === true);
+  chequear('IRONBALLS ALE: si dice NET DEBIT pero las patas arman un crédito, no se opera',
+           iba.armarDesdeFoto({ ...L1, net_credit: null, net_debit: 195 }, '2026-11-10').ok === false);
+  chequear('IRONBALLS ALE: 3 etiquetas (mariposa) no se opera en la v1',
+           iba.armarDesdeFoto({ ...L1, etiquetas: [...L1.etiquetas, { strike: 7500, tipo: 'C', posicion: 'arriba' }] }, '2026-11-10').ok === false);
+  chequear('IRONBALLS ALE: un día resaltado de ayer no se opera', iba.armarDesdeFoto({ ...L1, dia_resaltado: 9 }, '2026-11-10').ok === false);
+  // Textos REALES de Alejandro en el grupo Operaciones
+  const t1 = iba.parsearTextoAle('_Fuera +40 x contrato_');
+  chequear('IRONBALLS ALE: "Fuera +40 x contrato" es salida de +$40', t1?.salida?.usd === 40 && t1.salida.runners === false, JSON.stringify(t1));
+  chequear('IRONBALLS ALE: "Fuera runners +90" es salida de runners', iba.parsearTextoAle('_Fuera runners +90 x contrato_')?.salida?.runners === true);
+  const t3 = iba.parsearTextoAle('_*Evalue entrada bajista, sino esta segur@ no entre, controle su riesgo*_\n_Cambie sus strikes como les mencionamos siempre acorde a su operativa; su profit y stoploss lo define usted mismo, debe saberlo gestionar acorde a su cuenta_\n*Nivel de control alrededor del 7486.37 ( No debe traspasar al alza )*');
+  chequear('IRONBALLS ALE: "Evalúe entrada bajista… Nivel de control 7486.37" da el nivel y la dirección (y NO es salida)',
+           t3?.control?.nivel === 7486.37 && t3.control.direccion === 'BEARISH' && !t3.salida, JSON.stringify(t3));
+  chequear('IRONBALLS ALE: "DEntro con 2.05" da el crédito', iba.parsearTextoAle('_DEntro con 2.05_')?.dentro?.credito === 2.05);
+  const t5 = iba.parsearTextoAle('_Credito 2.50. Fuera +40 x contrato_');
+  chequear('IRONBALLS ALE: "Credito 2.50. Fuera +40" trae crédito y salida', t5?.dentro?.credito === 2.5 && t5?.salida?.usd === 40, JSON.stringify(t5));
+  chequear('IRONBALLS ALE: la charla no es nada', iba.parsearTextoAle('Flia como estan todos?') === null &&
+           iba.parsearTextoAle('fuera de horario no opero') === null && iba.parsearTextoAle('_Rondando +60 x contrato_') === null);
+}
+
 seccion('IRONBALLS: demo propia en TastyTrade (src/ironballs_demo.js, TastyTrade falso)');
 {
   let d = {};

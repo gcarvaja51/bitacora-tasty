@@ -17,7 +17,8 @@ const calendario = require('./src/calendario_nyse');
 const pinDominante = require('./src/pin_dominante');   // MODO SOMBRA: no opera, ver vigilarPinSombra
 const ibAtmSombra = require('./src/ib_atm_sombra');    // MODO SOMBRA: no opera, ver vigilarIbAtmSombra
 const mediodia = require('./src/mediodia');            // IB de las 12:30 en el MVS — OPERA en el sandbox, ver checkMediodia
-const ironballs = require('./src/ironballs');          // Alertas de Pipe (Iron Balls) leidas de WhatsApp — ver POST /api/ironballs/alerta
+const ironballs = require('./src/ironballs');
+const ironballsAle = require('./src/ironballs_ale');  // Entradas de Alejandro (foto OptionStrat) — ver POST /api/ironballs/ale          // Alertas de Pipe (Iron Balls) leidas de WhatsApp — ver POST /api/ironballs/alerta
 const isMarketHours     = calendario.enHorarioDeMercado;   // 9:30-16:00 ET (13:00 en medio dia), sin fines de semana ni feriados
 const esDiaDeMercadoET  = calendario.esDiaDeMercado;       // solo el dia: habil y no feriado
 const esMedioDiaNYSE    = calendario.esMedioDia;
@@ -5043,6 +5044,9 @@ const SPX_CONFIG_DEFAULTS = {
       demoTasty:          true,     // 2026-11-03: copia en la demo propia de TastyTrade (dry-run) + ntfy al abrir y cerrar
       ventanaDesdeET:     '09:31',
       ventanaHastaET:     '15:15',  // el seguro cierra a las 15:30 el dia del vencimiento
+      // 2026-11-10: entradas de ALEJANDRO (foto OptionStrat del grupo Operaciones). Decisiones de Guillermo:
+      // entra con la foto, 1 contrato, stop de $150 por contrato, sale con el primer "Fuera". Solo demo Tasty.
+      ale: { activo: true, maxEdadFotoMin: 5 },
     },
     // Alejamiento de SMA — reversion a la media (playbook Luis Silva, Sigma Trade).
     // Pipeline independiente, parametros propios (puede ajustarse tras el curso del
@@ -8624,12 +8628,14 @@ app.post('/api/ironballs/alerta', async (req, res) => {
   if (dada.length !== clave.length || !require('crypto').timingSafeEqual(Buffer.from(dada), Buffer.from(clave))) {
     return res.status(401).json({ ok: false, error: 'clave inválida' });
   }
-  const { alertId, mensajeAt, texto, yaCerrada, prueba } = req.body || {};
+  const { alertId, mensajeAt, texto, yaCerrada, prueba, autor, grupo } = req.body || {};
   if (!alertId || !texto || !mensajeAt || isNaN(new Date(mensajeAt))) {
     return res.status(400).json({ ok: false, error: 'faltan alertId, mensajeAt (ISO) o texto' });
   }
   // prueba:true = prueba forzada de punta a punta (2026-11-03): solo la demo de Tasty, marcada aparte; nunca Tradier
-  const trabajo = ironBallsEnCurso.then(() => procesarAlertaIronBalls({ alertId: String(alertId), mensajeAt, texto: String(texto), yaCerrada: !!yaCerrada, prueba: prueba === true }));
+  // autor/grupo (2026-11-10): rastro de quien la mando y en que grupo (Canal Oficial o Chat VIP)
+  const trabajo = ironBallsEnCurso.then(() => procesarAlertaIronBalls({ alertId: String(alertId), mensajeAt, texto: String(texto), yaCerrada: !!yaCerrada, prueba: prueba === true,
+    autor: String(autor || 'Pipe Andrade').slice(0, 60), grupo: String(grupo || 'Canal Oficial').slice(0, 60) }));
   ironBallsEnCurso = trabajo.catch(() => {});
   try {
     res.json(await trabajo);
@@ -8640,7 +8646,7 @@ app.post('/api/ironballs/alerta', async (req, res) => {
   }
 });
 
-async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada, prueba = false }) {
+async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada, prueba = false, autor = 'Pipe Andrade', grupo = 'Canal Oficial' }) {
   // Idempotente por id del mensaje de WhatsApp: el lector puede reenviar tras un corte.
   const previa = loadIronBallsAlertas().find(a => a.alertId === alertId);
   if (previa) return { ok: true, repetida: true, estado: previa.estado, motivo: 'ya procesada', id: previa.execId || null };
@@ -8650,7 +8656,7 @@ async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada, p
   const minET = calendario.minutosET(ahora);
   const etTime = `${Math.floor(minET / 60)}:${String(minET % 60).padStart(2, '0')}`;
   const edadMin = +((ahora - new Date(mensajeAt)) / 60000).toFixed(1);
-  const base = { alertId, mensajeAt, recibidaAt: ahora.toISOString(), edadMin, version: ironballs.VERSION, ...(prueba ? { prueba: true } : {}) };
+  const base = { alertId, mensajeAt, recibidaAt: ahora.toISOString(), edadMin, version: ironballs.VERSION, fuente: 'PIPE', autor, grupo, ...(prueba ? { prueba: true } : {}) };
   const terminar = (estado, motivo, extra = {}) => {
     const reg = { ...base, tipo: p?.tipo || 'desconocido', estado, motivo, parse: p, ...extra };
     guardarIronBallsAlerta(reg);
@@ -8731,7 +8737,7 @@ async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada, p
   // de Tradier; se apaga con demoTasty: false.
   if (cfg.demoTasty !== false || prueba) {
     try {
-      const d = await ironBallsDemo.abrir(p, { alertId, mensajeAt, edadMin, prueba });
+      const d = await ironBallsDemo.abrir(p, { alertId, mensajeAt, edadMin, prueba, autor });
       medicion.demo = { estado: d.estado, motivo: d.motivo, id: d.registro?.id || null, precio: d.registro?.precioEntrada ?? null };
     } catch (e) { medicion.demo = { estado: 'DEMO_ERROR', motivo: e.message }; }
   }
@@ -8804,6 +8810,106 @@ app.get('/api/ironballs/alertas', (req, res) => {
              clave: e.ironballs?.clave, status: e.status, cierreIronPedido: e.cierreIronPedido || null })),
              alertas: lista.slice(0, limite) });
 });
+
+// ── IRONBALLS — entradas de ALEJANDRO (foto OptionStrat) → demo propia en TastyTrade (Guillermo 2026-11-10) ──
+//
+// El lector vigila tambien "Operaciones by Iron Balls" (linea Colombia). Cada FOTO de Alejandro o Emerson llega
+// aca en base64; Claude la lee (src/ironballs_ale.js) y, si es una captura de OptionStrat con una vertical del SPX,
+// se abre en la demo de Alejandro (1 contrato, stop -$150 por contrato). Los TEXTOS de Alejandro tambien llegan:
+// "Fuera +40" cierra la demo abierta, "Nivel de control" y "Dentro con X" se anotan. Nunca toca Tradier ni la
+// cuenta real (solo /orders/dry-run).
+const ironBallsAleDemo = crearIronBallsDemo({
+  tt, dataDir: DATA_DIR, horaETmin, archivo: 'ironballs_ale_demo.json', fuente: 'Alejandro',
+  stopUsd: Number(process.env.IRONBALLS_ALE_STOP_USD) || 150, maxAbiertas: 2,
+  avisar: (texto, titulo, tag = 'bell') => fetch('https://ntfy.sh/', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic: 'bitacora_gcarvaja51', title: titulo, message: texto, priority: 4, tags: [tag] }),
+  }).catch(() => {}),
+});
+ironBallsAleDemo.vigilar();
+app.get('/api/ironballs/ale/demo', (req, res) => res.json(ironBallsAleDemo.resumen()));
+
+app.post('/api/ironballs/ale', async (req, res) => {
+  const clave = process.env.IRONBALLS_TOKEN;
+  if (!clave) return res.status(503).json({ ok: false, error: 'IRONBALLS_TOKEN no configurado: lector apagado' });
+  const dada = String(req.get('x-ironballs-token') || '');
+  if (dada.length !== clave.length || !require('crypto').timingSafeEqual(Buffer.from(dada), Buffer.from(clave))) {
+    return res.status(401).json({ ok: false, error: 'clave inválida' });
+  }
+  const { alertId, mensajeAt, texto, imagenB64, mime, autor, grupo, prueba } = req.body || {};
+  if (!alertId || !mensajeAt || isNaN(new Date(mensajeAt)) || (!texto && !imagenB64)) {
+    return res.status(400).json({ ok: false, error: 'faltan alertId, mensajeAt (ISO) y texto o imagenB64' });
+  }
+  const trabajo = ironBallsEnCurso.then(() => procesarAle({ alertId: String(alertId), mensajeAt, texto: String(texto || ''),
+    imagenB64: imagenB64 ? String(imagenB64) : null, mime: String(mime || 'image/jpeg'),
+    autor: String(autor || 'Alejandro').slice(0, 60), grupo: String(grupo || 'Operaciones').slice(0, 60), prueba: prueba === true }));
+  ironBallsEnCurso = trabajo.catch(() => {});
+  try {
+    res.json(await trabajo);
+  } catch (e) {
+    console.error('[IRONBALLS_ALE] Error:', e.message);
+    logStrategyEvent({ strategyFamily: 'IRONBALLS', stage: 'ERROR', passed: false, reason: `Alejandro: ${e.message}` });
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+async function procesarAle({ alertId, mensajeAt, texto, imagenB64, mime, autor, grupo, prueba }) {
+  const previa = loadIronBallsAlertas().find(a => a.alertId === alertId);
+  if (previa) return { ok: true, repetida: true, estado: previa.estado, motivo: 'ya procesada' };
+  const ahora = new Date();
+  const minET = calendario.minutosET(ahora);
+  const etTime = `${Math.floor(minET / 60)}:${String(minET % 60).padStart(2, '0')}`;
+  const edadMin = +((ahora - new Date(mensajeAt)) / 60000).toFixed(1);
+  const cfg = ((loadSPXConfig().trading || {}).ironballs || {}).ale || {};
+  const base = { alertId, mensajeAt, recibidaAt: ahora.toISOString(), edadMin, version: ironballsAle.VERSION, fuente: 'ALEJANDRO',
+                 autor, grupo, texto: texto.slice(0, 500), ...(prueba ? { prueba: true } : {}) };
+  const textoAle = ironballsAle.parsearTextoAle(texto);
+  const terminar = (tipo, estado, motivo, extra = {}) => {
+    guardarIronBallsAlerta({ ...base, tipo, estado, motivo, ...extra });
+    logStrategyEvent({ strategyFamily: 'IRONBALLS', etTime, stage: `IRONBALLS_ALE_${estado}`, passed: ['DEMO_ABIERTA', 'CIERRE_DEMO'].includes(estado),
+      reason: `${autor}: ${motivo}`, snapshot: { alertId, edadMin } });
+    console.log(`[IRONBALLS_ALE] ${estado} — ${autor}: ${motivo}`);
+    return { ok: true, estado, motivo, ...extra };
+  };
+
+  // ── FOTO: ¿es una tarjeta de OptionStrat? → abrir ──
+  if (imagenB64) {
+    if (cfg.activo === false && !prueba) return terminar('foto', 'APAGADA', 'trading.ironballs.ale.activo = false');
+    let leida;
+    try { leida = await ironballsAle.leerFoto({ b64: imagenB64, mime }); }
+    catch (e) { return terminar('foto', 'FOTO_ILEGIBLE', `no se pudo leer la foto: ${e.message}`); }
+    const p = ironballsAle.armarDesdeFoto(leida.lectura, calendario.fechaET(new Date(mensajeAt)));
+    const extra = { lectura: leida.lectura, visionMs: leida.ms, modelo: leida.modelo, parse: { ...p, foto: undefined },
+                    ...(textoAle?.control ? { nivelControl: textoAle.control.nivel } : {}) };
+    if (!p.ok) return terminar('foto', p.noEsTarjeta ? 'IGNORADA' : 'NO_SOPORTADA', p.motivo, extra);
+    if (edadMin > (cfg.maxEdadFotoMin ?? 5) && !prueba) return terminar('foto', 'TARDE', `la foto tiene ${edadMin} min (máximo ${cfg.maxEdadFotoMin ?? 5})`, extra);
+    if (!prueba && !isMarketHours()) return terminar('foto', 'FUERA_DE_HORARIO', 'mercado cerrado', extra);
+    if (!prueba && !calendario.enVentanaET(571, 915)) return terminar('foto', 'FUERA_DE_HORARIO', 'fuera de la ventana 09:31–15:15 ET', extra);
+    let d;
+    try { d = await ironBallsAleDemo.abrir(p, { alertId, mensajeAt, edadMin, prueba, autor }); }
+    catch (e) { return terminar('foto', 'DEMO_ERROR', e.message, extra); }
+    if (d.ok && textoAle?.control) await ironBallsAleDemo.anotar({ nivelControl: textoAle.control.nivel });
+    return terminar('foto', d.estado, d.motivo, { ...extra, demo: { id: d.registro?.id || null, precio: d.registro?.precioEntrada ?? null } });
+  }
+
+  // ── TEXTO ──
+  if (!textoAle) return terminar('texto', 'IGNORADA', 'charla');
+  if (textoAle.salida) {
+    let d;
+    try {
+      d = await ironBallsAleDemo.cerrar({ ultima: true, motivo: textoAle.salida.runners ? 'FUERA_RUNNERS_ALEJANDRO' : 'FUERA_ALEJANDRO',
+                                         pipe: { pct: null, resultadoDolares: textoAle.salida.usd } });
+    } catch (e) { return terminar('salida', 'DEMO_ERROR', e.message, { salida: textoAle.salida }); }
+    return terminar('salida', d.ok ? 'CIERRE_DEMO' : 'CIERRE_SIN_POSICION',
+                    d.ok ? d.motivo : 'no hay demo de Alejandro abierta (ya cerró por stop o no se abrió)',
+                    { salida: textoAle.salida, demo: d.ok ? { id: d.registro?.id, pnlUsd: d.registro?.pnlUsd } : null });
+  }
+  const campos = {};
+  if (textoAle.control) campos.nivelControl = textoAle.control.nivel;
+  if (textoAle.dentro) campos.creditoAlejandro = textoAle.dentro.credito;
+  const id = await ironBallsAleDemo.anotar(campos);
+  return terminar('nota', 'ANOTADA', `${JSON.stringify(campos)}${id ? ` en ${id}` : ' (sin demo abierta)'}`, { ...textoAle });
+}
 
 // ── Clic REAL en TastyTrade (Guillermo 2026-10-19) — ver src/clic_real.js ──
 // Dos pasos: preview (arma, cotiza y hace dry-run) -> ejecutar (tras la aprobacion en el PC). Misma clave que CLIC_TV.
