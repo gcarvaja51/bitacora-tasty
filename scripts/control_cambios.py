@@ -671,6 +671,30 @@ def construir():
         for r in range(4, 9):
             ws3.cell(r, 2).alignment = Alignment(wrap_text=True, vertical="top")
 
+        # Decisiones y analisis (2026-11-09, pedido de Guillermo: que el analisis quede tambien en el control de
+        # cambios). Lo que no es un commit —decisiones, analisis, descartes, pendientes— vive versionado en
+        # docs/decisiones_estrategia.json; el libro se regenera entero en cada commit, asi que escribirlo a mano
+        # en el Excel se perderia en el siguiente.
+        decisiones = cargar_decisiones(familia)
+        if decisiones:
+            ws4 = wb.create_sheet("Decisiones y análisis", 1)
+            cols4 = ["Fecha", "Tipo", "Qué", "Detalle", "Evidencia", "Estado", "Documento"]
+            ws4.append(cols4)
+            for i in range(1, len(cols4) + 1):
+                ws4.cell(1, i).font = Font(bold=True, color="FFFFFF")
+                ws4.cell(1, i).fill = PatternFill("solid", fgColor="1F3864")
+            tonos = {"DECISION": "C6EFCE", "ANALISIS": "DDEBF7", "DESCARTADO": "EDEDED", "PENDIENTE": "FFEB9C"}
+            for d in decisiones:
+                ws4.append([d.get("fecha"), d.get("tipo"), d.get("titulo"), d.get("detalle"),
+                            d.get("evidencia"), d.get("estado"), d.get("documento")])
+                r = ws4.max_row
+                ws4.cell(r, 2).fill = PatternFill("solid", fgColor=tonos.get(d.get("tipo"), "FFFFFF"))
+                for cc in range(1, len(cols4) + 1):
+                    ws4.cell(r, cc).alignment = Alignment(wrap_text=True, vertical="top")
+            for col, ancho in zip("ABCDEFG", [11, 13, 45, 80, 60, 20, 34]):
+                ws4.column_dimensions[col].width = ancho
+            ws4.freeze_panes = "A2"
+
         os.makedirs(carpeta, exist_ok=True)
         destino = os.path.join(carpeta, archivo)
         try:
@@ -680,6 +704,19 @@ def construir():
             alt = destino.replace(".xlsx", "_nuevo.xlsx")
             wb.save(alt)
             print(f"   -> ABIERTO EN EXCEL, guardado como {alt}")
+
+
+def cargar_decisiones(familia):
+    """Entradas de docs/decisiones_estrategia.json de esa familia, mas recientes primero. Nunca lanza."""
+    import json
+    ruta = os.path.join(REPO, "docs", "decisiones_estrategia.json")
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            entradas = json.load(f).get("entradas", [])
+    except Exception:
+        return []
+    return sorted((e for e in entradas if e.get("familia") == familia),
+                  key=lambda e: str(e.get("fecha", "")), reverse=True)
 
 
 if __name__ == "__main__":

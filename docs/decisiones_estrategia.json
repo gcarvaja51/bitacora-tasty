@@ -1,0 +1,75 @@
+{
+  "_nota": "Decisiones, analisis, descartes y pendientes que NO son un commit (pedido de Guillermo 2026-11-09: que el analisis quede tambien en el control de cambios). scripts/control_cambios.py los vuelca en la hoja 'Decisiones y analisis' del libro de cada familia. Agregar entradas nuevas arriba.",
+  "entradas": [
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "DECISION",
+      "titulo": "Direccional v2: freno del premercado + DIR-5 + salida TP 75% / SL 75%, los tres juntos",
+      "detalle": "Freno del premercado: no abrir contra el escenario favorito del dia (empate no frena; sin premercado deja pasar). DIR-5: veto del bajista cuyo TP queda del otro lado del Put Wall, medido con TP de referencia 30%. Salida TP 75% / SL 75% de la prima; retira la escalera de TP por impulso. Programado apagado y en sombra (commit 9518ab1); se enciende el miercoles 11-nov 9:15 (Tarea Bitacora_V2_Activar).",
+      "evidencia": "Backtest de 183 trades reales cruzados con el premercado. Salida actual: sin filtros -$3.570, con los dos filtros +$50. Simulado con TP75/SL75: +$3.242 (119 trades), positivo en ago-sep (+$1.084) y oct-nov (+$2.157), peor racha -$2.859.",
+      "estado": "Programado para el 11-nov", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "DECISION",
+      "titulo": "La ejecucion del direccional pasa del sandbox de Tradier a una demo de TastyTrade",
+      "detalle": "Llenado cruzando el spread (mismo libro que mide el P&L oficial); cuenta demo propia de $10.000; si el dry-run falla al abrir no se abre y se avisa (al cerrar nunca bloquea); activacion directa con interruptor. Commit a92d6ac; se activa el martes 10-nov 9:15 (Tarea Bitacora_DemoTasty_Activar).",
+      "evidencia": "Tradier rechaza ~60% de las ordenes con mercado abierto, cotiza 15 min atrasado y genero 79 bloqueos por desacuerdo en una semana. Dry-run real aceptado ($3,44 por lado). Prueba de punta a punta aislada 25/25, sin ordenes enviadas.",
+      "estado": "Programado para el 10-nov", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "DECISION",
+      "titulo": "Guardar toda la data: archivo permanente, sello de gamma por trade y respaldo a PC y MEGA",
+      "detalle": "Gamma/muros y log de decisiones sin tope (src/archivo.js); entryGamma en cada trade; respaldo diario lun-vie 17:30 a bitacora-tasty\\datos\\archivo y a MEGA /Bitacora/archivo. Se rescataron 16 dias de gamma intradia (16-oct a 9-nov).",
+      "evidencia": "Los historiales se recortaban a ~3 semanas (gamma) y ~10 dias (log): falto data para juzgar DIR-5 por regimen de gamma.",
+      "estado": "En produccion", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "ANALISIS",
+      "titulo": "Diagnostico: la entrada no tiene ventaja y la salida corta las ganancias",
+      "detalle": "183 trades comparables (17-ago a 9-nov): 59% de aciertos, -$3.570, profit factor 0,75, ganancia media $100 contra perdida media -$191. Con TP 30% / SL 50% el azar daria ~62,5%. El robot acierta la direccion del dia en el 76% de los trades, pero en esos dias la salida actual da -$1.607 y TP75/SL75 +$2.300 (simulado).",
+      "evidencia": "Simulacion sobre velas de 5 min calibrada al precio real de entrada: coincide en el 85% de los trades y da el mismo 59,8% de aciertos.",
+      "estado": "Base del v2", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "ANALISIS",
+      "titulo": "Premercado como filtro: sirve como freno, no como ventaja",
+      "detalle": "A favor del favorito: 82 trades, 61%, -$1.775 (sin ventaja, p=0,58). Contra el favorito: 31 trades, 45%, -$1.515. Favorito neutral: 36 trades, 69%, +$1.030.",
+      "evidencia": "Contra el premercado (incl. 30% o menos): aciertos p=0,018; P&L por trade p~0,05.",
+      "estado": "Base del v2", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "ANALISIS",
+      "titulo": "DIR-5 y la teoria de gamma negativa (muros que se rompen)",
+      "detalle": "Con el Gamma Flip intradia (16-oct a 9-nov) los 23 bajistas se abrieron en gamma negativa: vetados -$89/trade contra -$2 de los que pasaron (TP 30%). Con TP 75% los bajistas vetados habrian ganado (~+$1.185). Muestra chica.",
+      "evidencia": "Monitor SPX (10.000 lecturas de gamma). Se revisa con entryGamma sellado desde el 9-nov.",
+      "estado": "Abierto", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "DESCARTADO",
+      "titulo": "Filtro de 20 puntos sobre la apertura para alcistas",
+      "detalle": "Los alcistas con el SPX mas de 20 pts sobre la apertura acertaron 44,6% (-$2.940) contra 84,6% (+$1.990). Guillermo lo descarto: medir contra la apertura no le cuadra con la logica de tendencia.",
+      "evidencia": "Robusto por mitades, meses y dias en los 174 trades con trayectoria.",
+      "estado": "Descartado por el usuario", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "DESCARTADO",
+      "titulo": "Condicion '30% o menos' del freno del premercado",
+      "detalle": "Solo sumaba 5 trades (20% de aciertos, -$525). Guillermo la quito; se calcula y se anota en sombra (bajo30) sin frenar.",
+      "evidencia": "Con la condicion: +$575; sin ella: +$50 (salida actual, con DIR-5).",
+      "estado": "En sombra", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "DIRECCIONAL", "tipo": "PENDIENTE",
+      "titulo": "Juzgar el v2 con 30 trades nuevos y revisar DIR-5 por regimen de gamma",
+      "detalle": "Comparar P&L por trade y neto de comisiones (TastyTrade $6,88 por trade) contra el periodo anterior. Mostrar en Historial que dijo cada filtro v2 y un contador de senales frenadas. Pendientes previos: deslizamiento del SL en creditos (+48%) y velas de Sigma de 15m congeladas desde el 23-oct.",
+      "evidencia": "Umbrales elegidos sobre los mismos datos; la salida nueva solo esta evaluada por simulacion.",
+      "estado": "Pendiente", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    },
+    {
+      "fecha": "2026-11-09", "familia": "BITACORA_TRADIER", "tipo": "DECISION",
+      "titulo": "La bitacora Tradier pasa a llamarse DEMO-TASTY",
+      "detalle": "Para diferenciarla de la Bitacora Tasty (dinero real). Solo nombre visible; URL /tradier.html sin cambios. Historial con filtro 'Ejecutado en' y etiqueta 'TT demo'; tarjeta de la cuenta demo en el Dashboard. Commit 1acb2e2.",
+      "evidencia": "Pedido del usuario.",
+      "estado": "En produccion", "documento": "Informe_revision_direccional_2026-11-09.pdf"
+    }
+  ]
+}
