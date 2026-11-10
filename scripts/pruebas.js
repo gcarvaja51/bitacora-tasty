@@ -1253,6 +1253,22 @@ const fuente = require('fs').readFileSync(require('path').join(__dirname, '..', 
 chequear('IRONBALLS: el servidor cierra la demo con el CLOSED y la abre antes del kill-switch de Tradier',
          /ironBallsDemo\.cerrar\(\{ clave: p\.clave/.test(fuente) && fuente.indexOf('ironBallsDemo.abrir(') < fuente.indexOf("cfg.tradierAutoExecute === false) {"));
 
+seccion('IRONBALLS: salidas de la demo de Alejandro (TP 50%, stop -$150, "Fuera" solo en positivo)');
+{
+  let d = {};
+  try {
+    const out = require('child_process').execFileSync(process.execPath, [require('path').join(__dirname, 'prueba_ironballs_ale_demo.js')], { encoding: 'utf8', timeout: 30000 });
+    d = JSON.parse(out.trim().split('\n').pop());
+  } catch (e) { d = { error: e.message }; }
+  chequear('IRONBALLS ALE: con +$55 (menos del 50% de $205) sigue abierta', d.entrada === 2.05 && d.sigueAbierta === true, JSON.stringify(d));
+  chequear('IRONBALLS ALE: al llegar al 50% del crédito cierra por TP aunque Alejandro no diga nada', d.motivoTP === 'TP_50PCT' && d.estadoTP === 'cerrada', JSON.stringify(d));
+  chequear('IRONBALLS ALE: con -$155 cierra por stop de $150', d.motivoStop === 'STOP_150', JSON.stringify(d));
+  chequear('IRONBALLS ALE: "Fuera" de Alejandro con nosotros en negativo NO cierra (sigue a TP/stop/15:30)', d.fueraNegativo === 'SIGUE_ABIERTA' && d.siguioAbierta === true, JSON.stringify(d));
+  chequear('IRONBALLS ALE: "Fuera" con nosotros en positivo cierra, sin importar el valor', d.fueraPositivo === 'DEMO_CERRADA' && d.netoFuera > 0, JSON.stringify(d));
+  chequear('IRONBALLS ALE: el servidor pasa soloSiGana en el "Fuera" y TP 0.5 a la demo de Alejandro',
+           /ironBallsAleDemo\.cerrar\(\{ ultima: true, soloSiGana: true/.test(fuente) && /IRONBALLS_ALE_TP_PCT\) \|\| 0\.5/.test(fuente));
+}
+
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
 
 const cal = require('../src/calendario_nyse');

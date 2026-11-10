@@ -8821,6 +8821,7 @@ app.get('/api/ironballs/alertas', (req, res) => {
 const ironBallsAleDemo = crearIronBallsDemo({
   tt, dataDir: DATA_DIR, horaETmin, archivo: 'ironballs_ale_demo.json', fuente: 'Alejandro',
   stopUsd: Number(process.env.IRONBALLS_ALE_STOP_USD) || 150, maxAbiertas: 2,
+  tpPct: Number(process.env.IRONBALLS_ALE_TP_PCT) || 0.5,   // 2026-11-10 Guillermo: TP 50% del crédito apenas abre
   avisar: (texto, titulo, tag = 'bell') => fetch('https://ntfy.sh/', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ topic: 'bitacora_gcarvaja51', title: titulo, message: texto, priority: 4, tags: [tag] }),
@@ -8897,11 +8898,14 @@ async function procesarAle({ alertId, mensajeAt, texto, imagenB64, mime, autor, 
   if (textoAle.salida) {
     let d;
     try {
-      d = await ironBallsAleDemo.cerrar({ ultima: true, motivo: textoAle.salida.runners ? 'FUERA_RUNNERS_ALEJANDRO' : 'FUERA_ALEJANDRO',
+      // Guillermo 2026-11-10: el "Fuera" solo cierra si para nosotros va en positivo (neto), sin importar cuanto;
+      // si no, sigue abierta con el TP 50%, el stop -$150 y el seguro de las 15:30.
+      d = await ironBallsAleDemo.cerrar({ ultima: true, soloSiGana: true, motivo: textoAle.salida.runners ? 'FUERA_RUNNERS_ALEJANDRO' : 'FUERA_ALEJANDRO',
                                          pipe: { pct: null, resultadoDolares: textoAle.salida.usd } });
     } catch (e) { return terminar('salida', 'DEMO_ERROR', e.message, { salida: textoAle.salida }); }
+    if (d.estado === 'SIGUE_ABIERTA') return terminar('salida', 'FUERA_EN_NEGATIVO', d.motivo, { salida: textoAle.salida, netoUsd: d.netoUsd });
     return terminar('salida', d.ok ? 'CIERRE_DEMO' : 'CIERRE_SIN_POSICION',
-                    d.ok ? d.motivo : 'no hay demo de Alejandro abierta (ya cerró por stop o no se abrió)',
+                    d.ok ? d.motivo : 'no hay demo de Alejandro abierta (ya cerró por TP, stop o no se abrió)',
                     { salida: textoAle.salida, demo: d.ok ? { id: d.registro?.id, pnlUsd: d.registro?.pnlUsd } : null });
   }
   const campos = {};

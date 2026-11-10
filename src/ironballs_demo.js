@@ -28,7 +28,7 @@ const bicho = (d) => (d === 'BULLISH' ? '🐂' : d === 'BEARISH' ? '🐻' : '');
 // 2026-11-10: la misma demo sirve para las entradas de ALEJANDRO (foto OptionStrat del grupo Operaciones): instancia aparte
 // con su archivo, su saldo y stop por perdida (stopUsd por contrato). fuente = quien manda la senal (sale en el ntfy).
 function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital = 2000, maxAbiertas = 3,
-                              archivo = 'ironballs_demo.json', fuente = 'Pipe', stopUsd = null }) {
+                              archivo = 'ironballs_demo.json', fuente = 'Pipe', stopUsd = null, tpPct = null }) {
   const ARCHIVO = path.join(dataDir, archivo);
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return []; } };
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l.slice(0, 2000), null, 2), 'utf8');
@@ -115,7 +115,7 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
         id: 'ibd-' + Date.now(), prueba: !!meta.prueba, fecha: fechaET(), estado: 'abierta', simulado: true,
         clave: p.clave, estrategia: v.strategy, nombre, direccion: v.direction, credito, contratos: 1, legs,
         vence: v.expiry, corto: v.shortStrike, largo: v.longStrike, ancho: v.ancho,
-        fuenteSenal: fuente, enviadoPor: meta.autor || fuente, stopUsd: stopUsd || null,
+        fuenteSenal: fuente, enviadoPor: meta.autor || fuente, stopUsd: stopUsd || null, tpPct: tpPct || null,
         precioEntrada: precio, medioEntrada: medio, naturalEntrada: nat, primaPipe: p.prima ?? null,
         diferenciaVsPipe: p.prima != null ? +((credito ? precio - p.prima : p.prima - precio)).toFixed(2) : null,   // + = mejor que la senal
         riesgoMaxUsd, gananciaMaxUsd: Math.round((credito ? precio : v.ancho - precio) * 100),
@@ -129,7 +129,8 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
            + `${credito ? 'Crédito' : 'Débito'} demo $${precio.toFixed(2)}`
            + (p.prima != null ? ` (${fuente} $${p.prima.toFixed(2)} · ${usd(r.diferenciaVsPipe * 100)} vs ${fuente})\n` : '\n')
            + `Riesgo máx $${riesgoMaxUsd} · Ganancia máx $${r.gananciaMaxUsd} · comisión apertura $${dr.fees.toFixed(2)}\n`
-           + (stopUsd ? `Stop: pérdida de $${stopUsd} por contrato\n` : '')
+           + (tpPct ? `TP: +$${Math.round(precio * 100 * tpPct)} (${Math.round(tpPct * 100)}% del ${credito ? 'crédito' : 'débito'})${stopUsd ? ' · ' : '\n'}` : '')
+           + (stopUsd ? `Stop: -$${stopUsd} por contrato\n` : '')
            + `SPX ${spx ?? '?'} · señal con ${meta.edadMin ?? '?'} min · DEMO TastyTrade (dry-run)`,
              `${pr}💣 ${bicho(v.direction)} ${fuente} abrió: ${nombre} ${v.shortStrike}/${v.longStrike} (demo)`, 'bell');
       return { ok: true, estado: 'DEMO_ABIERTA', motivo: `${nombre} ${v.shortStrike}/${v.longStrike} a ${precio} (${fuente} ${p.prima ?? '?'})`, registro: r };
@@ -138,7 +139,9 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
 
   // cierra la demo con esa clave (CLOSED de Pipe) o por id (seguro 15:30). pipe = { pct, resultadoDolares }
   // ultima: true = la demo abierta mas reciente (el "Fuera" de Alejandro no trae strikes)
-  function cerrar({ clave = null, id = null, ultima = false, motivo = 'CLOSED_PIPE', pipe = null } = {}) {
+  // soloSiGana: true (Guillermo 2026-11-10) = el "Fuera" de Alejandro solo cierra si para NOSOTROS va en positivo (neto de
+  // comisiones), sin importar cuanto; si va en negativo sigue abierta y la manejan el TP, el stop o el seguro de las 15:30.
+  function cerrar({ clave = null, id = null, ultima = false, soloSiGana = false, motivo = 'CLOSED_PIPE', pipe = null } = {}) {
     return enCola(async () => {
       let l = cargar();
       const rec = l.find((x) => enCurso(x) && (ultima ? !x.prueba : id ? x.id === id : x.clave === clave));
@@ -151,6 +154,18 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
       precio = Math.max(0, precio);
       let fees = 0;
       try { fees = precio >= TICK ? (await dryRun(cuerpoOrden(rec, precio, false))).fees : 0; } catch (e) { fees = rec.feesApertura || 0; }
+      if (soloSiGana) {
+        const brutoUsd = Math.round((rec.credito ? rec.precioEntrada - precio : precio - rec.precioEntrada) * 100 * rec.contratos);
+        const netoUsd = +(brutoUsd - (rec.feesApertura || 0) - fees).toFixed(2);
+        if (netoUsd <= 0) {
+          const l2 = cargar(); const r2 = l2.find((x) => x.id === rec.id);
+          if (r2) { r2.fueraIgnorado = { at: new Date().toISOString(), netoUsd, precio, pipe }; guardar(l2); }
+          avisar(`${fuente} dio salida${pipe?.resultadoDolares != null ? ` (${usd(pipe.resultadoDolares)})` : ''}, pero nosotros vamos ${usd(netoUsd)} neto `
+               + `(${rec.precioEntrada.toFixed(2)} → ${precio.toFixed(2)}).\nSigue abierta: cierra con el TP, el stop o a las 15:30. · DEMO TastyTrade (dry-run)`,
+                 `⏸️ 💣 ${fuente} salió, nosotros seguimos: ${rec.nombre} ${rec.corto}/${rec.largo} (demo)`, 'pause_button');
+          return { ok: false, estado: 'SIGUE_ABIERTA', motivo: `${fuente} salió pero vamos ${usd(netoUsd)} neto: sigue abierta (TP/stop/15:30)`, netoUsd };
+        }
+      }
       let spx = null;
       try { spx = Number((await tt._req('/market-data?symbols[]=SPX'))?.data?.items?.[0]?.last) || null; } catch (e) { /* informativo */ }
       l = cargar();
@@ -186,25 +201,28 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
     });
   }
 
-  // stop por perdida (solo si stopUsd): cada 10 s en mercado, si recomprar cuesta stopUsd mas que el credito, se cierra
+  // stop por perdida (stopUsd por contrato) y take profit (tpPct del credito/debito de entrada; Guillermo 2026-11-10:
+  // "pongamos nosotros un take profit inmediatamente se abre, 50%"). Cada 10 s en mercado, al MEDIO (no al natural):
+  // en 0DTE el spread bid/ask se abre y dispararia stop o TP sin que el precio se mueva.
   async function revisarStop() {
-    if (!stopUsd) return;
+    if (!stopUsd && !tpPct) return;
     const m = horaETmin();
     if (m < 9 * 60 + 30 || m > 16 * 60) return;
     for (const rec of abiertas()) {
       try {
         const q = await cotizar(rec.legs);
-        // al MEDIO (no al natural): en 0DTE el spread bid/ask se abre y dispararia el stop sin que el precio se mueva
         const salida = rec.credito ? r05(-q.medio, true) : r05(Math.max(0, q.medio), false);
-        const perdida = Math.round((rec.credito ? salida - rec.precioEntrada : rec.precioEntrada - salida) * 100 * rec.contratos);
-        if (perdida >= stopUsd * rec.contratos) await cerrar({ id: rec.id, motivo: `STOP_${stopUsd}` });
-      } catch (e) { console.error(`[IRONBALLS_DEMO ${fuente}] stop:`, e.message); }
+        const ganancia = Math.round((rec.credito ? rec.precioEntrada - salida : salida - rec.precioEntrada) * 100 * rec.contratos);
+        const tpUsd = tpPct ? Math.round(rec.precioEntrada * 100 * rec.contratos * tpPct) : null;
+        if (stopUsd && -ganancia >= stopUsd * rec.contratos) await cerrar({ id: rec.id, motivo: `STOP_${stopUsd}` });
+        else if (tpUsd && ganancia >= tpUsd) await cerrar({ id: rec.id, motivo: `TP_${Math.round(tpPct * 100)}PCT` });
+      } catch (e) { console.error(`[IRONBALLS_DEMO ${fuente}] stop/TP:`, e.message); }
     }
   }
 
   // seguro: a las 15:30 ET se cierra toda demo que siga abierta (0DTE)
   function vigilar() {
-    if (stopUsd) setInterval(() => { revisarStop().catch(() => {}); }, 10000);
+    if (stopUsd || tpPct) setInterval(() => { revisarStop().catch(() => {}); }, 10000);
     setInterval(async () => {
       try {
         if (horaETmin() < 15 * 60 + 30) return;
