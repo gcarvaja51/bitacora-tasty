@@ -47,5 +47,16 @@ const ale = require('../src/ironballs_ale');
   precios = { [S]: [3.8, 4.0], [L]: [1.9, 2.1] };
   const f2 = await d.cerrar({ ultima: true, soloSiGana: true, motivo: 'FUERA_ALEJANDRO', pipe: { resultadoDolares: 40 } });
   out.fueraPositivo = f2.estado; out.netoFuera = f2.registro?.pnlUsd;
+  // 5) spread de 10 puntos: el stop se duplica a $300 (proporcional al ancho)
+  const L10 = 'SPXW  261110C07500000';
+  const p10 = ale.armarDesdeFoto({ es_optionstrat: true, etiquetas: [{ strike: 7500, tipo: 'C', posicion: 'arriba' }, { strike: 7490, tipo: 'C', posicion: 'abajo' }],
+    dia_resaltado: 10, mes_resaltado: 'Nov', net_credit: 300, net_debit: null, max_loss: 700, max_profit: 300, chance_of_profit: 60, breakeven: null }, '2026-11-10');
+  precios = { [S]: [4.0, 4.2], [L10]: [1.0, 1.2] };   // medio 3.00 → entra a 2.95
+  d = nueva(); const a10 = await d.abrir(p10, {});
+  out.stop10 = a10.registro?.stopUsd;
+  precios = { [S]: [5.6, 5.8], [L10]: [1.0, 1.2] };   // medio 4.60 → -$165: con 5 pts cerraria, con 10 sigue
+  await d.revisarStop(); out.sigue10con165 = d.resumen().abiertas.length === 1;
+  precios = { [S]: [7.0, 7.2], [L10]: [1.0, 1.2] };   // medio 6.00 → -$305 → STOP_300
+  await d.revisarStop(); out.motivoStop10 = d.resumen().lista[0].motivoCierre;
   console.log(JSON.stringify(out));
 })().catch((e) => { console.log(JSON.stringify({ error: e.message })); });

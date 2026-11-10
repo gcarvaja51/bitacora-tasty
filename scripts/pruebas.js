@@ -1263,6 +1263,8 @@ seccion('IRONBALLS: salidas de la demo de Alejandro (TP 50%, stop -$150, "Fuera"
   chequear('IRONBALLS ALE: con +$55 (menos del 50% de $205) sigue abierta', d.entrada === 2.05 && d.sigueAbierta === true, JSON.stringify(d));
   chequear('IRONBALLS ALE: al llegar al 50% del crédito cierra por TP aunque Alejandro no diga nada', d.motivoTP === 'TP_50PCT' && d.estadoTP === 'cerrada', JSON.stringify(d));
   chequear('IRONBALLS ALE: con -$155 cierra por stop de $150', d.motivoStop === 'STOP_150', JSON.stringify(d));
+  chequear('IRONBALLS: spread de 10 pts → stop proporcional de $300 (con -$165 sigue, con -$305 cierra)',
+           d.stop10 === 300 && d.sigue10con165 === true && d.motivoStop10 === 'STOP_300', JSON.stringify(d));
   chequear('IRONBALLS ALE: "Fuera" de Alejandro con nosotros en negativo NO cierra (sigue a TP/stop/15:30)', d.fueraNegativo === 'SIGUE_ABIERTA' && d.siguioAbierta === true, JSON.stringify(d));
   chequear('IRONBALLS ALE: "Fuera" con nosotros en positivo cierra, sin importar el valor', d.fueraPositivo === 'DEMO_CERRADA' && d.netoFuera > 0, JSON.stringify(d));
   chequear('IRONBALLS ALE: el servidor pasa soloSiGana en el "Fuera" y TP 0.5 a la demo de Alejandro',
