@@ -8613,6 +8613,10 @@ let ironBallsEnCurso = Promise.resolve();   // serializa: dos alertas seguidas n
 const { crearIronBallsDemo } = require('./src/ironballs_demo');
 const ironBallsDemo = crearIronBallsDemo({
   tt, dataDir: DATA_DIR, horaETmin,
+  // 2026-11-10 Guillermo: "mismas reglas para pipe" — TP 50% del crédito apenas abre, stop -$150 por contrato,
+  // su CLOSED solo cierra si vamos en positivo (si no, sigue a TP/stop/15:30), seguro 15:30 ET.
+  stopUsd: Number(process.env.IRONBALLS_PIPE_STOP_USD) || 150,
+  tpPct: Number(process.env.IRONBALLS_PIPE_TP_PCT) || 0.5,
   avisar: (texto, titulo, tag = 'bell') => fetch('https://ntfy.sh/', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ topic: 'bitacora_gcarvaja51', title: titulo, message: texto, priority: 4, tags: [tag] }),
@@ -8675,10 +8679,12 @@ async function procesarAlertaIronBalls({ alertId, mensajeAt, texto, yaCerrada, p
     // Demo de Tasty primero (2026-11-03): si hay una demo abierta con esa clave, se cierra y avisa por ntfy.
     let demo = null;
     try {
-      const d = await ironBallsDemo.cerrar({ clave: p.clave, motivo: 'CLOSED_PIPE', pipe });
+      // 2026-11-10: soloSiGana — el CLOSED de Pipe cierra solo si para nosotros va en positivo neto (mismas reglas que Alejandro)
+      const d = await ironBallsDemo.cerrar({ clave: p.clave, soloSiGana: true, motivo: 'CLOSED_PIPE', pipe });
       demo = { estado: d.estado, motivo: d.motivo, pnlUsd: d.registro?.pnlUsd ?? null, id: d.registro?.id || null };
     } catch (e) { demo = { estado: 'DEMO_ERROR', motivo: e.message }; }
     if (prueba) return terminar('CIERRE_DEMO', `prueba: ${demo.motivo}`, { pipe, demo });
+    if (demo?.estado === 'SIGUE_ABIERTA') return terminar('CLOSED_EN_NEGATIVO', `demo Tasty: ${demo.motivo}`, { pipe, demo });
     let marcada = null;
     await withExecutionsLock(() => {
       const execs = loadTradierExecutions();

@@ -1267,6 +1267,9 @@ seccion('IRONBALLS: salidas de la demo de Alejandro (TP 50%, stop -$150, "Fuera"
   chequear('IRONBALLS ALE: "Fuera" con nosotros en positivo cierra, sin importar el valor', d.fueraPositivo === 'DEMO_CERRADA' && d.netoFuera > 0, JSON.stringify(d));
   chequear('IRONBALLS ALE: el servidor pasa soloSiGana en el "Fuera" y TP 0.5 a la demo de Alejandro',
            /ironBallsAleDemo\.cerrar\(\{ ultima: true, soloSiGana: true/.test(fuente) && /IRONBALLS_ALE_TP_PCT\) \|\| 0\.5/.test(fuente));
+  chequear('IRONBALLS PIPE: mismas reglas — TP 50%, stop $150 y el CLOSED solo cierra en positivo',
+           /ironBallsDemo\.cerrar\(\{ clave: p\.clave, soloSiGana: true/.test(fuente) && /IRONBALLS_PIPE_TP_PCT\) \|\| 0\.5/.test(fuente) &&
+           /IRONBALLS_PIPE_STOP_USD\) \|\| 150/.test(fuente) && /'CLOSED_EN_NEGATIVO'/.test(fuente));
 }
 
 seccion('El calendario de la NYSE (src/calendario_nyse.js)');
