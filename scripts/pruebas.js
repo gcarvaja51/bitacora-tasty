@@ -1434,6 +1434,34 @@ seccion('Ejecutor del direccional en TastyTrade (src/ejecutor_tasty.js)');
   const iDemo = srcS.indexOf('const rc = await ejecutorTasty.cerrarDemo({ legs: ex.legs, contratos: ex.contracts,\n            credito: esCredito');
   chequear('el monitor cierra la demo antes de llegar a Tradier',
     iDemo > 0 && iDemo < srcS.indexOf('const closeResultDir = await tradier.closeSpreadOrder('));
+  chequear('cada trade nuevo sella el gamma de entrada', srcS.includes('entryGamma: {'));
+}
+
+// ── 2c. Archivo permanente (2026-11-09) ─────────────────────────────────────
+// Las lecturas de gamma/muros y el log de decisiones se recortaban solos (10.000 / 5.000 entradas). El archivo
+// guarda una copia por dia que nunca se recorta. Lo que no puede romperse: que un dia cerrado se comprima sin
+// perder lineas, que se lea igual comprimido o no, y que una ruta maliciosa no escape de la carpeta.
+seccion('Archivo permanente (src/archivo.js)');
+{
+  const osA = require('os'), fsA = require('fs'), pathA = require('path');
+  const dirA = fsA.mkdtempSync(pathA.join(osA.tmpdir(), 'archivo-prueba-'));
+  const { crearArchivo } = require('../src/archivo');
+  const a = crearArchivo({ dataDir: dirA, log: { warn: () => {} } });
+  a.archivar('gamma', { n: 1 }, new Date('2026-11-09T15:00:00Z'));
+  a.archivar('gamma', { n: 2 }, new Date('2026-11-09T20:59:00Z'));
+  a.archivar('gamma', { n: 3 }, new Date('2026-11-10T03:00:00Z'));   // 22:00 ET del 9-nov: sigue siendo el 9
+  a.archivar('gamma', { n: 4 }, new Date('2026-11-10T15:00:00Z'));   // dia nuevo: el 9 se comprime
+  const inv = a.listar().gamma || [];
+  chequear('el dia cerrado queda comprimido', inv.some(f => f.fecha === '2026-11-09' && f.comprimido));
+  chequear('el dia en curso queda sin comprimir', inv.some(f => f.fecha === '2026-11-10' && !f.comprimido));
+  const dia9 = (a.leerDia('gamma', '2026-11-09') || '').trim().split('\n');
+  chequear('comprimir no pierde lineas (y la fecha es la de Nueva York)', dia9.length === 3, `dio ${dia9.length}`);
+  chequear('se lee el dia en curso', (a.leerDia('gamma', '2026-11-10') || '').includes('"n":4'));
+  chequear('un tipo con ruta maliciosa no se archiva', a.archivar('../fuera', { x: 1 }) === false);
+  chequear('una fecha maliciosa no se lee', a.leerDia('gamma', '../../server') === null);
+  const srcA = fsA.readFileSync(pathA.join(__dirname, '..', 'server.js'), 'utf8');
+  chequear('las lecturas de gamma se archivan', srcA.includes("archivo.archivar('gamma', entry)"));
+  chequear('el log de decisiones se archiva', srcA.includes("archivo.archivar('estrategia', fila)"));
 }
 
 // ── 3. Humo: que TODOS los endpoints respondan ──────────────────────────────

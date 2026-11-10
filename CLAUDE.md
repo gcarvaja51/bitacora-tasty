@@ -1987,6 +1987,30 @@ veredicto distingue *"sin trades aún"* de *"no comparable (N trades medidos con
 
 ---
 
+# Archivo permanente y respaldo (`src/archivo.js`, 2026-11-09)
+
+Pedido de Guillermo: *"tenemos que guardar toda esa data... no la podemos perder"*. Los dos
+historiales más útiles para analizar se recortaban solos: `sigma_levels` (Monitor SPX, tope 10.000
+≈ 3 semanas) y `spx_strategy_log` (tope 5.000 ≈ 10 días). El 9-nov solo quedaban 16 días de gamma
+intradía para juzgar DIR-5 por régimen.
+
+- **Servidor**: cada lectura de `POST /api/spx/sigma-levels` (tipo `gamma`; las descartadas por
+  sospechosas van a `gamma_descartada` con su motivo) y cada `logStrategyEvent` (tipo `estrategia`)
+  se escriben además en `<DATA_DIR>/archivo/<tipo>/<AAAA-MM-DD>.jsonl`, por día de mercado de NY,
+  **sin tope**. Los días cerrados se comprimen (`.jsonl.gz`, ~0,05 MB/día). Nunca lanza. Los
+  historiales con tope siguen igual: pantallas y estrategias leen de ellos.
+- **Lectura**: `GET /api/archivo` (inventario) y `GET /api/archivo/:tipo/:fecha` (JSONL crudo).
+- **Cada trade** sella `entryGamma` (régimen, flip, GEX, DEX, MVS, max pain, muros, SPX, fuente).
+- **Respaldo**: `scripts/respaldo_archivo.ps1`, Tarea `Bitacora_RespaldoArchivo` (lun–vie 17:30 ET),
+  baja todo a `datos\archivo\` en la PC (más una foto diaria de ejecuciones y de la cuenta demo) y lo
+  sube a MEGA (`/Bitacora/archivo/`) con el MEGAcmd instalado. Solo avisa por ntfy si algo falla.
+  Los 16 días de gamma previos (16-oct → 9-nov) se rescataron a mano en `datos\archivo\gamma\`.
+- ⚠️ La prueba de humo local (`--local`) manda una lectura de gamma de prueba y la borra del
+  historial, pero en el archivo **queda**: el archivo es de solo agregar. En local `DATA_DIR` es el
+  repo, por eso `archivo/` está en `.gitignore`.
+
+---
+
 # Decisiones abiertas / congeladas
 
 Cosas diagnosticadas o pendientes que **no hay que cambiar sin que el usuario lo pida**.

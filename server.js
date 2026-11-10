@@ -281,6 +281,11 @@ const ejecutorTasty = crearEjecutorTasty({
 });
 const CAPITAL_DEMO_TENDENCIA = Number(process.env.TENDENCIA_DEMO_CAPITAL || 10000);
 
+// ── Archivo permanente (2026-11-09) — ver src/archivo.js ──
+// Copia por dia, sin tope, de las lecturas de gamma/muros y del log de decisiones, que en sus archivos
+// de siempre se recortan (10.000 y 5.000 entradas). GET /api/archivo y /api/archivo/:tipo/:fecha.
+const archivo = require('./src/archivo').crearArchivo({ dataDir: DATA_DIR });
+
 const _cache = new Map();
 function cached(k, s, fn) {
   const h = _cache.get(k);
@@ -5438,6 +5443,22 @@ app.post('/api/tendencia/ejecutor', (req, res) => {
     reason: `Ejecutor del direccional: ${antes} -> ${modo}` });
   res.json({ ok: true, antes, modo });
 });
+// ── Archivo permanente (2026-11-09, ver src/archivo.js) ──
+// GET /api/archivo                    -> inventario { tipo: [{fecha, archivo, bytes, comprimido}] }
+// GET /api/archivo/:tipo/:fecha       -> el dia completo en JSONL (una linea por registro), sin comprimir
+// Lo usa scripts/respaldo_archivo.ps1 para la copia diaria a la PC y a MEGA.
+app.get('/api/archivo', (req, res) => {
+  try { res.json({ ok: true, tipos: archivo.listar() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get('/api/archivo/:tipo/:fecha', (req, res) => {
+  try {
+    const txt = archivo.leerDia(req.params.tipo, req.params.fecha);
+    if (txt == null) return res.status(404).json({ ok: false, error: 'no hay archivo para ese tipo y fecha' });
+    res.type('application/x-ndjson').send(txt);
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 app.get('/api/tendencia-demo/cuenta', (req, res) => {
   try { res.json({ ok: true, ...cuentaDemoTendenciaActual() }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -5587,8 +5608,10 @@ function saveStrategyLog(log) {
 function logStrategyEvent(entry) {
   try {
     const log = loadStrategyLog();
-    log.unshift({ timestamp: new Date().toISOString(), ...entry });
+    const fila = { timestamp: new Date().toISOString(), ...entry };
+    log.unshift(fila);
     saveStrategyLog(log.slice(0, 5000));
+    archivo.archivar('estrategia', fila);   // copia permanente: el log de arriba se recorta a 5.000
   } catch(e) { console.error('[SPX-Log] Error guardando log de estrategia:', e.message); }
 }
 // ── Un rechazo del broker, con apagon detras o no (2026-09-03) ─────────────
@@ -8261,6 +8284,21 @@ async function processDirectionalEntry(direction, meta = {}) {
               // Muros vigentes al entrar — para poder evaluar despues la regla
               // "TP al muro" sobre el dato que REALMENTE habia en ese momento,
               // no sobre el de ahora.
+              // Gamma del momento de entrar, congelado con el trade (2026-11-09, Guillermo: "tenemos que guardar
+              // toda esa data"). Para medir si el veto de muro (DIR-5) y los filtros dependen del regimen sin
+              // depender del historial del Monitor, que se recorta a ~3 semanas.
+              entryGamma: {
+                regime:    effectiveGex?.regime ?? null,
+                gammaFlip: effectiveGex?.gammaFlip ?? null,
+                netGex:    sigmaLevelsWebhook?.netGex ?? ctx?.gex?.netGex ?? null,
+                netDex:    effectiveGex?.netDex ?? null,
+                mvs:       sigmaLevelsWebhook?.mvs ?? null,
+                maxPain:   effectiveGex?.maxPain ?? null,
+                callWall:  effectiveGex?.callWall ?? null,
+                putWall:   effectiveGex?.putWall ?? null,
+                spx:       typeof ctx?.spxPrice === 'number' ? ctx.spxPrice : null,
+                fuente:    effectiveGex?.source ?? null,
+              },
               entryCallWall: effectiveGex?.callWall ?? null,
               entryPutWall:  effectiveGex?.putWall  ?? null,
               // Veredicto del veto de muro EN SOMBRA, congelado con el trade
@@ -9369,6 +9407,7 @@ app.post('/api/spx/sigma-levels', (req, res) => {
   const rechazo = lecturaSigmaSospechosa(entry, history);
   if (rechazo) {
     console.error(`[SIGMA] ⛔ Lectura descartada: ${rechazo}`);
+    archivo.archivar('gamma_descartada', { ...entry, motivoDescarte: rechazo });   // auditable, aparte
     return res.json({ ok: true, saved: null, descartada: true, motivo: rechazo, fuerzaMuros,
                       maxPainPropio, maxPainGrafico: entry.maxPainGrafico,
                       maxPainFuenteGrafico: entry.maxPainFuenteGrafico, maxPainVencimiento: entry.maxPainVencimiento });
@@ -9376,6 +9415,7 @@ app.post('/api/spx/sigma-levels', (req, res) => {
 
   history.unshift(entry);
   saveSigmaLevelsHistory(history.slice(0, SIGMA_LEVELS_MAX_ENTRIES));
+  archivo.archivar('gamma', entry);   // copia permanente: el historial de arriba se recorta a SIGMA_LEVELS_MAX_ENTRIES
   res.json({ ok: true, saved: entry, fuerzaMuros,
             maxPainPropio, maxPainGrafico: entry.maxPainGrafico,
                       maxPainFuenteGrafico: entry.maxPainFuenteGrafico, maxPainVencimiento: entry.maxPainVencimiento });
