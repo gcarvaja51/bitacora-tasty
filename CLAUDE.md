@@ -851,6 +851,25 @@ todo" — para volver al sizing por % de capital, la fórmula anterior era
 `Math.max(1, Math.floor(capital*pct/(width*100)))`. Reversión usa su propio método
 (`sizeContractsByRisk`, ver abajo); IC y Long Put Condor quedan fijos en 1.
 
+### Direccional v2 — freno del premercado + DIR-5 + salida TP75/SL75 (`src/filtros_v2.js`, 2026-11-09)
+Paquete decidido por Guillermo con el backtest de 183 trades reales cruzados con el premercado. Interruptor
+**`trading.direccionalV2.activo`** (apagado por defecto); se enciende con `POST /api/tendencia/v2 {activo}`,
+los tres juntos ("como una versión nueva"). Con el interruptor apagado se calcula igual y queda en **sombra**
+en cada trade (`filtrosV2`) y en el log (etapas `V2_FILTROS` / `V2_BLOQUEA`).
+- **Freno del premercado**: no abrir en la dirección contraria al escenario favorito del día. Empate en el
+  favorito = no frena. La condición "30% o menos" la descartó Guillermo: se anota (`bajo30`) pero no frena.
+  Sin premercado cargado, deja pasar. El premercado llega al servidor con `scripts/enviar_premercado.ps1`
+  (Tarea `Bitacora_EnviarPremercado`, lun–vie 09:05/09:35/10:30) → `POST /api/premercado` →
+  `<DATA_DIR>/premercado/<fecha>.json`. `GET /api/premercado/hoy`.
+- **DIR-5**: veta el bajista cuyo TP queda del otro lado del Put Wall, medido contra un **TP de referencia de
+  30%** (`dir5TpReferenciaPct`), no contra el 75% nuevo: con 75% sería otro filtro, mucho más estricto.
+- **Salida**: TP 75% / SL 75% de la prima (crédito: `tpPct 75`, `slMult 1.75`; débito: 75/75). Reemplaza a la
+  escalera de TP por impulso. El cierre forzado de las 15:30 sigue.
+- Huella: no cambia apagado (`f85c9f8e`); encendido nace una propia.
+- Backtest (bruto, 1 contrato): salida actual sin filtros −$3.570; con los dos filtros +$50; simulado con
+  TP75/SL75 y los dos filtros +$3.242, positivo en las dos mitades. Con TP grande DIR-5 solo resta (los bajistas
+  que veta ganan con TP 75%), pero Guillermo eligió el paquete completo por ser el más parejo.
+
 ### Ejecutor — Tradier o demo de TastyTrade (`src/ejecutor_tasty.js`, 2026-11-09)
 La bitácora de `public/tradier.html` se llama **DEMO-TASTY** desde el 2026-11-09 (pedido de
 Guillermo: diferenciarla de la Bitácora Tasty, que es la cuenta con dinero real). Solo cambió el

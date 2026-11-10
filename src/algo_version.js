@@ -47,6 +47,11 @@ function parametrosRelevantes(cfg = {}) {
       // (f85c9f8e) no cambie mientras el interruptor siga en 'tradier'. Al pasar a 'tasty_demo' nace una
       // huella nueva y los trades quedan separados por version sin depender de fechas.
       ...(t.ejecutorTendencia && t.ejecutorTendencia !== 'tradier' ? { ejecutor: t.ejecutorTendencia } : {}),
+      // Direccional v2 (2026-11-09, src/filtros_v2.js): mismo criterio, solo entra encendido.
+      ...(t.direccionalV2 && t.direccionalV2.activo === true ? { v2: {
+        frenoPremercado: t.direccionalV2.frenoPremercado !== false, dir5: t.direccionalV2.dir5 !== false,
+        dir5TpReferenciaPct: t.direccionalV2.dir5TpReferenciaPct ?? 30,
+        tpPct: t.direccionalV2.tpPct ?? 75, slPct: t.direccionalV2.slPct ?? 75 } } : {}),
     },
     REVERSION: {
       minScore:            rev.minScore ?? null,

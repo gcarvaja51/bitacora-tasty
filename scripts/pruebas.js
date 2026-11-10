@@ -1464,6 +1464,46 @@ seccion('Archivo permanente (src/archivo.js)');
   chequear('el log de decisiones se archiva', srcA.includes("archivo.archivar('estrategia', fila)"));
 }
 
+// ── 2d. Direccional v2: freno del premercado + DIR-5 + salida TP75/SL75 (2026-11-09) ──
+seccion('Direccional v2 (src/filtros_v2.js)');
+{
+  const f = require('../src/filtros_v2');
+  const { calcularHuella } = require('../src/algo_version');
+  const prem = { fecha: '2026-11-10', probabilidades: { alcista: 27, neutral: 29, bajista: 44 } };
+  chequear('frena un alcista cuando el favorito es bajista', f.evaluarFrenoPremercado('BULLISH', prem).bloquea === true);
+  chequear('deja pasar un bajista a favor del favorito', f.evaluarFrenoPremercado('BEARISH', prem).bloquea === false);
+  chequear('favorito neutral no frena a nadie',
+    !f.evaluarFrenoPremercado('BULLISH', { probabilidades: { alcista: 32, neutral: 35, bajista: 33 } }).bloquea);
+  chequear('un empate en el favorito no frena',
+    !f.evaluarFrenoPremercado('BULLISH', { probabilidades: { alcista: 30, neutral: 25, bajista: 30 } }).bloquea);
+  const s30 = f.evaluarFrenoPremercado('BULLISH', { probabilidades: { alcista: 30, neutral: 40, bajista: 30 } });
+  chequear('el 30% o menos se anota pero NO frena (decision de Guillermo)', s30.bajo30 === true && s30.bloquea === false);
+  chequear('sin premercado cargado deja pasar', f.evaluarFrenoPremercado('BULLISH', null).bloquea === false);
+  const sal = f.parametrosSalidaV2(f.configV2({}));
+  chequear('salida v2: TP 75% y SL 1.75x en credito', sal.tpPct === 75 && sal.slMult === 1.75);
+  chequear('salida v2: TP 75% / SL 75% en debito', sal.debitTpPct === 75 && sal.debitSlPct === 75);
+  chequear('v2 nace apagado', f.configV2({}).activo === false && f.configV2({ trading: { direccionalV2: { activo: 'si' } } }).activo === false);
+  const veto = { vetaria: true, nota: 'TP del otro lado del Put Wall' };
+  let d = f.decidirV2({ v2: f.configV2({}), direction: 'BEARISH', prem, vetoDir5: veto });
+  chequear('apagado: DIR-5 queda en sombra, no bloquea', d.bloquea === false && d.bloquearia === true);
+  d = f.decidirV2({ v2: f.configV2({ trading: { direccionalV2: { activo: true } } }), direction: 'BEARISH', prem, vetoDir5: veto });
+  chequear('encendido: DIR-5 bloquea al bajista', d.bloquea === true && d.motivos.some(m => /DIR-5/.test(m)));
+  d = f.decidirV2({ v2: f.configV2({ trading: { direccionalV2: { activo: true } } }), direction: 'BULLISH', prem, vetoDir5: veto });
+  chequear('DIR-5 nunca aplica a un alcista', d.dir5.vetaria === false);
+  const base = { entryMode: 'pullback', minScore: 80, minScoreTrasPerdida: 90,
+    weights: { fase_weinstein: 45, regimen_institucional: 10, patrones_estructurales: 20, ema_10_20_alineadas: 10,
+               volumen_rompimiento: 0, macd_cruce_pendiente: 15, confirmacion_algoritmica: 0 },
+    trading: { targetDelta: 0.3, tpPct: 30, slMult: 1.5, debit: { tpPct: 30, slPct: 50 } } };
+  const h = (t) => calcularHuella({ ...base, trading: { ...base.trading, ...t } }, 'TENDENCIA');
+  chequear('v2 apagado no mueve la huella', h({ direccionalV2: { activo: false } }) === 'f85c9f8e');
+  chequear('v2 encendido nace con huella propia', h({ direccionalV2: { activo: true } }) !== 'f85c9f8e');
+  const srcV = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8').replace(/\r\n/g, '\n');
+  chequear('DIR-5 v2 mide contra el TP de referencia, no contra el TP nuevo', srcV.includes('tpPctDebito: v2cfg.dir5TpReferenciaPct'));
+  chequear('el bloqueo v2 va antes de abrir', srcV.indexOf('signal.v2?.bloquea') > 0
+    && srcV.indexOf('signal.v2?.bloquea') < srcV.indexOf("const tradierDiceAbierto = viaTasty ? false : await tradier.hasOpenPosition('SPXW');"));
+  chequear('cada trade guarda lo que dijo cada filtro', srcV.includes('filtrosV2:     signal.v2 ?? null'));
+}
+
 // ── 3. Humo: que TODOS los endpoints respondan ──────────────────────────────
 //
 // Excluidos a proposito, con su razon. Un GET no deberia tener efectos, pero

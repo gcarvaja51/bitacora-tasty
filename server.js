@@ -286,6 +286,9 @@ const CAPITAL_DEMO_TENDENCIA = Number(process.env.TENDENCIA_DEMO_CAPITAL || 1000
 // de siempre se recortan (10.000 y 5.000 entradas). GET /api/archivo y /api/archivo/:tipo/:fecha.
 const archivo = require('./src/archivo').crearArchivo({ dataDir: DATA_DIR });
 
+// ── Direccional v2 (2026-11-09) — ver src/filtros_v2.js ──
+const { configV2, parametrosSalidaV2, decidirV2 } = require('./src/filtros_v2');
+
 const _cache = new Map();
 function cached(k, s, fn) {
   const h = _cache.get(k);
@@ -5459,6 +5462,69 @@ app.get('/api/archivo/:tipo/:fecha', (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// ── El premercado del dia, en el servidor (2026-11-09) ──
+// El premercado se escribe en la PC (premercado_hipotesis_log.json). El freno del premercado del direccional v2
+// lo necesita aca: scripts/enviar_premercado.ps1 lo sube cada manana (Tarea Bitacora_EnviarPremercado).
+// Se guarda en <DATA_DIR>/premercado/<AAAA-MM-DD>.json (sobrescribe: el ultimo envio del dia manda) y en el archivo.
+const PREMERCADO_DIR = path.join(DATA_DIR, 'premercado');
+function premercadoDelDia(fecha) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha || ''))) return null;
+  try { return JSON.parse(fs.readFileSync(path.join(PREMERCADO_DIR, `${fecha}.json`), 'utf8')); }
+  catch (e) { return null; }
+}
+app.post('/api/premercado', (req, res) => {
+  try {
+    const b = req.body || {};
+    const pr = b.probabilidades || {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.fecha || ''))) return res.status(400).json({ ok: false, error: 'falta fecha AAAA-MM-DD' });
+    if (!['alcista', 'neutral', 'bajista'].every(k => Number.isFinite(Number(pr[k])))) {
+      return res.status(400).json({ ok: false, error: 'probabilidades debe traer alcista, neutral y bajista numericos' });
+    }
+    const entrada = {
+      fecha: b.fecha,
+      probabilidades: { alcista: Number(pr.alcista), neutral: Number(pr.neutral), bajista: Number(pr.bajista) },
+      escenarios: b.escenarios ?? null,
+      niveles_clave: b.niveles_clave ?? null,
+      apertura_implicita: b.apertura_implicita ?? null,
+      sin_trade_d19: b.sin_trade_d19 ?? null,
+      recibidoEn: new Date().toISOString(),
+    };
+    fs.mkdirSync(PREMERCADO_DIR, { recursive: true });
+    fs.writeFileSync(path.join(PREMERCADO_DIR, `${b.fecha}.json`), JSON.stringify(entrada, null, 2), 'utf8');
+    archivo.archivar('premercado', entrada);
+    res.json({ ok: true, fecha: b.fecha, probabilidades: entrada.probabilidades });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get('/api/premercado/hoy', (req, res) => {
+  const fecha = calendario.fechaET();
+  const p = premercadoDelDia(fecha);
+  res.json(p ? { ok: true, fecha, premercado: p } : { ok: false, fecha, error: 'todavia no llego el premercado de hoy' });
+});
+
+// ── Interruptor del direccional v2 (2026-11-09): freno del premercado + DIR-5 + salida TP75/SL75 ──
+// GET  /api/tendencia/v2                 -> config + que diria hoy el freno del premercado
+// POST /api/tendencia/v2 {activo:bool}   -> enciende o apaga los tres juntos (decision de Guillermo)
+app.get('/api/tendencia/v2', (req, res) => {
+  try {
+    const v2 = configV2(loadSPXConfig());
+    const fecha = calendario.fechaET();
+    res.json({ ok: true, v2, salida: parametrosSalidaV2(v2), premercadoHoy: premercadoDelDia(fecha), fecha });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/api/tendencia/v2', (req, res) => {
+  const { activo } = req.body || {};
+  if (typeof activo !== 'boolean') return res.status(400).json({ ok: false, error: 'activo debe ser true o false' });
+  const cfg = loadSPXConfig();
+  cfg.trading = cfg.trading || {};
+  const antes = configV2(cfg).activo;
+  cfg.trading.direccionalV2 = { ...(cfg.trading.direccionalV2 || {}), activo };
+  saveSPXConfig(cfg);
+  console.log(`[SPX] Direccional v2: ${antes ? 'encendido' : 'apagado'} -> ${activo ? 'encendido' : 'apagado'}`);
+  logStrategyEvent({ strategyFamily: 'TENDENCIA', stage: 'V2_CAMBIADO', passed: null,
+    reason: `Direccional v2 (premercado + DIR-5 + TP75/SL75): ${antes} -> ${activo}` });
+  res.json({ ok: true, antes, activo, v2: configV2(cfg) });
+});
+
 app.get('/api/tendencia-demo/cuenta', (req, res) => {
   try { res.json({ ok: true, ...cuentaDemoTendenciaActual() }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -7825,8 +7891,14 @@ async function processDirectionalEntry(direction, meta = {}) {
     // UI, el tpTarget mostrado y el umbral que de verdad ejecuta el monitor digan
     // todos lo mismo. Si se aplicara solo al grabar la ejecucion, la señal
     // anunciaria un TP de 30% y el monitor cerraria en 15%.
-    const tpPct       = (lecturaImpulso.tpPctExigido ?? (tradingCfg.tpPct || 50)) / 100;
-    const slMult      = tradingCfg.slMult || 1.0;
+    // Direccional v2 (2026-11-09, src/filtros_v2.js): con el interruptor encendido la salida es TP 75% / SL 75%
+    // de la prima y la escalera de TP por impulso deja de aplicar. Solo el direccional automatico (no el clic).
+    const v2cfg   = configV2(spxConfig);
+    const aplicaV2 = !forzado && FAM === 'TENDENCIA';
+    const salidaV2 = aplicaV2 && v2cfg.activo ? parametrosSalidaV2(v2cfg) : null;
+    const tpPct       = salidaV2 ? salidaV2.tpPct / 100
+                                 : (lecturaImpulso.tpPctExigido ?? (tradingCfg.tpPct || 50)) / 100;
+    const slMult      = salidaV2 ? salidaV2.slMult : (tradingCfg.slMult || 1.0);
     const spreadWidth = forzado ? sel.spreadWidth : (tradingCfg.spreadWidth || 10);
 
     // Buscar strikes con delta configurable
@@ -8054,6 +8126,27 @@ async function processDirectionalEntry(direction, meta = {}) {
       console.log(`[SOMBRA-MURO] ${signal.strategy}: habría vetado — ${signal.vetoMuroSombra.nota}`);
     }
 
+    // ── Direccional v2: freno del premercado + DIR-5 (2026-11-09, src/filtros_v2.js) ──
+    // Se calcula SIEMPRE para el direccional automatico (sombra con el interruptor apagado) y se congela en la
+    // señal y en el registro. DIR-5 mide el aire contra un TP de referencia de 30% — el que existia cuando se
+    // midio —, no contra el TP de 75% de la salida nueva, que lo volveria mucho mas estricto.
+    if (aplicaV2) {
+      const vetoDir5 = evaluarVetoMuroSombra({
+        direction, spxPrice: ctx.spxPrice, callWall: effectiveGex.callWall, putWall: effectiveGex.putWall,
+        strikes, primaPts, tpPctDebito: v2cfg.dir5TpReferenciaPct, isCredit: !!signal.isCredit,
+        muroFuente: effectiveGex.source, spotFuente: ctx.spotFuente, spotEdadSeg: ctx.spotEdadSeg,
+      });
+      signal.v2 = decidirV2({ v2: v2cfg, direction, prem: premercadoDelDia(calendario.fechaET()), vetoDir5 });
+      logStrategyEvent({
+        strategyFamily: FAM, stage: signal.v2.bloquea ? 'V2_BLOQUEA' : 'V2_FILTROS',
+        passed: !signal.v2.bloquearia,
+        reason: signal.v2.motivos.length
+          ? `${signal.v2.activo ? 'Bloquea' : 'Bloquearía (sombra)'}: ${signal.v2.motivos.join(' · ')}`
+          : `Pasa los filtros v2 (${signal.v2.premercado.motivo})`,
+        snapshot: { direction, strategy: signal.strategy, v2: signal.v2 },
+      });
+    }
+
     // Impulso de 15m — se cuelga de la senal la MISMA lectura que ya se uso para
     // el umbral de score arriba, no una nueva: recalcularla aca la haria sobre
     // velas potencialmente distintas y el registro dejaria de explicar la
@@ -8107,6 +8200,10 @@ async function processDirectionalEntry(direction, meta = {}) {
     if (tradierEligible && tradierEnabled && !creditoRiesgoOK) {
       signal.tradierOrder = { skipped: true, reason: `Crédito/Riesgo ${creditoRiesgoPct}% por debajo del mínimo ${MIN_CREDITO_RIESGO_PCT}% — prima muy chica para el riesgo del spread.` };
       console.log(`[Tradier] ⏳ Señal omitida — crédito/riesgo ${creditoRiesgoPct}% < ${MIN_CREDITO_RIESGO_PCT}%.`);
+    } else if (tradierEligible && tradierEnabled && signal.v2?.bloquea) {
+      // Direccional v2 (2026-11-09): freno del premercado o DIR-5. Queda la etapa V2_BLOQUEA en el log.
+      signal.tradierOrder = { skipped: true, reason: `Direccional v2: ${signal.v2.motivos.join(' · ')}` };
+      console.log(`[V2] ⏳ Señal omitida — ${signal.v2.motivos.join(' · ')}`);
     } else if (tradierEligible && tradierEnabled) {
       try {
         // No apilar: si ya hay una posicion abierta o una orden en curso, esta
@@ -8267,9 +8364,14 @@ async function processDirectionalEntry(direction, meta = {}) {
               // El TP se acorta en impulso alcista tardio; el SL NO se toca: el pedido
               // fue cobrar antes, no arriesgar menos, y mover las dos puntas a la vez
               // dejaria sin saber cual de los dos cambios hizo el efecto.
-              debitTpPct:    lecturaImpulso.tpPctExigido
-                             ?? (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct,
-              debitSlPct:    (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).slPct,
+              debitTpPct:    salidaV2 ? salidaV2.debitTpPct
+                             : (lecturaImpulso.tpPctExigido
+                                ?? (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).tpPct),
+              debitSlPct:    salidaV2 ? salidaV2.debitSlPct
+                             : (spxConfig.trading?.debit || SPX_CONFIG_DEFAULTS.trading.debit).slPct,
+              // Direccional v2 (2026-11-09): que dijo cada filtro y con que salida entro. Con el interruptor
+              // apagado es la sombra: permite medir los filtros sobre trades nuevos sin activarlos.
+              filtrosV2:     signal.v2 ?? null,
               // Niveles tecnicos de invalidacion (playbook Alejandro) — congelados al
               // momento de entrar, igual que entryCandleLow/High en la reversion.
               fractalLevel:  signal.fractalLevel ?? null,
