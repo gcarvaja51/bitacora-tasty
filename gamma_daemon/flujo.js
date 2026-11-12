@@ -30,7 +30,26 @@ export const REGLA = {
   ventanaMin: Number(process.env.FLUJO_VENTANA_MIN || 30),
   umbralM: Number(process.env.FLUJO_UMBRAL_M || 8.7),
   pausaMin: Number(process.env.FLUJO_PAUSA_MIN || 30),
+  // v3 (12-nov, idea del metodo de Chalito: "el nivel te dice donde, el flujo si acompaña"):
+  // la marca solo vale si en ese momento el SPX esta a <= cercaPts de un muro (Put Wall,
+  // Call Wall o Gamma Flip). 0 = sin filtro (regla v2). Una lectura sin muros no marca.
+  cercaPts: Number(process.env.FLUJO_CERCA_PTS ?? 8),
 };
+
+const NOMBRE_NIVEL = { pw: 'Put Wall', cw: 'Call Wall', gf: 'Gamma Flip' };
+
+// Muro mas cercano al precio: { nivel: 'pw'|'cw'|'gf', precio, dist } o null si no hay muros.
+export function muroCercano(spx, niveles) {
+  if (!spx || !niveles) return null;
+  let mejor = null;
+  for (const k of ['pw', 'cw', 'gf']) {
+    const v = Number(niveles[k]);
+    if (!Number.isFinite(v) || v <= 0) continue;
+    const dist = Math.abs(spx - v);
+    if (!mejor || dist < mejor.dist) mejor = { nivel: k, nombre: NOMBRE_NIVEL[k], precio: v, dist: +dist.toFixed(2) };
+  }
+  return mejor;
+}
 const FIN_SESION_MIN = 390;   // 16:00 ET = 9:30 + 390 min
 
 // "$841.55 M" / "$1.02 B" / "-$8.00 M" / "−$3 K" -> millones de USD
@@ -126,7 +145,8 @@ export function crearFlujo({ dir, log = console } = {}) {
   }
 
   // Guarda una lectura. Devuelve la fila o null si no sirve (sin numeros / fuera de sesion).
-  function registrar(lectura, { ahora = new Date(), spxRespaldo = null } = {}) {
+  // niveles: { pw, cw, gf } vigentes en el ciclo de muros (para la regla v3 de las marcas).
+  function registrar(lectura, { ahora = new Date(), spxRespaldo = null, niveles = null } = {}) {
     if (!lectura || lectura.calls == null || lectura.puts == null) return null;
     asegurarDia(fechaET(ahora));
     const min = Math.floor(ahora.getTime() / 60000) - base;
@@ -139,6 +159,9 @@ export function crearFlujo({ dir, log = console } = {}) {
       spx: lectura.spx || spxRespaldo || null,
       ts: ahora.toISOString(),
     };
+    if (niveles && (niveles.pw || niveles.cw || niveles.gf)) {
+      fila.niveles = { pw: niveles.pw ?? null, cw: niveles.cw ?? null, gf: niveles.gf ?? null };
+    }
     // Un mismo minuto se reemplaza (no se duplica).
     if (filas.length && filas[filas.length - 1].min === min) filas.pop();
     filas.push(fila);
@@ -185,9 +208,15 @@ export function calcularMarcas(filas, regla = REGLA) {
     if (!p0 || !p1) continue;
     const dn = (r.calls - r.puts) - (filas[j].calls - filas[j].puts);
     const tipo = (p1 > p0 && dn >= regla.umbralM) ? 'S' : (p1 < p0 && dn <= -regla.umbralM) ? 'B' : null;
-    if (tipo && (ultimo[tipo] == null || r.min - ultimo[tipo] >= regla.pausaMin)) {
+    if (!tipo) continue;
+    let muro = null;
+    if (regla.cercaPts > 0) {
+      muro = muroCercano(p1, r.niveles);
+      if (!muro || muro.dist > regla.cercaPts) continue;   // lejos de los muros: no marca
+    }
+    if (ultimo[tipo] == null || r.min - ultimo[tipo] >= regla.pausaMin) {
       ultimo[tipo] = r.min;
-      out.push({ min: r.min, tipo, spx: p1, dNeto: +dn.toFixed(1) });
+      out.push({ min: r.min, tipo, spx: p1, dNeto: +dn.toFixed(1), ...(muro ? { muro: muro.nombre, dist: muro.dist } : {}) });
     }
   }
   return out;

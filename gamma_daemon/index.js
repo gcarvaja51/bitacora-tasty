@@ -106,7 +106,7 @@ let flujoEnCurso = null;
 let lastFlujoAt = 0;
 let lastFlujoTV = '';   // ultimo texto escrito en el indicador (no se reescribe si no cambio)
 
-function lanzarFlujo(spxRespaldo) {
+function lanzarFlujo(spxRespaldo, niveles = null) {
   if (!FLUJO_ACTIVO || flujoEnCurso || Date.now() - lastFlujoAt < FLUJO_EVERY_MS) return;
   // Solo en sesion: 9:30 a 16:00 ET (el Flow Dashboard arranca en cero a las 9:30).
   const min = Math.floor(Date.now() / 60000) - baseMinuto(fechaFlujoET());
@@ -117,7 +117,7 @@ function lanzarFlujo(spxRespaldo) {
     if (!r.tablero) return;
     const lectura = parseFlujo(r.tablero);
     lectura.meter = parseMeter(r.meter);
-    const fila = flujo.registrar(lectura, { spxRespaldo });
+    const fila = flujo.registrar(lectura, { spxRespaldo, niveles });
     if (!fila) {
       console.warn(`[flujo] lectura sin numeros (esperando=${lectura.esperando}) -- se sigue`);
       return;
@@ -416,7 +416,8 @@ async function runCycle() {
     // que quede en el historico y se pueda medir como se midieron los muros.
     Object.assign(levels, await sigma.readKingNode());
     // Flujo Sigma: se lanza y NO se espera (ver lanzarFlujo).
-    lanzarFlujo(levels.spxPrice);
+    // v3: con los muros del ciclo, para que las marcas solo valgan cerca de un nivel.
+    lanzarFlujo(levels.spxPrice, { pw: levels.putWall, cw: levels.callWall, gf: levels.gammaFlip });
     archivarLectura(levels, 'sesion');
     const prev = recordAndGetPrevious(levels);
 

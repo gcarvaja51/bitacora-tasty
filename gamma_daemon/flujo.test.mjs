@@ -100,6 +100,34 @@ await caso('marcas regla v2: subida, bajada, pausa de 30 min y sin precio no mar
   assert.deepEqual(calcularMarcas([fila(0, 0, 7600), fila(30, 20, 7590)], regla), []);
 });
 
+await caso('marcas regla v3: solo cerca de un muro (Put Wall, Call Wall, Gamma Flip)', () => {
+  const regla = { ventanaMin: 30, umbralM: 8.7, pausaMin: 30, cercaPts: 8 };
+  const niv = { pw: 7590, cw: 7640, gf: 7612 };
+  const fila = (min, neto, spx, niveles = niv) => ({ min, calls: 100 + neto, puts: 100, spx, niveles });
+  // sube con respaldo a 7615: a 3 pts del Gamma Flip -> marca, y dice cual muro
+  let m = calcularMarcas([fila(0, 0, 7600), fila(30, 10, 7615)], regla);
+  assert.deepEqual(m.map((x) => `${x.min}:${x.tipo}:${x.muro}:${x.dist}`), ['30:S:Gamma Flip:3']);
+  // misma subida pero a 7626: a 14 del flip y del Call Wall -> NO marca
+  assert.deepEqual(calcularMarcas([fila(0, 0, 7600), fila(30, 10, 7626)], regla), []);
+  // bajada con respaldo a 7594: a 4 del Put Wall -> marca
+  m = calcularMarcas([fila(0, 0, 7610), fila(30, -12, 7594)], regla);
+  assert.deepEqual(m.map((x) => `${x.tipo}:${x.muro}`), ['B:Put Wall']);
+  // lectura sin muros (de antes del cambio) -> no marca
+  assert.deepEqual(calcularMarcas([fila(0, 0, 7600, null), fila(30, 10, 7615, null)], regla), []);
+  // cercaPts 0 = regla v2, marca aunque este lejos
+  assert.equal(calcularMarcas([fila(0, 0, 7600), fila(30, 10, 7626)], { ...regla, cercaPts: 0 }).length, 1);
+});
+
+await caso('registrar guarda los muros del ciclo en la fila', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flujo-'));
+  const f = crearFlujo({ dir, log: { warn() {} } });
+  const ahora = new Date(baseMinuto(fechaET(new Date('2026-11-12T16:00:00Z'))) * 60000 + 60 * 60000);
+  const fila = f.registrar({ calls: 10, puts: 5, spx: 7600 }, { ahora, niveles: { pw: 7590, cw: 7640, gf: 7612 } });
+  assert.deepEqual(fila.niveles, { pw: 7590, cw: 7640, gf: 7612 });
+  const sin = f.registrar({ calls: 11, puts: 5, spx: 7601 }, { ahora: new Date(ahora.getTime() + 120000) });
+  assert.equal(sin.niveles, undefined);
+});
+
 await caso('serie con el dia real del 11-nov (lector viejo): formato que entiende el Pine', () => {
   const archivo = 'C:/Users/gcarv/Documents/CARPETA PERSONAL/01. guillermo carvajal/01_Sigma/chalito/datos/sigma_flow/2026-11-11.jsonl';
   if (!fs.existsSync(archivo)) { console.log('    (sin archivo del 11-nov, se salta)'); return; }
