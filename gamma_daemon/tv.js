@@ -457,6 +457,62 @@ export async function pushGammaLevelsToAllWindows(inputs) {
   return windows;
 }
 
+// ── Flujo Sigma (2026-11-12, proyecto Chalito) ─────────────────────────────
+//
+// Escribe la serie del dia (in_0) y las marcas (in_1) en TODAS las copias del indicador
+// "Flujo Sigma" de las ventanas con SPX. Va APARTE del push de muros a proposito:
+// no relanza TradingView, no cuenta en tvFailures y un fallo aca no toca los muros.
+// Reusa setStudyInputs: escribe por id, solo si cambio, y relee para verificar.
+// Devuelve { escritos, fallidos } y nunca lanza (escritos = verificados, cambien o no).
+const FLUJO_STUDY_MATCH = /^Flujo Sigma/i;
+
+export async function pushFlujoToAllWindows(inputs) {
+  const res = { escritos: 0, fallidos: [] };
+  let targets = [];
+  try { targets = await listChartTargets(); } catch (e) { res.fallidos.push(e.message); return res; }
+  for (const t of targets) {
+    let client;
+    try {
+      client = await CDP({ port: CDP_PORT, target: t.id });
+      await client.Runtime.enable();
+      const encontrados = await evalOn(client, `
+        (function() {
+          var out = [];
+          var all = window.TradingViewApi._chartWidgetCollection.getAll();
+          for (var i = 0; i < all.length; i++) {
+            try {
+              var sym = all[i].model().mainSeries().symbol();
+              if (!${PUSH_MATCH}.test(sym)) continue;
+              var studies = window.TradingViewApi.chart(i).getAllStudies();
+              for (var k = 0; k < studies.length; k++) {
+                if (${FLUJO_STUDY_MATCH}.test(studies[k].name || '')) out.push({ pane: i, id: studies[k].id });
+              }
+            } catch (e) {}
+          }
+          return out;
+        })()
+      `);
+      for (const s of encontrados || []) {
+        try {
+          const v = await setStudyInputs(client, s.id, inputs, s.pane);
+          if (v.discrepantes.length || v.ausentes.length) {
+            res.fallidos.push(`${String(t.id).slice(0, 8)}/${s.pane}: ${v.ausentes.length ? 'sin ' + v.ausentes.join(',') : 'no verifico'}`);
+          } else {
+            res.escritos += 1;
+          }
+        } catch (e) {
+          res.fallidos.push(`${String(t.id).slice(0, 8)}/${s.pane}: ${e.message.slice(0, 60)}`);
+        }
+      }
+      await client.close();
+    } catch (e) {
+      res.fallidos.push(`${String(t.id).slice(0, 8)}: ${e.message.slice(0, 60)}`);
+      if (client) { try { await client.close(); } catch { /* noop */ } }
+    }
+  }
+  return res;
+}
+
 // ── Guardar el layout en la nube de TradingView (2026-08-15) ───────────────
 //
 // POR QUE HACE FALTA. setStudyInputs() escribe los muros en la MEMORIA de la

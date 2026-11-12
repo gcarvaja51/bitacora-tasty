@@ -18,6 +18,7 @@ import * as sigma from './sigma.js';
 import * as tv from './tv.js';
 import { crearLectorDeHoy, exigirVencimientoDeHoy } from './vencimiento.js';
 import { crearRecuperador } from './recuperacion.js';
+import { crearFlujo, parseFlujo, parseMeter, fechaET as fechaFlujoET, baseMinuto } from './flujo.js';
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -93,6 +94,40 @@ let mode = 'normal';
 // recuperacion: recargar, recargar, relanzar. Ver recuperacion.js (2026-10-02).
 let fallosLecturaSigma = 0;
 let stopped = false;
+
+// ── Flujo Sigma (2026-11-12, proyecto Chalito) ──
+// Dato ACCESORIO para el indicador "Flujo Sigma": no va al servidor ni decide nada.
+// La lectura corre EN SEGUNDO PLANO (no se espera): tarda 5-15 s y el ciclo de precio es
+// de 30 s, asi que esperarla atrasaria los muros. Interruptor: FLUJO_SIGMA=0 lo apaga.
+const FLUJO_ACTIVO = process.env.FLUJO_SIGMA !== '0';
+const FLUJO_EVERY_MS = 2 * 60 * 1000;
+const flujo = crearFlujo({ dir: ARCHIVO_DIR });
+let flujoEnCurso = null;
+let lastFlujoAt = 0;
+let lastFlujoTV = '';   // ultimo texto escrito en el indicador (no se reescribe si no cambio)
+
+function lanzarFlujo(spxRespaldo) {
+  if (!FLUJO_ACTIVO || flujoEnCurso || Date.now() - lastFlujoAt < FLUJO_EVERY_MS) return;
+  // Solo en sesion: 9:30 a 16:00 ET (el Flow Dashboard arranca en cero a las 9:30).
+  const min = Math.floor(Date.now() / 60000) - baseMinuto(fechaFlujoET());
+  if (min < 0 || min > 390) return;
+  lastFlujoAt = Date.now();
+  flujoEnCurso = (async () => {
+    const r = await sigma.readFlujo();   // nunca lanza; {} si no se pudo
+    if (!r.tablero) return;
+    const lectura = parseFlujo(r.tablero);
+    lectura.meter = parseMeter(r.meter);
+    const fila = flujo.registrar(lectura, { spxRespaldo });
+    if (!fila) {
+      console.warn(`[flujo] lectura sin numeros (esperando=${lectura.esperando}) -- se sigue`);
+      return;
+    }
+    console.log(`[flujo] calls ${fila.calls} puts ${fila.puts} neto ${(fila.calls - fila.puts).toFixed(1)}`
+      + ` dir ${fila.dir ?? 'sin dato'} spx ${fila.spx}`);
+  })()
+    .catch((e) => console.error('[flujo] error (%s) -- los muros siguen igual', e.message))
+    .finally(() => { flujoEnCurso = null; });
+}
 
 function loadStatus() {
   try {
@@ -380,6 +415,8 @@ async function runCycle() {
     // King Node (2026-10-13): best-effort, nunca lanza. Va antes de archivar para
     // que quede en el historico y se pueda medir como se midieron los muros.
     Object.assign(levels, await sigma.readKingNode());
+    // Flujo Sigma: se lanza y NO se espera (ver lanzarFlujo).
+    lanzarFlujo(levels.spxPrice);
     archivarLectura(levels, 'sesion');
     const prev = recordAndGetPrevious(levels);
 
@@ -552,6 +589,24 @@ async function runCycle() {
         // exactamente el residuo que esta mañana hizo dudar de si el push estaba
         // roto cuando ya se habia recuperado.
         saveStatus({ lastTvPushAt: new Date().toISOString(), tvFailures: 0, lastTvError: null });
+
+        // ── Flujo Sigma al indicador ── Antes del guardado, para que suba al celular.
+        // Su propio try: nunca relanza TradingView ni cuenta como fallo del push de muros.
+        if (FLUJO_ACTIVO) {
+          try {
+            const txt = flujo.textoParaTV();
+            const clave = txt ? txt.serie + '#' + txt.marcas : '';
+            if (txt && clave !== lastFlujoTV) {
+              const r = await tv.pushFlujoToAllWindows({ in_0: txt.serie, in_1: txt.marcas });
+              if (r.escritos > 0 && !r.fallidos.length) lastFlujoTV = clave;
+              if (r.fallidos.length) console.warn(`[flujo] TV: ${r.escritos} ok, fallidos: ${r.fallidos.join(' | ')}`);
+              saveStatus({ flujo: { puntos: flujo.filas().length, marcas: txt.marcas, tvEscritos: r.escritos,
+                                    tvFallidos: r.fallidos.length, at: new Date().toISOString() } });
+            }
+          } catch (e) {
+            console.error('[flujo] push a TV fallo (%s) -- los muros ya quedaron', e.message);
+          }
+        }
 
         // ── Guardado del layout a la nube ──
         // Va DESPUES del push (para que suba los valores recien escritos) y en su

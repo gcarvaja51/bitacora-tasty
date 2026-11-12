@@ -821,8 +821,118 @@ export async function readKingNode() {
     console.error(`[sigma] King Node no disponible (${e.message.slice(0, 80)}) -- se sigue sin el, reintento en 5 min`);
     const kp = kingPage;
     kingPage = null;
+    flujoPage = null;
     kingPausaHasta = Date.now() + 5 * 60 * 1000;
     try { if (kp && !kp.isClosed()) await kp.close(); } catch { /* ya cerrada */ }
+    return {};
+  }
+}
+
+// ── Flujo Sigma (2026-11-12, proyecto Chalito: "alimentemos en vivo") ──
+//
+// Prima de calls/puts del dia (Flow Dashboard) y Flow Meter (Options Flow) para el
+// indicador "Flujo Sigma". Mismo patron que el King Node: pestaña PROPIA en este mismo
+// Chrome (misma sesion; el 11-nov copiar el perfil a otro navegador cerro la sesion del
+// daemon), best-effort, NUNCA lanza, tope por lectura y 5 min de pausa si falla.
+//
+// UNA pestaña para las dos sub-pestañas. Probado en vivo el 12-nov 9:42 ET: pasar a
+// Options Flow y volver NO reinicia el Flow Dashboard (las capturas siguieron 418 -> 419
+// y los totales volvieron iguales). Cada pestaña de Sigma pesa ~220 MB; no hacia falta otra.
+//
+// El parseo vive en flujo.js (sin Chrome, con pruebas). Aca solo se devuelve el texto.
+let flujoPage = null;
+let flujoPausaHasta = 0;
+const FLUJO_TIMEOUT_MS = 45000;   // v2: 45 s; corre en segundo plano, no frena el ciclo de muros
+let flujoFallos = 0;
+
+async function abrirPestanaFlujo() {
+  const principal = await ensurePage();
+  const fp = await principal.browser().newPage();
+  await fp.goto(TERMINAL_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  await new Promise((r) => setTimeout(r, 8000));
+  return fp;
+}
+
+// v2 (12-nov 13:00 ET): en pasos CORTOS desde el robot, no una sola promesa larga dentro de
+// la pagina. En vivo la version de una sola promesa leia bien la primera vez y fallaba la
+// siguiente: o pasaba de 25 s con poca memoria, o la pagina se recargaba a media lectura
+// ("Promise was collected") y se perdia todo. Ahora cada paso es un evaluate corto; si uno
+// falla (contexto destruido, pagina recargando) se reintenta ese paso, y la busqueda se hace
+// DENTRO de la pagina para no traer la cinta entera de Options Flow cada medio segundo.
+async function leerTextosFlujo(fp, { conMeter = true } = {}) {
+  const sym = await readSymbol(fp);
+  if (!/^SPX$/i.test(sym || '')) {
+    await seleccionarSimbolo(fp, 'SPX');
+    if (!/^SPX$/i.test((await readSymbol(fp)) || '')) throw new Error(`pestaña Flujo en "${sym}"`);
+  }
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+  const paso = (fn, ...a) => fp.evaluate(fn, ...a).catch(() => null);   // un paso fallido = null
+  const clic = (t) => paso((t) => {
+    const b = [...document.querySelectorAll('[class*="greeks_subTab__"]')].find((e) => e.textContent.trim() === t);
+    if (b) b.click();
+    return !!b;
+  }, t);
+  // Devuelve el trozo util del texto cuando TODAS las expresiones casan; si no, null.
+  const buscar = (patrones, ancla, n) => paso((patrones, ancla, n) => {
+    const t = document.body.innerText;
+    if (!patrones.every((p) => new RegExp(p).test(t))) return null;
+    const i = t.indexOf(ancla);
+    return i < 0 ? t.slice(0, n) : t.slice(Math.max(0, i - 200), i + n);
+  }, patrones, ancla, n);
+  // Espera hasta `intentos` medios segundos; re-clic cada 4 por si la pagina se recargo.
+  const esperarPanel = async (subTab, patrones, ancla, n, intentos) => {
+    for (let i = 0; i < intentos; i++) {
+      if (i % 4 === 0) await clic(subTab);
+      await espera(500);
+      const t = await buscar(patrones, ancla, n);
+      if (t) return t;
+    }
+    return null;
+  };
+
+  // Patrones como regex literal + .source: en texto plano las barras invertidas se pierden
+  // (12-nov: '●\s*Calls' quedo como '●s*Calls' y no caso nunca).
+  const tablero = await esperarPanel('Flow Dashboard', [/●\s*Calls\s*\$|Esperando datos de flujo/.source], '● Calls', 1500, 24);
+  if (!tablero) return { error: 'Flow Dashboard sin datos tras 12 s' };
+  let meter = null;
+  if (conMeter) {
+    // PRIMA TOTAL arranca en $0 el primer segundo: se espera un monto real.
+    meter = await esperarPanel('Options Flow', [/PRIMA TOTAL\s*\$\s*[\d.,]*[1-9]/.source, /%\s*alcista/.source], 'FLOW METER', 800, 30);
+    await clic('Flow Dashboard');   // se deja en el tablero para la proxima lectura
+  }
+  return { tablero, meter };
+}
+
+// Devuelve { tablero, meter } (textos) o {} si no se pudo. Nunca lanza.
+export async function readFlujo({ conMeter = true } = {}) {
+  if (Date.now() < flujoPausaHasta) return {};
+  const conTope = (prom, ms, que) => Promise.race([
+    prom,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms / 1000}s ${que}`)), ms)),
+  ]);
+  try {
+    if (!flujoPage || flujoPage.isClosed() || !browser || flujoPage.browser() !== browser) {
+      flujoPage = await conTope(abrirPestanaFlujo(), 60000, 'abriendo la pestaña');
+    }
+    const r = await conTope(leerTextosFlujo(flujoPage, { conMeter }), FLUJO_TIMEOUT_MS, 'leyendo el flujo');
+    if (!r || r.error) throw new Error(r?.error || 'lectura vacia');
+    flujoFallos = 0;
+    return r;
+  } catch (e) {
+    // v2: un fallo suelto deja la pestaña abierta y reintenta en 2 min (reabrirla cuesta
+    // ~70 s y la lectura siguiente a una reapertura era justo la que fallaba). Solo al
+    // segundo fallo seguido se cierra y se pausa 5 min.
+    flujoFallos += 1;
+    const cerrar = flujoFallos >= 2;
+    console.error(`[sigma] Flujo no disponible (${e.message.slice(0, 80)}) -- se sigue sin el, `
+      + (cerrar ? 'cierro la pestaña y reintento en 5 min' : 'reintento en 2 min'));
+    flujoPausaHasta = Date.now() + (cerrar ? 5 : 2) * 60 * 1000;
+    if (cerrar) {
+      flujoFallos = 0;
+      const fp = flujoPage;
+      flujoPage = null;
+      try { if (fp && !fp.isClosed()) await fp.close(); } catch { /* ya cerrada */ }
+    }
     return {};
   }
 }
@@ -842,6 +952,7 @@ export async function descartarNavegador() {
   browser = null;
   page = null;
   kingPage = null;
+  flujoPage = null;
   if (!b) return;
   await Promise.race([
     b.close().catch(() => {}),
@@ -855,5 +966,6 @@ export async function close() {
     browser = null;
     page = null;
     kingPage = null;
+    flujoPage = null;
   }
 }
