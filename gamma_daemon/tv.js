@@ -464,7 +464,9 @@ export async function pushGammaLevelsToAllWindows(inputs) {
 // no relanza TradingView, no cuenta en tvFailures y un fallo aca no toca los muros.
 // Reusa setStudyInputs: escribe por id, solo si cambio, y relee para verificar.
 // Devuelve { escritos, fallidos } y nunca lanza (escritos = verificados, cambien o no).
-const FLUJO_STUDY_MATCH = /^Flujo Sigma/i;
+// 12-nov: el indicador pasa a llamarse "Indicador Chalito" (pedido de Guillermo). Se aceptan
+// los dos nombres para que el cambio de titulo en TradingView no corte la escritura.
+const FLUJO_STUDY_MATCH = /^(Flujo Sigma|Indicador Chalito)/i;
 
 export async function pushFlujoToAllWindows(inputs) {
   const res = { escritos: 0, fallidos: [] };
