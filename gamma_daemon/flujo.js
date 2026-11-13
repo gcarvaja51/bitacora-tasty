@@ -34,6 +34,11 @@ export const REGLA = {
   // la marca solo vale si en ese momento el SPX esta a <= cercaPts de un muro (Put Wall,
   // Call Wall o Gamma Flip). 0 = sin filtro (regla v2). Una lectura sin muros no marca.
   cercaPts: Number(process.env.FLUJO_CERCA_PTS ?? 8),
+  // v4 (13-nov, pedido de Guillermo "quiero verlos todos"): con todas=true las marcas lejos de un
+  // muro tambien salen, marcadas cerca:false (triangulo pequeno en el indicador). Las de cerca de un
+  // muro quedan identicas a la v3: llevan su propia pausa, asi una lejana no les roba el turno.
+  // FLUJO_MARCAS_TODAS=0 vuelve a la v3 pura.
+  todas: (process.env.FLUJO_MARCAS_TODAS ?? '1') !== '0',
 };
 
 const NOMBRE_NIVEL = { pw: 'Put Wall', cw: 'Call Wall', gf: 'Gamma Flip' };
@@ -184,7 +189,7 @@ export function crearFlujo({ dir, log = console } = {}) {
     textoParaTV(ahora = new Date()) {
       asegurarDia(fechaET(ahora));
       if (!filas.length) return null;
-      return { serie: armarSerie(base, filas), marcas: calcularMarcas(filas).map((m) => `${m.min}:${m.tipo}`).join(';') };
+      return { serie: armarSerie(base, filas), marcas: textoMarcas(calcularMarcas(filas)) };
     },
     marcas: () => calcularMarcas(filas),
   };
@@ -196,6 +201,11 @@ export function armarSerie(base, filas) {
 }
 
 // Regla v2 sobre la serie bruta (neto = calls − puts) y el precio de cada lectura.
+// Texto para el indicador: "<min>:S" cerca de un muro (triangulo grande), "<min>:s" lejos (pequeno).
+export function textoMarcas(marcas) {
+  return marcas.map((m) => `${m.min}:${m.cerca === false ? m.tipo.toLowerCase() : m.tipo}`).join(';');
+}
+
 export function calcularMarcas(filas, regla = REGLA) {
   const out = [];
   const ultimo = {};
@@ -210,13 +220,16 @@ export function calcularMarcas(filas, regla = REGLA) {
     const tipo = (p1 > p0 && dn >= regla.umbralM) ? 'S' : (p1 < p0 && dn <= -regla.umbralM) ? 'B' : null;
     if (!tipo) continue;
     let muro = null;
+    let cerca = true;
     if (regla.cercaPts > 0) {
       muro = muroCercano(p1, r.niveles);
-      if (!muro || muro.dist > regla.cercaPts) continue;   // lejos de los muros: no marca
+      cerca = !!muro && muro.dist <= regla.cercaPts;
+      if (!cerca && !regla.todas) continue;   // lejos de los muros: no marca (v3)
     }
-    if (ultimo[tipo] == null || r.min - ultimo[tipo] >= regla.pausaMin) {
-      ultimo[tipo] = r.min;
-      out.push({ min: r.min, tipo, spx: p1, dNeto: +dn.toFixed(1), ...(muro ? { muro: muro.nombre, dist: muro.dist } : {}) });
+    const clave = tipo + (cerca ? '' : '-lejos');
+    if (ultimo[clave] == null || r.min - ultimo[clave] >= regla.pausaMin) {
+      ultimo[clave] = r.min;
+      out.push({ min: r.min, tipo, spx: p1, dNeto: +dn.toFixed(1), ...(muro ? { muro: muro.nombre, dist: muro.dist } : {}), ...(cerca ? {} : { cerca: false }) });
     }
   }
   return out;

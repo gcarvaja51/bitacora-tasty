@@ -5,7 +5,7 @@ import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { aMillones, parseFlujo, parseMeter, baseMinuto, fechaET, crearFlujo, calcularMarcas, armarSerie } from './flujo.js';
+import { aMillones, parseFlujo, parseMeter, baseMinuto, fechaET, crearFlujo, calcularMarcas, armarSerie, textoMarcas } from './flujo.js';
 
 let ok = 0;
 async function caso(nombre, fn) { await fn(); ok++; console.log('  ok -', nombre); }
@@ -116,6 +116,19 @@ await caso('marcas regla v3: solo cerca de un muro (Put Wall, Call Wall, Gamma F
   assert.deepEqual(calcularMarcas([fila(0, 0, 7600, null), fila(30, 10, 7615, null)], regla), []);
   // cercaPts 0 = regla v2, marca aunque este lejos
   assert.equal(calcularMarcas([fila(0, 0, 7600), fila(30, 10, 7626)], { ...regla, cercaPts: 0 }).length, 1);
+});
+
+await caso('marcas v4: con todas=true salen tambien las lejanas, en minuscula', () => {
+  const regla = { ventanaMin: 30, umbralM: 8.7, pausaMin: 30, cercaPts: 8, todas: true };
+  const niv = { pw: 7590, cw: 7640, gf: 7612 };
+  const fila = (min, neto, spx, niveles = niv) => ({ min, calls: 100 + neto, puts: 100, spx, niveles });
+  // lejos (7626) a los 30 y cerca (7615... ) a los 40: la lejana no le roba la pausa a la cercana
+  const m = calcularMarcas([fila(0, 0, 7600), fila(10, 0, 7600), fila(30, 10, 7626), fila(40, 20, 7615)], regla);
+  assert.equal(textoMarcas(m), '30:s;40:S');
+  // sin muros cuenta como lejos
+  assert.equal(textoMarcas(calcularMarcas([fila(0, 0, 7600, null), fila(30, 10, 7615, null)], regla)), '30:s');
+  // bajada lejana -> b
+  assert.equal(textoMarcas(calcularMarcas([fila(0, 0, 7640), fila(30, -12, 7625)], regla)), '30:b');
 });
 
 await caso('registrar guarda los muros del ciclo en la fila', () => {
