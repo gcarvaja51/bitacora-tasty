@@ -17,6 +17,16 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="/shared.css">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  /* Selector de libro (2026-11-16): vive fuera de .content porque cada .panel ocupa todo el alto (position:absolute).
+     En el celular la franja toma el hueco de la barra superior, así que .content y .panel no lo repiten. */
+  @media (max-width: 1024px) {
+    #libro-cabecera { padding: calc(64px + env(safe-area-inset-top)) 12px 0 !important; }
+    .content { padding-top: 0 !important; }
+    .panel { padding-top: 12px !important; }
+    .libro-btn { padding: 6px 9px !important; font-size: 11px !important; }
+  }
+</style>
 </head>
 <body>
 <div class="app">
@@ -71,7 +81,48 @@
 
 <!-- ════════ MAIN ════════ -->
 <div class="main">
+  <div id="libro-cabecera" style="padding:14px 24px 0;">
+    <!-- ══ SELECTOR DE LIBRO — Demo Tasty (Guillermo 2026-11-16) ══
+         "en la página principal decido qué voy a observar". Robot SPX = las hojas de siempre (menú de la izquierda);
+         los demás libros abren su propia hoja. Cada libro tiene su color y su saldo de $10.000; nunca se suman. -->
+    <div id="libro-barra" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:14px;">
+      <button class="libro-btn" data-libro="comparar" onclick="setLibro('comparar')">⚖ Comparar</button>
+      <button class="libro-btn" data-libro="manual" onclick="setLibro('manual')">✋ Entradas Manuales</button>
+      <button class="libro-btn" data-libro="senales" onclick="setLibro('senales')">📣 Señales Sigma</button>
+      <button class="libro-btn" data-libro="robot" onclick="setLibro('robot')">🤖 Robot SPX</button>
+      <button class="libro-btn" data-libro="ironballs" onclick="setLibro('ironballs')">💣 Iron Balls</button>
+    </div>
+    <div id="libro-cartel" style="margin-bottom:10px;padding:8px 14px;border-radius:8px;font-weight:700;font-size:13px;letter-spacing:.02em;"></div>
+
+  </div>
   <div class="content">
+    <div id="panel-libro-comparar" class="panel">
+      <div class="kpi-row cols-4" id="cmp-cards"></div>
+      <div class="card"><div class="card-header">Los libros lado a lado <span style="color:var(--muted);font-size:10px;margin-left:6px;">cada uno con su capital de $10.000; los saldos no se suman</span></div>
+        <div class="table-wrap" id="cmp-tabla" style="padding:8px 12px;"></div></div>
+    </div>
+
+    <div id="panel-libro-senales" class="panel">
+      <div class="kpi-row cols-4" id="sen-kpis"></div>
+      <div class="card" style="margin-bottom:16px;"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span>Abiertas en el demo <span id="sen-n-abiertas" style="color:var(--blue);"></span></span>
+        <select id="sen-profe" onchange="cargarLibroSenales()" style="background:var(--card2);color:var(--bright);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;"><option value="">Todos los profes</option></select>
+      </div><div class="table-wrap" id="sen-abiertas" style="padding:8px 12px;"></div></div>
+      <div class="card" style="margin-bottom:16px;"><div class="card-header">Por profe</div><div class="table-wrap" id="sen-profes" style="padding:8px 12px;"></div></div>
+      <div class="card" style="margin-bottom:16px;"><div class="card-header">Historial <span style="color:var(--muted);font-size:10px;margin-left:6px;">cerradas, vencidas (30 min) y rechazadas</span></div><div class="table-wrap" id="sen-historial" style="padding:8px 12px;"></div></div>
+      <div class="card"><div class="card-header">Últimas alertas recibidas del canal</div><div class="table-wrap" id="sen-alertas" style="padding:8px 12px;"></div></div>
+    </div>
+
+    <div id="panel-libro-ironballs" class="panel">
+      <div class="kpi-row cols-4" id="ib-kpis"></div>
+      <div class="card" style="margin-bottom:16px;"><div class="card-header">Abiertas</div><div class="table-wrap" id="ib-abiertas" style="padding:8px 12px;"></div></div>
+      <div class="card"><div class="card-header">Historial <span style="color:var(--muted);font-size:10px;margin-left:6px;">Pipe (Canal Oficial y Chat VIP) y Alejandro/Emerson (Operaciones)</span></div><div class="table-wrap" id="ib-historial" style="padding:8px 12px;"></div></div>
+    </div>
+
+    <div id="panel-libro-manual" class="panel">
+      <div class="kpi-row cols-4" id="man-kpis"></div>
+      <div class="card"><div class="card-header">Tus clics de TradingView</div><div style="padding:12px 16px;color:var(--muted);font-size:12px;" id="man-nota"></div></div>
+    </div>
     <!-- ══ DASHBOARD (placeholder — Etapa 5) ══ -->
     <div id="panel-dashboard" class="panel active">
       <!-- Interruptores por estrategia — arriba de todo (2026-09-28, pedido del usuario) -->
@@ -1399,6 +1450,7 @@ const TABS = {
 let currentTab = 'dashboard';
 
 function nav(tab, el) {
+  if (typeof marcarLibro === 'function') marcarLibro('robot');   // el menú de la izquierda = libro Robot SPX
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
@@ -1487,6 +1539,147 @@ function toggleSidebar() {
   const sb = document.querySelector('.sidebar');
   if (sb) sb.classList.toggle('open');
 }
+
+// ══ Libros de la Demo Tasty (Guillermo 2026-11-16) ══════════════════════════════════════════════════════════════
+// El selector de arriba decide qué libro se mira. "Robot SPX" son las hojas de siempre del menú; los demás libros
+// tienen su hoja. Cada libro tiene un color fijo y el cartel dice siempre cuál se está viendo.
+const LIBROS = {
+  comparar:  { nombre: 'Comparar los libros', color: '#8a94a6' },
+  manual:    { nombre: 'Entradas Manuales',   color: '#4f8eff' },
+  senales:   { nombre: 'Señales Sigma',       color: '#13d68f' },
+  robot:     { nombre: 'Robot SPX',           color: '#a678ff' },
+  ironballs: { nombre: 'Iron Balls',          color: '#ff9f43' },
+};
+let libroActual = 'robot';
+const usdL = (v) => (v == null || isNaN(v)) ? '—' : `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const colorL = (v) => (v == null ? 'var(--muted)' : v >= 0 ? 'var(--green)' : 'var(--red)');
+const horaL = (iso) => iso ? new Date(iso).toLocaleString('es-CO', { timeZone: 'America/New_York', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+const kpiL = (label, val, sub, color) => `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-val" style="color:${color || 'var(--bright)'}">${val}</div>${sub ? `<div class="kpi-sub">${sub}</div>` : ''}</div>`;
+const tablaL = (cab, filas) => filas.length
+  ? `<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>${cab.map((c) => `<th style="text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);">${c}</th>`).join('')}</tr></thead><tbody>${filas.map((f) => `<tr>${f.map((c) => `<td style="padding:6px 8px;border-bottom:1px solid var(--border);">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+  : '<div style="color:var(--muted);font-size:12px;padding:6px 0;">Nada por ahora.</div>';
+
+function marcarLibro(libro) {
+  libroActual = libro;
+  try { localStorage.setItem('demoTastyLibro', libro); } catch (e) { /* sin almacenamiento: no pasa nada */ }
+  const L = LIBROS[libro];
+  document.querySelectorAll('.libro-btn').forEach((b) => {
+    const on = b.dataset.libro === libro, c = LIBROS[b.dataset.libro].color;
+    b.style.cssText = `padding:7px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid ${c};`
+      + (on ? `background:${c};color:#0b0e14;` : `background:transparent;color:${c};`);
+  });
+  const cartel = $('libro-cartel');
+  if (cartel) {
+    cartel.style.background = L.color + '22'; cartel.style.border = `1px solid ${L.color}`; cartel.style.color = L.color;
+    cartel.textContent = libro === 'comparar' ? 'Estás viendo: los libros lado a lado'
+      : `Estás viendo el libro: ${L.nombre}` + (libro === 'robot' ? ' — las hojas del menú de la izquierda' : '');
+  }
+}
+
+function setLibro(libro) {
+  if (!LIBROS[libro]) libro = 'robot';
+  marcarLibro(libro);
+  if (libro === 'robot') {
+    const item = document.querySelector(`.nav-item[onclick*="'${currentTab && !String(currentTab).startsWith('libro-') ? currentTab : 'dashboard'}'"]`)
+      || document.querySelector('.nav-item');
+    if (item) item.click();
+    return;
+  }
+  document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
+  $(`panel-libro-${libro}`).classList.add('active');
+  currentTab = `libro-${libro}`;
+  ({ comparar: cargarComparar, senales: cargarLibroSenales, ironballs: cargarLibroIronBalls, manual: cargarLibroManual })[libro]();
+}
+
+async function cargarComparar() {
+  $('cmp-cards').innerHTML = '<div style="color:var(--muted)">Cargando…</div>';
+  try {
+    const d = await (await fetch('/api/libros')).json();
+    const clave = { 'Entradas Manuales': 'manual', 'Señales Sigma': 'senales', 'Robot SPX': 'robot', 'Iron Balls': 'ironballs' };
+    $('cmp-cards').style.gridTemplateColumns = 'repeat(auto-fit,minmax(200px,1fr))';
+    $('cmp-cards').innerHTML = d.libros.map((x) => {
+      const k = clave[x.libro], c = LIBROS[k].color;
+      if (x.error) return `<div class="kpi" style="border-top:3px solid ${c}"><div class="kpi-label">${x.libro}</div><div class="kpi-sub">sin datos: ${x.error}</div></div>`;
+      const rend = x.saldo != null ? 100 * (x.saldo - x.capital) / x.capital : null;
+      return `<div class="kpi" style="border-top:3px solid ${c};cursor:pointer" onclick="setLibro('${k}')"><div class="kpi-label" style="color:${c}">${x.libro}</div>`
+        + `<div class="kpi-val" style="color:${colorL(rend)}">${usdL(x.saldo)}</div>`
+        + `<div class="kpi-sub">${rend == null ? '' : (rend >= 0 ? '+' : '') + rend.toFixed(2) + '% sobre ' + usdL(x.capital)} · ${x.cerradas ?? 0} cerradas${x.winRate != null ? ` · ${x.winRate}% ganadas` : ''}</div></div>`;
+    }).join('');
+    $('cmp-tabla').innerHTML = tablaL(['Libro', 'Saldo', 'Realizado', 'Cerradas', 'Ganadas', 'Abiertas', 'Nota'],
+      d.libros.map((x) => [`<b style="color:${LIBROS[clave[x.libro]].color}">${x.libro}</b>`, usdL(x.saldo),
+        `<span style="color:${colorL(x.realizado)}">${usdL(x.realizado)}</span>`, x.cerradas ?? '—',
+        x.winRate != null ? `${x.ganadas} (${x.winRate}%)` : (x.ganadas ?? '—'), x.abiertas ?? '—', x.nota || x.error || '']));
+  } catch (e) { $('cmp-cards').innerHTML = `<div style="color:var(--red)">No se pudo cargar: ${e.message}</div>`; }
+}
+
+async function cargarLibroSenales() {
+  $('sen-kpis').innerHTML = '<div style="color:var(--muted)">Cargando…</div>';
+  try {
+    const d = await (await fetch('/api/libros/senales')).json();
+    const filtro = $('sen-profe').value;
+    const sel = $('sen-profe'), profes = [...new Set([...d.abiertas, ...d.historial].map((t) => t.profe))].sort();
+    sel.innerHTML = '<option value="">Todos los profes</option>' + profes.map((p) => `<option ${p === filtro ? 'selected' : ''}>${p}</option>`).join('');
+    const f = (l) => (filtro ? l.filter((t) => t.profe === filtro) : l);
+    $('sen-kpis').innerHTML = kpiL('Saldo', usdL(d.saldo), `capital $10.000 · disponible ${usdL(d.disponible)}`, colorL(d.saldo - d.capital))
+      + kpiL('P&L hoy · mes', `<span style="color:${colorL(d.pnlHoy)}">${usdL(d.pnlHoy)}</span>`, `mes ${usdL(d.pnlMes)}`)
+      + kpiL('Cerradas', `${d.cerradas}`, d.winRate != null ? `${d.ganadas} ganadas (${d.winRate}%)` : 'sin cierres todavía')
+      + kpiL('Latente (cerrando ya)', usdL(d.latente), `${d.abiertas.length} abiertas · ${d.pendientes.length} esperando entrar`, colorL(d.latente));
+    const pat = (t) => t.patas.map((p) => `${p.q > 0 ? '+' : ''}${p.q} ${p.tipo}${p.strike}`).join(' · ');
+    const ab = f(d.abiertas);
+    $('sen-n-abiertas').textContent = `(${ab.length})`;
+    $('sen-abiertas').innerHTML = tablaL(['Profe', 'Activo', 'Estrategia', 'Patas', 'Señal', 'Entró', 'Entrada', 'Latente'],
+      ab.map((t) => [t.profe + (t.antesDeLaRegla ? ' <span style="color:var(--muted);font-size:10px">antes de la regla</span>' : ''), `<b>${t.activo}</b>`, t.estrategia, pat(t),
+        horaL(t.mensajeAt), `${horaL(t.entrada?.at)}${t.entrada?.minutosDesdeSenal != null ? ` (${t.entrada.minutosDesdeSenal} min)` : ''}`,
+        t.entrada ? `${t.entrada.precio >= 0 ? 'cr' : 'db'} ${Math.abs(t.entrada.precio).toFixed(2)}` : '—',
+        `<span style="color:${colorL(t.latenteCruzando)}">${usdL(t.latenteCruzando)}</span>`]));
+    $('sen-profes').innerHTML = tablaL(['Profe', 'Cerradas', 'Ganadas', 'P&L', 'Abiertas', 'Vencidas / no tomadas'],
+      d.porProfe.map((p) => [`<b>${p.profe}</b>`, p.cerradas, p.cerradas ? `${p.ganadas} (${Math.round(100 * p.ganadas / p.cerradas)}%)` : '—',
+        `<span style="color:${colorL(p.pnl)}">${usdL(p.pnl)}</span>`, p.abiertas, p.vencidas]));
+    const est = { cerrada: 'cerrada', vencida: '⏱ vencida (30 min)', rechazada: '✖ rechazada', no_ejecutada: 'no tomada' };
+    $('sen-historial').innerHTML = tablaL(['Cierre', 'Profe', 'Activo', 'Estrategia', 'Estado', 'P&L', 'Motivo'],
+      f(d.historial).slice(0, 150).map((t) => [horaL(t.cerradaAt), t.profe, `<b>${t.activo}</b>`, t.estrategia, est[t.estado] || t.estado,
+        t.estado === 'cerrada' ? `<span style="color:${colorL(t.pnlRealizado)}">${usdL(t.pnlRealizado)}</span>` : '—', t.motivo || '']));
+    $('sen-alertas').innerHTML = tablaL(['Publicada', 'Profe', 'Tipo', 'Resultado', 'Detalle'],
+      d.alertas.slice(0, 30).map((a) => [horaL(a.mensajeAt), a.profe, a.tipo, a.estado, (a.motivo || '').slice(0, 90)]));
+  } catch (e) { $('sen-kpis').innerHTML = `<div style="color:var(--red)">No se pudo cargar: ${e.message}</div>`; }
+}
+
+async function cargarLibroIronBalls() {
+  $('ib-kpis').innerHTML = '<div style="color:var(--muted)">Cargando…</div>';
+  try {
+    const [libros, p, a] = await Promise.all(['/api/libros', '/api/ironballs/demo', '/api/ironballs/ale/demo'].map((u) => fetch(u).then((r) => r.json())));
+    const x = libros.libros.find((l) => l.libro === 'Iron Balls') || {};
+    $('ib-kpis').innerHTML = kpiL('Saldo del libro', usdL(x.saldo), `capital $10.000 · disponible ${usdL(x.disponible)}`, colorL(x.realizado))
+      + kpiL('Pipe', usdL(p.realizado), `${p.trades} cerradas · ${p.pctGanados ?? '—'}% ganadas`, colorL(p.realizado))
+      + kpiL('Alejandro / Emerson', usdL(a.realizado), `${a.trades} cerradas · ${a.pctGanados ?? '—'}% ganadas`, colorL(a.realizado))
+      + kpiL('Abiertas', `${(p.abiertas || []).length + (a.abiertas || []).length}`, 'demo TastyTrade (dry-run)');
+    const todas = [...(p.lista || []).map((t) => ({ ...t, de: 'Pipe' })), ...(a.lista || []).map((t) => ({ ...t, de: t.enviadoPor || 'Alejandro' }))]
+      .filter((t) => !t.prueba).sort((u, v) => String(v.abiertaEn || v.fecha).localeCompare(String(u.abiertaEn || u.fecha)));
+    const fila = (t) => [t.fecha || '—', t.de, t.nombre || '', `${t.corto ?? ''}/${t.largo ?? ''}`, t.precioEntrada ?? '—', t.precioSalida ?? '—',
+      t.pnlUsd != null ? `<span style="color:${colorL(t.pnlUsd)}">${usdL(t.pnlUsd)}</span>` : '—', t.motivoCierre || t.estado || ''];
+    const cab = ['Fecha', 'De', 'Estructura', 'Strikes', 'Entrada', 'Salida', 'P&L neto', 'Estado'];
+    $('ib-abiertas').innerHTML = tablaL(cab, todas.filter((t) => t.estado === 'abierta').map(fila));
+    $('ib-historial').innerHTML = tablaL(cab, todas.filter((t) => t.estado !== 'abierta').slice(0, 150).map(fila));
+  } catch (e) { $('ib-kpis').innerHTML = `<div style="color:var(--red)">No se pudo cargar: ${e.message}</div>`; }
+}
+
+async function cargarLibroManual() {
+  $('man-kpis').innerHTML = '<div style="color:var(--muted)">Cargando…</div>';
+  try {
+    const d = await (await fetch('/api/libros')).json();
+    const x = d.libros.find((l) => l.libro === 'Entradas Manuales') || {};
+    $('man-kpis').innerHTML = kpiL('Saldo', usdL(x.saldo), `capital ${usdL(x.capital)}`, colorL(x.realizado))
+      + kpiL('Realizado', usdL(x.realizado), '', colorL(x.realizado))
+      + kpiL('Cerradas', `${x.cerradas ?? 0}`, x.winRate != null ? `${x.ganadas} ganadas (${x.winRate}%)` : '')
+      + kpiL('Disponible', usdL(x.disponible), '');
+    $('man-nota').innerHTML = 'El detalle trade por trade de tus clics sigue, por ahora, en la bitácora real (hoja "Cuenta demo SPX"). '
+      + 'Se muda aquí en la fase 2, junto con la meta de $200 diarios y la pregunta "¿ejecutamos?".';
+  } catch (e) { $('man-kpis').innerHTML = `<div style="color:var(--red)">No se pudo cargar: ${e.message}</div>`; }
+}
+
+Object.assign(TABS, { 'libro-comparar': cargarComparar, 'libro-senales': cargarLibroSenales, 'libro-ironballs': cargarLibroIronBalls, 'libro-manual': cargarLibroManual });
+
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -1496,6 +1689,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
+  // Libro elegido la última vez (Guillermo: "decido qué voy a observar y todas las hojas se actualizan")
+  try { const g = localStorage.getItem('demoTastyLibro'); marcarLibro('robot'); if (g && g !== 'robot') setLibro(g); }
+  catch (e) { marcarLibro('robot'); }
   loadPanicStatus();
   setInterval(loadPanicStatus, 60000); // refleja cambios hechos por afuera (ej. la reactivación automática de mañana)
 });

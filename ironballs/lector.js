@@ -29,6 +29,7 @@ const fs = require('fs');
 const path = require('path');
 const ib = require('../src/ironballs');
 const ale = require('../src/ironballs_ale');
+const sigma = require('../src/sigma_senales');
 const calendario = require('../src/calendario_nyse');
 
 const DIR = __dirname;
@@ -40,15 +41,22 @@ const AUTORES = {
   '5491132318348@s.whatsapp.net': 'Alejandro',
   '18287810664@s.whatsapp.net': 'Emerson Flores',
 };
+// Ventanas de barrido en minutos ET (Guillermo 2026-11-16, con las horas reales de 90 dias): Iron Balls 9:45-16:00
+// (una sola señal antes de las 10:00 en 90 dias), Sigma 9:30-16:00 (el pico de cierres es justo en la apertura).
+// Lo publicado fuera de la ventana se recoge en el primer barrido: se leen los ultimos 60 mensajes de cada grupo.
+const VENTANA_IRONBALLS = [9 * 60 + 45, 16 * 60];
+const VENTANA_SIGMA = [9 * 60 + 30, 16 * 60];
 const TODAS_FUENTES = [
-  { id: 'canal', cuenta: 'usa', jid: '120363233546136336@g.us', grupo: 'Canal Oficial', modo: 'pipe' },
-  { id: 'vip', cuenta: 'usa', jid: '120363399540609677@g.us', grupo: 'Chat VIP', modo: 'pipe' },
-  { id: 'operaciones', cuenta: 'colombia', jid: '120363189733565990@g.us', grupo: 'Operaciones', modo: 'ale' },
+  { id: 'canal', cuenta: 'usa', jid: '120363233546136336@g.us', grupo: 'Canal Oficial', modo: 'pipe', ventana: VENTANA_IRONBALLS },
+  { id: 'vip', cuenta: 'usa', jid: '120363399540609677@g.us', grupo: 'Chat VIP', modo: 'pipe', ventana: VENTANA_IRONBALLS },
+  { id: 'operaciones', cuenta: 'colombia', jid: '120363189733565990@g.us', grupo: 'Operaciones', modo: 'ale', ventana: VENTANA_IRONBALLS },
+  // 2026-11-16: canal de Sigma → libro Señales Sigma de la Demo Tasty (el servidor decide: 30 min de vida, sin meta)
+  { id: 'sigma', cuenta: 'usa', jid: '120363403656198230@g.us', grupo: 'Notificaciones 5 Sigma', modo: 'sigma', ventana: VENTANA_SIGMA },
 ];
 const FOTO_AUTORES = new Set(['5491132318348@s.whatsapp.net', '18287810664@s.whatsapp.net']);   // Alejandro, Emerson
 const TEXTO_AUTORES = new Set(['5491132318348@s.whatsapp.net']);                                 // solo Alejandro
 const FOTO_MAX_MIN = 10;     // una foto mas vieja no se manda (el servidor exige <= 5 min; ahorra la lectura)
-const CICLO_MS = 10 * 1000;
+const CICLO_MS = 2 * 60 * 1000;   // 2026-11-16 Guillermo: barrido cada 2 minutos en los dos canales (antes 10 s)
 const AVISO_CAIDA_MIN = 3;   // un grupo que falla 3 min seguidos en mercado manda ntfy (una vez)
 const ESTADO = path.join(DIR, 'estado.json');
 const STATUS = path.join(DIR, 'status.json');
@@ -169,6 +177,13 @@ function clasificar(f, m, msgs) {
     return { ruta: '/api/ironballs/alerta', resumen: `${p.tipo} ${p.clave || ''} (${p.ok ? 'ok' : p.motivo})${yaCerrada ? ' [ya cerrada]' : ''}`,
              cuerpo: { alertId: m.id, mensajeAt: m.timestamp, texto: m.content, yaCerrada, autor: 'Pipe Andrade', grupo: f.grupo } };
   }
+  if (f.modo === 'sigma') {
+    // Solo aperturas y cierres; el resto del canal (Zoom, agenda, comentarios) no se manda.
+    const p = sigma.parsearSenalSigma(m.content || '', { mensajeAt: m.timestamp, autorJid: m.sender_jid });
+    if (p.tipo === 'otro') return null;
+    return { ruta: '/api/libros/senales/alerta', resumen: `${p.tipo} ${p.profe} ${p.activo || ''} (${p.ok ? 'ok' : p.motivo})`,
+             cuerpo: { alertId: m.id, mensajeAt: m.timestamp, texto: m.content, autorJid: m.sender_jid || '' } };
+  }
   // modo 'ale' (grupo Operaciones)
   if (m.media_type === 'image' && FOTO_AUTORES.has(m.sender_jid)) {
     const edad = (Date.now() - new Date(m.timestamp)) / 60000;
@@ -228,9 +243,11 @@ async function pasadaFuente(f) {
   return { nuevos: nuevos.length, enviados };
 }
 
+const enSuVentana = (f) => args.has('--una-vez') || calendario.enVentanaET(f.ventana[0], f.ventana[1]);
+
 async function pasada() {
   const res = {};
-  for (const f of FUENTES) {
+  for (const f of FUENTES.filter(enSuVentana)) {
     try {
       res[f.id] = { ok: true, ...(await pasadaFuente(f)) };
       if (errores[f.id]) { log(`[${f.grupo}] volvió (${errores[f.id].msg})`); delete errores[f.id]; }
@@ -250,10 +267,10 @@ async function pasada() {
 
 async function main() {
   estado = cargarEstado();
-  log(`Lector Iron Balls v2 arrancando — ${SECO ? 'EN SECO (no manda nada)' : `enviando a ${URL_SERVIDOR}`} — grupos: ${FUENTES.map(f => f.grupo).join(', ')}.`);
+  log(`Lector Iron Balls + Sigma v3 arrancando — ${SECO ? 'EN SECO (no manda nada)' : `enviando a ${URL_SERVIDOR}`} — grupos: ${FUENTES.map(f => f.grupo).join(', ')}.`);
   for (;;) {
-    // Dia de mercado, 9:00-16:15 ET (un CLOSED de ultima hora todavia sirve; despues ya no).
-    const activo = args.has('--una-vez') || calendario.enVentanaET(9 * 60, 16 * 60 + 15);
+    // Dia de mercado y al menos un grupo dentro de su ventana (Sigma 9:30-16:00, Iron Balls 9:45-16:00).
+    const activo = FUENTES.some(enSuVentana);
     if (activo) {
       const r = await pasada();
       latido({ ok: Object.values(r).every(x => x.ok), fuentes: r, motivoCierre: null });

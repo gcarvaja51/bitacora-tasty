@@ -8613,6 +8613,7 @@ let ironBallsEnCurso = Promise.resolve();   // serializa: dos alertas seguidas n
 const { crearIronBallsDemo } = require('./src/ironballs_demo');
 const ironBallsDemo = crearIronBallsDemo({
   tt, dataDir: DATA_DIR, horaETmin,
+  disponibleLibro: () => libroIronBalls().disponible,   // 2026-11-16: libro Iron Balls de $10.000 (Pipe + Alejandro)
   // 2026-11-10 Guillermo: "mismas reglas para pipe" — TP 50% del crédito apenas abre, stop -$150 por contrato,
   // su CLOSED solo cierra si vamos en positivo (si no, sigue a TP/stop/15:30), seguro 15:30 ET.
   stopUsd: Number(process.env.IRONBALLS_PIPE_STOP_USD) || 150,
@@ -8826,6 +8827,7 @@ app.get('/api/ironballs/alertas', (req, res) => {
 // cuenta real (solo /orders/dry-run).
 const ironBallsAleDemo = crearIronBallsDemo({
   tt, dataDir: DATA_DIR, horaETmin, archivo: 'ironballs_ale_demo.json', fuente: 'Alejandro',
+  disponibleLibro: () => libroIronBalls().disponible,
   stopUsd: Number(process.env.IRONBALLS_ALE_STOP_USD) || 150, maxAbiertas: 2,
   tpPct: Number(process.env.IRONBALLS_ALE_TP_PCT) || 0.5,   // 2026-11-10 Guillermo: TP 50% del crédito apenas abre
   avisar: (texto, titulo, tag = 'bell') => fetch('https://ntfy.sh/', {
@@ -8835,6 +8837,86 @@ const ironBallsAleDemo = crearIronBallsDemo({
 });
 ironBallsAleDemo.vigilar();
 app.get('/api/ironballs/ale/demo', (req, res) => res.json(ironBallsAleDemo.resumen()));
+
+// ══ DEMO TASTY: los libros (Guillermo 2026-11-16) ═══════════════════════════════════════════════════════════════════
+// Cuatro libros de $10.000, cada uno con su saldo, que nunca se suman: Entradas Manuales (tus clics, src/clic_real.js),
+// Señales Sigma (src/libro_senales.js), Robot SPX (ejecutor tasty_demo) e Iron Balls (Pipe + Alejandro,
+// src/ironballs_demo.js). Todos simulan con la cadena real de TastyTrade y solo piden /orders/dry-run.
+const CAPITAL_LIBRO_IRONBALLS = Number(process.env.LIBRO_IRONBALLS_CAPITAL || 10000);
+function libroIronBalls() {
+  const p = ironBallsDemo.saldo(), a = ironBallsAleDemo.saldo();
+  const realizado = +(p.realizado + a.realizado).toFixed(2), reservado = +(p.reservado + a.reservado).toFixed(2);
+  const saldo = +(CAPITAL_LIBRO_IRONBALLS + realizado).toFixed(2);
+  return { capital: CAPITAL_LIBRO_IRONBALLS, saldo, realizado, reservado, disponible: +(saldo - reservado).toFixed(2) };
+}
+
+const { crearLibroSenales } = require('./src/libro_senales');
+const libroSenales = crearLibroSenales({
+  dataDir: DATA_DIR, calendario,
+  cotizar: (simbolos, opciones) => cotizarPatasTasty(simbolos, opciones),
+  dryRun: (cuerpo) => ejecutorTasty.dryRun(cuerpo),
+});
+// La misma clave del lector de Iron Balls: el lector es uno solo y barre los dos canales.
+function claveLectorValida(req) {
+  const clave = process.env.IRONBALLS_TOKEN;
+  if (!clave) return { ok: false, status: 503, error: 'IRONBALLS_TOKEN no configurado: lector apagado' };
+  const dada = String(req.get('x-ironballs-token') || '');
+  if (dada.length !== clave.length || !require('crypto').timingSafeEqual(Buffer.from(dada), Buffer.from(clave))) {
+    return { ok: false, status: 401, error: 'clave inválida' };
+  }
+  return { ok: true };
+}
+app.post('/api/libros/senales/alerta', async (req, res) => {
+  const v = claveLectorValida(req);
+  if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
+  const { alertId, mensajeAt, texto, autorJid } = req.body || {};
+  if (!alertId || !texto || !mensajeAt || isNaN(new Date(mensajeAt))) {
+    return res.status(400).json({ ok: false, error: 'faltan alertId, mensajeAt (ISO) o texto' });
+  }
+  try {
+    res.json(await libroSenales.procesarAlerta({ alertId: String(alertId), mensajeAt, texto: String(texto).slice(0, 4000),
+                                                 autorJid: String(autorJid || '').slice(0, 60) }));
+  } catch (e) {
+    console.error('[LIBRO_SENALES] Error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+// Carga única del historial de senales-sigma/datos/demo.json (11 trades, "antes de la regla"). No pisa nada.
+app.post('/api/libros/senales/importar', async (req, res) => {
+  const v = claveLectorValida(req);
+  if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
+  try { res.json(await libroSenales.importarDemoJson(req.body?.demo || {}, req.body?.senales || {})); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get('/api/libros/senales', async (req, res) => {
+  try { res.json(await libroSenales.resumen({ marcar: req.query.marcar !== '0' })); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+// Reintentos: aperturas dentro de sus 30 min y cierres que no tuvieron precio. Solo con mercado abierto.
+setInterval(() => {
+  if (!calendario.enHorarioDeMercado()) return;
+  libroSenales.tick().catch((e) => console.error('[LIBRO_SENALES] tick:', e.message));
+}, 60000);
+
+// Los cuatro libros lado a lado (selector de libro y "Comparar"). Nunca suma los saldos.
+app.get('/api/libros', async (req, res) => {
+  const fila = (libro, x, extra = {}) => ({ libro, capital: x?.capital ?? 10000, saldo: x?.saldo ?? null,
+    disponible: x?.disponible ?? null, ...extra });
+  const out = { ok: true, libros: [] };
+  try { const d = await clicReal.demo(); out.libros.push(fila('Entradas Manuales', d, { cerradas: d.trades, ganadas: d.ganados, winRate: d.pctGanados, realizado: d.pnlRealizado })); }
+  catch (e) { out.libros.push({ libro: 'Entradas Manuales', error: e.message }); }
+  try { const s = await libroSenales.resumen({ marcar: false }); out.libros.push(fila('Señales Sigma', s, { cerradas: s.cerradas, ganadas: s.ganadas, winRate: s.winRate, realizado: s.realizado, pnlHoy: s.pnlHoy, pnlMes: s.pnlMes, abiertas: s.abiertas.length })); }
+  catch (e) { out.libros.push({ libro: 'Señales Sigma', error: e.message }); }
+  try { const r = cuentaDemoTendenciaActual(); out.libros.push(fila('Robot SPX', r, { cerradas: r.cerrados, ganadas: r.ganadores, abiertas: r.abiertos, realizado: +(r.saldo - r.capital).toFixed(2), nota: 'hoy solo el Direccional; el resto migra en la fase 2' })); }
+  catch (e) { out.libros.push({ libro: 'Robot SPX', error: e.message }); }
+  try {
+    const ib = libroIronBalls(), p = ironBallsDemo.resumen(), a = ironBallsAleDemo.resumen();
+    out.libros.push(fila('Iron Balls', ib, { cerradas: p.trades + a.trades, ganadas: p.ganados + a.ganados, realizado: ib.realizado,
+      winRate: (p.trades + a.trades) ? Math.round(100 * (p.ganados + a.ganados) / (p.trades + a.trades)) : null,
+      abiertas: p.abiertas.length + a.abiertas.length }));
+  } catch (e) { out.libros.push({ libro: 'Iron Balls', error: e.message }); }
+  res.json(out);
+});
 
 app.post('/api/ironballs/ale', async (req, res) => {
   const clave = process.env.IRONBALLS_TOKEN;

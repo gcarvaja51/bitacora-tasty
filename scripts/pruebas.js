@@ -1814,6 +1814,87 @@ async function humoPost(base = BASE) {
   for (const p of posts) console.log(`    - ${p}`);
 }
 
+// ── Libro Señales Sigma de la Demo Tasty (2026-11-16) ───────────────────────
+seccion('Señales Sigma: lectura de las alertas (src/sigma_senales.js)');
+{
+  const sg = require('../src/sigma_senales');
+  const calS = require('../src/calendario_nyse');
+  const ALERTA_FACU = '🔔 *Options Alert — Sigma Trade*\n\n📌 *SPX — Bull Put Spread*\n\n──────────\n🔴 Sell 1× Put 7500 (Dec 18, 2026) @ $132.45\n🟢 Buy 1× Put 7490 (Dec 18, 2026) @ $129.00\n\n💰 *Net Credit:* $345.00\n\n📉 *Max loss (risk):* $655.00\n\n📊 *Probability of profit:* 51.96%';
+  let p = sg.parsearSenalSigma(ALERTA_FACU, { mensajeAt: '2026-11-13T16:25:19Z', autorJid: '5491125371038@s.whatsapp.net' });
+  chequear('la alerta en inglés se lee como apertura', p.tipo === 'apertura' && p.ok);
+  chequear('el número 5491125371038 es Facu (no Gonza)', p.profe === 'Facu', `dio ${p.profe}`);
+  chequear('tercer viernes de dic = raíz SPX (mensual)', p.patas[0].sym === 'SPX261218P07500000', p.patas[0].sym);
+  chequear('vende la de 7500 y compra la de 7490', p.patas[0].q === -1 && p.patas[1].q === 1);
+  chequear('crédito publicado por acción 3.45, riesgo $655, POP 51.96', p.netoPublicado === 3.45 && p.riesgoUsd === 655 && p.pop === 51.96,
+    `${p.netoPublicado} ${p.riesgoUsd} ${p.pop}`);
+  p = sg.parsearSenalSigma('🚨📢 NUEVA OPERACIÓN DE ROCÍO\n\n🔔 *Alerta de Opción — Sigma Trade*\n\n📌 *IWM — Double Calendar Spread*\n\n🟢 Compra 1× Put 269 (nov 23, 2026) @ $1.34\n🔴 Venta 1× Put 269 (nov 20, 2026) @ $1.035\n\n💰 *Débito Neto:* $30.50', { autorJid: '34605855722@s.whatsapp.net' });
+  chequear('en español, con el profe en el encabezado (Rocío)', p.ok && p.profe === 'Rocío' && p.patas.length === 2, JSON.stringify(p).slice(0, 120));
+  chequear('un débito sale negativo', p.netoPublicado === -0.305, `dio ${p.netoPublicado}`);
+  chequear('SPX que no es tercer viernes = SPXW', sg.simbolo('SPX', 2026, 11, 16, 'P', 7400) === 'SPXW261116P07400000');
+  const c = sg.parsearSenalSigma('⚠️ CLOSED\n(Shared on Nov 13)\n\n✅ SPX December 18 7490/7500 Bull Put Spread @ 14.49%\nClosed at 2.95 debit\n\nProfit of $50 per position', { autorJid: '5491125371038@s.whatsapp.net' });
+  chequear('el cierre se lee: activo, strikes, fecha, precio y P&L', c.tipo === 'cierre' && c.ok && c.strikes.join('/') === '7490/7500'
+    && c.mes === 12 && c.dia === 18 && c.precioCierre === 2.95 && c.pnlPublicadoUsd === 50, JSON.stringify(c).slice(0, 160));
+  const trade = { activo: 'SPX', patas: [{ strike: 7500, vto: '2026-12-18' }, { strike: 7490, vto: '2026-12-18' }] };
+  chequear('el cierre encuentra su posición', sg.coincideCierre(trade, c));
+  chequear('otro vencimiento no coincide', !sg.coincideCierre({ ...trade, patas: trade.patas.map((x) => ({ ...x, vto: '2026-11-20' })) }, c));
+  const perd = sg.parsearSenalSigma('⚠️ CERRADO\n\n❌ SPY October 19 772/772/785/785 Double Calendar Spread @ -29.41%\n\nPérdida de $22 por posición');
+  chequear('una pérdida publicada sale negativa', perd.pnlPublicadoUsd === -22 && perd.strikes.join('/') === '772/785');
+  chequear('30 min: en horario cuentan desde la publicación',
+    sg.venceVentana('2026-11-13T16:25:19Z', calS).toISOString() === '2026-11-13T16:55:19.000Z');
+  chequear('30 min: antes de la apertura cuentan desde las 9:30 ET',
+    sg.venceVentana('2026-11-16T13:00:00Z', calS).toISOString() === '2026-11-16T15:00:00.000Z');
+  chequear('30 min: después del cierre cuentan desde la próxima apertura (vie 16:04 → lun 10:00)',
+    sg.venceVentana('2026-11-13T21:04:00Z', calS).toISOString() === '2026-11-16T15:00:00.000Z');
+}
+
+seccion('Señales Sigma: el libro demo (src/libro_senales.js, TastyTrade falso)');
+{
+  const ls = require('../src/libro_senales');
+  const calS = require('../src/calendario_nyse');
+  const fsS = require('fs'), osS = require('os'), pathS = require('path');
+  const dir = fsS.mkdtempSync(pathS.join(osS.tmpdir(), 'libro-senales-'));
+  const q0 = { SPX261218P07500000: { bid: 132.0, ask: 132.9, mark: 132.45 }, SPX261218P07490000: { bid: 128.6, ask: 129.4, mark: 129.0 } };
+  const bp = [{ sym: 'SPX261218P07500000', q: -1 }, { sym: 'SPX261218P07490000', q: 1 }];
+  chequear('abrir cruzando: vende al bid, compra al ask', ls.netoCruzando(bp, q0, 'abrir') === 2.6, `dio ${ls.netoCruzando(bp, q0, 'abrir')}`);
+  chequear('cerrar cruzando: recompra al ask, vende al bid', ls.netoCruzando(bp, q0, 'cerrar') === -4.3, `dio ${ls.netoCruzando(bp, q0, 'cerrar')}`);
+  const body = ls.cuerpoOrden(bp, 2.6, true);
+  chequear('la orden del dry-run lleva el símbolo de Tasty y el efecto correcto',
+    body.legs[0].symbol === 'SPX   261218P07500000' && body.legs[0].action === 'Sell to Open' && body['price-effect'] === 'Credit');
+  let reloj = new Date('2026-11-13T16:27:00Z');                 // 2 min después de la señal de Facu
+  const rutas = [];
+  const libro = ls.crearLibroSenales({
+    dataDir: dir, calendario: calS, ahora: () => reloj,
+    cotizar: async () => ({ q: q0 }),
+    dryRun: async (b) => { rutas.push(b['price-effect']); return { ok: true, fees: 2.28 }; },
+  });
+  const ALERTA = '🔔 *Options Alert — Sigma Trade*\n\n📌 *SPX — Bull Put Spread*\n\n🔴 Sell 1× Put 7500 (Dec 18, 2026) @ $132.45\n🟢 Buy 1× Put 7490 (Dec 18, 2026) @ $129.00\n\n💰 *Net Credit:* $345.00\n\n📉 *Max loss (risk):* $655.00';
+  pruebasAsync.push((async () => {
+    let r = await libro.procesarAlerta({ alertId: 'A1', mensajeAt: '2026-11-13T16:25:19Z', texto: ALERTA, autorJid: '5491125371038@s.whatsapp.net' });
+    chequear('señal dentro de los 30 min: abre en el demo', r.estado === 'ABIERTA', JSON.stringify(r));
+    r = await libro.procesarAlerta({ alertId: 'A1', mensajeAt: '2026-11-13T16:25:19Z', texto: ALERTA });
+    chequear('el mismo mensaje dos veces no duplica', r.repetida === true);
+    reloj = new Date('2026-11-13T17:30:00Z');
+    r = await libro.procesarAlerta({ alertId: 'A2', mensajeAt: '2026-11-13T16:50:00Z',
+      texto: ALERTA.replace(/7500/g, '7400').replace(/7490/g, '7390'), autorJid: '13213201370@s.whatsapp.net' });
+    chequear('señal recibida pasados los 30 min: VENCIDA, no se toma', r.estado === 'VENCIDA', JSON.stringify(r));
+    reloj = new Date('2026-11-13T18:53:00Z');
+    r = await libro.procesarAlerta({ alertId: 'A3', mensajeAt: '2026-11-13T18:52:14Z',
+      texto: '⚠️ CLOSED\n\n✅ SPX December 18 7490/7500 Bull Put Spread @ 14.49%\nClosed at 2.95 debit\n\nProfit of $50 per position' });
+    chequear('el CLOSED del profe cierra la posición del demo', r.estado === 'CIERRE_DEMO', JSON.stringify(r));
+    const res = await libro.resumen({ marcar: false });
+    // entrada 2.60 crédito, salida -4.30 → (2.60 - 4.30) * 100 - 2.28 - 2.28 = -174.56
+    chequear('P&L = (entrada + salida) × 100 − comisiones reales', res.realizado === -174.56, `dio ${res.realizado}`);
+    chequear('saldo del libro = $10.000 + realizado', res.saldo === 9825.44, `dio ${res.saldo}`);
+    chequear('el libro solo pidió dry-runs (abrir crédito, cerrar débito)', rutas.join(',') === 'Credit,Debit', rutas.join(','));
+    chequear('la vencida cuenta en el historial por profe', res.porProfe.some((x) => x.profe === 'Luis' && x.vencidas === 1));
+    reloj = new Date('2026-11-14T15:00:00Z');                    // sábado
+    r = await libro.procesarAlerta({ alertId: 'A4', mensajeAt: '2026-11-14T15:00:00Z',
+      texto: ALERTA.replace(/7500/g, '7600').replace(/7490/g, '7590') });
+    chequear('fin de semana: queda pendiente (no abre con mercado cerrado)', r.estado === 'ESPERA', JSON.stringify(r));
+    fsS.rmSync(dir, { recursive: true, force: true });
+  })());
+}
+
 (async () => {
   // Pruebas de unidad asincronas (2026-11-09, ejecutor de TastyTrade): se esperan antes del resumen.
   await Promise.all(pruebasAsync);

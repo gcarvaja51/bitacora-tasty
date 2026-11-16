@@ -30,7 +30,10 @@ const bicho = (d) => (d === 'BULLISH' ? '🐂' : d === 'BEARISH' ? '🐻' : '');
 // stopUsd = stop por contrato para un spread de 5 PUNTOS; es proporcional al ancho (Guillermo 2026-11-10: "cuando haya
 // spreads de 10 puntos duplicamos el stop"): 5 pts → $150, 10 pts → $300.
 function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital = 2000, maxAbiertas = 3,
-                              archivo = 'ironballs_demo.json', fuente = 'Pipe', stopUsd = null, tpPct = null }) {
+                              archivo = 'ironballs_demo.json', fuente = 'Pipe', stopUsd = null, tpPct = null,
+                              disponibleLibro = null }) {
+  // disponibleLibro (2026-11-16): Pipe y Alejandro comparten el libro Iron Balls de $10.000 de la Demo Tasty; si se pasa,
+  // el control de saldo usa lo disponible en el LIBRO, no el de esta instancia sola.
   const ARCHIVO = path.join(dataDir, archivo);
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return []; } };
   const guardar = (l) => fs.writeFileSync(ARCHIVO, JSON.stringify(l.slice(0, 2000), null, 2), 'utf8');
@@ -106,8 +109,9 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
       const precio = credito ? Math.max(nat, +(medio - TICK).toFixed(2)) : Math.min(nat, +(medio + TICK).toFixed(2));
       if (!(precio > 0)) return { ok: false, estado: 'SIN_PRECIO', motivo: `precio de entrada inválido (medio ${medio}, natural ${nat})` };
       const riesgoMaxUsd = Math.round((credito ? v.ancho - precio : precio) * 100);
-      if (!meta.prueba && riesgoMaxUsd > saldoDemo().disponible) {
-        return { ok: false, estado: 'SIN_SALDO', motivo: `riesgo $${riesgoMaxUsd} > disponible $${saldoDemo().disponible}` };
+      const disp = typeof disponibleLibro === 'function' ? disponibleLibro() : saldoDemo().disponible;
+      if (!meta.prueba && riesgoMaxUsd > disp) {
+        return { ok: false, estado: 'SIN_SALDO', motivo: `riesgo $${riesgoMaxUsd} > disponible $${disp}` };
       }
       const dr = await dryRun(cuerpoOrden(rec, precio, true));
       let spx = null;
@@ -245,7 +249,7 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
              abiertas: l.filter(enCurso), lista: l.slice(0, 100) };
   }
 
-  return { abrir, cerrar, anotar, vigilar, resumen, revisarStop, _occ: occ };
+  return { abrir, cerrar, anotar, vigilar, resumen, revisarStop, saldo: saldoDemo, _occ: occ };
 }
 
 module.exports = { crearIronBallsDemo };

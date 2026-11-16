@@ -905,6 +905,30 @@ En **`tasty_demo`** el direccional no toca Tradier:
 `f85c9f8e`); con `tasty_demo` nace una propia. Comisiones medidas en el dry-run del 9-nov:
 **$3.44 por lado** ($6.88 ida y vuelta, contra los $4.20 que se asumían con la tarifa de Tradier).
 
+## Demo Tasty — los libros (2026-11-16)
+
+Pedido de Guillermo: quedan 3 bitácoras (Tasty real, Polymarket, Demo Tasty). La Demo Tasty (`/tradier.html`) tiene
+**cuatro libros de $10.000 que nunca se suman**: Entradas Manuales (clics, `src/clic_real.js` — hoy todavía con $2.000,
+se ajusta en la fase 2), Señales Sigma (`src/libro_senales.js`), Robot SPX (ejecutor `tasty_demo`; el resto del robot
+migra de Tradier en la fase 2) e Iron Balls (Pipe + Alejandro, `src/ironballs_demo.js` con `disponibleLibro`).
+Diseño aprobado: documento "Diseño Bitácora Demo Tasty" (claude.ai/artifact/T8MEB9kv34vPa4XGZHZ1ti).
+
+- **Selector de libro** arriba de la app (`#libro-cabecera`, fuera de `.content` porque cada `.panel` es absoluto).
+  El menú de la izquierda = libro Robot SPX. `GET /api/libros` da los cuatro lado a lado.
+- **Señales Sigma**: el lector (`ironballs/lector.js`, modo `sigma`) barre "Notificaciones 5 de Opción Sigma" cada
+  2 min de 9:30 a 16:00 ET y manda el texto a `POST /api/libros/senales/alerta` (clave `IRONBALLS_TOKEN`). Parser puro
+  en `src/sigma_senales.js`. **30 min de vida** desde la publicación (o desde la próxima apertura si se publicó con el
+  mercado cerrado); si no entra, `vencida`. **Sin meta diaria** en este libro. Llenado cruzando el spread en la cadena
+  de TastyTrade + dry-run (comisiones reales); **nunca manda una orden**. `tick()` reintenta cada minuto en horario.
+- **5491125371038 es Facu Melo**, no Gonza (verificado contra Sigma Terminal el 16-nov).
+- **El lector de la línea USA corre en el PC** (Vultr solo puede la línea Colombia: grupo Operaciones). Si el PC no
+  corre el lector, el Canal Oficial, el Chat VIP y el canal de Sigma no se leen.
+- Barrido de Iron Balls: cada 2 min de 9:45 a 16:00 ET (antes cada 10 s de 9:00 a 16:15).
+- Registro en Excel (fuera del repo): `senales-sigma/exportar_excel.py` → `Registro_Senales_Sigma.xlsx` y
+  `01_Sigma/Pipe/IRON BALLS - señales/Registro_Iron_Balls_Demo.xlsx`.
+
+---
+
 ## 2 · Iron Condor (0DTE + 1DTE)
 
 **No depende de una alerta de Pine** — CIARG_V1 nunca manda `direction: NEUTRAL`, y el gate
