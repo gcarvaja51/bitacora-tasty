@@ -49,7 +49,7 @@ const VENTANA_SIGMA = [9 * 60 + 30, 16 * 60];
 const TODAS_FUENTES = [
   { id: 'canal', cuenta: 'usa', jid: '120363233546136336@g.us', grupo: 'Canal Oficial', modo: 'pipe', ventana: VENTANA_IRONBALLS },
   { id: 'vip', cuenta: 'usa', jid: '120363399540609677@g.us', grupo: 'Chat VIP', modo: 'pipe', ventana: VENTANA_IRONBALLS },
-  { id: 'operaciones', cuenta: 'colombia', jid: '120363189733565990@g.us', grupo: 'Operaciones', modo: 'ale', ventana: VENTANA_IRONBALLS },
+  { id: 'operaciones', cuenta: 'colombia', jid: '120363189733565990@g.us', grupo: 'Operaciones', modo: 'ale', ventana: VENTANA_IRONBALLS, cada: 10 * 1000 },
   // 2026-11-16: canal de Sigma → libro Señales Sigma de la Demo Tasty (el servidor decide: 30 min de vida, sin meta)
   { id: 'sigma', cuenta: 'usa', jid: '120363403656198230@g.us', grupo: 'Notificaciones 5 Sigma', modo: 'sigma', ventana: VENTANA_SIGMA },
 ];
@@ -57,6 +57,10 @@ const FOTO_AUTORES = new Set(['5491132318348@s.whatsapp.net', '18287810664@s.wha
 const TEXTO_AUTORES = new Set(['5491132318348@s.whatsapp.net']);                                 // solo Alejandro
 const FOTO_MAX_MIN = 10;     // una foto mas vieja no se manda (el servidor exige <= 5 min; ahorra la lectura)
 const CICLO_MS = 2 * 60 * 1000;   // 2026-11-16 Guillermo: barrido cada 2 minutos en los dos canales (antes 10 s)
+// Excepción (Guillermo 2026-11-16 noche, "haz el cambio de temporalidad ya mismo"): Operaciones sigue cada 10 s,
+// porque Alejandro entra y sale en pocos minutos. Cada fuente puede traer su propio `cada`.
+const cadaDe = (f) => f.cada || CICLO_MS;
+const ultimaPasada = {};
 const AVISO_CAIDA_MIN = 3;   // un grupo que falla 3 min seguidos en mercado manda ntfy (una vez)
 const ESTADO = path.join(DIR, 'estado.json');
 const STATUS = path.join(DIR, 'status.json');
@@ -248,6 +252,8 @@ const enSuVentana = (f) => args.has('--una-vez') || calendario.enVentanaET(f.ven
 async function pasada() {
   const res = {};
   for (const f of FUENTES.filter(enSuVentana)) {
+    if (!args.has('--una-vez') && Date.now() - (ultimaPasada[f.id] || 0) < cadaDe(f) - 500) continue;
+    ultimaPasada[f.id] = Date.now();
     try {
       res[f.id] = { ok: true, ...(await pasadaFuente(f)) };
       if (errores[f.id]) { log(`[${f.grupo}] volvió (${errores[f.id].msg})`); delete errores[f.id]; }
@@ -273,12 +279,14 @@ async function main() {
     const activo = FUENTES.some(enSuVentana);
     if (activo) {
       const r = await pasada();
-      latido({ ok: Object.values(r).every(x => x.ok), fuentes: r, motivoCierre: null });
+      if (Object.keys(r).length) latido({ ok: Object.values(r).every(x => x.ok), fuentes: r, motivoCierre: null });
     } else {
       latido({ ok: true, dormido: true, motivoCierre: calendario.motivoCierre() || 'fuera_de_horario' });
     }
     if (args.has('--una-vez')) break;
-    await new Promise(r => setTimeout(r, activo ? CICLO_MS : 60 * 1000));
+    // Duerme hasta la fuente activa más rápida (10 s si Operaciones está en su ventana; si no, 2 min).
+    const paso = activo ? Math.min(...FUENTES.filter(enSuVentana).map(cadaDe)) : 60 * 1000;
+    await new Promise(r => setTimeout(r, paso));
   }
 }
 
