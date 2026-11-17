@@ -1,7 +1,10 @@
 @echo off
 REM ===================================================================
 REM  Bitacora_Contador_Diario — lanzado por la Tarea Programada de Windows
-REM  de lunes a viernes a las 15:45 hora Colombia (= 16:45 ET, 45 minutos
+REM  de lunes a viernes a las 16:15 hora Colombia. 2026-11-16: estaba a las
+REM  15:45, que en horario de invierno es ANTES del cierre de NY; Guillermo
+REM  la movio a 16:15 (= 16:15 ET en invierno, 17:15 ET en verano).
+REM  Nota original: (15:45 = 16:45 ET en verano, 45 minutos
 REM  despues del cierre, para que la reconciliacion ya haya asentado).
 REM
 REM  DOS FASES, y el orden importa:

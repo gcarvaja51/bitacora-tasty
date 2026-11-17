@@ -56,7 +56,7 @@ mano y nunca hubo asignación). **Descartada** por Guillermo el 16-nov: La Rueda
 88 s); cierre del gemelo cuando Tradier cierra; el Direccional parando a los $200; la ventana "¿ejecutamos?"; el informe de
 las 16:30 saliendo solo.
 
-**Deudas anotadas.** (a) `Bitacora_Contador_Diario` corre a las 15:45 hora Colombia: en horario de invierno eso es ANTES del
+**Deudas anotadas.** (a) RESUELTA el 16-nov: Guillermo movió `Bitacora_Contador_Diario` a las 16:15 (respaldo de la tarea en `_backup_tareas_20260831/Bitacora_Contador_Diario_antes_20261116.xml`). Antes: corría a las 15:45 hora Colombia: en horario de invierno eso es ANTES del
 cierre de NY (su nota dice 16:45 ET, que solo vale en verano). (b) La sesión de Claude del PC vence entre el 20 y el 23-nov:
 sin renovarla (`claude auth login`) las tareas que usan `claude -p` dejan de entregar. (c) Cuando se apague Tradier, Mediodía,
 Iron Condor y Reversión tienen que correr nativas en el demo: el espejo se queda sin fuente.
