@@ -40,6 +40,20 @@ fuera el robot opera sin muros), `capturar_niveles.mjs`, `scripts/enviar_premerc
 solo la cabecera, sin tocar la lógica del bot) y las skills que escriben con curl. 3) Si hay webhooks de TradingView en uso,
 Guillermo agrega `?k=` en la alerta. 4) `BITACORA_PUERTA=cerrada` en Railway, fuera de horario de mercado, y humo.
 
+## La carpeta Pipe (bot de Polymarket) se mudó afuera (2026-11-17)
+
+**Pedido.** Guillermo: "deja solo la de afuera… ajusta lo que debas ajustar, hazlo ya". Había dos carpetas: la viva en
+`01. guillermo carvajal/01_Sigma/Pipe` (el bot corría desde ahí) y una copia del 16-nov 12:45 en
+`01. guillermo carvajal/01. Pipe`, sin nada propio (comparadas archivo por archivo).
+
+**Qué se hizo (3:53 a 3:55, mercado cerrado).** Bot detenido con el archivo `STOP`; la copia vieja a la papelera; la viva
+movida a **`C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Pipe`**; tarea programada
+"Polymarket Bot" apuntando a la ruta nueva (respaldo `_backup_tareas_20260831/Polymarket_Bot_antes_20261117.xml`);
+`senales-sigma/exportar_excel.py` escribe ahora el Excel de Iron Balls en `01. Pipe/IRON BALLS - señales/`
+(respaldo `.bak_20261117`). El código del bot no se tocó: todas sus rutas son relativas. Bot y vigilante arriba de nuevo.
+
+**Ojo.** Donde este historial diga `Pipe/polymarket-bot`, hoy es `01. Pipe/polymarket-bot`. `01_Sigma/Pipe` ya no existe.
+
 ## Demo Tasty — fase 2 publicada: Robot SPX con meta y espejo, Manuales a $10.000, informe diario (2026-11-16)
 
 **Pedido.** Guillermo: "vamos con fase 2". Decisiones suyas: Tradier en **espejo** durante la semana en paralelo; las
