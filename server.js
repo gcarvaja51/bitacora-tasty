@@ -281,9 +281,9 @@ const ejecutorTasty = crearEjecutorTasty({
   marcar: (legs, lado) => marcarPaper(legs, lado),   // declarada mas abajo (hoisting de funcion)
 });
 const CAPITAL_DEMO_TENDENCIA = Number(process.env.TENDENCIA_DEMO_CAPITAL || 10000);
-// Meta diaria por libro (Guillermo 2026-11-16): con $200 de ganancia CERRADA en el día, el libro no abre más trades.
+// Meta diaria por libro (Guillermo 2026-11-16; subida de $200 a $300 esa misma noche): con $300 de ganancia CERRADA en el día, el libro no abre más trades.
 // Aplica a Robot SPX y a Entradas Manuales (allí pregunta en vez de frenar); NO a Señales Sigma ni a Iron Balls.
-const META_DIA_LIBRO = Number(process.env.LIBRO_META_DIA || 200);
+const META_DIA_LIBRO = Number(process.env.LIBRO_META_DIA || 300);
 
 // ── Archivo permanente (2026-11-09) — ver src/archivo.js ──
 // Copia por dia, sin tope, de las lecturas de gamma/muros y del log de decisiones, que en sus archivos
