@@ -1,8 +1,11 @@
 @echo off
 REM ===================================================================
-REM  Bitacora_Informe_Libros — Tarea Programada, lunes a viernes 16:30
-REM  hora Colombia (16:30 ET en invierno, 17:30 ET en verano: siempre
-REM  despues del cierre de Nueva York).
+REM  Bitacora_Informe_Libros — Tarea Programada, lunes a viernes 16:15
+REM  hora Colombia (16:15 ET en invierno, 17:15 ET en verano: siempre
+REM  despues del cierre de Nueva York). Guillermo 2026-11-16: "los informes
+REM  de cierre todos a la misma hora 16:15". Ojo: a las 16:15 ET el espejo
+REM  puede tener un cierre sin asentar (espera precio hasta 20 min); el
+REM  informe lo marca "pendiente de asentar", no lo inventa.
 REM
 REM  Informe diario de los CUATRO libros del Demo Tasty (fase 2 paso 3,
 REM  2026-11-16): que trades hizo cada libro y el resultado del dia.

@@ -46,7 +46,7 @@ ventana del PC; meta de **$200/día** (probó subirla a $300 y la dejó en $200:
    `bb4e823` la devolvió a $200.
 3. `bc30883` — informe diario de los cuatro libros: `src/informe_diario.js` (función pura), `GET /api/libros/diario?fecha=`,
    `scripts/informe_libros.py` (PDF + WhatsApp, sin Claude) y `scripts/ejecutar_informe_libros.cmd` (el correo lo manda Claude
-   con lo ya calculado). Tarea programada **Bitacora_Informe_Libros**, lunes a viernes 16:30 hora Colombia; se salta los
+   con lo ya calculado). Tarea programada **Bitacora_Informe_Libros**, lunes a viernes (16:30 al publicarse; 16:15 desde esa misma noche); se salta los
    festivos. Salida en `informes_libros/` (fuera de git). Solo se envía a Guillermo. Primera corrida real: 16-nov 22:06, OK.
 
 **Lo que NO entró en la fase 2.** La Rueda: no tiene trades automáticos desde el 15-sep (sus señales esperan aprobación a
@@ -60,6 +60,11 @@ las 16:30 saliendo solo.
 cierre de NY (su nota dice 16:45 ET, que solo vale en verano). (b) La sesión de Claude del PC vence entre el 20 y el 23-nov:
 sin renovarla (`claude auth login`) las tareas que usan `claude -p` dejan de entregar. (c) Cuando se apague Tradier, Mediodía,
 Iron Condor y Reversión tienen que correr nativas en el demo: el espejo se queda sin fuente.
+
+**Informes de cierre a las 16:15 (Guillermo, 16-nov: "los informes de cierre todos a la misma hora 16:15").** `Bitacora_Contador_Diario`,
+`Cierre_del_Dia_SPX` (antes 15:00 y 16:00; su lanzador ya exige que en NY sean las 16 o más) y `Bitacora_Informe_Libros` (antes 16:30).
+Respaldos de las tres tareas en `_backup_tareas_20260831/*_antes_20261116.xml`. No se tocaron `Senales_Sigma_Seguimiento` (15:30) ni
+`SigmaMaxPainCierre` (14:30).
 
 **Sigue.** Semana en paralelo comparando Tradier contra Demo; después, apagar Tradier con el "sí" de Guillermo y archivar.
 
