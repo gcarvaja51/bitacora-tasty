@@ -19,6 +19,38 @@
 
 ---
 
+## Demo Tasty — fase 1 publicada: libros Señales Sigma e Iron Balls (2026-11-16)
+
+**Pedido.** Guillermo: quedarse con 3 bitácoras (Tasty real, Polymarket, Demo Tasty) y que el Demo Tasty tenga libros
+separados de $10.000 que nunca se suman: Entradas Manuales, Señales Sigma, Robot SPX e Iron Balls. Solo TastyTrade para
+las posiciones demo (cadena real, dry-run, comisiones reales, nunca órdenes). Diseño: doc "Diseño Bitácora Demo Tasty".
+
+**Reglas vigentes que nacieron acá.** Señal Sigma vive 30 min (si no se pudo entrar: "vencida, no tomada"; publicada con
+el mercado cerrado cuenta desde la apertura siguiente). Meta de $200/día por libro solo en Entradas Manuales y Robot SPX
+(fase 2); Señales Sigma sin límite. Barrido: Sigma 9:30–16:00 ET cada 2 min; Pipe 9:45–16:00 cada 2 min; Operaciones
+(Alejandro/Emerson) cada 10 s, porque entra y sale en minutos (16-nov: dentro 11:11 ET, fuera 11:15 ET).
+
+**Qué se publicó (en orden, cada paso con su "dale").**
+1. `9c37fd8` — `src/sigma_senales.js` (parser), `src/libro_senales.js` (libro), endpoints `/api/libros*`, selector de libro y
+   hoja Comparar en `public/tradier.html` (sw v47), `disponibleLibro` en `ironballs_demo.js`. Humo contra prod: 474 OK.
+2. Importadas al libro las 12 posiciones de `senales-sigma/datos/demo.json` (`POST /api/libros/senales/importar`), marcadas
+   `antesDeLaRegla`. Realizado −$190 igual al demo local. Un segundo import se rechaza.
+3. PC: tarea programada **Lector_IronBalls_Sigma** (al iniciar sesión, `scripts/oculto.vbs` → `ironballs/start.bat`). Lee
+   Canal Oficial, Chat VIP, Operaciones y Notificaciones 5 Sigma. Los 60 mensajes viejos del canal Sigma quedaron vistos.
+4. Vultr (`/home/ubuntu/ironballs-lector`, servicio `ironballs-lector`, solo Operaciones): `lector.js` v3 + `src/sigma_senales.js`.
+   Respaldo: `ironballs/lector.js.v2_20261116` y `estado.json.bak_20261116`.
+   `5db7334` — ritmo por fuente (`cada`): Operaciones 10 s, el resto 2 min. Subido a Vultr y al PC.
+5. Excel automáticos: `senales-sigma/exportar_excel.py` corre al final de cada corte de señales (`ejecutar-informe.cmd`, sin
+   depender de Claude) → `Registro_Senales_Sigma.xlsx` y `Pipe/IRON BALLS - señales/Registro_Iron_Balls_Demo.xlsx`.
+6. Informe de señales: `generar_pdf.py` lee el libro (`GET /api/libros/senales?marcar=1`) en vez de `demo.json` y marca
+   "Entraste tarde: X" con el campo `entre_at`. El demo local quedó congelado (ya no se corren `motor.py pendientes`/`validar`).
+   Respaldos `.bak_20261116` del generador, del SKILL.md y del .cmd.
+
+**Pendiente de ver en vivo (17-nov).** Primera señal real de Sigma entrando sola al libro; Operaciones a 10 s; corte de 8:00.
+
+**Fase 2.** Robot SPX completo (Direccional, Mediodía, IC, Reversión, La Rueda) al Demo Tasty; Entradas Manuales a $10.000
+con la meta de $200 y la pregunta "Ya pasaste la meta de 200 dólares/día, ¿ejecutamos?". Luego semana en paralelo y apagar Tradier.
+
 ## Una pestaña de Sigma trabada se reusaba hasta que el vigilante mataba el proceso (2026-10-02)
 
 **Síntoma.** El 02-oct, de 09:28 a 09:49 ET (la apertura), el daemon no leyó Sigma. El panel
