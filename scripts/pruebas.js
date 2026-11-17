@@ -1953,6 +1953,68 @@ seccion('Espejo del Robot SPX: Tradier → Demo Tasty (src/espejo_robot.js)');
   })().catch((e) => chequear('pruebas del espejo sin excepciones', false, e.stack)));
 }
 
+// ── Informe diario de los 4 libros (src/informe_diario.js) — fase 2 paso 3, 2026-11-16 ──
+seccion('Informe diario de los cuatro libros (src/informe_diario.js)');
+{
+  const { armarDia, textoPatas, fechaET: fET } = require('../src/informe_diario');
+  chequear('diario: el día es el de Nueva York (01:30Z del 18 todavía es 17)', fET('2026-11-18T01:30:00Z') === '2026-11-17');
+  chequear('diario: resume las patas', textoPatas([{ sym: 'SPXW261117P07400000', q: -1 }, { sym: 'SPXW261117P07385000', q: 1 }]) === '-1 7400P / +1 7385P');
+  const F = '2026-11-17';
+  const dia = armarDia({
+    fecha: F, hoy: F, diaDeMercado: true,
+    manual: { capital: 10000, saldo: 9700, pnlAbierto: 12.5, metaDia: { meta: 200, pnlHoy: 100, superada: false }, lista: [
+      { abiertaEn: '2026-11-17T15:00:00Z', cerradaEn: '2026-11-17T15:30:00Z', nombre: 'Bull Put', strikes: '7400/7395', entrada: 1.5, salida: 0.5, comisiones: 6.88, pnlNeto: 93.12, estado: 'cerrada', motivo: 'TP' },
+      { abiertaEn: '2026-11-17T18:00:00Z', nombre: 'Bear Call', strikes: '7500/7505', entrada: 1.2, comisiones: 3.44, pnlNeto: null, estado: 'abierta' },
+      { abiertaEn: '2026-11-16T15:00:00Z', cerradaEn: '2026-11-16T16:00:00Z', nombre: 'Viejo', strikes: '1/2', pnlNeto: 500, estado: 'cerrada' },
+    ] },
+    senales: { capital: 10000, saldo: 9810, pnlHoy: 20, alertas: [],
+      abiertas: [{ profe: 'Luis', activo: 'SPY', estrategia: 'BPS', patas: [], mensajeAt: '2026-11-17T15:00:00Z', entrada: { at: '2026-11-17T15:02:00Z', precio: 0.8, fees: 2 }, estado: 'abierta', latenteCruzando: -15 }],
+      pendientes: [],
+      historial: [
+        { profe: 'Rocío', activo: 'IWM', estrategia: 'Calendario', mensajeAt: '2026-11-10T15:00:00Z', entrada: { at: '2026-11-10T15:01:00Z', precio: 0.6, fees: 1 }, salida: { precio: 0.9, fees: 1 }, estado: 'cerrada', pnlRealizado: 20, cerradaAt: '2026-11-17T17:00:00Z' },
+        { profe: 'Facu', activo: 'XSP', estrategia: 'Calendario', mensajeAt: '2026-11-17T16:00:00Z', entrada: null, estado: 'rechazada', motivo: 'Dry-run rechazado', cerradaAt: '2026-11-17T16:00:30Z' },
+      ] },
+    ejecuciones: [
+      { broker: 'tasty_demo', strategyFamily: 'TENDENCIA', strategy: 'BEAR_PUT_SPREAD', strikes: { longStrike: 7495, shortStrike: 7485 }, contracts: 1, status: 'closed',
+        timestamp: '2026-11-17T16:00:00Z', closedAt: '2026-11-17T16:40:00Z', entryFillPrice: 3.7, feesApertura: 3.44, feesCierre: 3.44, closeReason: 'TP', bruto: 250 },
+      { broker: 'tradier', strategyFamily: 'MEDIODIA', status: 'closed', timestamp: '2026-11-17T16:00:00Z', closedAt: '2026-11-17T17:00:00Z', bruto: 999 },
+    ],
+    pnlDe: (e) => e.bruto ?? null,
+    gemelos: [
+      { espejo: true, broker: 'tasty_demo', strategyFamily: 'MEDIODIA', status: 'closed', patas: [{ sym: 'SPXW261117P07400000', q: -1 }], filledAt: '2026-11-17T16:30:40Z', timestamp: '2026-11-17T16:30:40Z',
+        closedAt: '2026-11-17T17:10:00Z', closeReason: 'TP', entrada: { precio: 3.7 }, salida: { precio: 2.3 }, feesApertura: 5.2, feesCierre: 5.2, pnlNeto: 129.6, tradierPnl: 180, retrasoSeg: 5 },
+      { espejo: true, broker: 'tasty_demo', strategyFamily: 'REVERSION', status: 'no_abierta', motivo: 'meta del día alcanzada', timestamp: '2026-11-17T18:00:00Z', patas: [] },
+      { espejo: true, broker: 'tasty_demo', strategyFamily: 'NEUTRAL', status: 'closed', patas: [], filledAt: '2026-11-17T17:00:00Z', timestamp: '2026-11-17T17:00:00Z', closedAt: '2026-11-17T21:30:00Z',
+        feesApertura: 5, feesCierre: 5, pnlNeto: 360, tradierPnl: 370, salidaDeTradier: true, retrasoSeg: 9 },
+    ],
+    robot: { capital: 10000, saldo: 10500, pnlHoy: 732.72, metaDia: 200, metaAlcanzada: true },
+    espejo: { desde: '2026-11-17T14:30:00Z' }, espejoActivo: true,
+    ironPipe: { lista: [{ prueba: true, estado: 'cerrada', abiertaEn: '2026-11-17T15:00:00Z', cerradaEn: '2026-11-17T15:10:00Z', pnlUsd: -11.88 }] },
+    ironAle: { lista: [{ prueba: false, fuenteSenal: 'Alejandro', nombre: 'Bear Call Spread', corto: 7605, largo: 7610, estado: 'cerrada', abiertaEn: '2026-11-17T16:01:00Z', cerradaEn: '2026-11-17T16:10:00Z',
+      precioEntrada: 2.8, precioSalida: 2.25, feesApertura: 3.44, feesCierre: 3.44, pnlUsd: 48.12, motivoCierre: 'FUERA_ALEJANDRO' }] },
+    ironLibro: { capital: 10000, saldo: 10180.6 },
+  });
+  const L = Object.fromEntries(dia.libros.map((x) => [x.libro, x]));
+  chequear('diario: trae los cuatro libros, en orden y sin sumar saldos', dia.libros.map((x) => x.libro).join('|') === 'Entradas Manuales|Señales Sigma|Robot SPX|Iron Balls' && !('saldoTotal' in dia));
+  const m = L['Entradas Manuales'];
+  chequear('diario manual: solo cuenta lo cerrado hoy ($93.12), no lo de ayer', m.resultadoHoy === 93.12 && m.cerradosHoy === 1 && m.abiertosHoy === 2 && m.abiertasAhora === 1);
+  chequear('diario manual: avisa si el libro reporta otro número del día (cierres parciales)', m.avisos.some((a) => /El libro reporta \$100/.test(a)) && m.latente === 12.5);
+  const sg = L['Señales Sigma'];
+  chequear('diario señales: cierre de hoy de una posición vieja cuenta; lo abierto hoy aparece', sg.resultadoHoy === 20 && sg.cerradosHoy === 1 && sg.abiertosHoy === 1 && sg.movimientos.length === 2 && sg.avisos.length === 0);
+  chequear('diario señales: la rechazada sale en "no entraron" con su motivo y el latente de lo abierto', sg.noEntraron.length === 1 && /rechazado/.test(sg.noEntraron[0].motivo) && sg.latente === -15);
+  const rb = L['Robot SPX'];
+  chequear('diario robot: Direccional neto de comisiones (250 - 6.88) + gemelos; Tradier puro no entra', rb.resultadoHoy === +(243.12 + 129.6 + 360).toFixed(2) && rb.cerradosHoy === 3, `dio ${rb.resultadoHoy}`);
+  chequear('diario robot: separa por estrategia', rb.porEstrategiaHoy.length === 3 && rb.porEstrategiaHoy.find((x) => x.estrategia === 'Mediodía').neto === 129.6);
+  chequear('diario robot: espejo compara solo lo comparable (no lo asentado con Tradier)', rb.espejo.comparables === 1 && rb.espejo.demoNeto === 129.6 && rb.espejo.tradierBruto === 180 && rb.espejo.retrasoProm === 7 && rb.espejo.noCopiadosHoy === 1);
+  chequear('diario robot: avisa la meta alcanzada', rb.avisos.some((a) => /Meta del día alcanzada/.test(a)));
+  const ib = L['Iron Balls'];
+  chequear('diario iron balls: ignora las pruebas y trae la fuente', ib.resultadoHoy === 48.12 && ib.movimientos.length === 1 && ib.movimientos[0].grupo === 'Alejandro' && ib.saldo === 10180.6);
+  const vacio = armarDia({ fecha: '2026-11-18', hoy: '2026-11-18', errores: { 'Iron Balls': 'caído' } });
+  chequear('diario: un día sin trades sale en ceros, y un libro caído no tumba a los otros', vacio.libros[0].resultadoHoy === 0 && vacio.libros[0].movimientos.length === 0 && vacio.libros[3].error === 'caído' && vacio.libros.length === 4);
+  const pend = armarDia({ fecha: F, hoy: F, gemelos: [{ espejo: true, strategyFamily: 'NEUTRAL', status: 'closed', patas: [], filledAt: '2026-11-17T17:00:00Z', closedAt: '2026-11-17T21:01:00Z', pnlNeto: null }] });
+  chequear('diario: un cierre sin resultado asentado se avisa y no se inventa', pend.libros[2].resultadoHoy === 0 && pend.libros[2].avisos.some((a) => /sin resultado asentado/.test(a)));
+}
+
 seccion('Señales Sigma: lectura de las alertas (src/sigma_senales.js)');
 {
   const sg = require('../src/sigma_senales');

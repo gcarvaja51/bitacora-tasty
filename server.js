@@ -8971,6 +8971,28 @@ app.get('/api/libros', async (req, res) => {
   res.json(out);
 });
 
+// Informe diario de los cuatro libros (fase 2 paso 3, 2026-11-16) — ver src/informe_diario.js. SOLO LECTURA.
+// ?fecha=AAAA-MM-DD (día de Nueva York; por defecto hoy). Lo consume scripts/informe_libros.py en el PC a las 16:30.
+app.get('/api/libros/diario', async (req, res) => {
+  try {
+    const { armarDia } = require('./src/informe_diario');
+    const { resultadoOficial } = require('./src/pnl_oficial');
+    const hoy = calendario.fechaET(new Date());
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.fecha || '')) ? String(req.query.fecha) : hoy;
+    const errores = {}, d = {};
+    try { d.manual = await clicReal.demo(); } catch (e) { errores['Entradas Manuales'] = e.message; }
+    try { d.senales = await libroSenales.resumen({ marcar: true }); } catch (e) { errores['Señales Sigma'] = e.message; }
+    try {
+      d.ejecuciones = loadTradierExecutions(); d.gemelos = espejoRobot.resumen().registros;
+      d.robot = cuentaDemoTendenciaActual(); d.espejo = espejoRobot.resumen(); d.espejoActivo = espejoRobotActivo();
+    } catch (e) { errores['Robot SPX'] = e.message; }
+    try { d.ironPipe = ironBallsDemo.resumen(); d.ironAle = ironBallsAleDemo.resumen(); d.ironLibro = libroIronBalls(); }
+    catch (e) { errores['Iron Balls'] = e.message; }
+    res.json(armarDia({ ...d, fecha, hoy, errores, pnlDe: (ex) => resultadoOficial(ex)?.pnl ?? null,
+      diaDeMercado: calendario.esDiaDeMercado(new Date(fecha + 'T17:00:00Z')) }));
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 app.post('/api/ironballs/ale', async (req, res) => {
   const clave = process.env.IRONBALLS_TOKEN;
   if (!clave) return res.status(503).json({ ok: false, error: 'IRONBALLS_TOKEN no configurado: lector apagado' });

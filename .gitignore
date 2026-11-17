@@ -136,3 +136,6 @@ ironballs/status.json
 ironballs/lector.log
 ironballs/lector_consola.log
 ironballs/.env
+
+# Informe diario de los 4 libros (scripts/informe_libros.py): salida generada cada dia
+informes_libros/
