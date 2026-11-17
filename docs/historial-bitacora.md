@@ -50,8 +50,7 @@ ventana del PC; meta de **$200/día** (probó subirla a $300 y la dejó en $200:
    festivos. Salida en `informes_libros/` (fuera de git). Solo se envía a Guillermo. Primera corrida real: 16-nov 22:06, OK.
 
 **Lo que NO entró en la fase 2.** La Rueda: no tiene trades automáticos desde el 15-sep (sus señales esperan aprobación a
-mano y nunca hubo asignación). Queda como trabajo aparte: demo con asignación simulada y llamada de margen si el poder de
-compra queda negativo, "lo mismo que haría el broker".
+mano y nunca hubo asignación). **Descartada** por Guillermo el 16-nov: La Rueda no entra al Demo Tasty (no se construye la asignación simulada ni la llamada de margen).
 
 **Pendiente de ver en vivo (17-nov).** Primer trade copiado por el espejo y su retraso (Tradier tarda ~41 s en llenar, p90
 88 s); cierre del gemelo cuando Tradier cierra; el Direccional parando a los $200; la ventana "¿ejecutamos?"; el informe de
