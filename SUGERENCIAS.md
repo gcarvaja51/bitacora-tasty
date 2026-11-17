@@ -893,6 +893,88 @@ ser idénticos a los de Finviz. Mientras tanto la Rueda auto corre solo con
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
 
+### 2026-11-12 (bis) · revisión SEMANAL del jueves, 6 a 12-nov — SIN PROPUESTA
+
+2.956 evaluaciones contra 2.033 en la ventana previa. ⚠️ **La previa está recortada**: el log
+arranca el 2-nov a las 14:10 ET (tope de 5.000 filas), faltan ~11,2 h de sesión. Comparo por
+proporción.
+
+**Lo que cambió en la señal esta semana:** el **Direccional v2** (freno del premercado + DIR-5 +
+TP75/SL75) está encendido desde el **11-nov** (los trades de ese día ya llevan `tpPct` 75 y
+`slMult` 1,75), con el ejecutor en la demo de TastyTrade desde el 10-nov. **DIR-5 ya no es una
+propuesta: entró dentro del v2.** Las demás familias no tuvieron cambios de señal (los commits
+de la semana son IRONBALLS, Flujo Sigma, archivo y screeners).
+
+**Resultado de la semana (comparables, `resultadoOficial`):** TENDENCIA 17, 8 ganan, −$815
+(antes del v2, 6/9/10-nov: n=12, −$735; con v2, 11 y 12-nov: n=5, −$80). MEDIODIA 5, 4 TP,
++$475. NEUTRAL 3, +$20. REVERSION 1 comparable (TIME_STOP, $0) y 4 aperturas sin llenar.
+
+**Propuestas por familia:**
+
+| Familia | Propuesta | Por qué |
+|---|---|---|
+| TENDENCIA | **Ninguna** | El v2 se encendió el 11-nov: es un cambio ALTO de la familia con 5 trades. Proponer otra ALTO ahora haría imposible saber cuál funcionó (congelar hasta ~30) |
+| REVERSION | **Ninguna** | 1 trade comparable en la semana. La apertura tuvo 3 días aptos (10, 11 y 12-nov) y 4 de 5 órdenes no llenaron: eso es ejecución, no señal |
+| NEUTRAL | **Ninguna** | n=3, +$20. El IC 0DTE murió en GATE_FAIL por gamma negativo (41) y «sin PIN» |
+| MEDIODIA | **Ninguna** | La variable candidata (centro contra spot) **falló fuera de muestra** (ver abajo) |
+
+**MEDIODIA — la hipótesis del centro no aguantó la semana.** Definición: `distanciaAlCentro` =
+spot − centro al entrar; «centro arriba» = negativa. Sin `MANUAL_FORZADO` ni canceladas,
+29-sep a 12-nov:
+
+| | n | TP | P&L | por trade |
+|---|---|---|---|---|
+| Centro arriba del spot | 13 | 5 | −$1.055 | −$81,2 |
+| Centro debajo o igual | 8 | 6 | +$715 | +$89,4 |
+
+Fuera de muestra (después del 29-oct, cuando se anotó): **centro arriba n=4, 3 TP, +$215**
+(9, 10 y 11-nov ganaron con el centro 1, 7 y 22 pts arriba; el 12-nov perdió −$450 con 4,4 pts
+arriba, por la caída de la tarde con el gamma pasado a NEGATIVO a las 14:31). Centro debajo n=3,
++$435. La brecha en P&L sigue, pero el acierto fuera de muestra se dio vuelta: con n=4 no la
+refuta, tampoco la sostiene. Se sigue anotando; no se propone.
+
+**TENDENCIA — anotado, no propuesto (la familia está congelada por el v2):**
+- **Entradas contra el giro de la sesión: n=4 en 3 días** (10-nov 12:37 y 13:45 Bear Put, SL
+  −$230 y −$210; 11-nov 13:37 Bull Put con el spot a 6,5 pts del Call Wall, SL −$160; 12-nov 09:46
+  Bear Call con el spot ya 36 pts arriba del mínimo del gap, SL −$250). Las cuatro: −$850, más que
+  la pérdida de la semana entera. Es el filtro de 15m que ya está diagnosticado (DIR-1, opción b:
+  que la sesión acompañe). No se mueve con el v2 recién encendido.
+- **DIR-5 en su última semana como sombra** (6 a 10-nov, BEARISH): vetada n=1 (10-nov 13:45,
+  −$210); pasan n=4, −$340 (−$85 por trade). Acumulado aproximado 17-ago a 10-nov: vetadas n=29,
+  ≈ −$80 por trade; pasan n=50, ≈ −$14. Ya opera dentro del v2.
+- **El freno del premercado actuó por primera vez el 12-nov: 27 bloqueos** (Bull Put con cortas
+  7610-7625 entre 11:50 y 12:52; el SPX cerró en ~7592). ⚠️ **No hay instrumento que lo valore**:
+  las señales bloqueadas quedan en `spx_signals.json` con `tradierOrder.skipped`, pero nadie les
+  pone precio después. `sombra-libro` es de las puertas de REVERSION. Sin eso el Auditor no va a
+  poder decir si el freno acierta: va a ver solo los trades que dejó pasar.
+- `NO_STRIKES` delta 0,30: 27 (9 el 9-nov, 5 el 11-nov, 13 el 12-nov) contra 2. No es nuevo (28
+  el 22-oct); el snapshot sigue sin guardar por qué falló.
+
+**Calidad del dato**
+- **Spot:** n=1.329, mediana 17 s, p90 35 s, máx 174 s; 22 sobre 120 s (1,7%), ninguno sobre el
+  tope de 180 s. Sigma 1.177 (19 s), Yahoo 126 (3,5 s), TastyTrade 26 (1 s). Sigma estuvo vivo al
+  mediodía toda la semana: `MEDIODIA_SIN_MVS` 0 (antes 16).
+- **Sellos:** 128 de 464 sin sello, el backlog de siempre; lo nuevo viene sellado. **Libro:** los
+  5 ids de siempre.
+- **Completitud:** `CIERRE_PRE_CLOSE_30MIN` sin fuente/edad de la cotización en 10 de 11 (el
+  cierre por hora de MEDIODIA; sigue sin estar en `exentosSinCotizacion`). `entryGamma` solo se
+  sella en TENDENCIA.
+- **Velas de Sigma congeladas desde el 23-oct** (14 días de mercado): el listón y la escalera de
+  impulso siguen sin actuar. Ya no importa para la salida de TENDENCIA (el v2 reemplazó la
+  escalera), sí para el listón de score 90 del impulso 3+.
+- ⚠️ **El motor cuenta mal `senalesQueLleganAOrden`**: dice 64 de 73 TENDENCIA llegaron a orden,
+  y fueron **18** (17 llenas + 1 cancelada). Resta solo `GATE_CREDITO_RIESGO` y no descuenta
+  `V2_BLOQUEA` (27), las sugerencias con posición abierta ni los `NO_STRIKES`. Es del motor, no
+  del robot.
+
+**Lo que cambió en el embudo (por proporción):**
+- TENDENCIA `NO_PULLBACK_2M` 37,2% (antes 41,9%), 353 por «marco 15m sin Fase 2 ni 4».
+  `V2_BLOQUEA` 27 (antes 0), todas del 12-nov. `SCORE_FAIL` 23, 16 por el listón tras pérdida.
+- REVERSION `SCORE_FAIL` 7,1% (antes 5,0%), 189 con score 0%. `NO_STRIKES` delta 0,50: 45 (antes
+  5), crónico (REV-9). `APERTURA_DIA_APTO` 6 filas en 3 días.
+- NEUTRAL `GATE_FAIL` 3,2% (antes 3,3%), 41 por gamma negativo.
+- `POSITION_CHECK_MISMATCH` 67 (antes 58 en la ventana recortada): para la Torre.
+
 ### 2026-11-05 (bis) · revisión SEMANAL del jueves, 30-oct a 5-nov — 1 PROPUESTA (DIR-5 vuelve delante de DIR-7)
 
 3.071 evaluaciones contra 1.927 en la ventana previa. ⚠️ **La previa está recortada**: el log

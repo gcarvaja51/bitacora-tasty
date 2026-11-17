@@ -1,0 +1,670 @@
+// Reemplaza a run_gamma_refresh.ps1 (que invocaba un agente de Claude nuevo, en frio,
+// cada 2 min). Este es un proceso de vida larga: mantiene su propio estado entre ciclos
+// (contador de fallos consecutivos, modo degradado), y solo usa codigo determinista --
+// ningun LLM en el loop caliente. Ver notas de diseño en CLAUDE.md / conversacion del
+// 2026-07-30.
+// Hora en cada linea de consola (2026-10-02). start.bat manda la salida a
+// daemon_stdout.log; antes no quedaba en ningun lado y el corte del 02-oct no se
+// pudo reconstruir mas alla de status.json y del vigilante.
+for (const nivel of ['log', 'warn', 'error']) {
+  const orig = console[nivel].bind(console);
+  console[nivel] = (...args) => {
+    if (typeof args[0] === 'string') args[0] = `${new Date().toISOString()} ${args[0]}`;
+    else args.unshift(new Date().toISOString());
+    orig(...args);
+  };
+}
+import * as sigma from './sigma.js';
+import * as tv from './tv.js';
+import { crearLectorDeHoy, exigirVencimientoDeHoy } from './vencimiento.js';
+import { crearRecuperador } from './recuperacion.js';
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
+// El calendario de la NYSE, compartido con el servidor y con los scripts de
+// PowerShell. Es CommonJS (vive bajo el package.json de la raiz, sin
+// "type":"module") asi que entra como default import. Ver src/calendario_nyse.js.
+import calendario from '../src/calendario_nyse.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STATUS_PATH = path.join(__dirname, 'status.json');
+const HISTORY_PATH = path.join(__dirname, 'history.json');
+// ARCHIVO HISTORICO (2026-09-18). history.json es un buffer circular de 60
+// entradas -- existe solo para calcular el "hace ~6 min" de la tabla de
+// CIARG_V1, y a 35s por ciclo eso son 35 MINUTOS de memoria. Todo lo demas se
+// tiraba: meses de lecturas de Sigma a 35 segundos, perdidas.
+//
+// Se descubrio auditando los 24 direccionales de la cuenta real de agosto y
+// septiembre: el check de Regimen (GEX+DEX, 10 de los 100 puntos del score)
+// no se pudo reconstruir en NINGUNO, asi que los scores salieron en banda
+// (70-80, 45-55) en vez de exactos. Tres trades ganadores quedaron sin poder
+// decidir si el bot habria entrado, y de esos tres depende que la adherencia
+// sea 33% o 58%. Las velas de precio si estaban (Tradier y Yahoo dan lo mismo
+// al 0,000); el unico dato que no existia hacia atras era este.
+//
+// Un JSONL por dia ET: una linea por lectura, SIN los arrays de velas
+// (velas2m/5m/15m pesan 15 KB por lectura -- 10 MB/dia -- y ya viajan en el
+// push al servidor). Solo los escalares: 428 bytes por linea medidos, ~293 KB/dia.
+const ARCHIVO_DIR = path.join(__dirname, 'archivo');
+// Con el ciclo en 30s hacen falta ~12 entradas para cubrir los 6 min que mira
+// la tabla del indicador; 60 deja ~30 min de margen.
+const HISTORY_CAP = 60;
+const LOOKBACK_MS = 6 * 60 * 1000;   // "hace ~6 min" de la tabla de GEX/DEX/Vanna
+
+const PROD_BASE = 'https://web-production-23473.up.railway.app';
+const NTFY_TOPIC = 'bitacora_gcarvaja51'; // mismo topic que ya usa server.js
+
+// Ciclo de PRECIO: 30s desde el 2026-08-08. Antes eran 2 min, y esa cadencia
+// era la unica fuente de atraso que le quedaba al sistema una vez que Sigma paso
+// a ser la fuente por defecto del spot — el dato de Sigma cambia en el 99% de
+// las lecturas, o sea que se actualiza mas rapido de lo que se le preguntaba.
+// Medido sobre el 07-ago: con ciclo de 2 min el precio llegaba con ~60s de
+// antiguedad tipica y ~0.63 pts de desvio; a 30s eso baja a ~15s y ~0.16 pts.
+// Un ciclo cuesta ~3s (la pagina de Sigma se mantiene abierta, solo se lee el
+// DOM), asi que 30s es holgado.
+const CYCLE_MS_NORMAL = 30 * 1000;
+const CYCLE_MS_DEGRADED = 2 * 60 * 1000;   // al degradarse vuelve a la cadencia vieja
+
+// El push a TradingView NO sigue el ciclo de precio: se queda en 2 min. Si el
+// push falla, pushToTradingViewWithRetry MATA Y RELANZA TradingView — a 30s eso
+// cuadruplicaria los relanzamientos, y dejar al usuario sin poder operar es
+// justo el incidente que este daemon ya provoco el 2026-08-06. El grafico es
+// una ayuda visual; el que decide es el servidor.
+const TV_PUSH_EVERY_MS = 2 * 60 * 1000;
+
+// El GUARDADO del layout a la nube va en su propia cadencia, mas lenta que el
+// push (pedido del usuario, 2026-08-15: "hagamos el cambio en el celular cada 5
+// minutos"). Es lo unico que hace que los muros lleguen al telefono: el push solo
+// los escribe en la memoria de la ventana del escritorio. Cada guardado es una
+// escritura real contra los servidores de TradingView, asi que no tiene sentido
+// hacerlo cada 2 min -- los muros no se mueven a esa velocidad.
+const TV_SAVE_EVERY_MS = 5 * 60 * 1000;
+const FAILURE_THRESHOLD = 3;
+
+let consecutiveFailures = 0;   // fallos que dejan al SERVIDOR sin precio (Sigma o POST)
+let tvFailures = 0;            // fallos del push a TradingView — solo afectan al grafico
+let tvAlerted = false;
+let lastTvPushAt = 0;
+let lastTvSaveAt = 0;          // ultimo guardado del layout a la nube (ver TV_SAVE_EVERY_MS)
+let tvSaveFailures = 0;        // fallos del guardado — solo afectan a lo que ve el celular
+let alerted = false;
+let mode = 'normal';
+// Fallos seguidos de LECTURA de Sigma (no del POST). Manda la escalera de
+// recuperacion: recargar, recargar, relanzar. Ver recuperacion.js (2026-10-02).
+let fallosLecturaSigma = 0;
+let stopped = false;
+
+function loadStatus() {
+  try {
+    return existsSync(STATUS_PATH) ? JSON.parse(readFileSync(STATUS_PATH, 'utf8')) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStatus(patch) {
+  const current = loadStatus();
+  const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
+  writeFileSync(STATUS_PATH, JSON.stringify(next, null, 2));
+}
+
+function loadHistory() {
+  try {
+    return existsSync(HISTORY_PATH) ? JSON.parse(readFileSync(HISTORY_PATH, 'utf8')) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Append de UNA linea al archivo del dia. Best-effort y con su propio try:
+// este daemon mata y relanza TradingView cuando un ciclo falla, asi que una
+// escritura a disco jamas puede tumbar el ciclo. Si el disco falla, se pierde
+// una linea del archivo -- no el push de niveles, que es lo critico.
+function archivarLectura(levels, fase) {
+  try {
+    if (!levels) return;
+    if (!existsSync(ARCHIVO_DIR)) mkdirSync(ARCHIVO_DIR, { recursive: true });
+    const { velas5m, velas2m, velas15m, ...sinVelas } = levels;
+    const fila = { fase, ...sinVelas, archivadoEn: new Date().toISOString() };
+    const dia = calendario.fechaET();
+    appendFileSync(path.join(ARCHIVO_DIR, `${dia}.jsonl`), JSON.stringify(fila) + String.fromCharCode(10));
+  } catch (e) {
+    console.warn('[archivo] no se pudo archivar la lectura (%s) -- el ciclo sigue', e.message);
+  }
+}
+
+// Guarda la lectura actual al FRENTE del historial (mas reciente primero) y devuelve
+// el valor "de hace 3 ciclos" (~6 min, ya que el ciclo normal es cada 2 min) para
+// GEX/DEX/Vanna -- posicional, no por timestamp real, tal como pidio el usuario
+// ("puede ser el reporte de 3 periodos antes"). Si todavia no hay 3 lecturas previas
+// (recien arranco el daemon, o hubo fallos en el medio), usa la mas vieja disponible
+// en vez de fallar -- mejor una comparacion con menos de 6 min de separacion que
+// ninguna comparacion.
+function recordAndGetPrevious(levels) {
+  const history = loadHistory();
+  // Antes era history[2] — "3 ciclos atras", que con el ciclo de 2 min daban
+  // los ~6 min que rotula la tabla del indicador. Con el ciclo en 30s esa
+  // cuenta posicional pasaria a ser 90s y la tabla mentiria. Ahora se busca por
+  // TIEMPO: la lectura mas reciente con al menos LOOKBACK_MS de antiguedad, y
+  // si el historial no llega tan atras, la mas vieja que haya.
+  const corte = Date.now() - LOOKBACK_MS;
+  const prevEntry = history.find(h => h.ts && new Date(h.ts).getTime() <= corte)
+    || history[history.length - 1] || null;
+
+  const updated = [{ ts: new Date().toISOString(), netGex: levels.netGex, netDex: levels.netDex, netVanna: levels.netVanna }, ...history].slice(0, HISTORY_CAP);
+  writeFileSync(HISTORY_PATH, JSON.stringify(updated, null, 2));
+
+  return {
+    netGex: prevEntry ? prevEntry.netGex : levels.netGex,
+    netDex: prevEntry ? prevEntry.netDex : levels.netDex,
+    netVanna: prevEntry ? prevEntry.netVanna : levels.netVanna,
+  };
+}
+
+// Guard de horario duro. Ventana propia: 09:00-16:05 ET (media hora antes de la
+// campana para tener muros puestos en la apertura, cinco minutos despues del
+// cierre para no perder la ultima lectura). El dia lo decide el calendario
+// compartido, que valida fin de semana Y FERIADOS.
+//
+// (2026-09-06) Antes esta funcion resolvia el dia ella misma con un
+// !['Sat','Sun'].includes(weekday) y nada mas. El lunes 2026-09-07 —Labor Day—
+// iba a dar `true` durante siete horas: ~210 ciclos leyendo de Sigma Terminal
+// los mismos numeros congelados del viernes, sellandolos con capturadoEn = AHORA
+// (o sea, llegando al servidor marcados como recien nacidos), empujandolos a
+// TradingView, y rellenando los 60 huecos de history.json con valores muertos
+// que el martes iban a ser el "previo" contra el que se calculan los deltas de
+// GEX/DEX/Vanna. Encima el vigilante, que tambien creia que habia mercado, iba a
+// exigir exitos y matar el proceso al tercer fallo.
+//
+// En medio dia (1:00pm ET) el calendario recorta el final solo: 13:05, no 16:05.
+function isMarketWindow() {
+  return calendario.enVentanaET(9 * 60, 16 * 60 + 5);
+}
+
+// ── Fase de PREMERCADO, solo lectura (2026-09-09) ─────────────────────────────
+//
+// POR QUE. El recolector del premercado (premercado_collector/collect.js) corre a
+// las 08:30 ET y lee los muros de este status.json. Pero la ventana de arriba
+// empieza a las 09:00, o sea que a las 08:30 el daemon lleva toda la noche
+// SALTANDO ciclos y lastLevels sigue siendo el cierre de AYER. No es que fallara
+// un dia: fallaba TODOS. Comprobado en los logs del colector -- 09-09 leyo el
+// dato del 08-09, el 09-08 leyo el del 09-04, el 09-04 el del 09-03 -- y encima
+// lo anunciaba como "[sigma] OK", asi que nadie lo noto. El 09-09 la diferencia
+// entre el dato rancio y el real era Put Wall 7675 vs 7630 y Call Wall 7680 vs
+// 7700, con la cadena de otro vencimiento.
+//
+// POR QUE NO SE AMPLIA isMarketWindow() A SECAS. Porque runCycle() hace POST a
+// PROD_BASE, y ese servidor es el que OPERA LA CUENTA REAL. Ampliar la ventana
+// le meteria niveles de premercado --con la cadena a medio formar y sin volumen--
+// al sistema que decide entradas, 45 minutos antes de que exista mercado. El
+// premercado necesita LEER a Sigma, no necesita que Sigma llegue al robot.
+//
+// QUE HACE ESTA FASE. Entre 08:15 y 09:00 ET lee Sigma y escribe el resultado en
+// una clave APARTE (`premercado`), sin tocar lastLevels ni lastSuccessAt, sin
+// POST al servidor, sin push ni guardado a TradingView y sin escribir en
+// history.json (que alimenta los deltas de GEX/DEX/Vanna). El camino que opera
+// queda intacto, byte por byte: lo unico que cambia es que a las 08:30 hay un
+// dato fresco esperando al recolector.
+//
+// El vigilante no se entera y no hace falta tocarlo: watchdog.ps1 exige exitos
+// con Test-HorarioDeMercadoNYSE (la campana), no con esta ventana, asi que a las
+// 08:15 no espera nada.
+const PREMERCADO_DESDE_MIN = 8 * 60 + 15;
+function isPremarketWindow() {
+  // recortarMedioDia:false a proposito. Ese recorte existe para adelantar el
+  // CIERRE en las medias sesiones (16:05 -> 13:05), y se aplica restando 180 min
+  // al final de la ventana sea cual sea. Sobre una ventana que termina a las
+  // 09:00 la deja en 08:15-06:00, o sea VACIA: el 27-nov-2026 (viernes de Accion
+  // de Gracias, media sesion) el premercado se habria quedado sin dato fresco sin
+  // que nadie lo notara. La campana suena a las 09:30 tambien en media sesion, asi
+  // que esta franja no se mueve. Cubierto en la prueba de abajo.
+  return calendario.enVentanaET(PREMERCADO_DESDE_MIN, 9 * 60, {
+    finInclusivo: false,
+    recortarMedioDia: false,
+  });
+}
+
+// Lee Sigma y, si el panel muestra un vencimiento que no es el de HOY, recarga la
+// pestaña y vuelve a leer (2026-09-22). Ver vencimiento.js.
+const leerSigmaDeHoy = crearLectorDeHoy({
+  readLevels: () => sigma.readLevels(),
+  // 2026-10-15: clickear la fecha de hoy en la cinta, no solo recargar (ver sigma.irAlVencimiento).
+  recargar: () => sigma.irAlVencimiento(calendario.fechaET()),
+  fechaET: () => calendario.fechaET(),
+});
+
+const recuperarSigma = crearRecuperador({
+  recargar: () => sigma.recargarTerminal(),
+  relanzar: () => sigma.descartarNavegador(),
+});
+
+// Ciclo reducido de premercado. Deliberadamente sin try/catch propio de reintento:
+// si Sigma no responde a esta hora (posibilidad real, la terminal puede no servir
+// datos tan temprano), se anota el motivo y se vuelve a intentar en 30s. Un fallo
+// aca NO cuenta como consecutiveFailures -- no deja sin precio a nadie, porque
+// nadie opera con esto.
+async function runPremarketCycle() {
+  try {
+    const levels = await leerSigmaDeHoy();
+
+    // CERROJO: que Sigma responda no prueba que Sigma se haya despertado.
+    //
+    // A las 08:15 la terminal puede seguir mostrando la pantalla congelada de la
+    // sesion anterior. Si eso se guardara con un `leidoEn` de ahora, el dato viejo
+    // saldria del otro lado marcado como recien nacido -- que es precisamente el
+    // agujero que este trabajo vino a tapar, y el mismo error que el guard de
+    // feriados del 2026-09-06 ya tuvo que arreglar aguas arriba (210 ciclos
+    // sellando numeros muertos como frescos en Labor Day).
+    //
+    // El delator barato es el vencimiento: Sigma muestra la cadena del 0DTE, asi
+    // que `expiry` es la fecha de HOY en cuanto la terminal cambia de dia. Mientras
+    // siga diciendo la de ayer, lo que hay en pantalla es de ayer. Verificado con
+    // lecturas reales: 08-sep 15:52 ET -> expiry 2026-09-08; 09-sep 09:01 ET ->
+    // expiry 2026-09-09.
+    //
+    // Cuando no cuadra NO se escribe `premercado`. Asi el recolector se cae solo a
+    // `lastLevels` y lo marca RANCIO, que es ruidoso y correcto; guardarlo seria
+    // silencioso y mentira.
+    const hoyET = calendario.fechaET();
+    if (levels.expiry && levels.expiry !== hoyET) {
+      saveStatus({
+        lastCycleAt: new Date().toISOString(),
+        lastSkipReason: 'premercado_solo_lectura',
+        premercadoError: {
+          mensaje: `Sigma todavia muestra la cadena del ${levels.expiry} (hoy es ${hoyET}):`
+            + ' la terminal no ha cambiado de dia, el dato en pantalla es de la sesion anterior',
+          en: new Date().toISOString(),
+        },
+      });
+      console.warn(`[premercado] Sigma sigue en la cadena del ${levels.expiry} (hoy ${hoyET})`
+        + ' -- no se guarda: seria el cierre de ayer con sello de hoy');
+      return;
+    }
+
+    levels.capturadoEn = new Date().toISOString();
+    archivarLectura(levels, 'premercado');
+    saveStatus({
+      lastCycleAt: new Date().toISOString(),
+      lastSkipReason: 'premercado_solo_lectura',
+      premercado: { levels, leidoEn: levels.capturadoEn },
+    });
+    console.log(`[premercado] Sigma OK -- Call ${levels.callWall}, Put ${levels.putWall},`
+      + ` Flip ${levels.gammaFlip}, vto ${levels.expiry}`);
+  } catch (e) {
+    saveStatus({
+      lastCycleAt: new Date().toISOString(),
+      lastSkipReason: 'premercado_solo_lectura',
+      premercadoError: { mensaje: e.message, en: new Date().toISOString() },
+    });
+    console.error('[premercado] Sigma no respondio (%s) -- se reintenta en el proximo ciclo', e.message);
+  }
+}
+
+async function ntfy(message, { priority = 'default', title } = {}) {
+  try {
+    await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+      method: 'POST',
+      headers: {
+        ...(title ? { Title: title } : {}),
+        Priority: priority,
+      },
+      body: message,
+    });
+  } catch (e) {
+    console.error('[ntfy] error enviando alerta:', e.message);
+  }
+}
+
+async function postSigmaLevels(levels) {
+  const resp = await fetch(`${PROD_BASE}/api/spx/sigma-levels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(levels),
+  });
+  if (!resp.ok) throw new Error(`POST /api/spx/sigma-levels devolvio ${resp.status}`);
+  return resp.json();
+}
+
+async function pushToTradingViewWithRetry(inputs) {
+  try {
+    return await tv.pushGammaLevelsToAllWindows(inputs);
+  } catch (e) {
+    // (2026-10-07) Relanzar SOLO si TradingView no responde por CDP. Si responde pero
+    // no hay ventana con el simbolo del SPX (o un pane falla), matar la app no arregla
+    // nada: el 07-oct eso cerraba y abria TradingView cada 2 minutos toda la manana.
+    if (await tv.cdpResponde()) throw e;
+    console.warn('[tv] TradingView no responde, se relanza:', e.message);
+    await tv.launch({ killExisting: true });
+    await new Promise((r) => setTimeout(r, 15000)); // dar tiempo a que cargue el chart
+    return tv.pushGammaLevelsToAllWindows(inputs);
+  }
+}
+
+async function runCycle() {
+  let leyendoSigma = false;
+  if (!isMarketWindow()) {
+    // Antes de darse por dormido: si estamos en la franja de premercado, hay un
+    // trabajo reducido que hacer (leer Sigma para el informe, ver arriba).
+    if (isPremarketWindow()) {
+      await runPremarketCycle();
+      return;
+    }
+    // El motivo real, no un 'fuera_de_horario' que no distingue las 3 de la
+    // madrugada de un domingo de Labor Day. Es lo primero que se mira en
+    // status.json cuando el daemon "no hace nada".
+    const motivo = calendario.motivoCierre() || 'fuera_de_horario';
+    saveStatus({ lastSkipReason: motivo, lastCycleAt: new Date().toISOString() });
+    return;
+  }
+
+  try {
+    leyendoSigma = true;
+    const levels = await leerSigmaDeHoy();
+    leyendoSigma = false;
+    fallosLecturaSigma = 0;
+    // CERROJO DE VENCIMIENTO EN SESION (2026-09-22). El de premercado ya existia;
+    // aca faltaba, y el 22-sep entre las 09:00 y las 09:11 el servidor y TradingView
+    // recibieron los muros del 0DTE del lunes, ya vencido, con fresh: true. Si ni
+    // recargando aparece la cadena de hoy, NO se empuja nada: el ciclo cuenta como
+    // fallo (avisa al 3ro) y las estrategias caen al respaldo, que es ruidoso y
+    // correcto. Mandarlo seria silencioso y mentira.
+    exigirVencimientoDeHoy(levels, calendario.fechaET());
+    // Momento de CAPTURA (2026-08-17). El servidor sellaba `updatedAt` al
+    // RECIBIR, asi que un nivel leido hace rato entraba marcado como recien
+    // nacido y leerSpotSigma lo daba por fresco. Entre esta linea y el push
+    // pasan las tres lecturas de velas mas el VIX —varios segundos en un dia
+    // bueno, minutos si alguna cuelga— y encima el push puede reintentarse.
+    // Sin este sello no hay forma de distinguir "el dato es de ahora" de "el
+    // daemon tardo en mandarlo", y esa diferencia decide si la Reversion abre.
+    levels.capturadoEn = new Date().toISOString();
+    // King Node (2026-10-13): best-effort, nunca lanza. Va antes de archivar para
+    // que quede en el historico y se pueda medir como se midieron los muros.
+    Object.assign(levels, await sigma.readKingNode());
+    archivarLectura(levels, 'sesion');
+    const prev = recordAndGetPrevious(levels);
+
+    // Velas de 5m del SPX, de la misma fuente que el gamma (2026-08-09). Van
+    // adjuntas al mismo push para que el servidor decida el alejamiento con la
+    // misma serie con la que Sigma dibuja su grafico, en vez de reconstruirla a
+    // partir de las lecturas de spot (que no existen en la primera hora).
+    // Deliberadamente best-effort y en su propio try: si la API de velas falla,
+    // el push de NIVELES —que es lo critico— tiene que salir igual.
+    try {
+      const velas = await sigma.readCandles5m();
+      if (velas?.length) levels.velas5m = velas;
+    } catch (e) {
+      console.error('[sigma] velas 5m no disponibles (%s) -- se sigue sin ellas', e.message);
+    }
+
+    // Velas de 2m: PIN del Iron Condor (15), gatillo de pullback del
+    // direccional (35) e indicadores del score — MACD de 2m necesita 26+9. Se
+    // piden 120 para cubrirlos a todos con margen de continuidad.
+    try {
+      const velas2 = await sigma.readCandles5m({ velas: 120, diasAtras: 4, minutos: 2 });
+      if (velas2?.length) levels.velas2m = velas2;
+    } catch (e) {
+      console.error('[sigma] velas 2m no disponibles (%s) -- se sigue sin ellas', e.message);
+    }
+
+    // Velas de 15m: marco maestro del direccional (21 cierres para Fase 2/4) y
+    // los indicadores del score — MACD, Weinstein, ATR y fractales. Se piden 80.
+    try {
+      const velas15 = await sigma.readCandles5m({ velas: 80, diasAtras: 20, minutos: 15 });
+      if (velas15?.length) levels.velas15m = velas15;
+    } catch (e) {
+      console.error('[sigma] velas 15m no disponibles (%s) -- se sigue sin ellas', e.message);
+    }
+
+    // VIX y su rango de 52 semanas, mismo criterio best-effort.
+    try {
+      const v = await sigma.readVix();
+      if (v?.vix != null) {
+        levels.vix = v.vix;
+        if (v.vix52High != null) { levels.vix52High = v.vix52High; levels.vix52Low = v.vix52Low; }
+      }
+    } catch (e) {
+      console.error('[sigma] VIX no disponible (%s) -- se sigue sin el', e.message);
+    }
+
+    // EL SERVIDOR VA PRIMERO. Antes el POST estaba DESPUES del push a
+    // TradingView, y un push fallido lanzaba excepcion antes de llegar aca: con
+    // TradingView cerrado o sin SPX cargado, el servidor se quedaba sin precio
+    // aunque Sigma se hubiera leido perfecto. Mientras Sigma era solo una
+    // referencia de muros eso era molesto; desde que es la fuente por defecto
+    // del spot, un problema del GRAFICO dejaria ciego al sistema que OPERA.
+    const respuestaServidor = await postSigmaLevels(levels);
+
+    // Fuerza de los muros (2026-09-06). El servidor la devuelve en el mismo POST
+    // que ya haciamos: el strike del muro lo pone Sigma (lo tiene el daemon), los
+    // dolares de gamma de ese strike los pone la cadena del servidor. Se pide asi
+    // y no con un GET aparte para no sumar otra llamada por ciclo ni otro punto
+    // de falla — si la respuesta no la trae (servidor viejo, rejilla vieja), los
+    // codigos quedan en 0 = SIN DATO y la etiqueta del muro se dibuja como antes.
+    const fuerzaCall = Number(respuestaServidor?.fuerzaMuros?.call?.codigo) || 0;
+    const fuerzaPut  = Number(respuestaServidor?.fuerzaMuros?.put?.codigo)  || 0;
+
+    // Max Pain: al GRAFICO va el calculado por nosotros sobre el vencimiento de
+    // HOY —el 0DTE— siempre (2026-09-06, directriz del usuario: "el max pain que
+    // vamos a dibujar es el de hoy, siempre, el del dia"). Ojo que eso NO tiene
+    // por que coincidir con el vencimiento que Sigma esta mostrando: por eso el
+    // servidor devuelve tambien maxPainVencimiento, que es el que uso de verdad.
+    //
+    // El servidor entrega maxPainGrafico ya resuelto. Si no pudo calcularlo
+    // (rejilla vieja, 0DTE fuera de nuestra cadena, servidor sin desplegar)
+    // devuelve el de Sigma, y si tampoco hay, se cae a 0 y el Pine no dibuja.
+    //
+    // OJO: esto cambia SOLO lo que se dibuja. Las estrategias del servidor
+    // siguen decidiendo con el max pain de Sigma, como quedo el 2026-08-22.
+    const maxPainGrafico = respuestaServidor?.maxPainGrafico ?? levels.maxPain ?? 0;
+    if (respuestaServidor?.maxPainFuenteGrafico === 'propio') {
+      const dif = respuestaServidor.maxPainPropio - levels.maxPain;
+      if (dif !== 0) {
+        console.log(`[tv] max pain propio ${respuestaServidor.maxPainPropio} (vto ${respuestaServidor.maxPainVencimiento})`
+          + ` vs Sigma ${levels.maxPain} (vto ${levels.expiry}) — ${dif > 0 ? '+' : ''}${dif} pts, se dibuja el propio`);
+      }
+    } else if (respuestaServidor?.maxPainGrafico != null) {
+      // Que el 0DTE no este disponible no es rutina: se dice, para que no pase
+      // callado un dia entero dibujando el max pain de otro vencimiento.
+      console.warn(`[tv] sin max pain propio del 0DTE — se dibuja el de Sigma (${levels.maxPain},`
+        + ` vto ${levels.expiry})`);
+    }
+
+    const wasDegraded = mode === 'degraded';
+    consecutiveFailures = 0;
+    mode = 'normal';
+    saveStatus({
+      lastCycleAt: new Date().toISOString(),
+      lastSuccessAt: new Date().toISOString(),
+      consecutiveFailures: 0,
+      mode: 'normal',
+      lastLevels: levels,
+    });
+
+    if (wasDegraded && alerted) {
+      await ntfy('El daemon de Gamma se recupero y volvio a empujar valores con normalidad.', {
+        title: 'Gamma daemon: recuperado',
+      });
+      alerted = false;
+    }
+
+    // TradingView, en su propia cadencia (2 min) y en su propio try: aunque
+    // falle, el precio ya se entrego. Un problema del grafico no puede volver a
+    // dejar sin dato al servidor.
+    if (Date.now() - lastTvPushAt >= TV_PUSH_EVERY_MS) {
+      lastTvPushAt = Date.now();
+      try {
+        const tvWindows = await pushToTradingViewWithRetry({
+          in_20: true,
+          in_21: levels.callWall,
+          in_22: levels.putWall,
+          in_23: levels.gammaFlip,
+          in_24: levels.mvs,
+          in_25: levels.netGex,
+          in_26: prev.netGex,
+          in_27: levels.netDex,
+          in_28: prev.netDex,
+          in_29: levels.netVanna,
+          in_30: prev.netVanna,
+          in_31: maxPainGrafico,
+          in_32: fuerzaCall,
+          in_33: fuerzaPut,
+          // King Node (2026-10-13), AL FINAL por la regla de IDs posicionales.
+          // 0 = sin dato y el Pine no lo dibuja. Un Pine sin estos inputs los
+          // reporta como "ausentes", no como fallo.
+          in_34: levels.kingNode || 0,
+          in_35: levels.kingNodeGex || 0,
+        });
+        // Un pane que NO verifico ya no pasa callado (2026-09-06). Antes bastaba
+        // con que UN pane dijera `updated` para dar el push por bueno, y `updated`
+        // solo significaba "se encontro el estudio y se intento escribir". Asi
+        // estuvo dias el pane de 2m de la ventana de SPX con muros ~70 puntos por
+        // debajo de los reales, mientras el ciclo reportaba normalidad.
+        const panes = tvWindows.flatMap((w) => (w.results || []).map((r) => ({ ...r, win: w.targetId })));
+        const fallidos = panes.filter((r) => !r.updated);
+        const conAusentes = panes.filter((r) => r.ausentes?.length);
+
+        for (const r of fallidos) {
+          console.warn(`[tv] pane ${r.index} (${r.symbol}) de ${String(r.win).slice(0, 8)} NO quedo actualizado: ${r.reason || 'sin motivo'}`);
+        }
+        // Inputs que el estudio de ese pane ni siquiera tiene: es un Pine viejo,
+        // no un fallo de escritura. Se dice una vez por ciclo y se deja en el
+        // status, que es donde se mira cuando el grafico "se ve raro".
+        for (const r of conAusentes) {
+          console.warn(`[tv] pane ${r.index} (${r.symbol}) no tiene ${r.ausentes.join(', ')} — su indicador esta en una version vieja del Pine`);
+        }
+        saveStatus({
+          tvPanes: panes.map((r) => ({ win: String(r.win).slice(0, 8), pane: r.index, symbol: r.symbol,
+                                       ok: !!r.updated, ausentes: r.ausentes || null, motivo: r.reason || null })),
+          tvPanesFallidos: fallidos.length,
+        });
+
+        const anyPaneUpdated = panes.some((r) => r.updated);
+        if (!anyPaneUpdated) {
+          throw new Error(`Ninguna ventana/pane de TradingView se actualizo: ${JSON.stringify(tvWindows)}`);
+        }
+        if (tvAlerted) {
+          await ntfy('El push a TradingView volvio a funcionar.', { title: 'Gamma daemon: TradingView recuperado' });
+          tvAlerted = false;
+        }
+        tvFailures = 0;
+        // lastTvError: null al tener exito. Si no se limpia, el status queda
+        // mostrando el ultimo fallo para siempre junto a un contador en 0 —
+        // exactamente el residuo que esta mañana hizo dudar de si el push estaba
+        // roto cuando ya se habia recuperado.
+        saveStatus({ lastTvPushAt: new Date().toISOString(), tvFailures: 0, lastTvError: null });
+
+        // ── Guardado del layout a la nube ──
+        // Va DESPUES del push (para que suba los valores recien escritos) y en su
+        // propio try: es best-effort puro. Si falla, el grafico del escritorio ya
+        // quedo actualizado y el servidor ya tiene el precio — lo unico que se
+        // pierde es la propagacion al celular hasta el proximo intento, dentro de
+        // 5 minutos. No toca tvFailures ni puede disparar el modo degradado.
+        if (Date.now() - lastTvSaveAt >= TV_SAVE_EVERY_MS) {
+          lastTvSaveAt = Date.now();
+          try {
+            // Antes de guardar: apagar el autosave de las OTRAS ventanas, que
+            // comparten el mismo layout y pueden pisar la copia en la nube. Se
+            // reaplica en cada ciclo porque el flag se resetea al relanzar
+            // TradingView. Va dentro del mismo try best-effort: si falla, el
+            // guardado sigue adelante igual.
+            const apagadas = await tv.disableAutoSaveOnOtherWindows();
+            if (apagadas.length) console.log(`[tv] autosave apagado en ${apagadas.length} ventana(s): ${apagadas.join(' | ')}`);
+
+            const res = await tv.saveLayout();
+            tvSaveFailures = 0;
+            saveStatus({ lastTvSaveAt: new Date().toISOString(), tvSaveFailures: 0, lastTvSaveError: null });
+            console.log(`[tv] layout ${res.layoutId || '(sin id)'} guardado en la nube — los muros ya viajan al celular.`);
+          } catch (saveErr) {
+            tvSaveFailures += 1;
+            saveStatus({ tvSaveFailures, lastTvSaveError: saveErr.message });
+            console.error(`[tv] guardado del layout fallo #${tvSaveFailures}:`, saveErr.message);
+          }
+        }
+      } catch (tvErr) {
+        tvFailures += 1;
+        saveStatus({ tvFailures, lastTvError: tvErr.message });
+        console.error(`[tv] fallo #${tvFailures}:`, tvErr.message);
+        if (tvFailures >= FAILURE_THRESHOLD && !tvAlerted) {
+          tvAlerted = true;
+          await ntfy(
+            `El push a TradingView lleva ${tvFailures} fallos seguidos (${tvErr.message}). Los muros del grafico estan congelados, pero el servidor SIGUE recibiendo el precio de Sigma.`,
+            { title: '⚠️ Gamma daemon: TradingView no actualiza', priority: 'high' }
+          );
+        }
+      }
+    }
+  } catch (e) {
+    consecutiveFailures += 1;
+    mode = consecutiveFailures >= FAILURE_THRESHOLD ? 'degraded' : mode;
+    saveStatus({
+      lastCycleAt: new Date().toISOString(),
+      consecutiveFailures,
+      mode,
+      lastError: e.message,
+    });
+    console.error(`[ciclo] fallo #${consecutiveFailures}:`, e.message);
+
+    // La pestaña de Sigma no se reusa trabada (2026-10-02): si lo que fallo fue
+    // la LECTURA, se recarga o se relanza el navegador en vez de esperar ~15 min
+    // a que el vigilante mate el proceso. Ver recuperacion.js.
+    if (leyendoSigma) {
+      fallosLecturaSigma += 1;
+      await recuperarSigma(fallosLecturaSigma);
+    }
+
+    // Aviso al 3er fallo y REPETIDO cada 20 despues (2026-08-10).
+    //
+    // Antes avisaba una sola vez y se callaba para siempre hasta recuperarse. El
+    // 10-ago el daemon acumulo 40 fallos seguidos durante toda la sesion y la
+    // unica señal fue esa notificacion inicial: si se pasa por alto, el sistema
+    // opera el dia entero en respaldo sin que nadie se entere. Un fallo que dura
+    // horas tiene que doler mas que uno que dura un minuto.
+    const toca = consecutiveFailures === FAILURE_THRESHOLD
+              || (consecutiveFailures > FAILURE_THRESHOLD && consecutiveFailures % 20 === 0);
+    if (toca) {
+      const min = Math.round(consecutiveFailures * (mode === 'degraded' ? 2 : 0.5));
+      await ntfy(
+        `El daemon de Gamma lleva ${consecutiveFailures} fallos seguidos (~${min} min sin leer Sigma). `
+        + `Las estrategias estan decidiendo con el respaldo. Ultimo error: ${e.message}`,
+        { title: 'Gamma daemon: fallando', priority: 'high' }
+      );
+      alerted = true;
+    }
+  }
+}
+
+async function loop() {
+  if (stopped) return;
+  await runCycle();
+  if (stopped) return;
+  const delay = mode === 'degraded' ? CYCLE_MS_DEGRADED : CYCLE_MS_NORMAL;
+  setTimeout(loop, delay);
+}
+
+async function shutdown() {
+  stopped = true;
+  await sigma.close();
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+console.log('gamma_daemon arrancando...');
+
+// El estado en memoria arranca limpio (consecutiveFailures 0, mode normal), pero
+// status.json conserva lo ultimo que se escribio — y fuera de horario los ciclos
+// solo tocan lastSkipReason, asi que esos campos sobreviven al reinicio.
+//
+// El 2026-08-11 a las 08:26 el archivo seguia diciendo "degraded, 40 fallos" de
+// la sesion anterior, con el proceso recien reiniciado y sano. Eso hace
+// imposible distinguir "sigue roto" de "quedo escrito de ayer" justo cuando hay
+// que decidirlo: en los primeros minutos de la apertura.
+saveStatus({
+  mode: 'normal',
+  consecutiveFailures: 0,
+  lastError: null,
+  arrancadoEl: new Date().toISOString(),
+});
+
+loop();

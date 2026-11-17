@@ -17,16 +17,23 @@ REM  EL `call` NO ES ADORNO: `claude` resuelve a `claude.cmd`, y en
 REM  Windows un .cmd que invoca otro .cmd SIN `call` nunca vuelve.
 REM ===================================================================
 
-python -c "from datetime import datetime;from zoneinfo import ZoneInfo;import sys;sys.exit(0 if datetime.now(ZoneInfo('America/New_York')).hour==16 else 1)"
-if errorlevel 1 exit /b 0
+REM  Recuperacion (pedido de Guillermo 2026-11-10: "si el pc esta apagado
+REM  ... se reactiva cuando se reconecte, no importa la hora"): la tarea
+REM  tiene "ejecutar lo antes posible si se perdio". Si NY >= 16 -> informe
+REM  de HOY; si NY < 15 (PC encendido al dia siguiente) -> informe del dia
+REM  ANTERIOR; a las 15 NY (el disparo duplicado) no hace nada.
+set "FECHA="
+for /f %%f in ('python -c "from datetime import datetime,timedelta;from zoneinfo import ZoneInfo;n=datetime.now(ZoneInfo('America/New_York'));print((n if n.hour>=16 else n-timedelta(days=1)).strftime('%%Y-%%m-%%d') if n.hour!=15 else 'NO')"') do set "FECHA=%%f"
+if "%FECHA%"=="" exit /b 0
+if "%FECHA%"=="NO" exit /b 0
 
 cd /d "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\premercados alejandro"
 
 set "LOG=%~dp0ejecuciones.log"
 
-echo [%DATE% %TIME%] Iniciando cierre del dia >> "%LOG%"
+echo [%DATE% %TIME%] Iniciando cierre del dia de %FECHA% >> "%LOG%"
 
-call claude --chrome --permission-mode acceptEdits --allowedTools "Bash" "PowerShell" "Read" "Write" "Edit" "Glob" "Grep" "ToolSearch" "WebSearch" "mcp__claude-in-chrome__tabs_context_mcp" "mcp__claude-in-chrome__tabs_create_mcp" "mcp__claude-in-chrome__tabs_close_mcp" "mcp__claude-in-chrome__navigate" "mcp__claude-in-chrome__find" "mcp__claude-in-chrome__get_page_text" "mcp__claude-in-chrome__javascript_tool" "mcp__claude-in-chrome__browser_batch" -p "/cierre-del-dia Genera el informe Cierre del dia de HOY siguiendo el skill al pie de la letra. Primero pregunta a C:\Users\gcarv\bitacora-tasty\src\calendario_nyse (esDiaDeMercado) si hoy hubo mercado: si no, escribe una linea en el log y termina sin crear nada. Si el .docx de hoy ya existe, no lo sobrescribas y termina. Corre a las 16:00 ET: la lectura de Sigma del cierre sale ~16:05 ET, asi que usa el lastLevels mas reciente de status.json y di su hora. Usa el ultimo script de scripts\ como molde de formato (ojo con el \0 en las rutas: usa os.path.join). Revisa en Investing tambien la pestana Hoy por si aparecio un 3 estrellas a las 10:15 ET o despues que el premercado no tenia (D19). No envies nada a nadie; solo Word, nunca PDF. Nunca lances TradingView ni le cambies el simbolo." >> "%LOG%" 2>&1
+call claude --chrome --permission-mode acceptEdits --allowedTools "Bash" "PowerShell" "Read" "Write" "Edit" "Glob" "Grep" "ToolSearch" "WebSearch" "mcp__claude-in-chrome__tabs_context_mcp" "mcp__claude-in-chrome__tabs_create_mcp" "mcp__claude-in-chrome__tabs_close_mcp" "mcp__claude-in-chrome__navigate" "mcp__claude-in-chrome__find" "mcp__claude-in-chrome__get_page_text" "mcp__claude-in-chrome__javascript_tool" "mcp__claude-in-chrome__browser_batch" -p "/cierre-del-dia Genera el informe Cierre del dia de la sesion del %FECHA% (fecha ET) siguiendo el skill al pie de la letra; si %FECHA% no es hoy, es una recuperacion porque el PC estaba apagado: usa los datos de esa sesion (velas y cierre de ese dia) y dilo en el informe. Primero pregunta a C:\Users\gcarv\bitacora-tasty\src\calendario_nyse (esDiaDeMercado) si el %FECHA% hubo mercado: si no, escribe una linea en el log y termina sin crear nada. Si el .docx de esa fecha ya existe, no lo sobrescribas y termina. Normalmente corre a las 16:00 ET: la lectura de Sigma del cierre sale ~16:05 ET, asi que usa el lastLevels mas reciente de status.json y di su hora. Usa el ultimo script de scripts\ como molde de formato (ojo con el \0 en las rutas: usa os.path.join). Revisa en Investing tambien la pestana Hoy por si aparecio un 3 estrellas a las 10:15 ET o despues que el premercado no tenia (D19). No envies nada a nadie; solo Word, nunca PDF. Nunca lances TradingView ni le cambies el simbolo." >> "%LOG%" 2>&1
 
 echo [%DATE% %TIME%] Finalizado (codigo %ERRORLEVEL%) >> "%LOG%"
 echo. >> "%LOG%"

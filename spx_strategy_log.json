@@ -1,5 +1,205 @@
 [
  {
+  "timestamp": "2026-11-16T15:32:32.120Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "STRIKES_RECHAZADOS",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "debito 15.30 es el 61% del ancho 25; maximo 55%. Riesgo/beneficio insuficiente",
+  "snapshot": {
+   "spxPrice": 7465.14,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7465,
+    "putWall": 7450,
+    "gammaFlip": 7549,
+    "maxPain": 7585
+   },
+   "escenario": "bajista"
+  }
+ },
+ {
+  "timestamp": "2026-11-13T15:30:14.789Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_RECORRIDO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "El precio (7522.42) ya superó todos los objetivos del escenario bajista: no queda recorrido que comprar",
+  "snapshot": {
+   "spxPrice": 7522.42,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7550,
+    "putWall": 7500,
+    "gammaFlip": 7586,
+    "maxPain": 7595
+   },
+   "escenario": "bajista"
+  }
+ },
+ {
+  "timestamp": "2026-11-12T15:54:38.039Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "CIERRE_TP",
+  "passed": true,
+  "etTime": "10:54",
+  "reason": "SPX 7616.27 alcanzo el nivel del premercado 7615",
+  "snapshot": {
+   "spxPrice": 7616.27,
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-11-12",
+    "largaStrike": 7590,
+    "cortaStrike": 7615,
+    "nivelProfit": 7615,
+    "nivelProfitDeclarado": 7620,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 11.6,
+    "limite": 11.6,
+    "maxGanancia": 13.4,
+    "maxPerdida": 11.6,
+    "rr": 1.16,
+    "breakeven": 7601.6,
+    "pctDelAncho": 46.4,
+    "razon": "Larga 7590 (arranque) / corta 7615 (objetivo del escenario alcista). Paga maximo si el precio llega a 7615."
+   }
+  }
+ },
+ {
+  "timestamp": "2026-11-12T15:30:13.427Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "EXECUTED",
+  "passed": true,
+  "etTime": "10:30",
+  "reason": "DEBIT_VERTICAL enviado a Tradier: 41660015",
+  "snapshot": {
+   "spxPrice": 7593.52,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7635,
+    "putWall": 7565,
+    "gammaFlip": 7603,
+    "maxPain": 7605
+   },
+   "escenario": "alcista",
+   "estructura": {
+    "ok": true,
+    "tipo": "DEBIT_VERTICAL",
+    "sentido": "CALL",
+    "expiry": "2026-11-12",
+    "largaStrike": 7590,
+    "cortaStrike": 7615,
+    "nivelProfit": 7615,
+    "nivelProfitDeclarado": 7620,
+    "profitRecortado": true,
+    "ancho": 25,
+    "debito": 11.6,
+    "limite": 11.6,
+    "maxGanancia": 13.4,
+    "maxPerdida": 11.6,
+    "rr": 1.16,
+    "breakeven": 7601.6,
+    "pctDelAncho": 46.4,
+    "razon": "Larga 7590 (arranque) / corta 7615 (objetivo del escenario alcista). Paga maximo si el precio llega a 7615."
+   },
+   "orderId": 41660015
+  }
+ },
+ {
+  "timestamp": "2026-11-11T15:30:20.832Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_LEJOS_DEL_PIN",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Precio a 9.0 pts del pin 7580; maximo 8",
+  "snapshot": {
+   "spxPrice": 7588.96,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7600,
+    "putWall": 7580,
+    "gammaFlip": 7544,
+    "maxPain": 7550
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-11-10T15:30:21.885Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "NEUTRAL_GAMMA",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "Neutral exige gamma POSITIVO; regimen actual NEGATIVO",
+  "snapshot": {
+   "spxPrice": 7518.01,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "NEGATIVO",
+    "callWall": 7550,
+    "putWall": 7500,
+    "gammaFlip": 7532,
+    "maxPain": 7550
+   },
+   "escenario": null
+  }
+ },
+ {
+  "timestamp": "2026-11-10T00:43:12.984Z",
+  "strategyFamily": "TENDENCIA",
+  "stage": "V2_CAMBIADO",
+  "passed": null,
+  "reason": "Direccional v2 (premercado + DIR-5 + TP75/SL75): true -> false"
+ },
+ {
+  "timestamp": "2026-11-10T00:43:12.810Z",
+  "strategyFamily": "TENDENCIA",
+  "stage": "V2_CAMBIADO",
+  "passed": null,
+  "reason": "Direccional v2 (premercado + DIR-5 + TP75/SL75): false -> true"
+ },
+ {
+  "timestamp": "2026-11-09T22:15:14.742Z",
+  "strategyFamily": "TENDENCIA",
+  "stage": "EJECUTOR_CAMBIADO",
+  "passed": null,
+  "reason": "Ejecutor del direccional: tasty_demo -> tradier"
+ },
+ {
+  "timestamp": "2026-11-09T22:15:14.376Z",
+  "strategyFamily": "TENDENCIA",
+  "stage": "EJECUTOR_CAMBIADO",
+  "passed": null,
+  "reason": "Ejecutor del direccional: tradier -> tasty_demo"
+ },
+ {
+  "timestamp": "2026-11-09T15:30:10.572Z",
+  "strategyFamily": "PREMERCADO",
+  "stage": "SIN_RECORRIDO",
+  "passed": false,
+  "etTime": "10:30",
+  "reason": "El precio (7516.79) ya superó todos los objetivos del escenario alcista: no queda recorrido que comprar",
+  "snapshot": {
+   "spxPrice": 7516.79,
+   "velas15mCerradas": 4,
+   "gex": {
+    "regime": "POSITIVO",
+    "callWall": 7550,
+    "putWall": 7500,
+    "gammaFlip": 7446,
+    "maxPain": 7515
+   },
+   "escenario": "alcista"
+  }
+ },
+ {
   "timestamp": "2026-11-06T15:50:43.737Z",
   "strategyFamily": "PREMERCADO",
   "stage": "CIERRE_TP",

@@ -342,10 +342,20 @@ PROPUESTAS = [
         # Acumulado 17-ago a 5-nov: vetadas n=28 WR 46% -$75.2/trade; pasan n=46
         # WR 65% -$8.2/trade. Sigue sin juez: comparar() sobre win rate daria
         # MUESTRA INSUFICIENTE (28 < 30); el juez tiene que comparar P&L por trade.
+        #
+        # ACTUALIZADA 2026-11-12 (revision semanal 6-12 nov): APLICADA DENTRO DEL
+        # DIRECCIONAL V2, encendido el 2026-11-11 (freno del premercado + DIR-5 +
+        # TP75/SL75, decision de Guillermo). Ultima semana en sombra (6-10 nov,
+        # BEARISH): vetada n=1 -$210; pasan n=4 -$85/trade. Acumulado aprox.
+        # 17-ago a 10-nov: vetadas n=29 ~-$80/trade; pasan n=50 ~-$14. Ya no se
+        # juzga si conviene: se vigila. OJO: se aplico junto con otras dos piezas,
+        # asi que el efecto de DIR-5 solo no se puede aislar en vivo; su sombra
+        # (vetoMuroSombra) sigue grabandose y es lo unico que lo separa.
         "declarada": "2026-10-01",
-        "actualizada": "2026-11-05",
+        "actualizada": "2026-11-12",
+        "aplicada": "2026-11-11",
         "instrumento": "executions.vetoMuroSombra",
-        "espera": "propuesta de TENDENCIA de la semana (2026-11-05), delante de DIR-7; falta juzgar_DIR_5",
+        "espera": "aplicada dentro del v2 (2026-11-11); falta juzgar_DIR_5 para vigilarla",
     },
     {
         "id": "DIR-6", "familia": "DIRECCIONAL", "nivel": "alto",

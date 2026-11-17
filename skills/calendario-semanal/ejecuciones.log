@@ -220,3 +220,46 @@ API Error: Unable to connect to API: Self-signed certificate detected (SELF_SIGN
 [2026-11-04 20:10:41] parte a Guillermo: NO salio
 [Wed 11/04/2026 20:10:41.22] Finalizado (codigo 5) 
  
+[Mon 11/09/2026 11:00:01.64] Iniciando calendario semanal 
+[2026-11-09 11:00:06] agenda encontrada (publicada 2026-11-09T15:06:26Z): 11 sesiones
+[Mon 11/09/2026 11:00:07.29] Fase 2, intento 1 de 3 
+La semana del 9 de noviembre ya está en Google Calendar: creé los 11 eventos y escribí `semanas\2026-11-09_cargada.json`.
+
+- **Revisión de la agenda:** el JSON coincide con el `.txt` en todas las sesiones y horas. No había avisos.
+- **Duplicados:** en el calendario no había ningún evento "Sigma Club" esa semana, así que `ya_estaban` queda vacío.
+- **Cómo quedaron los eventos:** todos con `timeZone` America/New_York, 1 hora de duración, color dorado (`colorId` 5), sin invitados y `notificationLevel` NONE.
+- **Hora Colombia:** como Nueva York está en horario de invierno, coincide con la de Colombia. Las horas del parte son las mismas de la agenda.
+- **Sesión de Gonza del lunes (9:15am):** la agenda salió a las 10:06am hora Colombia, cuando esa sesión ya había pasado. La cargué igual y lo dejé en `notas`.
+
+No mandé nada por WhatsApp; el parte lo envía la fase 3.
+[Mon 11/09/2026 11:02:18.26] Fase 2 terminada tras 1 intento(s) 
+[2026-11-09 11:02:18] aviso a Guillermo: OK
+[2026-11-09 11:02:18] parte a Guillermo: enviado
+[Mon 11/09/2026 11:02:18.97] Finalizado (codigo 0) 
+ 
+[Tue 11/10/2026 11:01:04.28] Iniciando calendario semanal 
+[2026-11-10 11:03:07] semana del 2026-11-09 ya cargada: nada que hacer
+[Tue 11/10/2026 11:03:08.00] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Wed 11/11/2026 11:00:03.47] Iniciando calendario semanal 
+[2026-11-11 11:00:11] semana del 2026-11-09 ya cargada: nada que hacer
+[Wed 11/11/2026 11:00:11.79] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Mon 11/16/2026 11:00:01.68] Iniciando calendario semanal 
+[2026-11-16 11:00:09] agenda encontrada (publicada 2026-11-16T14:38:24Z): 11 sesiones
+[Mon 11/16/2026 11:00:09.88] Fase 2, intento 1 de 3 
+Warning: this sign-in ends between 2026-11-20 and 2026-11-23 (in 4 days at the earliest). Renewing it does not move those dates. Run claude auth login before then, or use claude setup-token for unattended jobs.
+Ya están en Google Calendar las 11 sesiones de la semana del 16 al 22 de noviembre, y quedó escrito `semanas\2026-11-16_cargada.json`.
+
+- **Comprobación:** el JSON coincide con el texto de la agenda: las mismas sesiones, a las mismas horas.
+- **Cómo se crearon:** en hora de Nueva York, de 1 hora cada una, en dorado, sin invitados y sin notificaciones por correo.
+- **Duplicados:** antes de crear no había ningún evento "Sigma Club" esa semana.
+- **Error de cuota:** al crear la sesión de Cristian del miércoles 18 (12:00) Google respondió con un error de cuota agotada. Al revisar, la sesión sí había quedado creada, así que no la repetí.
+- **Horas en el parte:** en noviembre la hora de Nueva York y la de Colombia son la misma, así que las horas del parte no cambian.
+
+No mandé nada por WhatsApp; el parte lo envía la fase 3.
+[Mon 11/16/2026 11:02:29.47] Fase 2 terminada tras 1 intento(s) 
+[2026-11-16 11:02:31] aviso a Guillermo: OK
+[2026-11-16 11:02:31] parte a Guillermo: enviado
+[Mon 11/16/2026 11:02:31.30] Finalizado (codigo 0) 
+ 
