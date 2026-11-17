@@ -349,9 +349,29 @@ async function readExpiry(p) {
 }
 
 // Los chips de vencimiento: [{ etiqueta: "28 (6d)", dia: 28, dte: 6, activo }]
+//
+// 2026-11-17: desde el rediseño del 14/15-oct los vencimientos viven en la cinta
+// (`expiration-ribbon_ribbonDate__`, con `data-date`), y esta funcion seguia buscando los
+// chips viejos "28 (6d)": devolvia [] y la captura del mediodia y capturar_niveles se quedaron
+// sin vencimientos ("sin chips utiles"). Ahora lee la cinta y devuelve la MISMA forma; la
+// etiqueta es la fecha ISO, que es lo que seleccionarExpiry() clickea. El dte se calcula contra
+// la fecha local; un dia ya vencido que Sigma siga pintando se descarta.
 export async function readExpiryChips(p) {
-  return p.evaluate(() => {
+  const h = new Date();
+  const hoyIso = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-${String(h.getDate()).padStart(2, '0')}`;
+  return p.evaluate((hoy) => {
     const out = [];
+    const dias = (iso) => Math.round((Date.parse(iso + 'T00:00:00Z') - Date.parse(hoy + 'T00:00:00Z')) / 86400000);
+    for (const b of document.querySelectorAll('[class*="expiration-ribbon_ribbonDate__"][data-date]')) {
+      const iso = b.dataset.date || '';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+      const dte = dias(iso);
+      if (dte < 0) continue;
+      out.push({ etiqueta: iso, iso, dia: +iso.slice(8), dte,
+                 activo: /expiration-ribbon_ribbonDateActive__/.test(b.className || '') });
+    }
+    if (out.length) return out.sort((a, b) => a.dte - b.dte);
+    // Formato viejo (chips "28 (6d)"), por si Sigma lo devuelve.
     for (const b of document.querySelectorAll('[class*="greeks_expBtn__"]')) {
       const t = (b.textContent || '').trim().replace(/\s+/g, ' ');
       const m = t.match(/^(\d{1,2})\s*\((\d+)d\)$/);
@@ -360,7 +380,7 @@ export async function readExpiryChips(p) {
                  activo: /greeks_active__/.test(b.className || '') });
     }
     return out;
-  });
+  }, hoyIso);
 }
 
 // Cambia de vencimiento y ESPERA a que el panel confirme el cambio.
@@ -369,6 +389,22 @@ export async function readExpiryChips(p) {
 // que no leer nada.
 export async function seleccionarExpiry(p, etiqueta) {
   const antes = await readExpiry(p);
+  // Cinta nueva (2026-11-17): la etiqueta es la fecha ISO y se confirma leyendo ESA fecha.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(etiqueta)) {
+    if (antes === etiqueta) return antes;
+    const hay = await p.evaluate((d) => {
+      const b = document.querySelector(`[class*="expiration-ribbon_ribbonDate__"][data-date="${d}"]`);
+      if (!b) return false;
+      b.click();
+      return true;
+    }, etiqueta);
+    if (!hay) throw new Error(`no existe el vencimiento ${etiqueta} en la cinta`);
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if ((await readExpiry(p)) === etiqueta) return etiqueta;
+    }
+    throw new Error(`el panel no cambio a ${etiqueta} tras clickear la cinta (seguia en ${antes})`);
+  }
   const ok = await p.evaluate((et) => {
     for (const b of document.querySelectorAll('[class*="greeks_expBtn__"]')) {
       if ((b.textContent || '').trim().replace(/\s+/g, ' ') === et) { b.click(); return true; }
@@ -397,7 +433,10 @@ export async function seleccionarSimbolo(p, ticker) {
   await p.click('[class*="greeks_tickerBtn__"]');
   await new Promise((r) => setTimeout(r, 1200));
 
-  const campo = await p.$('input[placeholder*="Search symbol"]');
+  // 2026-11-17: Sigma tradujo la pantalla ("Buscar símbolo (ej: GOOG…)") y el placeholder en inglés dejó de existir:
+  // la captura del mediodía falló todos los días desde el 4-nov. Se busca el campo DENTRO del desplegable, sin
+  // depender del idioma; los placeholders quedan de respaldo.
+  const campo = await p.$('[class*="greeks_dd__"] input[type="text"], [class*="greeks_dd__"] input:not([type]), input[placeholder*="Buscar s"], input[placeholder*="Search symbol"]');
   if (!campo) throw new Error('no aparecio el buscador de simbolo tras abrir el desplegable');
   await campo.click({ clickCount: 3 });
   await campo.type(ticker, { delay: 60 });

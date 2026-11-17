@@ -40,6 +40,36 @@ fuera el robot opera sin muros), `capturar_niveles.mjs`, `scripts/enviar_premerc
 solo la cabecera, sin tocar la lógica del bot) y las skills que escriben con curl. 3) Si hay webhooks de TradingView en uso,
 Guillermo agrega `?k=` en la alerta. 4) `BITACORA_PUERTA=cerrada` en Railway, fuera de horario de mercado, y humo.
 
+## Captura de Sigma del mediodía: rota desde el 12-oct, arreglada (2026-11-17)
+
+**Síntoma.** `SigmaMaxPainMediodia` (11:00) llevaba sin una sola lectura desde el 12-oct (última foto buena: 9-oct) y el
+verificador de las 12:30 mandaba un aviso rojo diario. Guillermo: "actívala".
+
+**Causa (dos cambios de Sigma Terminal, ninguno de sesión).**
+1. Tradujo la pantalla: el buscador de símbolo pasó de "Search symbol…" a "Buscar símbolo…" y `seleccionarSimbolo()`
+   lo buscaba por el texto en inglés ("no aparecio el buscador de simbolo").
+2. En el rediseño del 14/15-oct los vencimientos pasaron a la cinta `expiration-ribbon_ribbonDate__` (con `data-date`).
+   `readExpiry()` se adaptó entonces, pero `readExpiryChips()` y `seleccionarExpiry()` no: devolvían cero chips
+   ("sin chips utiles").
+
+**Arreglo.** En `gamma_daemon/sigma.js`: el buscador se toma dentro del desplegable (`greeks_dd__`), sin depender del
+idioma; `readExpiryChips()` lee la cinta y devuelve la misma forma de antes (la etiqueta ahora es la fecha ISO);
+`seleccionarExpiry()` clickea por `data-date` y confirma leyendo esa fecha. El formato viejo queda de respaldo.
+Estas dos funciones también las usa `capturar_niveles.mjs` (niveles históricos), que sufría lo mismo.
+El lazo del daemon no las usa; el daemon en marcha no se reinició.
+
+**Vencimiento objetivo automático.** `correr_captura_mediodia.ps1` y `verificar_captura.ps1` (carpeta
+`06_vencimiento de opciones`) tenían escrito a mano el 16-oct. Ahora calculan el próximo mensual (tercer viernes);
+`-Exp` sigue sirviendo para forzar otro. Respaldos `.bak_20261117`.
+
+**Probado a mano (4:30 a. m., mercado cerrado, carpeta de prueba borrada después).** AAPL+BE: 43 lecturas; SPX+SPY: 85
+lecturas, con el 20-nov marcado como mensual; Sigma queda de vuelta en SPX. Ahora la cinta muestra TODOS los
+vencimientos (SPX 54, acciones ~20): la corrida completa de 72 símbolos pasa de ~530 a más de mil lecturas y tarda unos
+35-40 minutos (antes ~8), dentro de la ventana de dos horas. **Falta verla correr sola a las 11:00.**
+
+**Sin tocar.** `SigmaMaxPainCierre` (14:30) sigue con las fechas del 14-16 de octubre: no toma nada hasta que se le
+pongan fechas nuevas, y por el horario de invierno habría que moverla a las 15:30.
+
 ## La carpeta Pipe (bot de Polymarket) se mudó afuera (2026-11-17)
 
 **Pedido.** Guillermo: "deja solo la de afuera… ajusta lo que debas ajustar, hazlo ya". Había dos carpetas: la viva en
