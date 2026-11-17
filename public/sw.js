@@ -1,5 +1,5 @@
 // Service Worker — Bitácora Tasty PWA
-const CACHE = 'bitacora-v48';
+const CACHE = 'bitacora-v49';
 const ASSETS = [
   '/',
   '/index.html',

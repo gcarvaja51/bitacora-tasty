@@ -209,6 +209,7 @@ function cuentaDemoTendencia(ejecuciones, { capital = 10000, pnlDe, hoy = null, 
   }
   for (const e of abiertas) fam(e).abiertos++;
   const reservado = abiertas.reduce((a, e) => {
+    if (typeof e.riesgoUsd === 'number') return a + Math.max(0, e.riesgoUsd);   // gemelos del espejo: riesgo ya calculado
     const ancho = Math.abs((e.strikes?.shortStrike ?? 0) - (e.strikes?.longStrike ?? 0));
     const prima = Math.abs(e.paperEntry?.neto ?? 0);
     const riesgo = (e.isCredit ? ancho - prima : prima) * 100 * (e.contracts || 1);

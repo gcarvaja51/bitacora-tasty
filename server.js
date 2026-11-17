@@ -281,9 +281,9 @@ const ejecutorTasty = crearEjecutorTasty({
   marcar: (legs, lado) => marcarPaper(legs, lado),   // declarada mas abajo (hoisting de funcion)
 });
 const CAPITAL_DEMO_TENDENCIA = Number(process.env.TENDENCIA_DEMO_CAPITAL || 10000);
-// Meta diaria por libro (Guillermo 2026-11-16; subida de $200 a $300 esa misma noche): con $300 de ganancia CERRADA en el día, el libro no abre más trades.
+// Meta diaria por libro (Guillermo 2026-11-16): con $200 de ganancia CERRADA en el día, el libro no abre más trades.
 // Aplica a Robot SPX y a Entradas Manuales (allí pregunta en vez de frenar); NO a Señales Sigma ni a Iron Balls.
-const META_DIA_LIBRO = Number(process.env.LIBRO_META_DIA || 300);
+const META_DIA_LIBRO = Number(process.env.LIBRO_META_DIA || 200);
 
 // ── Archivo permanente (2026-11-09) — ver src/archivo.js ──
 // Copia por dia, sin tope, de las lecturas de gamma/muros y del log de decisiones, que en sus archivos
@@ -5725,9 +5725,12 @@ async function anotarNoAbrioDemoTasty({ familia, ctx, strikes, motivo, etapa }) 
 // Cuenta demo del direccional en TastyTrade: $10.000 + P&L oficial (cadena real) - comisiones reales.
 function cuentaDemoTendenciaActual() {
   const { resultadoOficial } = require('./src/pnl_oficial');
-  return cuentaDemoTendencia(loadTradierExecutions(), {
+  // Fase 2: el libro Robot SPX suma el Direccional (nativo en la demo) y los gemelos del espejo (src/espejo_robot.js).
+  let gemelos = [];
+  try { gemelos = espejoRobot.registros(); } catch (e) { /* el espejo aún no existe al arrancar: libro sin gemelos */ }
+  return cuentaDemoTendencia([...loadTradierExecutions(), ...gemelos], {
     capital: CAPITAL_DEMO_TENDENCIA,
-    pnlDe: (ex) => resultadoOficial(ex)?.pnl ?? null,
+    pnlDe: (ex) => (ex.espejo ? (ex.pnlBruto ?? null) : (resultadoOficial(ex)?.pnl ?? null)),
     hoy: calendario.fechaET(new Date()), metaDia: META_DIA_LIBRO,
   });
 }
@@ -8924,6 +8927,30 @@ setInterval(() => {
   libroSenales.tick().catch((e) => console.error('[LIBRO_SENALES] tick:', e.message));
 }, 60000);
 
+// ── Espejo del Robot SPX (fase 2, 2026-11-16) — ver src/espejo_robot.js ──
+// Mediodía, Iron Condor (NEUTRAL) y Reversión siguen en Tradier; cada trade que Tradier llena se copia en la Demo
+// Tasty (dry-run, cruzando el spread). Apagar: ESPEJO_ROBOT=apagado en Railway. No toca ninguna estrategia.
+const { crearEspejoRobot } = require('./src/espejo_robot');
+const espejoRobot = crearEspejoRobot({
+  dataDir: DATA_DIR,
+  cotizar: (simbolos) => cotizarPatasTasty(simbolos),
+  dryRun: (cuerpo) => ejecutorTasty.dryRun(cuerpo),
+  leerEjecuciones: () => loadTradierExecutions(),
+  libro: () => { try { return cuentaDemoTendenciaActual(); } catch (e) { return null; } },
+  pnlTradier: (ex) => { try { return require('./src/pnl_oficial').resultadoOficial(ex)?.pnl ?? null; } catch (e) { return null; } },
+});
+const espejoRobotActivo = () => String(process.env.ESPEJO_ROBOT || 'encendido').toLowerCase() !== 'apagado';
+// Cada 10 s de 9:30 a 16:30 ET (la media hora extra es para asentar los cierres del final del día).
+setInterval(() => {
+  if (!espejoRobotActivo() || !calendario.enVentanaET(570, 990)) return;
+  espejoRobot.tick().then((h) => { for (const x of h) console.log(`[ESPEJO-ROBOT] ${x}`); })
+    .catch((e) => console.error('[ESPEJO-ROBOT] tick:', e.message));
+}, 10000);
+app.get('/api/libros/robot', (req, res) => {
+  try { res.json({ ok: true, espejoActivo: espejoRobotActivo(), cuenta: cuentaDemoTendenciaActual(), espejo: espejoRobot.resumen() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // Los cuatro libros lado a lado (selector de libro y "Comparar"). Nunca suma los saldos.
 app.get('/api/libros', async (req, res) => {
   const fila = (libro, x, extra = {}) => ({ libro, capital: x?.capital ?? 10000, saldo: x?.saldo ?? null,
@@ -8933,7 +8960,7 @@ app.get('/api/libros', async (req, res) => {
   catch (e) { out.libros.push({ libro: 'Entradas Manuales', error: e.message }); }
   try { const s = await libroSenales.resumen({ marcar: false }); out.libros.push(fila('Señales Sigma', s, { cerradas: s.cerradas, ganadas: s.ganadas, winRate: s.winRate, realizado: s.realizado, pnlHoy: s.pnlHoy, pnlMes: s.pnlMes, abiertas: s.abiertas.length })); }
   catch (e) { out.libros.push({ libro: 'Señales Sigma', error: e.message }); }
-  try { const r = cuentaDemoTendenciaActual(); out.libros.push(fila('Robot SPX', r, { cerradas: r.cerrados, ganadas: r.ganadores, abiertas: r.abiertos, realizado: +(r.saldo - r.capital).toFixed(2), pnlHoy: r.pnlHoy, metaDia: r.metaDia, metaAlcanzada: r.metaAlcanzada, porEstrategia: r.porEstrategia, nota: 'hoy solo el Direccional; el resto entra en espejo en el paso 2 de la fase 2' })); }
+  try { const r = cuentaDemoTendenciaActual(); out.libros.push(fila('Robot SPX', r, { cerradas: r.cerrados, ganadas: r.ganadores, abiertas: r.abiertos, realizado: +(r.saldo - r.capital).toFixed(2), pnlHoy: r.pnlHoy, metaDia: r.metaDia, metaAlcanzada: r.metaAlcanzada, porEstrategia: r.porEstrategia, nota: 'Direccional nativo en la demo; Mediodía, Iron Condor y Reversión en espejo de Tradier' })); }
   catch (e) { out.libros.push({ libro: 'Robot SPX', error: e.message }); }
   try {
     const ib = libroIronBalls(), p = ironBallsDemo.resumen(), a = ironBallsAleDemo.resumen();

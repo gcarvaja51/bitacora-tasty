@@ -1845,6 +1845,114 @@ async function humoPost(base = BASE) {
 }
 
 // ── Libro Señales Sigma de la Demo Tasty (2026-11-16) ───────────────────────
+// ── Espejo del Robot SPX (src/espejo_robot.js, TastyTrade falso) — fase 2, 2026-11-16 ──
+seccion('Espejo del Robot SPX: Tradier → Demo Tasty (src/espejo_robot.js)');
+{
+  const fsX = require('fs'), osX = require('os'), pathX = require('path');
+  const { crearEspejoRobot, patasDesdeEjecucion, riesgoMaximo } = require('../src/espejo_robot');
+  const IC = { putShortSym: 'SPXW261117P07400000', putLongSym: 'SPXW261117P07385000', callShortSym: 'SPXW261117C07450000', callLongSym: 'SPXW261117C07465000' };
+  const pIC = patasDesdeEjecucion({ contracts: 1, legs: IC });
+  chequear('espejo: lee las 4 patas del iron condor con su signo', pIC.length === 4 && pIC.filter((p) => p.q < 0).length === 2 && pIC[0].strike === 7400);
+  chequear('espejo: riesgo máximo de un IC de 15 de ancho con 4.20 de crédito = $1.080', riesgoMaximo(pIC, 4.2) === 1080, `dio ${riesgoMaximo(pIC, 4.2)}`);
+  const pV2 = patasDesdeEjecucion({ contracts: 2, legs: { shortSym: 'SPXW261117P07400000', longSym: 'SPXW261117P07395000' } });
+  chequear('espejo: vertical x2 de 5 de ancho con 1.50 c/u arriesga $700', riesgoMaximo(pV2, 3.0) === 700, `dio ${riesgoMaximo(pV2, 3.0)}`);
+  chequear('espejo: una call vendida sin cubrir es riesgo ilimitado', riesgoMaximo([{ sym: 'X', q: -1, tipo: 'C', strike: 100 }, { sym: 'Y', q: 1, tipo: 'P', strike: 90 }], 1) === Infinity);
+  chequear('espejo: sin patas legibles no arma nada', patasDesdeEjecucion({ legs: { shortSym: 'basura' } }) === null);
+
+  pruebasAsync.push((async () => {
+    const dir = fsX.mkdtempSync(pathX.join(osX.tmpdir(), 'espejo-'));
+    let reloj = new Date('2026-11-17T15:00:00Z');
+    let ejec = [], precios = {}, libro = { metaAlcanzada: false, disponible: 10000, pnlHoy: 0, metaDia: 200 }, dryOk = { ok: true, fees: 5.2 };
+    const pedidos = [];
+    const E = crearEspejoRobot({
+      dataDir: dir, ahora: () => reloj, leerEjecuciones: () => ejec, libro: () => libro, pnlTradier: (ex) => ex.pnl ?? null,
+      cotizar: async (syms) => (syms.every((s) => precios[s]) ? { q: precios } : null),
+      dryRun: async (c) => { pedidos.push(c); return dryOk; },
+    });
+    const pone = (bidAsk) => { precios = {}; for (const [s, [b, a]] of Object.entries(bidAsk)) precios[s] = { bid: b, ask: a, mark: (b + a) / 2 }; };
+    const mk = (id, extra = {}) => ({ id, strategyFamily: 'MEDIODIA', strategy: 'IRON_CONDOR', contracts: 1, legs: IC, status: 'submitted',
+      timestamp: reloj.toISOString(), entryFillPrice: -4.4, ...extra });
+    E._estado();                                            // el espejo se enciende a las 15:00:00Z
+    ejec = [mk('viejo', { timestamp: '2026-11-17T14:00:00Z', status: 'filled', filledAt: '2026-11-17T14:00:30Z' })];
+    chequear('espejo: no copia lo que Tradier abrió antes de encenderse', (await E.tick()).length === 0 && E.registros().length === 0);
+
+    reloj = new Date('2026-11-17T16:30:00Z');
+    ejec.push(mk('a'));
+    pone({ [IC.putShortSym]: [3.0, 3.2], [IC.putLongSym]: [1.0, 1.1], [IC.callShortSym]: [2.8, 3.0], [IC.callLongSym]: [0.9, 1.0] });
+    await E.tick();
+    chequear('espejo: una orden que Tradier todavía no llena no se copia', E.registros().length === 0);
+    reloj = new Date('2026-11-17T16:30:40Z');
+    ejec[1] = { ...ejec[1], status: 'filled', filledAt: '2026-11-17T16:30:35Z' };
+    const h1 = await E.tick();
+    const g = E.registros()[0];
+    // cruzando: vende al bid 3.0 y 2.8, compra al ask 1.1 y 1.0 = +3.70
+    chequear('espejo: al llenar Tradier abre el gemelo cruzando el spread (3.0+2.8-1.1-1.0 = 3.70)', g && g.entrada.precio === 3.7 && g.status === 'filled', JSON.stringify(g?.entrada));
+    chequear('espejo: el gemelo queda como demo de TastyTrade, con su familia y el retraso', g.broker === 'tasty_demo' && g.espejo === true && g.strategyFamily === 'MEDIODIA' && g.retrasoSeg === 5 && g.tradierEntrada === 4.4);
+    chequear('espejo: riesgo del gemelo = (15 - 3.70) x 100', g.riesgoUsd === 1130, `dio ${g.riesgoUsd}`);
+    chequear('espejo: valida con dry-run (nunca orden real) a crédito 3.70 y 4 patas', pedidos.length === 1 && pedidos[0]['price-effect'] === 'Credit' && pedidos[0].price === '3.70' && pedidos[0].legs.length === 4 && pedidos[0].legs[0].action === 'Sell to Open');
+    chequear('espejo: avisa lo que hizo', h1.length === 1 && /ABIERTA/.test(h1[0]));
+    await E.tick();
+    chequear('espejo: no abre dos veces el mismo trade', E.registros().length === 1 && pedidos.length === 1);
+
+    // Tradier cierra por TP → el gemelo cierra cruzando: recompra al ask 1.6 y 1.4, vende al bid 0.4 y 0.3 = -2.30
+    reloj = new Date('2026-11-17T17:10:00Z');
+    ejec[1] = { ...ejec[1], status: 'closed', closeReason: 'TP', pnl: 180 };
+    pone({ [IC.putShortSym]: [1.4, 1.6], [IC.putLongSym]: [0.4, 0.5], [IC.callShortSym]: [1.2, 1.4], [IC.callLongSym]: [0.3, 0.4] });
+    await E.tick();
+    const c = E.registros()[0];
+    chequear('espejo: cuando Tradier cierra, el gemelo cierra con el mismo motivo', c.status === 'closed' && c.closeReason === 'TP');
+    chequear('espejo: P&L del gemelo = (3.70 - 2.30) x 100 = $140 bruto, $129.60 neto', c.pnlBruto === 140 && c.pnlNeto === 129.6, `dio ${c.pnlBruto} / ${c.pnlNeto}`);
+    chequear('espejo: guarda el resultado de Tradier para comparar', c.tradierPnl === 180);
+    const rs = E.resumen().porEstrategia[0];
+    chequear('espejo: el resumen compara demo contra Tradier', rs.cerrados === 1 && rs.demoNeto === 129.6 && rs.tradierBruto === 180 && rs.comparables === 1);
+
+    // Reglas del libro
+    reloj = new Date('2026-11-17T17:30:00Z');
+    libro = { metaAlcanzada: true, disponible: 10000, pnlHoy: 230, metaDia: 200 };
+    ejec.push(mk('b', { status: 'filled', filledAt: '2026-11-17T17:29:55Z' }));
+    await E.tick();
+    const nb = E.resumen().registros.find((x) => x.espejoDe === 'b');
+    chequear('espejo: con la meta del día alcanzada no copia más entradas', nb.status === 'no_abierta' && /meta del día/.test(nb.motivo));
+    libro = { metaAlcanzada: false, disponible: 500, pnlHoy: 0, metaDia: 200 };
+    ejec.push(mk('c', { status: 'filled', filledAt: '2026-11-17T17:29:58Z' }));
+    pone({ [IC.putShortSym]: [3.0, 3.2], [IC.putLongSym]: [1.0, 1.1], [IC.callShortSym]: [2.8, 3.0], [IC.callLongSym]: [0.9, 1.0] });
+    await E.tick();
+    chequear('espejo: sin poder de compra en el libro no abre', /sin poder de compra/.test(E.resumen().registros.find((x) => x.espejoDe === 'c').motivo));
+    libro = { metaAlcanzada: false, disponible: 10000, pnlHoy: 0, metaDia: 200 };
+    dryOk = { ok: false, tipo: 'rechazo', detalle: 'margen insuficiente' };
+    ejec.push(mk('d', { status: 'filled', filledAt: '2026-11-17T17:29:59Z' }));
+    await E.tick();
+    chequear('espejo: si TastyTrade rechaza el dry-run, no hay trade', /rechazó el dry-run: margen insuficiente/.test(E.resumen().registros.find((x) => x.espejoDe === 'd').motivo));
+    dryOk = { ok: true, fees: 5.2 };
+    reloj = new Date('2026-11-17T17:40:00Z');
+    ejec.push(mk('e', { status: 'filled', filledAt: '2026-11-17T17:35:00Z' }));
+    await E.tick();
+    chequear('espejo: si llega más de 3 minutos tarde, no copia la entrada', /demasiado tarde/.test(E.resumen().registros.find((x) => x.espejoDe === 'e').motivo));
+    ejec.push(mk('f', { strategyFamily: 'TENDENCIA', status: 'filled', filledAt: '2026-11-17T17:39:58Z' }));
+    await E.tick();
+    chequear('espejo: el Direccional no se copia (ya corre nativo en la demo)', !E.resumen().registros.some((x) => x.espejoDe === 'f'));
+
+    // Cierre sin cotización (0DTE vencido): espera y luego asienta con el resultado de Tradier, marcado
+    ejec.push(mk('g', { status: 'filled', filledAt: '2026-11-17T17:39:59Z' }));
+    await E.tick();
+    reloj = new Date('2026-11-17T21:05:00Z'); precios = {};
+    ejec[ejec.length - 1] = { ...ejec[ejec.length - 1], status: 'closed', closeReason: 'EXPIRED', pnl: 370 };
+    await E.tick();
+    chequear('espejo: sin precio para cerrar, espera (no inventa)', E.registros().find((x) => x.espejoDe === 'g').status === 'filled');
+    reloj = new Date('2026-11-17T21:30:00Z');
+    await E.tick();
+    const v = E.registros().find((x) => x.espejoDe === 'g');
+    chequear('espejo: tras 20 min sin precio asienta con el resultado de Tradier y lo deja marcado', v.status === 'closed' && v.salidaDeTradier === true && v.pnlBruto === 370);
+    chequear('espejo: lo asentado con Tradier no cuenta como comparable', E.resumen().porEstrategia[0].comparables === 1);
+
+    // El libro Robot SPX suma los gemelos
+    const ejT2 = require('../src/ejecutor_tasty');
+    const cta = ejT2.cuentaDemoTendencia(E.registros(), { capital: 10000, pnlDe: (e) => e.pnlBruto ?? null, hoy: '2026-11-17', metaDia: 200 });
+    chequear('libro robot: suma los gemelos por estrategia', cta.cerrados === 2 && cta.porEstrategia[0].estrategia === 'MEDIODIA', JSON.stringify(cta.porEstrategia));
+    fsX.rmSync(dir, { recursive: true, force: true });
+  })().catch((e) => chequear('pruebas del espejo sin excepciones', false, e.stack)));
+}
+
 seccion('Señales Sigma: lectura de las alertas (src/sigma_senales.js)');
 {
   const sg = require('../src/sigma_senales');

@@ -100,6 +100,10 @@
       <div class="kpi-row cols-4" id="cmp-cards"></div>
       <div class="card"><div class="card-header">Los libros lado a lado <span style="color:var(--muted);font-size:10px;margin-left:6px;">cada uno con su capital de $10.000; los saldos no se suman</span></div>
         <div class="table-wrap" id="cmp-tabla" style="padding:8px 12px;"></div></div>
+      <div class="card" style="margin-top:16px;"><div class="card-header">Robot SPX por estrategia <span style="color:var(--muted);font-size:10px;margin-left:6px;">Direccional nativo en la demo · Mediodía, Iron Condor y Reversión copiados de Tradier (espejo)</span></div>
+        <div class="table-wrap" id="cmp-robot" style="padding:8px 12px;"></div></div>
+      <div class="card" style="margin-top:16px;"><div class="card-header">Espejo: Tradier contra Demo Tasty <span style="color:var(--muted);font-size:10px;margin-left:6px;" id="cmp-espejo-sub"></span></div>
+        <div class="table-wrap" id="cmp-espejo" style="padding:8px 12px;"></div></div>
     </div>
 
     <div id="panel-libro-senales" class="panel">
@@ -1613,6 +1617,22 @@ async function cargarComparar() {
         x.pnlHoy != null ? `<span style="color:${colorL(x.pnlHoy)}">${usdL(x.pnlHoy)}</span>${x.metaDia != null ? ` <span style="color:var(--muted);font-size:10px">/ ${usdL(x.metaDia)}</span>` : ''}` : '—', x.cerradas ?? '—',
         x.winRate != null ? `${x.ganadas} (${x.winRate}%)` : (x.ganadas ?? '—'), x.abiertas ?? '—', x.nota || x.error || '']));
   } catch (e) { $('cmp-cards').innerHTML = `<div style="color:var(--red)">No se pudo cargar: ${e.message}</div>`; }
+  try {
+    const r = await (await fetch('/api/libros/robot')).json();
+    const NOM = { TENDENCIA: 'Direccional', MEDIODIA: 'Mediodía', NEUTRAL: 'Iron Condor', REVERSION: 'Reversión' };
+    const pe = r.cuenta.porEstrategia || [];
+    $('cmp-robot').innerHTML = pe.length ? tablaL(['Estrategia', 'Cerrados', 'Ganados', 'Neto', 'Neto hoy', 'Abiertos'],
+      pe.map((x) => [`<b>${NOM[x.estrategia] || x.estrategia}</b>`, x.cerrados, x.ganadores,
+        `<span style="color:${colorL(x.neto)}">${usdL(x.neto)}</span>`, `<span style="color:${colorL(x.netoHoy)}">${usdL(x.netoHoy)}</span>`, x.abiertos]))
+      : '<div style="color:var(--muted)">Sin trades todavía.</div>';
+    const es = r.espejo.porEstrategia || [];
+    $('cmp-espejo-sub').textContent = (r.espejoActivo ? 'encendido' : 'APAGADO') + (r.espejo.desde ? ' · desde ' + new Date(r.espejo.desde).toLocaleString('es-CO', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }) + ' ET' : '');
+    $('cmp-espejo').innerHTML = es.length ? tablaL(['Estrategia', 'Copiados', 'Abiertos', 'Cerrados', 'Demo Tasty (neto)', 'Tradier (bruto, comparables)', 'No abiertos en demo', 'Retraso prom.'],
+      es.map((x) => [`<b>${NOM[x.estrategia] || x.estrategia}</b>`, x.copiados, x.abiertos, x.cerrados,
+        `<span style="color:${colorL(x.demoNeto)}">${usdL(x.demoNeto)}</span>`, `<span style="color:${colorL(x.tradierBruto)}">${usdL(x.tradierBruto)}</span> <span style="color:var(--muted);font-size:10px">(${x.comparables})</span>`,
+        x.noAbiertos, x.retrasoProm != null ? x.retrasoProm + ' s' : '—']))
+      : '<div style="color:var(--muted)">Todavía no hay trades copiados. El espejo copia cada trade de Mediodía, Iron Condor y Reversión que Tradier llene desde que se encendió.</div>';
+  } catch (e) { $('cmp-espejo').innerHTML = `<div style="color:var(--red)">No se pudo cargar el espejo: ${e.message}</div>`; }
 }
 
 async function cargarLibroSenales() {

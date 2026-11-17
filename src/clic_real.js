@@ -58,9 +58,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   // Fase 2 del Demo Tasty (Guillermo 2026-11-16): el libro Entradas Manuales pasa a $10.000 CONSERVANDO el historial
   // ("$10.000 + historial"). Se ignora un CLIC_DEMO_CAPITAL menor que haya quedado en Railway de la etapa de $2.000.
   const demoCapital = () => Math.max(10000, Number(process.env.CLIC_DEMO_CAPITAL || 10000));
-  // Meta del día ($300; nació en $200 y Guillermo la subió el 2026-11-16): con $300 cerrados en la demo NO se frena; el preview lo avisa y la ventana del PC pregunta
+  // Meta del día: con $200 cerrados en la demo NO se frena; el preview lo avisa y la ventana del PC pregunta
   // "Ya pasaste la meta de 200 dólares/día, ¿ejecutamos?". Solo lo cerrado cuenta.
-  const metaUsd = () => Number(process.env.CLIC_META_DIA || 300);
+  const metaUsd = () => Number(process.env.CLIC_META_DIA || 200);
   const metaDia = () => { const p = +pnlHoy('dryrun').toFixed(2); return { meta: metaUsd(), pnlHoy: p, superada: p >= metaUsd() }; };
   const demoDesde = () => [process.env.CLIC_DEMO_DESDE || '', DEMO_REINICIO].sort().pop();
   const previews = new Map();
