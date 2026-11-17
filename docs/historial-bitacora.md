@@ -19,6 +19,27 @@
 
 ---
 
+## Puerta de escritura: clave para todo lo que escribe — arranca en AVISO (2026-11-16)
+
+**Por qué.** 56 direcciones POST/PUT/DELETE/PATCH del servidor no pedían clave (configuración del robot, pánico, cerrar
+posiciones, borrar ejecuciones, forzar entradas). Solo 6 tenían la suya (clic, Iron Balls, Señales Sigma). Guillermo: "cerrarlas
+ya", y luego "aviso un día" para no dejar por fuera a ningún programa.
+
+**Qué quedó (`c4e93ab`, sw v50).** `src/puerta.js` como middleware único. Estados: sin `BITACORA_TOKEN` apagada; con token,
+AVISO (deja pasar y anota); con `BITACORA_PUERTA=cerrada`, 401. La clave va en `x-bitacora-token`, cookie `bitacora_token` o
+`?k=` (TradingView). `GET /api/puerta/estado` y `GET /api/puerta/avisos` (este pide la clave). La app carga `public/puerta.js`,
+que manda la clave y la pide una vez por dispositivo cuando el servidor la exige. La clave vive en `.clave_puerta` (PC, fuera
+de git) y en Railway; nunca en el chat ni en el repo. De `public/` salieron una copia vieja de `server.js` y dos respaldos.
+
+**Marcha atrás.** Borrar `BITACORA_TOKEN` en Railway: todo queda como antes, sin republicar.
+
+**Falta para cerrarla (17-nov, después del cierre).** 1) Leer `/api/puerta/avisos`: es la lista real de quién escribe sin clave.
+2) Ponerles la clave (leyéndola de `.clave_puerta`): `gamma_daemon/index.js` y sus hermanos (niveles de Sigma: si queda por
+fuera el robot opera sin muros), `capturar_niveles.mjs`, `scripts/enviar_premercado.ps1`, `activar_demo_tasty.ps1`,
+`reactivar_auto_execute.ps1`, la subida del PDF de trade (skill informe-trade y `pmbot/grafico_trade.py` e `informe_spx.py`:
+solo la cabecera, sin tocar la lógica del bot) y las skills que escriben con curl. 3) Si hay webhooks de TradingView en uso,
+Guillermo agrega `?k=` en la alerta. 4) `BITACORA_PUERTA=cerrada` en Railway, fuera de horario de mercado, y humo.
+
 ## Demo Tasty — fase 2 publicada: Robot SPX con meta y espejo, Manuales a $10.000, informe diario (2026-11-16)
 
 **Pedido.** Guillermo: "vamos con fase 2". Decisiones suyas: Tradier en **espejo** durante la semana en paralelo; las
