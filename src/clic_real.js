@@ -55,7 +55,13 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   // Reinicio 2026-11-05 (Guillermo: "vamos a reiniciar el demo, vamos a empezar de cero nuevamente... deja estos en la
   // sombra"): los 23 trades del 22-oct al 5-nov (-$418.88, saldo $1,581.12) pasan a la sombra; vuelve a $2,000.
   const DEMO_REINICIO = '2026-11-05T17:15:00Z';                   // 12:15 ET del 5-nov
-  const demoCapital = () => Number(process.env.CLIC_DEMO_CAPITAL || 2000);
+  // Fase 2 del Demo Tasty (Guillermo 2026-11-16): el libro Entradas Manuales pasa a $10.000 CONSERVANDO el historial
+  // ("$10.000 + historial"). Se ignora un CLIC_DEMO_CAPITAL menor que haya quedado en Railway de la etapa de $2.000.
+  const demoCapital = () => Math.max(10000, Number(process.env.CLIC_DEMO_CAPITAL || 10000));
+  // Meta del día: con $200 cerrados en la demo NO se frena; el preview lo avisa y la ventana del PC pregunta
+  // "Ya pasaste la meta de 200 dólares/día, ¿ejecutamos?". Solo lo cerrado cuenta.
+  const metaUsd = () => Number(process.env.CLIC_META_DIA || 200);
+  const metaDia = () => { const p = +pnlHoy('dryrun').toFixed(2); return { meta: metaUsd(), pnlHoy: p, superada: p >= metaUsd() }; };
   const demoDesde = () => [process.env.CLIC_DEMO_DESDE || '', DEMO_REINICIO].sort().pop();
   const previews = new Map();
   let ocupado = false;
@@ -525,7 +531,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       return { ok: false, error: `ninguna opcion cumple las reglas del clic (ATM: ${variantes[0].noCumple}; a 5 pts: ${variantes[1].noCumple})` };
     }
     const p = variantes.find((v) => !v.noCumple);
-    return { ok: true, modo: modo(), modosPermitidos: permitidos(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: null, tiempos };
+    return { ok: true, modo: modo(), modosPermitidos: permitidos(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: null, tiempos, metaDia: metaDia() };
   }
 
   // Iron Butterfly (Guillermo 2026-10-19: "IB pero que yo decida el strike y las alas"): vende put y call en el centro y
@@ -567,7 +573,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       p.noCabeDemo = msg;                                    // sí puede ir por real
     }
     previews.set(p.id, p);
-    return { ok: true, modo: modo(), modosPermitidos: permitidos(), cuenta: cuenta(), preview: p, venceEnSeg: null };
+    return { ok: true, modo: modo(), modosPermitidos: permitidos(), cuenta: cuenta(), preview: p, venceEnSeg: null, metaDia: metaDia() };
   }
 
   // modoPedido: 'real' | 'dryrun', lo que eligió Guillermo en el último botón del PC. Sin modo solo se acepta si hay uno
@@ -938,7 +944,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const somb = cargar().filter((x) => x.modo === 'dryrun' && x.abiertaEn < c.desde && x.estado === 'cerrada' && x.pnlUsd != null);
     const sombra = { trades: somb.length, ganados: somb.filter((x) => x.pnlUsd > 0).length,
                      pnlNeto: +somb.reduce((a, x) => a + x.pnlUsd, 0).toFixed(2) };
-    return { ok: true, modo: modo(), modosPermitidos: permitidos(), sombra, capital: c.capital, desde: c.desde, saldo: c.saldo, disponible: c.disponible, reservado: c.reservado,
+    return { ok: true, modo: modo(), modosPermitidos: permitidos(), metaDia: metaDia(), sombra, capital: c.capital, desde: c.desde, saldo: c.saldo, disponible: c.disponible, reservado: c.reservado,
              pnlRealizado: c.realizado, pnlAbierto: +((abierta?.pnl ?? 0) + (adicional?.pnl ?? 0)).toFixed(2), adicional, rendimientoPct: +(100 * c.realizado / c.capital).toFixed(2),
              trades: cerr.length, ganados: g, pctGanados: cerr.length ? Math.round(100 * g / cerr.length) : null,
              promedio: cerr.length ? +(c.realizado / cerr.length).toFixed(2) : null,

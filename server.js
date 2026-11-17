@@ -281,6 +281,9 @@ const ejecutorTasty = crearEjecutorTasty({
   marcar: (legs, lado) => marcarPaper(legs, lado),   // declarada mas abajo (hoisting de funcion)
 });
 const CAPITAL_DEMO_TENDENCIA = Number(process.env.TENDENCIA_DEMO_CAPITAL || 10000);
+// Meta diaria por libro (Guillermo 2026-11-16): con $200 de ganancia CERRADA en el día, el libro no abre más trades.
+// Aplica a Robot SPX y a Entradas Manuales (allí pregunta en vez de frenar); NO a Señales Sigma ni a Iron Balls.
+const META_DIA_LIBRO = Number(process.env.LIBRO_META_DIA || 200);
 
 // ── Archivo permanente (2026-11-09) — ver src/archivo.js ──
 // Copia por dia, sin tope, de las lecturas de gamma/muros y del log de decisiones, que en sus archivos
@@ -5725,6 +5728,7 @@ function cuentaDemoTendenciaActual() {
   return cuentaDemoTendencia(loadTradierExecutions(), {
     capital: CAPITAL_DEMO_TENDENCIA,
     pnlDe: (ex) => resultadoOficial(ex)?.pnl ?? null,
+    hoy: calendario.fechaET(new Date()), metaDia: META_DIA_LIBRO,
   });
 }
 
@@ -8252,7 +8256,29 @@ async function processDirectionalEntry(direction, meta = {}) {
             motivo: 'ejecutor tasty_real todavia no implementado', etapa: 'config' });
         } else {
           let order, paperEntry, demo = null;
+          // Libro Robot SPX (fase 2, 2026-11-16): antes de abrir se mira la meta del día y el poder de compra del
+          // libro, como lo haría el broker. Un error leyendo el libro no frena la entrada (queda como estaba).
+          let frenoLibro = null;
           if (viaTasty) {
+            try {
+              const lb = cuentaDemoTendenciaActual();
+              const anchoL = Math.abs((signal.strikes?.shortStrike ?? 0) - (signal.strikes?.longStrike ?? 0));
+              const primaL = Math.abs(Number(signal.strikes?.premium) || 0);
+              const riesgoL = Math.max(0, (signal.isCredit ? anchoL - primaL : primaL) * 100 * (signal.contracts || 1));
+              if (lb.metaAlcanzada) frenoLibro = { etapa: 'meta_dia', motivo: `meta del día alcanzada: el libro Robot SPX lleva $${lb.pnlHoy} cerrados hoy (meta $${lb.metaDia}); no se abren más trades hasta mañana` };
+              else if (riesgoL > lb.disponible) frenoLibro = { etapa: 'sin_bp', motivo: `sin poder de compra en el libro Robot SPX: el trade pide $${riesgoL.toFixed(0)} y hay $${lb.disponible} disponibles` };
+            } catch (e) { console.error('[LIBRO-ROBOT] no se pudo leer el libro:', e.message); }
+          }
+          if (frenoLibro) {
+            signal.tradierOrder = { skipped: true, reason: `Demo TastyTrade no abrió: ${frenoLibro.motivo}` };
+            if (frenoLibro.etapa === 'meta_dia') {
+              // Parar por meta no es una falla: queda en el log de decisiones, sin alerta al teléfono.
+              try { logStrategyEvent({ strategyFamily: FAM, etTime: ctx?.etTime, stage: 'META_DIA_ALCANZADA', passed: false, reason: frenoLibro.motivo }); } catch {}
+              console.log(`[LIBRO-ROBOT] ${frenoLibro.motivo}`);
+            } else {
+              await anotarNoAbrioDemoTasty({ familia: FAM, ctx, strikes: signal.strikes, motivo: frenoLibro.motivo, etapa: frenoLibro.etapa });
+            }
+          } else if (viaTasty) {
             // ── Demo de TastyTrade (2026-11-09): dry-run contra la cuenta real + llenado cruzando el spread ──
             const tipoOpc = /CALL/.test(signal.strategy) ? 'C' : 'P';
             const legsDemo = {
@@ -8903,11 +8929,11 @@ app.get('/api/libros', async (req, res) => {
   const fila = (libro, x, extra = {}) => ({ libro, capital: x?.capital ?? 10000, saldo: x?.saldo ?? null,
     disponible: x?.disponible ?? null, ...extra });
   const out = { ok: true, libros: [] };
-  try { const d = await clicReal.demo(); out.libros.push(fila('Entradas Manuales', d, { cerradas: d.trades, ganadas: d.ganados, winRate: d.pctGanados, realizado: d.pnlRealizado })); }
+  try { const d = await clicReal.demo(); out.libros.push(fila('Entradas Manuales', d, { cerradas: d.trades, ganadas: d.ganados, winRate: d.pctGanados, realizado: d.pnlRealizado, pnlHoy: d.metaDia?.pnlHoy ?? null, metaDia: d.metaDia?.meta ?? null, metaAlcanzada: !!d.metaDia?.superada })); }
   catch (e) { out.libros.push({ libro: 'Entradas Manuales', error: e.message }); }
   try { const s = await libroSenales.resumen({ marcar: false }); out.libros.push(fila('Señales Sigma', s, { cerradas: s.cerradas, ganadas: s.ganadas, winRate: s.winRate, realizado: s.realizado, pnlHoy: s.pnlHoy, pnlMes: s.pnlMes, abiertas: s.abiertas.length })); }
   catch (e) { out.libros.push({ libro: 'Señales Sigma', error: e.message }); }
-  try { const r = cuentaDemoTendenciaActual(); out.libros.push(fila('Robot SPX', r, { cerradas: r.cerrados, ganadas: r.ganadores, abiertas: r.abiertos, realizado: +(r.saldo - r.capital).toFixed(2), nota: 'hoy solo el Direccional; el resto migra en la fase 2' })); }
+  try { const r = cuentaDemoTendenciaActual(); out.libros.push(fila('Robot SPX', r, { cerradas: r.cerrados, ganadas: r.ganadores, abiertas: r.abiertos, realizado: +(r.saldo - r.capital).toFixed(2), pnlHoy: r.pnlHoy, metaDia: r.metaDia, metaAlcanzada: r.metaAlcanzada, porEstrategia: r.porEstrategia, nota: 'hoy solo el Direccional; el resto entra en espejo en el paso 2 de la fase 2' })); }
   catch (e) { out.libros.push({ libro: 'Robot SPX', error: e.message }); }
   try {
     const ib = libroIronBalls(), p = ironBallsDemo.resumen(), a = ironBallsAleDemo.resumen();

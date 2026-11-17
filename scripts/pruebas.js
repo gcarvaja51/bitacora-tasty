@@ -1462,6 +1462,24 @@ seccion('Ejecutor del direccional en TastyTrade (src/ejecutor_tasty.js)');
     chequear('cuenta demo: saldo = 10000 - 79.56 + 120.44', cta.saldo === 10040.88, `dio ${cta.saldo}`);
     chequear('cuenta demo: ignora los trades de Tradier', cta.cerrados === 2, `dio ${cta.cerrados}`);
     chequear('cuenta demo: reserva el riesgo de la abierta (10 - 1.90)', cta.reservado === 810, `dio ${cta.reservado}`);
+    // Fase 2 (2026-11-16): P&L del día, meta de $200 y desglose por estrategia del libro Robot SPX
+    const mk = (fam, neto, closedAt) => ({ broker: 'tasty_demo', status: 'closed', strategyFamily: fam, closedAt,
+      feesApertura: 1, feesCierre: 1, _bruto: neto + 2 });
+    const libro = (lista, extra = {}) => ejT.cuentaDemoTendencia(lista, { capital: 10000, pnlDe: (e) => e._bruto, hoy: '2026-11-17', metaDia: 200, ...extra });
+    const l1 = libro([mk('TENDENCIA', 150, '2026-11-17T15:00:00Z'), mk('MEDIODIA', 60, '2026-11-17T17:00:00Z'), mk('TENDENCIA', 500, '2026-11-16T15:00:00Z')]);
+    chequear('libro robot: P&L de hoy solo cuenta lo cerrado hoy (150 + 60)', l1.pnlHoy === 210 && l1.cerradosHoy === 2, `dio ${l1.pnlHoy} / ${l1.cerradosHoy}`);
+    chequear('libro robot: con $210 cerrados la meta de $200 queda alcanzada', l1.metaAlcanzada === true);
+    const l2 = libro([mk('TENDENCIA', 199.99, '2026-11-17T15:00:00Z'), mk('TENDENCIA', 900, '2026-11-16T20:59:00Z')]);
+    chequear('libro robot: $199.99 hoy no alcanza la meta (lo de ayer no cuenta)', l2.metaAlcanzada === false && l2.pnlHoy === 199.99, `dio ${l2.pnlHoy}`);
+    const l3 = libro([mk('TENDENCIA', 300, '2026-11-18T03:30:00Z')]);
+    chequear('libro robot: el día se corta en hora de Nueva York (22:30 ET del 17 cuenta para el 17)', l3.pnlHoy === 300, `dio ${l3.pnlHoy}`);
+    const l4 = libro([mk('TENDENCIA', 250, '2026-11-17T15:00:00Z'),
+      { broker: 'tasty_demo', status: 'filled', strategyFamily: 'IRON_CONDOR', isCredit: true, contracts: 1, strikes: { shortStrike: 7600, longStrike: 7595 }, paperEntry: { neto: 1.5 } }]);
+    chequear('libro robot: lo abierto no suma a la meta, solo lo cerrado', l4.pnlHoy === 250 && l4.abiertos === 1);
+    const pe = Object.fromEntries(l1.porEstrategia.map((x) => [x.estrategia, x]));
+    chequear('libro robot: desglose por estrategia', pe.TENDENCIA.cerrados === 2 && pe.TENDENCIA.neto === 650 && pe.TENDENCIA.netoHoy === 150 && pe.MEDIODIA.neto === 60,
+      JSON.stringify(l1.porEstrategia));
+    chequear('libro robot: sin meta configurada nunca frena', libro([mk('TENDENCIA', 5000, '2026-11-17T15:00:00Z')], { metaDia: null }).metaAlcanzada === false);
   })().catch(e => chequear('pruebas del ejecutor sin excepciones', false, e.stack)));
 
   // Huella: con el interruptor en 'tradier' la version vigente no cambia
@@ -1475,6 +1493,18 @@ seccion('Ejecutor del direccional en TastyTrade (src/ejecutor_tasty.js)');
     calcularHuella({ ...cfgProd, trading: { ...cfgProd.trading, ejecutorTendencia: 'tradier' } }, 'TENDENCIA') === hBase);
   chequear('la demo de TastyTrade nace con huella propia',
     calcularHuella({ ...cfgProd, trading: { ...cfgProd.trading, ejecutorTendencia: 'tasty_demo' } }, 'TENDENCIA') !== hBase);
+
+  // Fase 2: el freno del libro (meta y poder de compra) se mira ANTES de abrir en la demo; los clics van sobre $10.000
+  {
+    const fsF = require('fs'), pathF = require('path');
+    const srv = fsF.readFileSync(pathF.join(__dirname, '..', 'server.js'), 'utf8');
+    const iFreno = srv.indexOf("frenoLibro = { etapa: 'meta_dia'"), iAbrir = srv.indexOf('await ejecutorTasty.abrirDemo({ legs: legsDemo');
+    chequear('direccional demo: la meta del día se revisa antes de abrir', iFreno > 0 && iAbrir > iFreno);
+    chequear('direccional demo: el poder de compra del libro se revisa antes de abrir', srv.indexOf("etapa: 'sin_bp'") > 0 && srv.indexOf("etapa: 'sin_bp'") < iAbrir);
+    const clic = fsF.readFileSync(pathF.join(__dirname, '..', 'src', 'clic_real.js'), 'utf8');
+    chequear('entradas manuales: capital de $10.000 aunque Railway conserve el de $2.000', /Math\.max\(10000, Number\(process\.env\.CLIC_DEMO_CAPITAL \|\| 10000\)\)/.test(clic));
+    chequear('entradas manuales: el preview avisa la meta del día (no frena)', (clic.match(/metaDia: metaDia\(\)/g) || []).length === 3);
+  }
 
   // Estaticas sobre el codigo: las puertas por donde un trade demo podia terminar en Tradier
   const fsE = require('fs'), pathE = require('path');

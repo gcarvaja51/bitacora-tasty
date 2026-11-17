@@ -180,12 +180,20 @@ function asentarCierreDemo(ex, rc, ahora = new Date().toISOString()) {
 
 // Saldo de la cuenta demo del robot: capital inicial + P&L oficial de lo cerrado - comisiones reales de TastyTrade.
 // `pnlDe(ex)` lo inyecta server.js (resultadoOficial). Funcion pura.
-function cuentaDemoTendencia(ejecuciones, { capital = 10000, pnlDe }) {
+// Fase 2 (2026-11-16): es el libro Robot SPX completo, compartido por todas las estrategias que ejecutan en la demo
+// (campo broker='tasty_demo'). `hoy` = fecha ET 'AAAA-MM-DD'; `metaDia` = ganancia CERRADA del día a partir de la cual
+// el libro no abre más trades (Guillermo: "cuando haga 200 dólares diarios de ganancia, paramos"; solo lo cerrado
+// cuenta y lo abierto sigue su curso).
+const fechaETde = (iso) => (iso ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(iso)) : '');
+function cuentaDemoTendencia(ejecuciones, { capital = 10000, pnlDe, hoy = null, metaDia = null }) {
   const propias = (ejecuciones || []).filter((e) => e.broker === 'tasty_demo');
   const cerradas = propias.filter((e) => e.status === 'closed')
     .sort((a, b) => String(a.closedAt).localeCompare(String(b.closedAt)));
   const abiertas = propias.filter((e) => e.status === 'filled');
-  let saldo = capital, pico = capital, dd = 0, ganadores = 0, comisiones = 0;
+  let saldo = capital, pico = capital, dd = 0, ganadores = 0, comisiones = 0, pnlHoy = 0, cerradosHoy = 0;
+  const porEstrategia = {};
+  const fam = (e) => porEstrategia[e.strategyFamily || 'TENDENCIA'] = porEstrategia[e.strategyFamily || 'TENDENCIA']
+    || { estrategia: e.strategyFamily || 'TENDENCIA', cerrados: 0, ganadores: 0, neto: 0, netoHoy: 0, abiertos: 0 };
   const curva = [{ t: propias.length ? propias.map((e) => e.timestamp).sort()[0] : null, saldo: capital }];
   for (const e of cerradas) {
     const bruto = pnlDe(e);
@@ -195,8 +203,11 @@ function cuentaDemoTendencia(ejecuciones, { capital = 10000, pnlDe }) {
     comisiones += fees;
     if (bruto > 0) ganadores++;
     saldo += neto; pico = Math.max(pico, saldo); dd = Math.max(dd, pico - saldo);
+    const f = fam(e); f.cerrados++; if (bruto > 0) f.ganadores++; f.neto = +(f.neto + neto).toFixed(2);
+    if (hoy && fechaETde(e.closedAt) === hoy) { pnlHoy += neto; cerradosHoy++; f.netoHoy = +(f.netoHoy + neto).toFixed(2); }
     curva.push({ t: e.closedAt, saldo: +saldo.toFixed(2) });
   }
+  for (const e of abiertas) fam(e).abiertos++;
   const reservado = abiertas.reduce((a, e) => {
     const ancho = Math.abs((e.strikes?.shortStrike ?? 0) - (e.strikes?.longStrike ?? 0));
     const prima = Math.abs(e.paperEntry?.neto ?? 0);
@@ -214,6 +225,11 @@ function cuentaDemoTendencia(ejecuciones, { capital = 10000, pnlDe }) {
     comisiones: +comisiones.toFixed(2),
     maxDrawdown: +dd.toFixed(2),
     curva,
+    pnlHoy: +pnlHoy.toFixed(2),
+    cerradosHoy,
+    metaDia,
+    metaAlcanzada: metaDia != null && pnlHoy >= metaDia,
+    porEstrategia: Object.values(porEstrategia).sort((a, b) => b.neto - a.neto),
   };
 }
 

@@ -1604,11 +1604,13 @@ async function cargarComparar() {
       const rend = x.saldo != null ? 100 * (x.saldo - x.capital) / x.capital : null;
       return `<div class="kpi" style="border-top:3px solid ${c};cursor:pointer" onclick="setLibro('${k}')"><div class="kpi-label" style="color:${c}">${x.libro}</div>`
         + `<div class="kpi-val" style="color:${colorL(rend)}">${usdL(x.saldo)}</div>`
-        + `<div class="kpi-sub">${rend == null ? '' : (rend >= 0 ? '+' : '') + rend.toFixed(2) + '% sobre ' + usdL(x.capital)} · ${x.cerradas ?? 0} cerradas${x.winRate != null ? ` · ${x.winRate}% ganadas` : ''}</div></div>`;
+        + `<div class="kpi-sub">${rend == null ? '' : (rend >= 0 ? '+' : '') + rend.toFixed(2) + '% sobre ' + usdL(x.capital)} · ${x.cerradas ?? 0} cerradas${x.winRate != null ? ` · ${x.winRate}% ganadas` : ''}</div>`
+        + (x.metaDia != null ? `<div class="kpi-sub" style="margin-top:4px;color:${x.metaAlcanzada ? 'var(--green)' : 'var(--muted)'}">${x.metaAlcanzada ? '✔ Meta del día alcanzada' : 'Meta del día'}: ${usdL(x.pnlHoy)} de ${usdL(x.metaDia)}</div>` : '') + `</div>`;
     }).join('');
-    $('cmp-tabla').innerHTML = tablaL(['Libro', 'Saldo', 'Realizado', 'Cerradas', 'Ganadas', 'Abiertas', 'Nota'],
+    $('cmp-tabla').innerHTML = tablaL(['Libro', 'Saldo', 'Realizado', 'Hoy', 'Cerradas', 'Ganadas', 'Abiertas', 'Nota'],
       d.libros.map((x) => [`<b style="color:${LIBROS[clave[x.libro]].color}">${x.libro}</b>`, usdL(x.saldo),
-        `<span style="color:${colorL(x.realizado)}">${usdL(x.realizado)}</span>`, x.cerradas ?? '—',
+        `<span style="color:${colorL(x.realizado)}">${usdL(x.realizado)}</span>`,
+        x.pnlHoy != null ? `<span style="color:${colorL(x.pnlHoy)}">${usdL(x.pnlHoy)}</span>${x.metaDia != null ? ` <span style="color:var(--muted);font-size:10px">/ ${usdL(x.metaDia)}</span>` : ''}` : '—', x.cerradas ?? '—',
         x.winRate != null ? `${x.ganadas} (${x.winRate}%)` : (x.ganadas ?? '—'), x.abiertas ?? '—', x.nota || x.error || '']));
   } catch (e) { $('cmp-cards').innerHTML = `<div style="color:var(--red)">No se pudo cargar: ${e.message}</div>`; }
 }
