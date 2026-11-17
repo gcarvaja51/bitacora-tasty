@@ -8984,6 +8984,23 @@ app.get('/api/libros', async (req, res) => {
   res.json(out);
 });
 
+// Todos los trades de cada libro, fila por fila (2026-11-17) — ver armarLibros en src/informe_diario.js. SOLO LECTURA.
+// Lo consumen las hojas del menú de la Demo Tasty cuando el libro marcado no es el Robot SPX.
+app.get('/api/libros/filas', async (req, res) => {
+  try {
+    const { armarLibros } = require('./src/informe_diario');
+    const { resultadoOficial } = require('./src/pnl_oficial');
+    const errores = {}, d = {};
+    try { d.manual = await clicReal.demo(); } catch (e) { errores['Entradas Manuales'] = e.message; }
+    try { d.senales = await libroSenales.resumen({ marcar: true }); } catch (e) { errores['Señales Sigma'] = e.message; }
+    try { d.ejecuciones = loadTradierExecutions(); d.gemelos = espejoRobot.resumen().registros; d.robot = cuentaDemoTendenciaActual(); }
+    catch (e) { errores['Robot SPX'] = e.message; }
+    try { d.ironPipe = ironBallsDemo.resumen(); d.ironAle = ironBallsAleDemo.resumen(); d.ironLibro = libroIronBalls(); }
+    catch (e) { errores['Iron Balls'] = e.message; }
+    res.json(armarLibros({ ...d, errores, hoy: calendario.fechaET(new Date()), pnlDe: (ex) => resultadoOficial(ex)?.pnl ?? null }));
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // Informe diario de los cuatro libros (fase 2 paso 3, 2026-11-16) — ver src/informe_diario.js. SOLO LECTURA.
 // ?fecha=AAAA-MM-DD (día de Nueva York; por defecto hoy). Lo consume scripts/informe_libros.py en el PC a las 16:30.
 app.get('/api/libros/diario', async (req, res) => {

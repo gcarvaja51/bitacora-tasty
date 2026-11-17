@@ -188,4 +188,29 @@ function armarDia(d) {
     libros };
 }
 
-module.exports = { armarDia, filasManual, filasSenales, filasRobot, filasIronBalls, seccion, fechaET, textoPatas };
+/**
+ * Todos los trades de cada libro, con la misma fila que el informe diario (2026-11-17). Guillermo: "quiero que la
+ * marca que tenga sirva para cada hoja de trabajo": Calendario, Historial, Posiciones, Reportes, Curvas y Hoy de la
+ * Demo Tasty leen de aquí cuando el libro marcado no es el Robot SPX. Función PURA, mismos insumos que armarDia.
+ * Cada fila lleva además `dia` y `diaApertura` (fecha de Nueva York del cierre y de la apertura).
+ */
+function armarLibros(d) {
+  const err = d.errores || {};
+  const con = (libro, clave, f) => {
+    if (err[libro]) return { libro, clave, error: err[libro] };
+    try {
+      const x = f();
+      const filas = x.filas.map((r) => ({ ...r, dia: fechaET(r.cerradaAt) || null, diaApertura: fechaET(r.abiertaAt) || null }));
+      return { libro, clave, capital: x.capital ?? 10000, saldo: x.saldo ?? null, filas };
+    } catch (e) { return { libro, clave, error: e.message }; }
+  };
+  return { ok: true, hoy: d.hoy || fechaET(d.ahora || new Date()), generado: (d.ahora || new Date()).toISOString(),
+    libros: [
+      con('Entradas Manuales', 'manual', () => ({ capital: d.manual?.capital, saldo: d.manual?.saldo, filas: filasManual(d.manual) })),
+      con('Señales Sigma', 'senales', () => ({ capital: d.senales?.capital, saldo: d.senales?.saldo, filas: filasSenales(d.senales) })),
+      con('Robot SPX', 'robot', () => ({ capital: d.robot?.capital, saldo: d.robot?.saldo, filas: filasRobot(d.ejecuciones, d.gemelos, d.pnlDe || (() => null)) })),
+      con('Iron Balls', 'ironballs', () => ({ capital: d.ironLibro?.capital, saldo: d.ironLibro?.saldo, filas: filasIronBalls(d.ironPipe, d.ironAle) })),
+    ] };
+}
+
+module.exports = { armarDia, armarLibros, filasManual, filasSenales, filasRobot, filasIronBalls, seccion, fechaET, textoPatas };

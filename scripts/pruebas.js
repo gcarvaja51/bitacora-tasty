@@ -2013,6 +2013,18 @@ seccion('Informe diario de los cuatro libros (src/informe_diario.js)');
   chequear('diario: un día sin trades sale en ceros, y un libro caído no tumba a los otros', vacio.libros[0].resultadoHoy === 0 && vacio.libros[0].movimientos.length === 0 && vacio.libros[3].error === 'caído' && vacio.libros.length === 4);
   const pend = armarDia({ fecha: F, hoy: F, gemelos: [{ espejo: true, strategyFamily: 'NEUTRAL', status: 'closed', patas: [], filledAt: '2026-11-17T17:00:00Z', closedAt: '2026-11-17T21:01:00Z', pnlNeto: null }] });
   chequear('diario: un cierre sin resultado asentado se avisa y no se inventa', pend.libros[2].resultadoHoy === 0 && pend.libros[2].avisos.some((a) => /sin resultado asentado/.test(a)));
+  // armarLibros (2026-11-17): todos los trades por libro para las hojas del menú
+  const { armarLibros } = require('../src/informe_diario');
+  const tl = armarLibros({ hoy: F, errores: { 'Señales Sigma': 'caído' },
+    manual: { capital: 10000, saldo: 10050, lista: [
+      { nombre: 'Bull Put', strikes: '7400/7395', estado: 'cerrada', abiertaEn: '2026-11-16T15:03:00Z', cerradaEn: '2026-11-16T15:07:00Z', entrada: 2.75, salida: 3, comisiones: 4.88, pnlNeto: 20.12 },
+      { nombre: 'Bear Call', strikes: '7485/7490', estado: 'abierta', abiertaEn: '2026-11-17T16:11:00Z' }] },
+    ironPipe: { lista: [{ nombre: 'IC', estado: 'cerrada', abiertaEn: '2026-11-17T15:00:00Z', cerradaEn: '2026-11-18T01:30:00Z', pnlUsd: 30 }, { prueba: true, estado: 'cerrada', pnlUsd: 999 }] },
+    ironAle: { lista: [] }, ironLibro: { capital: 10000, saldo: 10030 } });
+  const TL = Object.fromEntries(tl.libros.map((l) => [l.clave, l]));
+  chequear('libros/filas: los cuatro libros con su clave, y uno caído no tumba a los otros', tl.ok && tl.libros.length === 4 && TL.senales.error === 'caído' && TL.manual.filas.length === 2 && TL.robot.filas.length === 0);
+  chequear('libros/filas: cada fila trae el día de Nueva York del cierre y de la apertura', TL.manual.filas[0].dia === '2026-11-16' && TL.manual.filas[0].neto === 20.12 && TL.manual.filas[1].dia === null && TL.manual.filas[1].diaApertura === '2026-11-17' && TL.manual.filas[1].estado === 'abierto');
+  chequear('libros/filas: el día es el de Nueva York (un cierre a las 01:30 UTC cuenta para el día anterior) y las pruebas no entran', TL.ironballs.filas.length === 1 && TL.ironballs.filas[0].dia === '2026-11-17' && TL.ironballs.saldo === 10030);
 }
 
 // ── Puerta de escritura (src/puerta.js) — 2026-11-16 ──

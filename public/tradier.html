@@ -94,6 +94,8 @@
       <button class="libro-btn" data-libro="ironballs" onclick="setLibro('ironballs')">💣 Iron Balls</button>
     </div>
     <div id="libro-cartel" style="margin-bottom:10px;padding:8px 14px;border-radius:8px;font-weight:700;font-size:13px;letter-spacing:.02em;"></div>
+    <!-- 2026-11-17: hojas que no dependen del libro marcado (herramientas) o que solo existen para el Robot SPX -->
+    <div id="libro-aviso" style="display:none;margin-bottom:10px;padding:7px 14px;border-radius:8px;font-size:12px;color:var(--muted);border:1px dashed var(--border2);"></div>
 
   </div>
   <div class="content">
@@ -128,6 +130,9 @@
       <div class="kpi-row cols-4" id="man-kpis"></div>
       <div class="card"><div class="card-header">Tus clics de TradingView</div><div style="padding:12px 16px;color:var(--muted);font-size:12px;" id="man-nota"></div></div>
     </div>
+    <!-- ══ HOJA DE UN LIBRO (2026-11-17) — Calendario, Posiciones, Historial, Reportes, Curvas y Hoy de Entradas
+         Manuales, Señales Sigma e Iron Balls. La pinta cargarHojaLibro() con /api/libros/filas. ══ -->
+    <div id="panel-libro-hoja" class="panel"><div id="lh-cuerpo"></div></div>
     <!-- ══ DASHBOARD (placeholder — Etapa 5) ══ -->
     <div id="panel-dashboard" class="panel active">
       <!-- Interruptores por estrategia — arriba de todo (2026-09-28, pedido del usuario) -->
@@ -1455,16 +1460,14 @@ const TABS = {
 let currentTab = 'dashboard';
 
 function nav(tab, el) {
-  if (typeof marcarLibro === 'function') marcarLibro('robot');   // el menú de la izquierda = libro Robot SPX
+  // 2026-11-17 (Guillermo: "quiero que la marca que tenga sirva para cada hoja de trabajo"): el menú ya NO devuelve
+  // al Robot SPX. El libro marcado se conserva y mostrarHoja() decide qué se pinta. Solo "Comparar", que no es un
+  // libro, vuelve al Robot SPX al tocar el menú.
+  if (libroActual === 'comparar') marcarLibro('robot');
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
-  $(`panel-${tab}`).classList.add('active');
-  currentTab = tab;
-  // nav() ya carga la pestaña; se marca el instante para que el auto-refresco
-  // no dispare una segunda carga encima (ver autoRefrescoTick).
-  _autoUltimo = Date.now();
-  if (TABS[tab]) TABS[tab]();
+  hojaActual = tab;
+  mostrarHoja();
 }
 
 // ── Botón Actualizar global (2026-08-03, a pedido del usuario) — vive en el
@@ -1577,25 +1580,243 @@ function marcarLibro(libro) {
   if (cartel) {
     cartel.style.background = L.color + '22'; cartel.style.border = `1px solid ${L.color}`; cartel.style.color = L.color;
     cartel.textContent = libro === 'comparar' ? 'Estás viendo: los libros lado a lado'
-      : `Estás viendo el libro: ${L.nombre}` + (libro === 'robot' ? ' — las hojas del menú de la izquierda' : '');
+      : `Estás viendo el libro: ${L.nombre}`;
   }
+}
+
+// ── El libro marcado vale en todas las hojas (2026-11-17) ──────────────────────────────────────────────────────
+// hojaActual = la hoja del menú elegida; libroActual = el libro marcado. Cambiar una no toca la otra.
+//  · Robot SPX: las hojas de siempre.
+//  · Otro libro + Dashboard: la hoja propia del libro (la de antes).
+//  · Otro libro + Calendario/Posiciones/Historial/Reportes/Curvas/Hoy: la misma hoja con los trades de ese libro.
+//  · Otro libro + cualquier otra hoja: se muestra igual, con un aviso de que no depende del libro marcado.
+let hojaActual = 'dashboard';
+const HOJAS_LIBRO = { calendar: 'Calendario', positions: 'Posiciones', history: 'Historial', reports: 'Reportes', curvas: 'Curvas', today: 'Hoy' };
+const HOJAS_NOMBRE = { dashboard: 'Dashboard', rendimiento: 'Rendimiento', watchlist: 'Watchlist', backtester: 'Backtester SPX',
+  monitor: 'Monitor SPX', wheel: 'La Rueda', bp: 'Buying Power', alejandro: 'Playbook Alejandro', ai: 'IA Análisis', ...HOJAS_LIBRO };
+
+function mostrarHoja() {
+  const libro = libroActual, tab = hojaActual, aviso = $('libro-aviso');
+  document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
+  if (aviso) aviso.style.display = 'none';
+  _autoUltimo = Date.now();   // esta función ya carga la hoja: que el auto-refresco no dispare otra carga encima
+  const deOtroLibro = libro !== 'robot' && libro !== 'comparar';
+  if (deOtroLibro && tab === 'dashboard') {
+    $(`panel-libro-${libro}`).classList.add('active');
+    currentTab = `libro-${libro}`;
+    TABS[currentTab]();
+    return;
+  }
+  if (deOtroLibro && HOJAS_LIBRO[tab]) {
+    $('panel-libro-hoja').classList.add('active');
+    currentTab = 'libro-hoja';
+    cargarHojaLibro();
+    return;
+  }
+  $(`panel-${tab}`).classList.add('active');
+  currentTab = tab;
+  if (deOtroLibro && aviso) {
+    aviso.style.display = 'block';
+    aviso.textContent = tab === 'rendimiento'
+      ? `Rendimiento solo existe para el Robot SPX (compara el robot contra el bróker). Sigues con el libro ${LIBROS[libro].nombre} marcado.`
+      : `${HOJAS_NOMBRE[tab] || 'Esta hoja'} es una herramienta general: no cambia con el libro marcado (${LIBROS[libro].nombre}).`;
+  }
+  if (TABS[tab]) TABS[tab]();
 }
 
 function setLibro(libro) {
   if (!LIBROS[libro]) libro = 'robot';
   marcarLibro(libro);
-  if (libro === 'robot') {
-    const item = document.querySelector(`.nav-item[onclick*="'${currentTab && !String(currentTab).startsWith('libro-') ? currentTab : 'dashboard'}'"]`)
-      || document.querySelector('.nav-item');
-    if (item) item.click();
+  if (libro === 'comparar') {
+    document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
+    const aviso = $('libro-aviso'); if (aviso) aviso.style.display = 'none';
+    $('panel-libro-comparar').classList.add('active');
+    currentTab = 'libro-comparar';
+    cargarComparar();
     return;
   }
+  // se queda en la hoja en la que estabas; solo se asegura de que el menú la muestre marcada
   document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
-  document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
-  $(`panel-libro-${libro}`).classList.add('active');
-  currentTab = `libro-${libro}`;
-  ({ comparar: cargarComparar, senales: cargarLibroSenales, ironballs: cargarLibroIronBalls, manual: cargarLibroManual })[libro]();
+  const item = document.querySelector(`.nav-item[onclick*="'${hojaActual}'"]`);
+  if (item) item.classList.add('active');
+  LH.grupo = ''; LH.dia = null;
+  mostrarHoja();
 }
+
+// ── Hojas por libro: datos ──
+const LH = { y: new Date().getFullYear(), m: new Date().getMonth(), dia: null, grupo: '', datos: null, at: 0 };
+const escL = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const extraL = (f) => (typeof f.extra === 'string' ? f.extra : '');
+const precioL = (v) => (v == null || isNaN(v) ? '—' : Number(v).toFixed(2));
+
+async function filasDeLibro(libro, fresco) {
+  if (!LH.datos || fresco || Date.now() - LH.at > 60000) {
+    const d = await fetch('/api/libros/filas').then((r) => r.json());
+    if (!d || !d.ok) throw new Error((d && d.error) || 'el servidor no entregó los libros');
+    LH.datos = d; LH.at = Date.now();
+  }
+  const x = LH.datos.libros.find((l) => l.clave === libro);
+  if (!x) throw new Error('libro desconocido');
+  if (x.error) throw new Error(x.error);
+  return { ...x, hoy: LH.datos.hoy };
+}
+
+async function cargarHojaLibro(fresco) {
+  const libro = libroActual, tab = hojaActual, c = $('lh-cuerpo');
+  if (!c || !HOJAS_LIBRO[tab] || libro === 'robot' || libro === 'comparar') return;
+  const k = `${libro}|${tab}`;
+  if (c.dataset.k !== k) c.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  try {
+    const x = await filasDeLibro(libro, fresco === true);
+    if (libroActual !== libro || hojaActual !== tab) return;   // cambió de hoja o de libro mientras cargaba
+    c.dataset.k = k;
+    pintarHojaLibro(x);
+  } catch (e) {
+    c.dataset.k = '';
+    c.innerHTML = `<div class="card"><div style="padding:14px 16px;color:var(--red);font-size:12px;">No se pudo cargar ${HOJAS_LIBRO[tab]} de ${LIBROS[libro].nombre}: ${escL(e.message)}</div></div>`;
+  }
+}
+
+function lhRepintar() { const x = LH.datos && LH.datos.libros.find((l) => l.clave === libroActual); if (x && !x.error) pintarHojaLibro({ ...x, hoy: LH.datos.hoy }); }
+function lhMes(d) { LH.m += d; if (LH.m < 0) { LH.m = 11; LH.y--; } if (LH.m > 11) { LH.m = 0; LH.y++; } LH.dia = null; lhRepintar(); }
+function lhDia(dia) { LH.dia = LH.dia === dia ? null : dia; lhRepintar(); }
+function lhGrupo(g) { LH.grupo = g; LH.dia = null; lhRepintar(); }
+
+function pintarHojaLibro(x) {
+  const libro = libroActual, tab = hojaActual, L = LIBROS[libro];
+  const grupos = [...new Set(x.filas.map((f) => f.grupo).filter(Boolean))].sort();
+  if (LH.grupo && !grupos.includes(LH.grupo)) LH.grupo = '';
+  const filas = x.filas.filter((f) => !LH.grupo || f.grupo === LH.grupo);
+  const rotulo = libro === 'senales' ? 'Profe' : libro === 'ironballs' ? 'Fuente' : 'Sesión';
+  const filtro = grupos.length > 1
+    ? `<span class="filter-label">${rotulo}</span><select onchange="lhGrupo(this.value)"><option value="">Todos</option>${grupos.map((g) => `<option value="${escL(g)}"${g === LH.grupo ? ' selected' : ''}>${escL(g)}</option>`).join('')}</select>`
+    : '';
+  const cab = `<div class="filters" style="align-items:center;"><span style="font-weight:700;color:${L.color};font-size:13px;">${HOJAS_LIBRO[tab]} · ${L.nombre}</span>${filtro}
+    <span style="margin-left:auto;font-size:11px;color:var(--muted);">Capital $${Number(x.capital).toLocaleString('en-US')} · saldo ${usdL(x.saldo)} · resultado neto de comisiones, día de Nueva York</span></div>`;
+  $('lh-cuerpo').innerHTML = cab + HOJA_LIBRO[tab]({ ...x, filas, filtrado: !!LH.grupo });
+}
+
+const cerradosL = (filas) => filas.filter((f) => f.estado === 'cerrado' && f.dia);
+const abiertasL = (filas) => filas.filter((f) => f.estado === 'abierto');
+const tarjetaL = (titulo, cuerpo, sub) => `<div class="card" style="margin-bottom:16px;"><div class="card-header">${titulo}${sub ? ` <span style="color:var(--muted);font-size:10px;margin-left:6px;">${sub}</span>` : ''}</div><div class="table-wrap" style="padding:8px 12px;">${cuerpo}</div></div>`;
+const netoL = (v) => `<span style="color:${colorL(v)};font-weight:700;">${usdL(v)}</span>`;
+const sinAsentarL = (n) => (n ? `<div style="font-size:11px;color:var(--muted);padding:0 2px 10px;">${n} cierre(s) todavía sin resultado asentado: no cuentan en las sumas.</div>` : '');
+const tablaCerradosL = (lista) => tablaL(['Cerrada', 'Grupo', 'Operación', 'Patas', 'Entrada', 'Salida', 'Comisiones', 'Neto', 'Motivo'],
+  lista.map((f) => [horaL(f.cerradaAt), escL(f.grupo), escL(f.descripcion), escL(extraL(f)), precioL(f.entrada), precioL(f.salida), usdL(f.comisiones), f.neto == null ? '—' : netoL(f.neto), escL(f.motivo || f.nota || '')]));
+const tablaAbiertasL = (lista) => tablaL(['Abierta', 'Grupo', 'Operación', 'Patas', 'Entrada', 'Latente', 'Nota'],
+  lista.map((f) => [horaL(f.abiertaAt), escL(f.grupo), escL(f.descripcion), escL(extraL(f)), precioL(f.entrada), f.latente == null ? '—' : netoL(f.latente), escL(f.nota || '')]));
+
+const HOJA_LIBRO = {
+  calendar(x) {
+    const cer = cerradosL(x.filas), porDia = {}, abiertosDia = {};
+    cer.forEach((f) => { if (f.neto != null) porDia[f.dia] = (porDia[f.dia] || 0) + f.neto; else if (!(f.dia in porDia)) porDia[f.dia] = 0; });
+    x.filas.forEach((f) => { if (f.estado !== 'no_abierto' && f.diaApertura) abiertosDia[f.diaApertura] = (abiertosDia[f.diaApertura] || 0) + 1; });
+    const y = LH.y, mo = LH.m, pre = `${y}-${String(mo + 1).padStart(2, '0')}`;
+    const nombre = new Date(y, mo, 1).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+    let tot = 0, pos = 0, neg = 0;
+    Object.entries(porDia).forEach(([d, v]) => { if (d.startsWith(pre)) { tot += v; if (v > 0) pos++; else if (v < 0) neg++; } });
+    const offset = (new Date(y, mo, 1).getDay() + 6) % 7, dias = new Date(y, mo + 1, 0).getDate();
+    let celdas = '';
+    for (let i = 0; i < offset; i++) celdas += '<div class="cal-day empty"></div>';
+    for (let d = 1; d <= dias; d++) {
+      const ds = `${pre}-${String(d).padStart(2, '0')}`, v = porDia[ds], ab = abiertosDia[ds];
+      let cls = 'cal-day';
+      if (v > 0) cls += ' pos-day'; else if (v < 0) cls += ' neg-day';
+      if (ds === x.hoy) cls += ' today';
+      celdas += `<div class="${cls}" onclick="lhDia('${ds}')"${ds === LH.dia ? ' style="outline:2px solid var(--blue);"' : ''}><div class="cal-num">${d}</div>`
+        + (v !== undefined ? `<div class="cal-pnl" style="color:${colorL(v)}">${usdL(v)}</div>` : '')
+        + (ab ? `<div class="cal-open" title="Trades abiertos ese día">${ab} abre</div>` : '') + '</div>';
+    }
+    let detalle = '';
+    if (LH.dia) {
+      const delDia = x.filas.filter((f) => f.estado !== 'no_abierto' && (f.dia === LH.dia || f.diaApertura === LH.dia));
+      detalle = tarjetaL(`Operaciones del ${LH.dia}`, tablaL(['Abierta', 'Cerrada', 'Grupo', 'Operación', 'Patas', 'Entrada', 'Salida', 'Neto', 'Motivo'],
+        delDia.map((f) => [horaL(f.abiertaAt), f.cerradaAt ? horaL(f.cerradaAt) : 'sigue abierta', escL(f.grupo), escL(f.descripcion), escL(extraL(f)), precioL(f.entrada), precioL(f.salida),
+          f.dia === LH.dia && f.neto != null ? netoL(f.neto) : '—', escL(f.motivo || f.nota || '')])),
+        `resultado del día: ${porDia[LH.dia] !== undefined ? usdL(porDia[LH.dia]) : 'sin cierres'}`);
+    }
+    return `<div class="card" style="margin-bottom:16px;"><div style="padding:14px 16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+        <div class="cal-nav"><button onclick="lhMes(-1)">‹</button><div class="cal-month-label">${nombre.charAt(0).toUpperCase() + nombre.slice(1)}</div><button onclick="lhMes(1)">›</button></div>
+        <div class="cal-resumen"><span>Mes: <strong style="color:${colorL(tot)}">${usdL(tot)}</strong></span><span>Días +: <strong class="pos">${pos}</strong></span><span>Días -: <strong class="neg">${neg}</strong></span></div>
+      </div>
+      <div class="cal-grid">${['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => `<div class="cal-dow">${d}</div>`).join('')}</div>
+      <div class="cal-grid">${celdas}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;">Cada día suma los trades <b>cerrados</b> ese día. Toca un día para ver sus operaciones.</div>
+    </div></div>` + detalle;
+  },
+
+  positions(x) {
+    const ab = abiertasL(x.filas), conLat = ab.filter((f) => f.latente != null);
+    const lat = conLat.reduce((a, f) => a + f.latente, 0);
+    return `<div class="kpi-row cols-4">${kpiL('Abiertas ahora', ab.length)}${kpiL('Latente', conLat.length ? usdL(lat) : '—', conLat.length ? 'cruzando el spread' : 'este libro no publica latente por posición', conLat.length ? colorL(lat) : null)}${kpiL('Saldo del libro', usdL(x.saldo), x.filtrado ? 'del libro completo' : '')}${kpiL('Capital', usdL(x.capital))}</div>`
+      + tarjetaL('Posiciones abiertas', tablaAbiertasL(ab.sort((a, b) => String(b.abiertaAt).localeCompare(String(a.abiertaAt)))));
+  },
+
+  history(x) {
+    const cer = cerradosL(x.filas).sort((a, b) => String(b.cerradaAt).localeCompare(String(a.cerradaAt)));
+    const no = x.filas.filter((f) => f.estado === 'no_abierto').sort((a, b) => String(b.abiertaAt || b.cerradaAt).localeCompare(String(a.abiertaAt || a.cerradaAt)));
+    const tot = cer.reduce((a, f) => a + (f.neto || 0), 0);
+    return sinAsentarL(cer.filter((f) => f.neto == null).length)
+      + tarjetaL(`Cerradas <span style="color:var(--blue);">${cer.length}</span>`, tablaCerradosL(cer), `suma: ${usdL(tot)}`)
+      + (no.length ? tarjetaL(`No entraron <span style="color:var(--blue);">${no.length}</span>`, tablaL(['Fecha', 'Grupo', 'Operación', 'Patas', 'Motivo'],
+        no.map((f) => [horaL(f.abiertaAt || f.cerradaAt), escL(f.grupo), escL(f.descripcion), escL(extraL(f)), escL(f.motivo || '')])), 'vencidas, rechazadas o sin llenar') : '');
+  },
+
+  reports(x) {
+    const cer = cerradosL(x.filas).filter((f) => f.neto != null);
+    const resumen = (lista) => {
+      const g = lista.filter((f) => f.neto > 0), p = lista.filter((f) => f.neto < 0), tot = lista.reduce((a, f) => a + f.neto, 0);
+      const sg = g.reduce((a, f) => a + f.neto, 0), sp = p.reduce((a, f) => a + f.neto, 0);
+      return { n: lista.length, g: g.length, wr: lista.length ? Math.round(100 * g.length / lista.length) : null, tot, prom: lista.length ? tot / lista.length : null,
+        promG: g.length ? sg / g.length : null, promP: p.length ? sp / p.length : null, fp: sp < 0 ? sg / -sp : null,
+        mejor: lista.length ? Math.max(...lista.map((f) => f.neto)) : null, peor: lista.length ? Math.min(...lista.map((f) => f.neto)) : null,
+        com: lista.reduce((a, f) => a + (f.comisiones || 0), 0) };
+    };
+    const T = resumen(cer), porG = {};
+    cer.forEach((f) => { (porG[f.grupo || '—'] = porG[f.grupo || '—'] || []).push(f); });
+    const filaR = (nombre, r) => [escL(nombre), r.n, r.g, r.wr == null ? '—' : r.wr + '%', netoL(r.tot), r.prom == null ? '—' : usdL(r.prom), r.promG == null ? '—' : usdL(r.promG), r.promP == null ? '—' : usdL(r.promP), r.mejor == null ? '—' : usdL(r.mejor), r.peor == null ? '—' : usdL(r.peor)];
+    return `<div class="kpi-row cols-4">${kpiL('Resultado', usdL(T.tot), `${T.n} cerradas`, colorL(T.tot))}${kpiL('Acierto', T.wr == null ? '—' : T.wr + '%', `${T.g} de ${T.n}`)}${kpiL('Factor de ganancia', T.fp == null ? '—' : T.fp.toFixed(2), 'ganado ÷ perdido')}${kpiL('Comisiones', usdL(T.com), 'ya descontadas del resultado')}</div>`
+      + tarjetaL('Por grupo', tablaL(['Grupo', 'Cerradas', 'Ganadas', 'Acierto', 'Neto', 'Promedio', 'Prom. ganadora', 'Prom. perdedora', 'Mejor', 'Peor'],
+        Object.entries(porG).sort((a, b) => a[0].localeCompare(b[0])).map(([g, l]) => filaR(g, resumen(l))).concat(Object.keys(porG).length > 1 ? [filaR('TOTAL', T)] : [])));
+  },
+
+  curvas(x) {
+    const cer = cerradosL(x.filas).filter((f) => f.neto != null), porDia = {};
+    cer.forEach((f) => { porDia[f.dia] = (porDia[f.dia] || 0) + f.neto; });
+    const dias = Object.keys(porDia).sort();
+    if (!dias.length) return tarjetaL('Curva del saldo', '<div style="color:var(--muted);font-size:12px;padding:6px 0;">Todavía no hay trades cerrados.</div>');
+    let acum = 0, pico = 0, dd = 0;
+    const pts = dias.map((d) => { acum += porDia[d]; pico = Math.max(pico, acum); dd = Math.min(dd, acum - pico); return { d, dia: porDia[d], acum }; });
+    const base = x.filtrado ? 0 : Number(x.capital) || 0;
+    const vals = [base, ...pts.map((p) => base + p.acum)], mn = Math.min(...vals), mx = Math.max(...vals), W = 900, H = 240, pad = 36;
+    const X = (i) => pad + (vals.length > 1 ? i * (W - 2 * pad) / (vals.length - 1) : 0), Y = (v) => H - pad - (mx > mn ? (v - mn) * (H - 2 * pad) / (mx - mn) : (H - 2 * pad) / 2);
+    const linea = vals.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const color = LIBROS[libroActual].color;
+    const svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;">
+      <line x1="${pad}" x2="${W - pad}" y1="${Y(base)}" y2="${Y(base)}" stroke="var(--border2)" stroke-dasharray="4 4"/>
+      <text x="${W - pad}" y="${Y(base) - 5}" text-anchor="end" font-size="10" fill="var(--muted)">${x.filtrado ? 'cero' : 'capital ' + usdL(base)}</text>
+      <path d="${linea}" fill="none" stroke="${color}" stroke-width="2.2"/>
+      ${vals.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${color}"><title>${i ? pts[i - 1].d : 'inicio'}: ${usdL(v)}</title></circle>`).join('')}
+      <text x="${pad}" y="${H - 10}" font-size="10" fill="var(--muted)">${dias[0]}</text><text x="${W - pad}" y="${H - 10}" text-anchor="end" font-size="10" fill="var(--muted)">${dias[dias.length - 1]}</text>
+      <text x="${pad - 4}" y="${Y(mx) + 3}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(mx)}</text><text x="${pad - 4}" y="${Y(mn) + 3}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(mn)}</text></svg>`;
+    return `<div class="kpi-row cols-4">${kpiL('Resultado acumulado', usdL(acum), `${cer.length} cerradas en ${dias.length} día(s)`, colorL(acum))}${kpiL('Peor caída', usdL(dd), 'desde un máximo, a cierre de día', dd < 0 ? 'var(--red)' : null)}${kpiL('Mejor día', usdL(Math.max(...pts.map((p) => p.dia))))}${kpiL('Peor día', usdL(Math.min(...pts.map((p) => p.dia))))}</div>`
+      + tarjetaL(x.filtrado ? 'Resultado acumulado del grupo' : 'Curva del saldo', svg, 'un punto por día con cierres')
+      + tarjetaL('Día por día', tablaL(['Día', 'Resultado', 'Acumulado', x.filtrado ? '' : 'Saldo'], pts.slice().reverse().map((p) => [p.d, netoL(p.dia), usdL(p.acum), x.filtrado ? '' : usdL(base + p.acum)])));
+  },
+
+  today(x) {
+    const hoy = x.hoy, cer = cerradosL(x.filas).filter((f) => f.dia === hoy), abHoy = x.filas.filter((f) => f.estado !== 'no_abierto' && f.diaApertura === hoy);
+    const ab = abiertasL(x.filas), res = cer.reduce((a, f) => a + (f.neto || 0), 0);
+    const no = x.filas.filter((f) => f.estado === 'no_abierto' && (f.diaApertura === hoy || f.dia === hoy));
+    return `<div class="kpi-row cols-4">${kpiL('Resultado de hoy', usdL(res), `${cer.length} cerradas, ${cer.filter((f) => f.neto > 0).length} ganadas`, colorL(res))}${kpiL('Abiertos hoy', abHoy.length)}${kpiL('Abiertas ahora', ab.length)}${kpiL('No entraron hoy', no.length)}</div>`
+      + sinAsentarL(cer.filter((f) => f.neto == null).length)
+      + tarjetaL(`Cerradas hoy <span style="color:var(--muted);font-size:10px;">${hoy}</span>`, tablaCerradosL(cer.sort((a, b) => String(b.cerradaAt).localeCompare(String(a.cerradaAt)))))
+      + tarjetaL('Abiertas ahora', tablaAbiertasL(ab))
+      + (no.length ? tarjetaL('No entraron hoy', tablaL(['Hora', 'Grupo', 'Operación', 'Motivo'], no.map((f) => [horaL(f.abiertaAt || f.cerradaAt), escL(f.grupo), escL(f.descripcion), escL(f.motivo || '')]))) : '');
+  },
+};
 
 async function cargarComparar() {
   $('cmp-cards').innerHTML = '<div style="color:var(--muted)">Cargando…</div>';
@@ -1701,7 +1922,7 @@ async function cargarLibroManual() {
   } catch (e) { $('man-kpis').innerHTML = `<div style="color:var(--red)">No se pudo cargar: ${e.message}</div>`; }
 }
 
-Object.assign(TABS, { 'libro-comparar': cargarComparar, 'libro-senales': cargarLibroSenales, 'libro-ironballs': cargarLibroIronBalls, 'libro-manual': cargarLibroManual });
+Object.assign(TABS, { 'libro-hoja': () => cargarHojaLibro(true), 'libro-comparar': cargarComparar, 'libro-senales': cargarLibroSenales, 'libro-ironballs': cargarLibroIronBalls, 'libro-manual': cargarLibroManual });
 
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.nav-item').forEach(item => {
