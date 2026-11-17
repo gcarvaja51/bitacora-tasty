@@ -363,6 +363,19 @@ app.use(express.json({ limit: '25mb', type: ['application/json', 'text/plain'] }
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Puerta de escritura (2026-11-16) — ver src/puerta.js ──
+// Cubre TODA dirección /api que escribe. Sin BITACORA_TOKEN en Railway está apagada (todo como antes); con el token
+// queda en AVISO (deja pasar y anota quién escribió sin clave); con BITACORA_PUERTA=cerrada responde 401.
+const puerta = require('./src/puerta').crearPuerta({ dataDir: DATA_DIR });
+app.use(puerta.middleware);
+if (process.env.MODO_PRUEBAS !== '1') setInterval(() => puerta.guardar(), 30000).unref();
+// La lista de avisos solo se entrega a quien trae la clave (lleva direcciones IP y navegadores).
+app.get('/api/puerta/avisos', (req, res) => {
+  if (puerta.estado() !== 'apagada' && !puerta.traeClave(req)) return res.status(401).json({ ok: false, puerta: true, error: 'pide la clave' });
+  res.json({ ok: true, estado: puerta.estado(), avisos: puerta.lista() });
+});
+app.get('/api/puerta/estado', (req, res) => res.json({ ok: true, estado: puerta.estado() }));
+
 // Balance + posiciones + Greeks
 app.get('/api/overview', async (req, res) => {
   try {

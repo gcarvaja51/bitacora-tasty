@@ -2015,6 +2015,34 @@ seccion('Informe diario de los cuatro libros (src/informe_diario.js)');
   chequear('diario: un cierre sin resultado asentado se avisa y no se inventa', pend.libros[2].resultadoHoy === 0 && pend.libros[2].avisos.some((a) => /sin resultado asentado/.test(a)));
 }
 
+// ── Puerta de escritura (src/puerta.js) — 2026-11-16 ──
+seccion('Puerta de escritura: clave para todo lo que escribe (src/puerta.js)');
+{
+  const { crearPuerta, patron } = require('../src/puerta');
+  const pasa = (P, req) => { let sig = false, cod = 200; P.middleware({ headers: {}, query: {}, ...req }, { status: (c) => { cod = c; return { json: () => {} }; } }, () => { sig = true; }); return { sig, cod }; };
+  const env = {};
+  const P = crearPuerta({ env });
+  chequear('puerta: sin BITACORA_TOKEN está apagada y todo pasa como antes', P.estado() === 'apagada' && pasa(P, { method: 'POST', path: '/api/spx/panic' }).sig && P.lista().length === 0);
+  env.BITACORA_TOKEN = 'clave-de-prueba-123';
+  chequear('puerta: con token queda en aviso — deja pasar y anota', P.estado() === 'aviso' && pasa(P, { method: 'POST', path: '/api/spx/panic', headers: { 'user-agent': 'curl/8' } }).sig && P.lista().length === 1 && P.lista()[0].ruta === '/api/spx/panic' && P.lista()[0].bloqueado === false);
+  chequear('puerta: las lecturas no se anotan ni se frenan', pasa(P, { method: 'GET', path: '/api/spx/config' }).sig && P.lista().length === 1);
+  chequear('puerta: quien trae la clave en la cabecera no se anota', pasa(P, { method: 'POST', path: '/api/spx/config', headers: { 'x-bitacora-token': 'clave-de-prueba-123' } }).sig && P.lista().length === 1);
+  env.BITACORA_PUERTA = 'cerrada';
+  const r = pasa(P, { method: 'DELETE', path: '/api/tradier/executions/tex-1794326510797' });
+  chequear('puerta cerrada: sin clave responde 401 y no sigue', P.estado() === 'cerrada' && !r.sig && r.cod === 401);
+  chequear('puerta cerrada: clave equivocada o vacía no pasa', !pasa(P, { method: 'POST', path: '/api/spx/panic', headers: { 'x-bitacora-token': 'otra' } }).sig && !pasa(P, { method: 'POST', path: '/api/spx/panic', headers: { 'x-bitacora-token': '' } }).sig);
+  chequear('puerta cerrada: pasa con cabecera, con cookie o con ?k= (TradingView)',
+    pasa(P, { method: 'POST', path: '/api/spx/panic', headers: { 'x-bitacora-token': 'clave-de-prueba-123' } }).sig
+    && pasa(P, { method: 'POST', path: '/api/spx/panic', headers: { cookie: 'a=1; bitacora_token=clave-de-prueba-123' } }).sig
+    && pasa(P, { method: 'POST', path: '/api/spx/webhook', query: { k: 'clave-de-prueba-123' } }).sig);
+  chequear('puerta cerrada: las direcciones con clave propia siguen con la suya', pasa(P, { method: 'POST', path: '/api/ironballs/alerta' }).sig && pasa(P, { method: 'POST', path: '/api/spx/clic-real' }).sig);
+  chequear('puerta cerrada: lo que no es /api y las lecturas siguen abiertas', pasa(P, { method: 'GET', path: '/api/libros' }).sig && pasa(P, { method: 'POST', path: '/otra' }).sig);
+  chequear('puerta: agrupa los avisos por dirección sin el identificador', patron('/api/tradier/executions/tex-1794326510797/patch') === '/api/tradier/executions/:x/patch' && patron('/api/spx/strategies/TENDENCIA') === '/api/spx/strategies/TENDENCIA');
+  // Ninguna dirección de escritura de server.js queda por fuera: todas viven bajo /api
+  const rutasW = [...require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8').matchAll(/^app\.(post|put|delete|patch)\('([^']+)'/gm)].map((m) => m[2]);
+  chequear('puerta: todas las direcciones de escritura del servidor están bajo /api (la puerta las cubre)', rutasW.length > 50 && rutasW.every((x) => x.startsWith('/api/')), rutasW.filter((x) => !x.startsWith('/api/')).join(','));
+}
+
 seccion('Señales Sigma: lectura de las alertas (src/sigma_senales.js)');
 {
   const sg = require('../src/sigma_senales');

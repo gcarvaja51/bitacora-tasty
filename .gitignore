@@ -139,3 +139,6 @@ ironballs/.env
 
 # Informe diario de los 4 libros (scripts/informe_libros.py): salida generada cada dia
 informes_libros/
+
+# Clave de la puerta de escritura (src/puerta.js): vive solo en el PC y en Railway
+.clave_puerta
