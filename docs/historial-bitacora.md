@@ -19,6 +19,51 @@
 
 ---
 
+## Demo Tasty — fase 2 publicada: Robot SPX con meta y espejo, Manuales a $10.000, informe diario (2026-11-16)
+
+**Pedido.** Guillermo: "vamos con fase 2". Decisiones suyas: Tradier en **espejo** durante la semana en paralelo; las
+estrategias, todas de una vez; Entradas Manuales a **$10.000 conservando el historial**; la pregunta "¿ejecutamos?" en la
+ventana del PC; meta de **$200/día** (probó subirla a $300 y la dejó en $200: "dejemos eso quieto").
+
+**Reglas vigentes que nacieron acá.**
+- Meta del día = ganancia CERRADA del día (fecha de Nueva York), neta. Lo abierto sigue su curso.
+  Robot SPX: al llegar a la meta **no abre más** hasta mañana (queda `META_DIA_ALCANZADA` en el log de decisiones, sin alerta
+  al teléfono). Entradas Manuales: **no frena, pregunta**. Señales Sigma e Iron Balls: sin meta.
+- El libro Robot SPX se comporta como una cuenta de $10.000: antes de abrir mira su poder de compra (`sin_bp`).
+- El espejo solo copia lo que Tradier **llenó** (no señales canceladas), después de encenderse, y con máximo 180 s de retraso.
+  Cierra cuando Tradier cierra, cruzando el spread. Sin precio por 20 min asienta con el resultado de Tradier y lo marca
+  `salidaDeTradier` (no cuenta como comparable). Nunca manda órdenes: solo dry-run.
+
+**Qué se publicó (cada paso con su "dale").**
+1. `75c4c71` (sw v48) — `cuentaDemoTendencia` con `pnlHoy`, `metaDia`, `metaAlcanzada`, `porEstrategia`; freno del libro antes
+   de `ejecutorTasty.abrirDemo` en `server.js` (`LIBRO_META_DIA`, por defecto 200); `clic_real.js` con capital mínimo $10.000 y
+   `metaDia()` en el preview (`CLIC_META_DIA`). En el PC, `Pipe/polymarket-bot/pmbot/tv_spx.py` muestra la ventana "meta del
+   día… ¿Ejecutamos?" solo en modo demo (respaldo `tv_spx.py.bak_20261116`). La lógica del bot de Polymarket no se tocó.
+2. `bb4e823` (sw v49) — `src/espejo_robot.js`: Mediodía, Iron Condor (NEUTRAL) y Reversión copiados de Tradier al libro Robot
+   SPX. Revisión cada 10 s de 9:30 a 16:30 ET. Apagar: `ESPEJO_ROBOT=apagado` en Railway. `GET /api/libros/robot`. Tablas
+   "Robot SPX por estrategia" y "Espejo: Tradier contra Demo Tasty" en la hoja Comparar.
+   Ojo en el historial de git: `241980a` subió la meta a $300 (pedido que Guillermo canceló); nunca llegó a producción sola y
+   `bb4e823` la devolvió a $200.
+3. `bc30883` — informe diario de los cuatro libros: `src/informe_diario.js` (función pura), `GET /api/libros/diario?fecha=`,
+   `scripts/informe_libros.py` (PDF + WhatsApp, sin Claude) y `scripts/ejecutar_informe_libros.cmd` (el correo lo manda Claude
+   con lo ya calculado). Tarea programada **Bitacora_Informe_Libros**, lunes a viernes 16:30 hora Colombia; se salta los
+   festivos. Salida en `informes_libros/` (fuera de git). Solo se envía a Guillermo. Primera corrida real: 16-nov 22:06, OK.
+
+**Lo que NO entró en la fase 2.** La Rueda: no tiene trades automáticos desde el 15-sep (sus señales esperan aprobación a
+mano y nunca hubo asignación). Queda como trabajo aparte: demo con asignación simulada y llamada de margen si el poder de
+compra queda negativo, "lo mismo que haría el broker".
+
+**Pendiente de ver en vivo (17-nov).** Primer trade copiado por el espejo y su retraso (Tradier tarda ~41 s en llenar, p90
+88 s); cierre del gemelo cuando Tradier cierra; el Direccional parando a los $200; la ventana "¿ejecutamos?"; el informe de
+las 16:30 saliendo solo.
+
+**Deudas anotadas.** (a) `Bitacora_Contador_Diario` corre a las 15:45 hora Colombia: en horario de invierno eso es ANTES del
+cierre de NY (su nota dice 16:45 ET, que solo vale en verano). (b) La sesión de Claude del PC vence entre el 20 y el 23-nov:
+sin renovarla (`claude auth login`) las tareas que usan `claude -p` dejan de entregar. (c) Cuando se apague Tradier, Mediodía,
+Iron Condor y Reversión tienen que correr nativas en el demo: el espejo se queda sin fuente.
+
+**Sigue.** Semana en paralelo comparando Tradier contra Demo; después, apagar Tradier con el "sí" de Guillermo y archivar.
+
 ## Demo Tasty — fase 1 publicada: libros Señales Sigma e Iron Balls (2026-11-16)
 
 **Pedido.** Guillermo: quedarse con 3 bitácoras (Tasty real, Polymarket, Demo Tasty) y que el Demo Tasty tenga libros
@@ -48,8 +93,7 @@ el mercado cerrado cuenta desde la apertura siguiente). Meta de $200/día por li
 
 **Pendiente de ver en vivo (17-nov).** Primera señal real de Sigma entrando sola al libro; Operaciones a 10 s; corte de 8:00.
 
-**Fase 2.** Robot SPX completo (Direccional, Mediodía, IC, Reversión, La Rueda) al Demo Tasty; Entradas Manuales a $10.000
-con la meta de $200 y la pregunta "Ya pasaste la meta de 200 dólares/día, ¿ejecutamos?". Luego semana en paralelo y apagar Tradier.
+**Fase 2.** Publicada el mismo 16-nov: ver la sección de arriba.
 
 ## Una pestaña de Sigma trabada se reusaba hasta que el vigilante mataba el proceso (2026-10-02)
 
