@@ -67,8 +67,18 @@ lecturas, con el 20-nov marcado como mensual; Sigma queda de vuelta en SPX. Ahor
 vencimientos (SPX 54, acciones ~20): la corrida completa de 72 símbolos pasa de ~530 a más de mil lecturas y tarda unos
 35-40 minutos (antes ~8), dentro de la ventana de dos horas. **Falta verla correr sola a las 11:00.**
 
-**Sin tocar.** `SigmaMaxPainCierre` (14:30) sigue con las fechas del 14-16 de octubre: no toma nada hasta que se le
-pongan fechas nuevas, y por el horario de invierno habría que moverla a las 15:30.
+**Toma del cierre, también automática (mismo día, "arregla y organiza").** `correr_captura_cierre.ps1` ya no lleva las
+fechas a mano: toma el miércoles, jueves y viernes de la semana del vencimiento mensual (noviembre: 18, 19 y 20), y
+`scripts/46_maxpain_siguiente.py` cruza los vencimientos del jueves, viernes y lunes siguiente (19, 20 y 23-nov); pasado
+ese lunes ambos saltan al mes siguiente. La tarea `SigmaMaxPainCierre` dispara a las 14:30 y a las 15:30 locales y el
+script solo toma entre las 15:20 y las 15:59 de Nueva York, así no hay que moverla en cada cambio de horario
+(respaldo `_backup_tareas_20260831/SigmaMaxPainCierre_antes_20261117.xml`). Respaldos de los scripts en
+`06_vencimiento de opciones/_respaldos_20261117/`. Primera toma real: 18-nov 15:30.
+
+**Pendiente de diagnóstico.** `Bitacora_Captura_Niveles` (9:45 y 15:40) no guarda nada desde el 16-oct. Hasta fines de
+octubre fallaba por lo mismo de arriba (ya arreglado); desde el 30-oct muere antes, con "Navigation timeout of 90000 ms"
+al abrir Sigma, solo en horario de mercado (a las 4:30 a. m. la misma apertura funciona). Sospecha sin confirmar: el PC
+sin memoria (0,7 GB libres de 15,7 el 17-nov de madrugada; ese día se liberaron ~3 GB). Mirar la corrida de las 9:45.
 
 ## La carpeta Pipe (bot de Polymarket) se mudó afuera (2026-11-17)
 
