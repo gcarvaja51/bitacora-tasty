@@ -1220,6 +1220,8 @@ seccion('IRONBALLS: las entradas de Alejandro (src/ironballs_ale.js, foto Option
   chequear('IRONBALLS ALE: 3 etiquetas (mariposa) no se opera en la v1',
            iba.armarDesdeFoto({ ...L1, etiquetas: [...L1.etiquetas, { strike: 7500, tipo: 'C', posicion: 'arriba' }] }, '2026-11-10').ok === false);
   chequear('IRONBALLS ALE: un día resaltado de ayer no se opera', iba.armarDesdeFoto({ ...L1, dia_resaltado: 9 }, '2026-11-10').ok === false);
+  { const f3 = iba.armarDesdeFoto({ es_optionstrat: true, etiquetas: [{ strike: 7350, tipo: 'C', posicion: 'arriba' }, { strike: 7345, tipo: 'C', posicion: 'abajo' }], dia_resaltado: null, mes_resaltado: null, net_credit: 240, net_debit: null, max_loss: 260, max_profit: 240, chance_of_profit: 56, breakeven: 'Below 7,347.40' }, '2026-11-17');
+    chequear('IRONBALLS ALE: captura recortada sin fecha (17-nov) -> 0DTE asumido, Bear Call 7345/7350 a 2.40', f3.ok === true && f3.vencimientoAsumido === true && f3.expiry === '2026-11-17' && f3.dte === 0 && f3.estructura === 'BEAR_CALL_SPREAD' && f3.prima === 2.4); }
   // Textos REALES de Alejandro en el grupo Operaciones
   const t1 = iba.parsearTextoAle('_Fuera +40 x contrato_');
   chequear('IRONBALLS ALE: "Fuera +40 x contrato" es salida de +$40', t1?.salida?.usd === 40 && t1.salida.runners === false, JSON.stringify(t1));

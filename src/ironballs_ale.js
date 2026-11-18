@@ -29,6 +29,7 @@ const PROMPT = `Esta imagen la publica un mentor de trading en WhatsApp. Puede s
 Si es una captura de OptionStrat, lee EXACTAMENTE lo que se ve, sin interpretar la estrategia:
 - En la regla "STRIKES" hay etiquetas de strike con forma de globo (ej. "7495C", "7490P"). Para cada etiqueta da el numero, la letra (C o P) y si el globo esta ARRIBA de la regla o ABAJO de la regla.
 - En la fila de fechas (encima de "STRIKES") hay un dia resaltado (recuadro de color). Da ese numero de dia y el mes de la barra que lo contiene (ej. "Nov").
+  Si la fila de fechas no aparece (captura recortada), usa la linea "DATE:" de abajo del grafico (ej. "DATE: Tue Nov 17th 6:00pm" -> dia 17, mes "Nov"). Si tampoco aparece, null.
 - Los valores de NET CREDIT o NET DEBIT, MAX LOSS, MAX PROFIT y CHANCE OF PROFIT tal como aparecen, en numero (sin $ ni %). Si no aparece alguno, null.
 - El texto de BREAKEVEN tal como aparece.
 Si no es una captura de OptionStrat, marca es_optionstrat=false y deja lo demas vacio o null.
@@ -104,7 +105,7 @@ const pad = (n) => String(n).padStart(2, '0');
  * Devuelve el mismo formato que ironballs.parsearAlerta para que la demo lo abra igual:
  * { tipo:'apertura', ok, motivo?, vertical, clave, prima, isCredit, dte, spot:null, foto:{...} }
  */
-function armarDesdeFoto(lectura, hoyET) {
+function armarDesdeFoto(lectura, hoyET, asumido = false) {
   const out = { tipo: 'apertura', version: VERSION, ok: false, fuente: 'ALEJANDRO', spot: null, foto: lectura };
   if (!lectura || !lectura.es_optionstrat) { out.motivo = 'la foto no es una captura de OptionStrat'; out.noEsTarjeta = true; return out; }
   const et = Array.isArray(lectura.etiquetas) ? lectura.etiquetas : [];
@@ -127,7 +128,8 @@ function armarDesdeFoto(lectura, hoyET) {
   // vencimiento: el dia resaltado; si es menor que hoy, es del mes siguiente
   const [y, m, d] = hoyET.split('-').map(Number);
   const dia = Number(lectura.dia_resaltado);
-  if (!(dia >= 1 && dia <= 31)) { out.motivo = 'no se leyó el día de vencimiento'; return out; }
+  // Sin fecha legible (captura recortada, 17-nov-2026): todas las entradas de Alejandro son 0DTE -> vence hoy (decisión de Guillermo 18-nov)
+  if (!(dia >= 1 && dia <= 31)) { if (asumido) { out.motivo = 'no se leyó el día de vencimiento'; return out; } const r = armarDesdeFoto({ ...lectura, dia_resaltado: d, mes_resaltado: null }, hoyET, true); r.vencimientoAsumido = true; r.foto = lectura; return r; }
   let mm = MESES[String(lectura.mes_resaltado || '').slice(0, 3).toLowerCase()] || (dia >= d ? m : m + 1);
   let yy = y;
   if (mm < m && !(m === 12 && mm === 1)) { out.motivo = `vencimiento ${dia}/${mm} ya pasó`; return out; }
