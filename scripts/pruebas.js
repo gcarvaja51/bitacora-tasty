@@ -2241,6 +2241,18 @@ seccion('Señales Sigma: margen, rolls y ajustes (2026-11-18)');
     L = libro._cargar();
     t = L.trades.find((x) => x.alertId === 'G9');
     chequear('a las 10:01 ET el tick ejecuta el roll pendiente', t.estado === 'abierta' && t.ajustes?.length === 1 && t.patas[0].sym === 'AGNC270115P00008000', `${t.estado} ${JSON.stringify(t.patas)}`);
+
+    // Reprogramar una señal pendiente (el IC de Luis: después de las 10:00 ET)
+    reloj = new Date('2026-12-14T22:00:00Z');   // lunes después del cierre
+    r = await libro.procesarAlerta({ alertId: 'G12', mensajeAt: '2026-12-14T22:00:00Z', texto: SP('SOFI', 16, 0.46, 1554), autorJid: '5491125371038@s.whatsapp.net' });
+    const rp = await libro.reprogramar(r.id, '2026-12-15T15:00:00Z', 'cadena estable');
+    chequear('reprogramar: la pendiente queda desde las 10:00 y vence a las 10:30 ET', rp.ok && rp.venceAt === '2026-12-15T15:30:00.000Z', JSON.stringify(rp));
+    reloj = new Date('2026-12-15T14:31:00Z');   // 9:31 ET
+    await libro.tick();
+    chequear('a las 9:31 ET la reprogramada todavía no entra', libro._cargar().trades.find((x) => x.id === r.id).estado === 'pendiente_entrada');
+    reloj = new Date('2026-12-15T15:01:00Z');   // 10:01 ET
+    await libro.tick();
+    chequear('a las 10:01 ET la reprogramada entra', libro._cargar().trades.find((x) => x.id === r.id).estado === 'abierta');
     fsS.rmSync(dir, { recursive: true, force: true });
   })());
 }

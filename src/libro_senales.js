@@ -154,6 +154,7 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
       return 'VENCIDA';
     }
     if (!calendario.enHorarioDeMercado(now)) { t.ultimoIntento = 'mercado cerrado'; return 'ESPERA'; }
+    if (t.noAntesDe && now < new Date(t.noAntesDe)) { t.ultimoIntento = `programada desde ${t.noAntesDe}`; return 'ESPERA'; }
     if (llamadaHoy(L)) {
       t.estado = 'rechazada'; t.motivo = `llamada de margen: el margen usado ($${L.margenDia.usado}) supera el valor de la cuenta ($${L.margenDia.valorCuenta})`;
       t.cerradaAt = now.toISOString();
@@ -549,7 +550,25 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
     };
   }
 
-  return { procesarAlerta, tick, importarDemoJson, resumen, recalcularMargen, _cargar: cargar };
+  // Reprograma una señal pendiente: no entra antes de `desde` y tiene 30 min desde ahí (Guillermo 18-nov: el IC de
+  // SPX de Luis "después de las 10 am, cuando la cadena de opciones es más estable").
+  function reprogramar(id, desde, motivo = '') {
+    return enCola(async () => {
+      const L = cargar();
+      const t = L.trades.find((x) => x.id === id);
+      if (!t) return { ok: false, motivo: `no existe ${id}` };
+      if (t.estado !== 'pendiente_entrada') return { ok: false, motivo: `${id} está ${t.estado}, no pendiente` };
+      const d = new Date(desde);
+      if (isNaN(d)) return { ok: false, motivo: 'fecha "desde" inválida' };
+      t.reprogramada = { at: ahora().toISOString(), venceAntes: t.venceAt, motivo: String(motivo).slice(0, 200) };
+      t.noAntesDe = d.toISOString();
+      t.venceAt = new Date(d.getTime() + sigma.VIDA_MIN * 60000).toISOString();
+      guardar(L);
+      return { ok: true, id, noAntesDe: t.noAntesDe, venceAt: t.venceAt };
+    });
+  }
+
+  return { procesarAlerta, tick, importarDemoJson, resumen, recalcularMargen, reprogramar, _cargar: cargar };
 }
 
 module.exports = { crearLibroSenales, netoCruzando, netoAlMedio, cuerpoOrden, feesEstimadas, pataDesdeOcc, cajaDe,

@@ -8939,6 +8939,15 @@ app.post('/api/libros/senales/margen', async (req, res) => {
   try { res.json({ ok: true, margenDia: await libroSenales.recalcularMargen() }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+// Reprograma una señal pendiente: { id, desde (ISO), motivo }. No entra antes de `desde`; vence 30 min después.
+app.post('/api/libros/senales/reprogramar', async (req, res) => {
+  const v = claveLectorValida(req);
+  if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
+  const { id, desde, motivo } = req.body || {};
+  if (!id || !desde) return res.status(400).json({ ok: false, error: 'faltan id y desde (ISO)' });
+  try { res.json(await libroSenales.reprogramar(String(id), String(desde), String(motivo || ''))); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 // Carga única del historial de senales-sigma/datos/demo.json (11 trades, "antes de la regla"). No pisa nada.
 app.post('/api/libros/senales/importar', async (req, res) => {
   const v = claveLectorValida(req);
