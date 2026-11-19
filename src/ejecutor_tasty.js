@@ -83,6 +83,12 @@ function crearEjecutorTasty({ tt, cuenta, marcar, log = console }) {
         fees: Number.isFinite(fees) ? +Math.abs(fees).toFixed(2) : null,
         avisos: (d.warnings || []).map((w) => w.message || w.code).filter(Boolean),
         bpEfecto: d?.['buying-power-effect']?.['change-in-buying-power'] ?? null,
+        // Margen que TastyTrade exige por ESTA orden sola (no depende de lo que haya en la cuenta real).
+        // Señales Sigma lo usa para emular una cuenta margin (2026-11-18).
+        margen: (() => {
+          const m = Number(d?.['buying-power-effect']?.['isolated-order-margin-requirement']);
+          return Number.isFinite(m) ? +Math.abs(m).toFixed(2) : null;
+        })(),
       };
     } catch (e) {
       return { ok: false, ...clasificarError(e) };

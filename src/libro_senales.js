@@ -13,15 +13,34 @@
 //     dry-run contra la cuenta real. ESTE MÓDULO NUNCA MANDA UNA ORDEN: solo pide /orders/dry-run.
 //   - El historial que ya existía (senales-sigma/datos/demo.json, 11 trades) se importa tal cual, "antes de la regla".
 //
+// Cuenta MARGIN (Guillermo 18-nov-2026: "debemos emular una cuenta margin… el buying power no necesariamente es el
+// 100% de lo que exige el broker"):
+//   - Cada posición aparta el MARGEN que pide TastyTrade para esa orden sola (isolated-order-margin-requirement del
+//     dry-run), no la pérdida máxima publicada. Un put vendido pide ~25-30% del strike, no el 100%.
+//     Si el dry-run no trae margen, se aparta la pérdida máxima publicada (lo conservador).
+//   - Tope de uso: el margen total no pasa del 75% del saldo (decisión de Guillermo, 18-nov). Señal que no cabe → rechazada.
+//   - Una vez al día (desde las 10:00 ET) se vuelve a pedir el margen de lo abierto: el de una pata vendida sube si el
+//     subyacente va en contra. Si el margen supera el valor de la cuenta (saldo + latente) = LLAMADA DE MARGEN:
+//     no se abre nada nuevo hasta que baje.
+//
+// Rolls y ajustes (Guillermo 18-nov): lo que el profe rola o ajusta, el demo lo replica sobre la MISMA posición
+// (cierra las patas que él cierra y abre las nuevas, cruzando el spread). El P&L es de la operación completa: el
+// efectivo de cada ajuste se acumula y se realiza al cierre final. Si no tenemos la posición base, se anota
+// (ROLL_SIN_BASE) y no se abre nada.
+//
 // Dependencias inyectadas (se prueban sin red): cotizar(simbolos) → { q: { sym: {bid, ask, mark} } } | null,
-// dryRun(cuerpo) → { ok, fees, tipo, detalle }, calendario (src/calendario_nyse.js), ahora() → Date.
+// dryRun(cuerpo) → { ok, fees, margen, tipo, detalle }, calendario (src/calendario_nyse.js), ahora() → Date,
+// interpretar({ texto, imagenB64, mime }) → gestión de sigma_gestion.aGestion (opcional: sin él, las gestiones en texto
+// libre o en foto quedan a REVISION).
 
 const fs = require('fs');
 const path = require('path');
 const sigma = require('./sigma_senales');
 
 const CAPITAL = 10000;
-const ESTADOS_VIVOS = ['pendiente_entrada', 'abierta', 'pendiente_cierre'];
+const TOPE_MARGEN = 0.75;   // máximo del saldo comprometido como margen (Guillermo 18-nov-2026)
+const ESTADOS_VIVOS = ['pendiente_entrada', 'abierta', 'pendiente_cierre', 'pendiente_ajuste'];
+const ESTADOS_ABIERTOS = ['abierta', 'pendiente_cierre', 'pendiente_ajuste'];
 const r2 = (x) => +Number(x).toFixed(2);
 const r3 = (x) => +Number(x).toFixed(3);
 
@@ -81,8 +100,30 @@ function pataDesdeOcc(occ, q) {
   return { sym: s, q, tipo: m[5], strike: Number(m[6]) / 1000, vto: `20${m[2]}-${m[3]}-${m[4]}` };
 }
 
+// Efectivo neto acumulado de la operación en $ (después de comisiones): la entrada más cada ajuste.
+// El P&L al cerrar = caja + valor de cierre × 100 − comisiones del cierre.
+function cajaDe(t) {
+  if (!t.entrada) return 0;
+  const base = t.entrada.precio * 100 - (t.entrada.fees || 0);
+  return r2(base + (t.ajustes || []).reduce((a, x) => a + (x.caja || 0), 0));
+}
+
+// Lo que aparta cada posición abierta: el margen de TastyTrade si se conoce; si no, la pérdida máxima publicada.
+const margenDe = (t) => (t.margen != null ? t.margen : (t.riesgoUsd || 0));
+
+// ¿Esta pata de la gestión es esta pata del demo? Mismo tipo y strike, y mismo vencimiento si la gestión lo trae.
+function mismaPata(pg, pd, mensajeAt) {
+  if (pg.tipo !== pd.tipo || Math.abs(Number(pg.strike) - Number(pd.strike)) > 1e-6) return false;
+  if (pg.dia && pg.mes) {
+    const anio = pg.anio || sigma.anioVto(pg.dia, pg.mes, mensajeAt);
+    return pd.vto === sigma.fechaVto(pg.dia, pg.mes, anio);
+  }
+  return true;
+}
+
 function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () => new Date(), capital = CAPITAL,
-                             archivo = 'libro_senales.json', avisar = () => {} }) {
+                             archivo = 'libro_senales.json', avisar = () => {}, interpretar = null,
+                             topeMargen = TOPE_MARGEN }) {
   const ARCHIVO = path.join(dataDir, archivo);
   const vacio = () => ({ capital, creado: ahora().toISOString(), trades: [], alertas: [] });
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return vacio(); } };
@@ -92,13 +133,17 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
   let cola = Promise.resolve();
   const enCola = (fn) => { const t = cola.then(fn, fn); cola = t.catch(() => {}); return t; };
 
+  // reservado = margen de lo abierto; tope = 75% del saldo; disponible = tope − reservado.
   function saldo(L) {
     const realizado = L.trades.reduce((a, t) => a + (t.pnlRealizado || 0), 0);
-    const reservado = L.trades.filter((t) => t.estado === 'abierta' || t.estado === 'pendiente_cierre')
-      .reduce((a, t) => a + (t.riesgoUsd || 0), 0);
+    const reservado = L.trades.filter((t) => ESTADOS_ABIERTOS.includes(t.estado)).reduce((a, t) => a + margenDe(t), 0);
     const s = r2((L.capital || capital) + realizado);
-    return { capital: L.capital || capital, saldo: s, realizado: r2(realizado), reservado: r2(reservado), disponible: r2(s - reservado) };
+    const tope = r2(s * topeMargen);
+    return { capital: L.capital || capital, saldo: s, realizado: r2(realizado), reservado: r2(reservado),
+             topeMargen: tope, topePct: Math.round(topeMargen * 100), disponible: r2(tope - reservado),
+             usoMargenPct: s > 0 ? Math.round(1000 * reservado / s) / 10 : null };
   }
+  const llamadaHoy = (L) => !!(L.margenDia && L.margenDia.llamada && L.margenDia.fecha === calendario.fechaET(ahora()));
 
   async function intentarAbrir(L, t) {
     const now = ahora();
@@ -108,8 +153,8 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
       return 'VENCIDA';
     }
     if (!calendario.enHorarioDeMercado(now)) { t.ultimoIntento = 'mercado cerrado'; return 'ESPERA'; }
-    if (t.riesgoUsd != null && t.riesgoUsd > saldo(L).disponible) {
-      t.estado = 'rechazada'; t.motivo = `sin capital libre: riesgo $${t.riesgoUsd} > disponible $${saldo(L).disponible}`;
+    if (llamadaHoy(L)) {
+      t.estado = 'rechazada'; t.motivo = `llamada de margen: el margen usado ($${L.margenDia.usado}) supera el valor de la cuenta ($${L.margenDia.valorCuenta})`;
       t.cerradaAt = now.toISOString();
       return 'RECHAZADA';
     }
@@ -125,6 +170,16 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
       t.ultimoIntento = `dry-run sin respuesta: ${dr.detalle || 'red'}`;
       return 'ESPERA';
     }
+    // Margen: el que pide TastyTrade para esta orden sola; si no viene, la pérdida máxima publicada.
+    const margen = dr.margen != null ? r2(dr.margen) : t.riesgoUsd;
+    const s = saldo(L);
+    if (margen != null && margen > s.disponible) {
+      t.estado = 'rechazada';
+      t.motivo = `sin poder de compra: margen $${margen} > disponible $${s.disponible} (tope ${s.topePct}% del saldo = $${s.topeMargen}, usado $${s.reservado})`;
+      t.margen = margen; t.cerradaAt = now.toISOString();
+      return 'RECHAZADA';
+    }
+    t.margen = margen; t.margenFuente = dr.margen != null ? 'tastytrade' : 'perdida_maxima';
     t.estado = 'abierta';
     t.entrada = { at: now.toISOString(), precio: neto, alMedio: netoAlMedio(t.patas, c.q, 'abrir'),
                   fees: dr.fees != null ? dr.fees : feesEstimadas(t.patas, true), feesEstimadas: dr.fees == null,
@@ -144,7 +199,7 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
     let dr = { ok: false };
     try { dr = await dryRun(cuerpoOrden(t.patas, neto, false)); } catch (e) { dr = { ok: false, detalle: e.message }; }
     const fees = dr.ok && dr.fees != null ? dr.fees : feesEstimadas(t.patas, false);
-    const pnl = r2((t.entrada.precio + neto) * 100 - (t.entrada.fees || 0) - fees);
+    const pnl = r2(cajaDe(t) + neto * 100 - fees);
     t.salida = { at: now.toISOString(), precio: neto, fees, feesEstimadas: !(dr.ok && dr.fees != null) };
     t.pnlRealizado = r2((t.pnlRealizado || 0) + pnl);
     t.estado = 'cerrada'; t.cerradaAt = now.toISOString();
@@ -154,17 +209,197 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
     return 'CERRADA';
   }
 
+  // ── Rolls y ajustes ─────────────────────────────────────────────────────────────────────────────────────────────
+  // Busca la posición del demo que la gestión toca. Devuelve { t, cerrar } (patas del demo a cerrar) o { motivo }.
+  function resolverGestion(L, g, profe, mensajeAt) {
+    const vivas = L.trades.filter((t) => ESTADOS_ABIERTOS.includes(t.estado) && t.activo === g.activo);
+    if (!vivas.length) return { sinBase: true, motivo: `no tenemos en el demo una posición de ${g.activo}` };
+    const candidatas = [];
+    for (const t of vivas) {
+      if (g.cerrar == null) { candidatas.push({ t, cerrar: t.patas.slice() }); continue; }   // "cierra todo" (formato alerta)
+      const usadas = new Set();
+      const cerrar = [];
+      let ok = true;
+      for (const pg of g.cerrar) {
+        const i = t.patas.findIndex((pd, k) => !usadas.has(k) && mismaPata(pg, pd, mensajeAt) && Math.sign(pd.q) === Math.sign(pg.q || pd.q));
+        if (i < 0) { ok = false; break; }
+        usadas.add(i);
+        cerrar.push(t.patas[i]);
+      }
+      if (ok) candidatas.push({ t, cerrar });
+    }
+    if (!candidatas.length) {
+      return { sinBase: true, motivo: `tenemos ${g.activo} pero no con las patas que el profe cierra (${(g.cerrar || []).map((p) => `${p.q < 0 ? '-' : '+'}${p.tipo}${p.strike}`).join(' ')})` };
+    }
+    // Varias posibles: la del mismo profe; si sigue habiendo varias, la más reciente.
+    const delProfe = candidatas.filter((c) => c.t.profe === profe);
+    const lista = delProfe.length ? delProfe : candidatas;
+    return lista.sort((a, b) => String(b.t.mensajeAt).localeCompare(String(a.t.mensajeAt)))[0];
+  }
+
+  function patasNuevas(g, activo, mensajeAt) {
+    return (g.abrir || []).map((p) => {
+      const anio = p.anio || sigma.anioVto(p.dia, p.mes, mensajeAt);
+      return { sym: sigma.simbolo(activo, anio, p.mes, p.dia, p.tipo, p.strike), q: p.q, tipo: p.tipo, strike: p.strike,
+               vto: sigma.fechaVto(p.dia, p.mes, anio) };
+    });
+  }
+
+  // Ejecuta el ajuste pendiente de t (t.ajustePendiente): cierra unas patas y abre otras, cruzando el spread.
+  async function intentarAjuste(L, t) {
+    const now = ahora();
+    const a = t.ajustePendiente;
+    if (!a) { t.estado = 'abierta'; return 'ABIERTA'; }
+    if (!calendario.enHorarioDeMercado(now)) { t.ultimoIntento = 'mercado cerrado'; return 'ESPERA'; }
+    const syms = [...new Set([...a.cerrar, ...a.abrir].map((p) => p.sym))];
+    const c = await cotizar(syms);
+    const netoC = a.cerrar.length ? (c ? netoCruzando(a.cerrar, c.q, 'cerrar') : null) : 0;
+    const netoA = a.abrir.length ? (c ? netoCruzando(a.abrir, c.q, 'abrir') : null) : 0;
+    if (netoC == null || netoA == null) { t.ultimoIntento = 'TastyTrade no cotizó todas las patas del ajuste'; return 'ESPERA'; }
+    let feesC = 0, feesA = 0, estimadas = false;
+    if (a.cerrar.length) {
+      let dr = { ok: false };
+      try { dr = await dryRun(cuerpoOrden(a.cerrar, netoC, false)); } catch (e) { dr = { ok: false }; }
+      feesC = dr.ok && dr.fees != null ? dr.fees : (estimadas = true, feesEstimadas(a.cerrar, false));
+    }
+    if (a.abrir.length) {
+      const dr = await dryRun(cuerpoOrden(a.abrir, netoA, true));
+      if (!dr.ok && dr.tipo === 'rechazo') {
+        // El broker no deja abrir la pata nueva: se registra y se sigue con lo que hay (no se cierra a medias).
+        t.estado = 'abierta'; delete t.ajustePendiente;
+        (t.ajustes = t.ajustes || []).push({ at: now.toISOString(), alertId: a.alertId, estado: 'rechazado', motivo: `TastyTrade rechazó la pata nueva: ${dr.detalle}` });
+        return 'AJUSTE_RECHAZADO';
+      }
+      if (!dr.ok) { t.ultimoIntento = `dry-run del ajuste sin respuesta: ${dr.detalle || 'red'}`; return 'ESPERA'; }
+      feesA = dr.fees != null ? dr.fees : (estimadas = true, feesEstimadas(a.abrir, true));
+    }
+    const caja = r2((netoC + netoA) * 100 - feesC - feesA);
+    // Nuevas patas de la posición: se quitan las cerradas (una por una) y se suman las abiertas.
+    const restantes = t.patas.slice();
+    for (const pc of a.cerrar) {
+      const i = restantes.findIndex((p) => p.sym === pc.sym && Math.sign(p.q) === Math.sign(pc.q));
+      if (i >= 0) restantes.splice(i, 1);
+    }
+    t.patas = [...restantes, ...a.abrir];
+    (t.ajustes = t.ajustes || []).push({
+      at: now.toISOString(), alertId: a.alertId, mensajeAt: a.mensajeAt, accion: a.accion, formato: a.formato,
+      cerradas: a.cerrar.map((p) => p.sym), abiertas: a.abrir.map((p) => p.sym),
+      netoCierre: netoC, netoApertura: netoA, fees: r2(feesC + feesA), feesEstimadas: estimadas, caja,
+      netoPublicadoUsd: a.netoPublicadoUsd ?? null,
+      minutosDesdeSenal: a.mensajeAt ? Math.round((now - new Date(a.mensajeAt)) / 60000) : null,
+    });
+    delete t.ajustePendiente; delete t.ultimoIntento;
+    const neto = r2((netoC + netoA) * 100);
+    if (!t.patas.length) {   // el ajuste cerró todo: la operación termina con lo acumulado
+      t.salida = { at: now.toISOString(), precio: 0, fees: 0, porAjuste: true };
+      t.pnlRealizado = r2((t.pnlRealizado || 0) + cajaDe(t));
+      t.estado = 'cerrada'; t.cerradaAt = now.toISOString();
+      avisar(`${t.profe} · ${t.activo}: el ajuste cerró toda la posición, neto ${t.pnlRealizado >= 0 ? '+' : '-'}$${Math.abs(t.pnlRealizado).toFixed(2)}`,
+             '🔁 Señales Sigma ajustó (demo)');
+      return 'AJUSTE_CIERRA';
+    }
+    // Margen de la estructura que queda (si el dry-run lo da)
+    try {
+      if (t.patas.length <= 4 && c) {
+        const m = netoAlMedio(t.patas, c.q, 'abrir');
+        const dm = await dryRun(cuerpoOrden(t.patas, m == null ? 0.01 : m, true));
+        if (dm.ok && dm.margen != null) { t.margen = r2(dm.margen); t.margenFuente = 'tastytrade'; }
+      }
+    } catch (e) { /* se queda con el margen anterior */ }
+    t.estado = 'abierta';
+    avisar(`${t.profe} · ${t.activo}: ${a.accion || 'roll'} en el demo, ${neto >= 0 ? 'crédito' : 'débito'} $${Math.abs(neto).toFixed(2)}` +
+           (a.netoPublicadoUsd != null ? ` (el profe: ${a.netoPublicadoUsd >= 0 ? '+' : '-'}$${Math.abs(a.netoPublicadoUsd)})` : ''),
+           '🔁 Señales Sigma ajustó (demo)');
+    return 'AJUSTE_DEMO';
+  }
+
+  // Registra la gestión sobre la posición y la ejecuta si se puede. g = { activo, cerrar|null, abrir, accion, ... }.
+  async function aplicarGestion(L, g, { alertId, mensajeAt, profe, formato }) {
+    const r = resolverGestion(L, g, profe, mensajeAt);
+    if (!r.t) return { estado: 'ROLL_SIN_BASE', motivo: r.motivo };
+    const t = r.t;
+    if (t.estado === 'pendiente_ajuste' || t.estado === 'pendiente_cierre') {
+      return { estado: 'REVISION', id: t.id, motivo: `la posición ya tiene un ${t.estado === 'pendiente_cierre' ? 'cierre' : 'ajuste'} pendiente` };
+    }
+    let abrir;
+    try { abrir = patasNuevas(g, t.activo, mensajeAt); } catch (e) { return { estado: 'REVISION', id: t.id, motivo: `patas nuevas ilegibles: ${e.message}` }; }
+    t.ajustePendiente = { alertId, mensajeAt, accion: g.accion || 'roll', formato, cerrar: r.cerrar, abrir,
+                          netoPublicadoUsd: g.netoPublicadoUsd ?? null };
+    t.estado = 'pendiente_ajuste';
+    const x = await intentarAjuste(L, t);
+    return { estado: x === 'ESPERA' ? 'AJUSTE_PENDIENTE' : x, id: t.id, motivo: t.ultimoIntento || null };
+  }
+
+  // ── Margen del día: se vuelve a pedir el margen de lo abierto y se mira si hay llamada de margen ────────────────
+  async function recalcularMargenInterno(L) {
+    const abiertas = L.trades.filter((t) => t.estado === 'abierta' && t.patas && t.patas.length);
+    let c = null;
+    try { c = abiertas.length ? await cotizar([...new Set(abiertas.flatMap((t) => t.patas.map((p) => p.sym)))], { permitirParcial: true }) : null; } catch (e) { c = null; }
+    let latente = 0, cambios = 0;
+    for (const t of abiertas) {
+      const cierre = c ? netoCruzando(t.patas, c.q, 'cerrar') : null;
+      if (cierre != null) latente += cajaDe(t) + cierre * 100 - feesEstimadas(t.patas, false);
+      if (t.patas.length > 4) continue;
+      const m = c ? netoAlMedio(t.patas, c.q, 'abrir') : null;
+      try {
+        const dr = await dryRun(cuerpoOrden(t.patas, m == null ? 0.01 : m, true));
+        if (dr.ok && dr.margen != null) {
+          const nuevo = r2(dr.margen);
+          if (nuevo !== t.margen) { (t.historiaMargen = t.historiaMargen || []).push({ at: ahora().toISOString(), antes: t.margen ?? null, ahora: nuevo }); cambios++; }
+          t.margen = nuevo; t.margenFuente = 'tastytrade';
+        }
+      } catch (e) { /* sin margen nuevo: se queda el anterior */ }
+    }
+    const s = saldo(L);
+    const valorCuenta = r2(s.saldo + latente);
+    L.margenDia = { fecha: calendario.fechaET(ahora()), at: ahora().toISOString(), usado: s.reservado, valorCuenta,
+                    latente: r2(latente), tope: s.topeMargen, llamada: s.reservado > valorCuenta, cambios };
+    if (L.margenDia.llamada) {
+      avisar(`Margen usado $${s.reservado} > valor de la cuenta $${valorCuenta}. No se abren señales nuevas hoy.`, '⚠️ Señales Sigma: llamada de margen (demo)');
+    }
+    return L.margenDia;
+  }
+  function recalcularMargen() {
+    return enCola(async () => { const L = cargar(); const m = await recalcularMargenInterno(L); guardar(L); return m; });
+  }
+
   // Lo que manda el lector. Idempotente por id del mensaje de WhatsApp.
-  function procesarAlerta({ alertId, mensajeAt, texto, autorJid = '' }) {
+  function procesarAlerta({ alertId, mensajeAt, texto, autorJid = '', imagenB64 = null, mime = 'image/jpeg' }) {
     return enCola(async () => {
       const L = cargar();
       const previa = L.alertas.find((a) => a.alertId === alertId);
       if (previa) return { ok: true, repetida: true, estado: previa.estado, motivo: 'ya procesada' };
-      const p = sigma.parsearSenalSigma(texto, { mensajeAt, autorJid });
+      let p = sigma.parsearSenalSigma(texto, { mensajeAt, autorJid });
+      if (imagenB64) p = { profe: p.profe, mensajeAt, tipo: 'gestion', ok: false, foto: true };   // una foto siempre es gestión a interpretar
       const reg = { alertId, mensajeAt, recibidaAt: ahora().toISOString(), profe: p.profe, tipo: p.tipo,
-                    texto: String(texto).slice(0, 600) };
+                    texto: String(texto).slice(0, 600), ...(imagenB64 ? { foto: true } : {}) };
       let res;
-      if (p.tipo === 'apertura' && !p.ok) {
+      if (p.tipo === 'roll' && p.ok !== false && (p.cerrar === null || (p.cerrar || []).length || (p.abrir || []).length)) {
+        if (p.formato === 'alerta' && !p.abrir.length) res = { estado: 'REVISION', motivo: 'roll sin patas nuevas legibles' };
+        else res = await aplicarGestion(L, p, { alertId, mensajeAt, profe: p.profe, formato: p.formato });
+        reg.gestion = { formato: p.formato, activo: p.activo, cerrar: p.cerrar, abrir: p.abrir, netoPublicadoUsd: p.netoPublicadoUsd };
+      } else if (p.tipo === 'gestion' || p.tipo === 'roll') {
+        // Antes de gastar una lectura de Claude: ¿el mensaje nombra algún activo que tengamos abierto?
+        const abiertos = [...new Set(L.trades.filter((t) => ESTADOS_ABIERTOS.includes(t.estado)).map((t) => t.activo))];
+        const nombrados = abiertos.filter((a) => new RegExp(`(^|[^A-Z0-9])${a.replace('.', '\\.')}([^A-Z0-9]|$)`).test(String(texto)));
+        if (!nombrados.length && !imagenB64) {
+          res = { estado: 'ROLL_SIN_BASE', motivo: 'la gestión no nombra ningún activo que tengamos abierto en el demo' };
+        } else if (!nombrados.length && imagenB64 && !/rol|ajust|gesti/i.test(String(texto))) {
+          res = { estado: 'IGNORADA', motivo: 'foto sin roll/ajuste en el pie' };
+        } else if (!nombrados.length && imagenB64 && (String(texto).match(/\b[A-Z]{1,5}\b/g) || []).length) {
+          // "♻️ Roll de META" y no tenemos META: no se gasta la lectura de la foto
+          res = { estado: 'ROLL_SIN_BASE', motivo: `la foto es de ${String(texto).match(/\b[A-Z]{1,5}\b/g).join('/')} y no lo tenemos abierto en el demo` };
+        } else if (!interpretar) {
+          res = { estado: 'REVISION', motivo: 'gestión en texto libre o foto: falta el intérprete (Claude)' };
+        } else {
+          let g;
+          try { g = await interpretar({ texto, imagenB64, mime }); }
+          catch (e) { g = { ok: false, motivo: `Claude no pudo leerla: ${e.message}` }; }
+          reg.gestion = g;
+          if (!g.ok) res = { estado: g.motivo === 'no es una gestión concreta' ? 'IGNORADA' : 'REVISION', motivo: g.motivo };
+          else res = await aplicarGestion(L, g, { alertId, mensajeAt, profe: p.profe, formato: imagenB64 ? 'foto' : 'texto' });
+        }
+      } else if (p.tipo === 'apertura' && !p.ok) {
         // No se entendió: queda a revisión y, si nadie la resuelve, vence a los 30 min como cualquier señal.
         res = { estado: 'REVISION', motivo: p.motivo };
       } else if (p.tipo === 'apertura') {
@@ -212,6 +447,12 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
       for (const t of L.trades) {
         if (t.estado === 'pendiente_entrada') { const r = await intentarAbrir(L, t); if (r !== 'ESPERA') cambios++; }
         else if (t.estado === 'pendiente_cierre') { const r = await intentarCerrar(L, t); if (r !== 'ESPERA') cambios++; }
+        else if (t.estado === 'pendiente_ajuste') { const r = await intentarAjuste(L, t); if (r !== 'ESPERA') cambios++; }
+      }
+      // Margen del día: una vez, desde las 10:00 ET (la cadena ya está asentada)
+      const hoy = calendario.fechaET(ahora());
+      if (calendario.enHorarioDeMercado(ahora()) && calendario.minutosET(ahora()) >= 600 && (!L.margenDia || L.margenDia.fecha !== hoy)) {
+        try { await recalcularMargenInterno(L); cambios++; } catch (e) { /* se reintenta el minuto siguiente */ }
       }
       // Revisiones sin resolver: a los 30 min quedan vencidas
       for (const a of L.alertas) {
@@ -265,7 +506,7 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
     const pnlHoy = r2(cerradas.filter((t) => fechaCierre(t) === hoy).reduce((a, t) => a + t.pnlRealizado, 0));
     const pnlMes = r2(cerradas.filter((t) => fechaCierre(t).startsWith(mes)).reduce((a, t) => a + t.pnlRealizado, 0));
     const ganadas = cerradas.filter((t) => t.pnlRealizado > 0).length;
-    const abiertas = L.trades.filter((t) => t.estado === 'abierta' || t.estado === 'pendiente_cierre');
+    const abiertas = L.trades.filter((t) => ESTADOS_ABIERTOS.includes(t.estado));
     if (marcar && abiertas.length) {
       try {
         const syms = [...new Set(abiertas.flatMap((t) => t.patas.map((p) => p.sym)))];
@@ -273,16 +514,17 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
         for (const t of abiertas) {
           const x = c ? netoCruzando(t.patas, c.q, 'cerrar') : null;
           const m = c ? netoAlMedio(t.patas, c.q, 'cerrar') : null;
-          t.latenteCruzando = x == null ? null : r2((t.entrada.precio + x) * 100 - (t.entrada.fees || 0) - feesEstimadas(t.patas, false));
-          t.latenteMedio = m == null ? null : r2((t.entrada.precio + m) * 100 - (t.entrada.fees || 0));
+          t.latenteCruzando = x == null ? null : r2(cajaDe(t) + x * 100 - feesEstimadas(t.patas, false));
+          t.latenteMedio = m == null ? null : r2(cajaDe(t) + m * 100);
         }
       } catch (e) { /* sin marca: la pantalla muestra "sin precio" */ }
     }
+    for (const t of abiertas) t.margenApartado = margenDe(t);
     const porProfe = {};
     for (const t of L.trades) {
       const e = porProfe[t.profe] = porProfe[t.profe] || { profe: t.profe, cerradas: 0, ganadas: 0, pnl: 0, abiertas: 0, vencidas: 0 };
       if (t.estado === 'cerrada') { e.cerradas++; if (t.pnlRealizado > 0) e.ganadas++; e.pnl = r2(e.pnl + t.pnlRealizado); }
-      if (t.estado === 'abierta' || t.estado === 'pendiente_cierre') e.abiertas++;
+      if (ESTADOS_ABIERTOS.includes(t.estado)) e.abiertas++;
       if (t.estado === 'vencida' || t.estado === 'no_ejecutada') e.vencidas++;
     }
     // curva: saldo al cierre de cada día con cierres
@@ -297,11 +539,15 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
       abiertas, pendientes: L.trades.filter((t) => t.estado === 'pendiente_entrada'),
       historial: L.trades.filter((t) => !ESTADOS_VIVOS.includes(t.estado)).sort((a, b) => String(b.cerradaAt).localeCompare(String(a.cerradaAt))),
       porProfe: Object.values(porProfe).sort((a, b) => b.pnl - a.pnl), curva,
+      margenDia: L.margenDia || null,
+      ajustes: L.trades.flatMap((t) => (t.ajustes || []).map((x) => ({ id: t.id, profe: t.profe, activo: t.activo, ...x })))
+        .sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 50),
       alertas: L.alertas.slice(0, 50),
     };
   }
 
-  return { procesarAlerta, tick, importarDemoJson, resumen, _cargar: cargar };
+  return { procesarAlerta, tick, importarDemoJson, resumen, recalcularMargen, _cargar: cargar };
 }
 
-module.exports = { crearLibroSenales, netoCruzando, netoAlMedio, cuerpoOrden, feesEstimadas, pataDesdeOcc, CAPITAL };
+module.exports = { crearLibroSenales, netoCruzando, netoAlMedio, cuerpoOrden, feesEstimadas, pataDesdeOcc, cajaDe,
+                   CAPITAL, TOPE_MARGEN };

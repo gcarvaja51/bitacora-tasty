@@ -920,6 +920,17 @@ Diseño aprobado: documento "Diseño Bitácora Demo Tasty" (claude.ai/artifact/T
   en `src/sigma_senales.js`. **30 min de vida** desde la publicación (o desde la próxima apertura si se publicó con el
   mercado cerrado); si no entra, `vencida`. **Sin meta diaria** en este libro. Llenado cruzando el spread en la cadena
   de TastyTrade + dry-run (comisiones reales); **nunca manda una orden**. `tick()` reintenta cada minuto en horario.
+- **Señales Sigma emula una cuenta MARGIN** (18-nov-2026): cada posición aparta el margen que TastyTrade pide para
+  esa orden sola (`isolated-order-margin-requirement` del dry-run, expuesto como `dr.margen` en `ejecutor_tasty`), no
+  la pérdida máxima publicada; si no viene, la pérdida máxima. **Tope 75% del saldo** (`TOPE_MARGEN`). Margen de lo
+  abierto recalculado una vez al día desde las 10:00 ET (`POST /api/libros/senales/margen` a mano); margen > saldo +
+  latente = **llamada de margen** (`L.margenDia.llamada`): ese día no se abre nada nuevo.
+- **Rolls y ajustes de los profes se replican** (18-nov-2026) sobre la MISMA posición del demo (`t.ajustes[]`, estado
+  `pendiente_ajuste`; P&L de la operación completa = `cajaDe(t)` + cierre). Formatos: alerta con "ES UN ROLL" (cierra
+  todo), rueda de Tarri ("📊 Roll CSP – X … 📅 a → b"), y foto de Luis ("Rolar posición" de Sigma Terminal) o texto
+  libre → `src/sigma_gestion.js` (Claude). **Sin posición base = `ROLL_SIN_BASE`, no se abre nada** (decisión de
+  Guillermo). Antes de llamar a Claude se exige que el mensaje nombre un activo abierto en el demo.
+- **Fechas AM**: los mensuales de SPX/NDX/RUT llegan como "(dic 18 AM, 2026)"; antes del 18-nov no se leían.
 - **5491125371038 es Facu Melo**, no Gonza (verificado contra Sigma Terminal el 16-nov).
 - **El lector de la línea USA corre en el PC** (Vultr solo puede la línea Colombia: grupo Operaciones). Si el PC no
   corre el lector, el Canal Oficial, el Chat VIP y el canal de Sigma no se leen.

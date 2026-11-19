@@ -60,7 +60,8 @@ function simbolo(activo, y, m, d, tipo, strike) {
 }
 
 // "🔴 Sell 1× Put 7500 (Dec 18, 2026) @ $132.45" | "🟢 Compra 1× Call 279 (nov 23, 2026) @ $1.135"
-const RE_PATA = /(Sell|Buy|Venta|Compra)\s+(\d+)\s*[×x]\s*(Put|Call)\s+([\d.]+)\s*\(\s*([A-Za-zÁÉÍÓÚáéíóú]{3})[a-zé]*\.?\s+(\d{1,2}),\s*(\d{4})\s*\)\s*@\s*\$?\s*([\d.,]+)/gi;
+// Vencimientos mensuales AM (SPX/NDX/RUT, tercer viernes): "(dic 18 AM, 2026)" — 18-nov-2026 se perdió un IC de Luis por esto.
+const RE_PATA = /(Sell|Buy|Venta|Compra)\s+(\d+)\s*[×x]\s*(Put|Call)\s+([\d.]+)\s*\(\s*([A-Za-zÁÉÍÓÚáéíóú]{3})[a-zé]*\.?\s+(\d{1,2})(?:\s*(?:AM|PM))?,\s*(\d{4})\s*\)\s*@\s*\$?\s*([\d.,]+)/gi;
 
 function parsearApertura(texto, base) {
   const activoM = texto.match(/📌\s*\*?\s*([A-Z][A-Z0-9.]{0,6})\s*[—–-]\s*([^*\n]+)/);
@@ -131,11 +132,80 @@ function parsearCierre(texto, base) {
            linea: linea.slice(0, 200), motivo: activo ? null : 'no se leyó el activo del cierre' };
 }
 
+// ── Rolls y ajustes (Guillermo 18-nov-2026: "los profes hacen roll de posiciones y ajustes, nosotros en nuestro demo
+//    debemos hacer lo propio"). Un roll = cerrar unas patas y abrir otras sobre la MISMA posición. Si en el demo no
+//    tenemos la posición base, se anota y no se abre nada (decisión de Guillermo, 18-nov).
+//
+// Formatos vistos en el canal (sep-nov 2026):
+//   1) Henry/Tarri: "GESTIÓN, POSICIÓN DE HENRY" + alerta normal + "ES UN ROLL, NO ES UNA POSICIÓN NUEVA"
+//      → patas nuevas en la alerta; las que se cierran no se nombran (= todas las de la posición).
+//   2) Rueda de Tarri: "📊 Roll CSP – UBER / 🔁 Roll Short Put strike 72.5: / 📅 20 noviembre → 18 diciembre /
+//      🎯 Mantengo strike 72.5 | Subo al strike 31.2 / 💰 Crédito recibido: $106 | Débito pagado: $22"
+//   3) Luis: FOTO de la ventana "Rolar posición" de Sigma Terminal ("♻️ Roll de META") → la lee Claude (sigma_gestion.js)
+//   4) Texto libre ("Rolé la put vendida de 22 $ al 15/01/2027…", "BATALLA DE ESTRATEGIAS – NUEVOS ROLLS") → Claude.
+//
+// Las patas de un roll se describen con { tipo:'P'|'C', strike, dia, mes, anio|null, q } (q: -1 vendida, +1 comprada);
+// el año, si no viene, lo pone anioVto().
+
+// Año del vencimiento cuando el mensaje no lo trae: el del mensaje, salvo que la fecha ya haya pasado hace más de
+// una semana (entonces es del año siguiente: un roll de diciembre a enero).
+function anioVto(dia, mes, mensajeAt) {
+  const t = new Date(mensajeAt || Date.now());
+  const y = t.getUTCFullYear();
+  const f = Date.UTC(y, mes - 1, dia);
+  return f < t.getTime() - 7 * 86400000 ? y + 1 : y;
+}
+function fechaVto(dia, mes, anio) {
+  return `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
+// Formato 2 (rueda de Tarri). Devuelve null si no es ese formato.
+function parsearRollRueda(t, base) {
+  if (!/Roll\s+(CC|CSP|Short)/i.test(t) || !/📅|→/.test(t)) return null;
+  const act = t.match(/Roll\s+[^\n–—-]*[–—-]\s*([A-Z][A-Z0-9.]{0,6})\b/);
+  const pata = t.match(/Roll\s+Short\s+(Put|Call)\s+strike\s+([\d.,]+)/i);
+  const fechas = t.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóú]+)\s*→\s*(\d{1,2})\s+(?:de\s+)?([a-záéíóú]+)/i);
+  if (!act || !pata || !fechas) return { ...base, tipo: 'gestion', ok: false, motivo: 'roll de rueda sin activo, pata o fechas' };
+  const tipo = /put/i.test(pata[1]) ? 'P' : 'C';
+  const kViejo = num(pata[2]);
+  const nuevoM = t.match(/(?:Subo|Bajo|Cambio|Paso|Muevo)\s+(?:al\s+)?strike\s+([\d.,]+)/i);
+  const kNuevo = nuevoM ? num(nuevoM[1]) : kViejo;
+  const m1 = MESES_LARGOS[sinTildes(fechas[2]).toLowerCase()], m2 = MESES_LARGOS[sinTildes(fechas[4]).toLowerCase()];
+  if (!m1 || !m2 || kViejo == null) return { ...base, tipo: 'gestion', ok: false, motivo: 'roll de rueda con fecha o strike ilegible' };
+  const d1 = Number(fechas[1]), d2 = Number(fechas[3]);
+  const y1 = anioVto(d1, m1, base.mensajeAt);
+  let y2 = anioVto(d2, m2, base.mensajeAt);
+  if (Date.UTC(y2, m2 - 1, d2) < Date.UTC(y1, m1 - 1, d1)) y2 += 1;
+  const cred = t.match(/Cr[eé]dito\s+(?:recibido|adicional)?\s*:?\s*\$\s*([\d.,]+)/i);
+  const deb = t.match(/D[eé]bito\s+(?:pagado)?\s*:?\s*\$\s*([\d.,]+)/i);
+  return { ...base, tipo: 'roll', formato: 'rueda', ok: true, activo: act[1],
+           cerrar: [{ tipo, strike: kViejo, dia: d1, mes: m1, anio: y1, q: -1 }],
+           abrir: [{ tipo, strike: kNuevo, dia: d2, mes: m2, anio: y2, q: -1 }],
+           netoPublicadoUsd: cred ? num(cred[1]) : deb ? -num(deb[1]) : null };
+}
+
+// ¿Puede ser una gestión (roll/ajuste/cierre parcial) en texto libre? Solo dice "vale la pena interpretarlo".
+const RE_GESTION = /\brol(?:l|ls|lea|é|e|amos|ar|ado|ada|eo|eamos)\b|\brolad|ajust|cierre parcial|cerr[eé] (?:la|el|una|un|parte)|parciales?\b|GESTI[OÓ]N/i;
+function pareceGestion(texto) { return RE_GESTION.test(String(texto || '')); }
+
 function parsearSenalSigma(texto, { mensajeAt = null, autorJid = '' } = {}) {
   const t = String(texto || '');
   const base = { profe: profeDe(t, autorJid), mensajeAt };
-  if (/Options Alert|Alerta de Opci[oó]n/i.test(t)) return parsearApertura(t, base);
+  if (/Options Alert|Alerta de Opci[oó]n/i.test(t)) {
+    const a = parsearApertura(t, base);
+    // Formato 1: la alerta es un roll de una posición que ya existe, no una entrada nueva
+    if (/ES UN ROLL|NO ES UNA POSICI[OÓ]N NUEVA|IT'?S A ROLL|NOT A NEW POSITION/i.test(t)) {
+      return { ...a, tipo: 'roll', formato: 'alerta', cerrar: null,   // null = cerrar todas las patas de la posición
+               abrir: a.patas.map((p) => ({ tipo: p.tipo, strike: p.strike, dia: Number(p.vto.slice(8, 10)),
+                                            mes: Number(p.vto.slice(5, 7)), anio: Number(p.vto.slice(0, 4)), q: p.q, precio: p.precio })),
+               netoPublicadoUsd: null };
+    }
+    return a;
+  }
   if (/(CERRAD[OA]|CLOSED)/.test(t) && /(✅|❌)/.test(t)) return parsearCierre(t, base);
+  const r = parsearRollRueda(t, base);
+  if (r) return r;
+  if (pareceGestion(t)) return { ...base, tipo: 'gestion', ok: false, motivo: 'gestión en texto libre: la interpreta Claude' };
   return { ...base, tipo: 'otro', ok: false, motivo: 'no es una alerta de apertura ni de cierre' };
 }
 
@@ -175,4 +245,4 @@ function venceVentana(mensajeAt, calendario) {
 }
 
 module.exports = { parsearSenalSigma, coincideCierre, inicioVentana, venceVentana, simbolo, raizOpcion, profeDe,
-                   esTercerViernes, VIDA_MIN, REMITENTES };
+                   esTercerViernes, VIDA_MIN, REMITENTES, anioVto, fechaVto, pareceGestion };

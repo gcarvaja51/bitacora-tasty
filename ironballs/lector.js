@@ -182,9 +182,18 @@ function clasificar(f, m, msgs) {
              cuerpo: { alertId: m.id, mensajeAt: m.timestamp, texto: m.content, yaCerrada, autor: 'Pipe Andrade', grupo: f.grupo } };
   }
   if (f.modo === 'sigma') {
-    // Solo aperturas y cierres; el resto del canal (Zoom, agenda, comentarios) no se manda.
+    // Aperturas, cierres y (desde 18-nov) rolls/ajustes; el resto del canal (Zoom, agenda, El Café…) no se manda.
+    // Rolls/ajustes solo de los que publican señales (Luis, Facu, Tarri): así "El Café de la Mañana" no cuenta.
+    const deProfe = !!sigma.REMITENTES[String(m.sender_jid || '').split('@')[0]];
+    if (m.media_type === 'image') {
+      // Foto de roll (Luis sube la ventana "Rolar posición" de Sigma Terminal con pie "♻️ Roll de META")
+      if (!deProfe || !/rol|ajust|gesti/i.test(m.content || '')) return null;
+      return { ruta: '/api/libros/senales/alerta', foto: true, resumen: `foto de gestión ${sigma.profeDe(m.content || '', m.sender_jid)} "${(m.content || '').slice(0, 40)}"`,
+               cuerpo: { alertId: m.id, mensajeAt: m.timestamp, texto: m.content || '', autorJid: m.sender_jid || '' } };
+    }
     const p = sigma.parsearSenalSigma(m.content || '', { mensajeAt: m.timestamp, autorJid: m.sender_jid });
     if (p.tipo === 'otro') return null;
+    if ((p.tipo === 'gestion' || p.tipo === 'roll') && !deProfe) return null;
     return { ruta: '/api/libros/senales/alerta', resumen: `${p.tipo} ${p.profe} ${p.activo || ''} (${p.ok ? 'ok' : p.motivo})`,
              cuerpo: { alertId: m.id, mensajeAt: m.timestamp, texto: m.content, autorJid: m.sender_jid || '' } };
   }

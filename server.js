@@ -8897,6 +8897,14 @@ const libroSenales = crearLibroSenales({
   dataDir: DATA_DIR, calendario,
   cotizar: (simbolos, opciones) => cotizarPatasTasty(simbolos, opciones),
   dryRun: (cuerpo) => ejecutorTasty.dryRun(cuerpo),
+  // Rolls/ajustes en foto o texto libre (2026-11-18): los lee Claude y el libro los aplica a la posición del demo.
+  interpretar: async ({ texto, imagenB64, mime }) => {
+    const sg = require('./src/sigma_gestion');
+    const { lectura, ms } = await sg.interpretarGestion({ texto, imagenB64, mime });
+    const g = sg.aGestion(lectura);
+    console.log(`[LIBRO_SENALES] gestión leída por Claude en ${ms} ms: ${g.ok ? `${g.activo} ${g.accion} cierra ${g.cerrar.length} abre ${g.abrir.length}` : g.motivo}`);
+    return g;
+  },
 });
 // La misma clave del lector de Iron Balls: el lector es uno solo y barre los dos canales.
 function claveLectorValida(req) {
@@ -8911,17 +8919,25 @@ function claveLectorValida(req) {
 app.post('/api/libros/senales/alerta', async (req, res) => {
   const v = claveLectorValida(req);
   if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
-  const { alertId, mensajeAt, texto, autorJid } = req.body || {};
-  if (!alertId || !texto || !mensajeAt || isNaN(new Date(mensajeAt))) {
-    return res.status(400).json({ ok: false, error: 'faltan alertId, mensajeAt (ISO) o texto' });
+  const { alertId, mensajeAt, texto, autorJid, imagenB64, mime } = req.body || {};
+  if (!alertId || (!texto && !imagenB64) || !mensajeAt || isNaN(new Date(mensajeAt))) {
+    return res.status(400).json({ ok: false, error: 'faltan alertId, mensajeAt (ISO) y texto o imagenB64' });
   }
   try {
-    res.json(await libroSenales.procesarAlerta({ alertId: String(alertId), mensajeAt, texto: String(texto).slice(0, 4000),
-                                                 autorJid: String(autorJid || '').slice(0, 60) }));
+    res.json(await libroSenales.procesarAlerta({ alertId: String(alertId), mensajeAt, texto: String(texto || '').slice(0, 4000),
+                                                 autorJid: String(autorJid || '').slice(0, 60),
+                                                 imagenB64: imagenB64 ? String(imagenB64) : null, mime: String(mime || 'image/jpeg') }));
   } catch (e) {
     console.error('[LIBRO_SENALES] Error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+// Recalcula a mano el margen de lo abierto (el tick lo hace solo una vez al día desde las 10:00 ET).
+app.post('/api/libros/senales/margen', async (req, res) => {
+  const v = claveLectorValida(req);
+  if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
+  try { res.json({ ok: true, margenDia: await libroSenales.recalcularMargen() }); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 // Carga única del historial de senales-sigma/datos/demo.json (11 trades, "antes de la regla"). No pisa nada.
 app.post('/api/libros/senales/importar', async (req, res) => {

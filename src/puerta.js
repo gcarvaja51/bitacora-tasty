@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 
 const CON_CLAVE_PROPIA = ['/api/spx/clic', '/api/spx/clic-real', '/api/ironballs/alerta', '/api/ironballs/ale',
-  '/api/libros/senales/alerta', '/api/libros/senales/importar'];
+  '/api/libros/senales/alerta', '/api/libros/senales/importar', '/api/libros/senales/margen'];
 const LECTURA = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 function igual(a, b) {

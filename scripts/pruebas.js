@@ -2137,6 +2137,104 @@ seccion('Señales Sigma: el libro demo (src/libro_senales.js, TastyTrade falso)'
   })());
 }
 
+seccion('Señales Sigma: margen, rolls y ajustes (2026-11-18)');
+{
+  const sg = require('../src/sigma_senales');
+  const ls = require('../src/libro_senales');
+  const sgG = require('../src/sigma_gestion');
+  const calS = require('../src/calendario_nyse');
+  const fsS = require('fs'), osS = require('os'), pathS = require('path');
+
+  // Lectura
+  const IC = '🔔 *Alerta de Opción — Sigma Trade*\n\n📌 *SPX — SPX Dec 18 AM 7090/7100/7770/7780 Iron Condor*\n\n🟢 Compra 1× Put 7090 (dic 18 AM, 2026) @ $90.40\n🔴 Venta 1× Put 7100 (dic 18 AM, 2026) @ $92.00\n🔴 Venta 1× Call 7770 (dic 18 AM, 2026) @ $25.10\n🟢 Compra 1× Call 7780 (dic 18 AM, 2026) @ $22.50';
+  let p = sg.parsearSenalSigma(IC, { autorJid: '13213201370@s.whatsapp.net' });
+  chequear('"(dic 18 AM, 2026)" se lee: 4 patas SPX mensual (el IC de Luis del 18-nov)', p.ok && p.patas.length === 4 && p.patas[0].sym === 'SPX261218P07090000', JSON.stringify(p.patas.map((x) => x.sym)));
+  const RUEDA = '📊 Roll CSP – AGNC\n\n🔁  Roll Short Put strike 8:\n\n📅 18 diciembre → 15 enero\n🎯 Mantengo strike 8\n💰 Crédito recibido: $12';
+  p = sg.parsearSenalSigma(RUEDA, { mensajeAt: '2026-12-10T16:00:00Z', autorJid: '34605855722@s.whatsapp.net' });
+  chequear('roll de rueda de Tarri: cierra la put de dic y abre la de enero del año siguiente',
+    p.tipo === 'roll' && p.activo === 'AGNC' && p.cerrar[0].strike === 8 && p.cerrar[0].anio === 2026 && p.abrir[0].mes === 1 && p.abrir[0].anio === 2027 && p.netoPublicadoUsd === 12, JSON.stringify(p));
+  p = sg.parsearSenalSigma('📊 Roll CC sobre Futuro Sintético – PFE\n\n🔁  Roll Short Call strike 26.5:\n\n📅 25 septiembre → 16 octubre\n🎯 Subo al strike 27\n💰 Débito pagado: $22', { mensajeAt: '2026-09-23T15:06:00Z' });
+  chequear('roll de rueda con cambio de strike y débito', p.abrir[0].strike === 27 && p.netoPublicadoUsd === -22);
+  p = sg.parsearSenalSigma('🚨📢 GESTIÓN, POSICIÓN DE HENRY\n\n🔔 *Alerta de Opción — Sigma Trade*\n\n📌 *TSM — Bull Put Spread*\nES UN ROLL, NO ES UNA POSICIÓN NUEVA. \n🟢 Compra 1× Put 430 (ene 15, 2027) @ $46.30\n🔴 Venta 1× Put 440 (ene 15, 2027) @ $53.35');
+  chequear('alerta con "ES UN ROLL" no es una entrada nueva: roll que cierra todo y abre 2 patas', p.tipo === 'roll' && p.cerrar === null && p.abrir.length === 2 && p.profe === 'Henry');
+  chequear('"♻️ Roll de META" sin patas = gestión a interpretar', sg.parsearSenalSigma('♻️ Roll de META').tipo === 'gestion');
+  const ag = sgG.aGestion({ es_gestion: true, activo: 'META', accion: 'roll', neto_usd: 153,
+    cerrar: [{ tipo: 'P', strike: 640, dia: 20, mes: 11, anio: 2026, cantidad: 1, lado: 'comprada', precio: 24.83 },
+             { tipo: 'P', strike: 650, dia: 20, mes: 11, anio: 2026, cantidad: 1, lado: 'vendida', precio: 32.4 }],
+    abrir: [{ tipo: 'P', strike: 640, dia: 18, mes: 12, anio: 2026, cantidad: 1, lado: 'comprada', precio: 41.2 },
+            { tipo: 'P', strike: 655, dia: 18, mes: 12, anio: 2026, cantidad: 1, lado: 'vendida', precio: 50.3 }] });
+  chequear('lectura de la foto de Luis → patas con signo (vendida = -1)', ag.ok && ag.cerrar[1].q === -1 && ag.abrir[0].q === 1 && ag.netoPublicadoUsd === 153);
+
+  // Libro con TastyTrade falso
+  const dir = fsS.mkdtempSync(pathS.join(osS.tmpdir(), 'libro-senales-g-'));
+  let reloj = new Date('2026-12-10T15:00:00Z');   // jueves 10:00 ET
+  const Q = {
+    AGNC261218P00008000: { bid: 0.22, ask: 0.24, mark: 0.23 },
+    AGNC270115P00008000: { bid: 0.33, ask: 0.36, mark: 0.345 },
+    SOFI261218P00016000: { bid: 0.50, ask: 0.54, mark: 0.52 },
+  };
+  let margenPorOrden = 250;
+  const libro = ls.crearLibroSenales({
+    dataDir: dir, calendario: calS, ahora: () => reloj, capital: 1000,
+    cotizar: async () => ({ q: Q }),
+    dryRun: async (b) => ({ ok: true, fees: b.legs.length * 1.13, margen: margenPorOrden }),
+    interpretar: async () => ({ ok: true, activo: 'SOFI', accion: 'cierre_parcial', netoPublicadoUsd: null,
+                                cerrar: [{ tipo: 'P', strike: 16, dia: 18, mes: 12, anio: 2026, q: -1 }], abrir: [] }),
+  });
+  const SP = (tk, k, cred, riesgo) => `🔔 *Alerta de Opción — Sigma Trade*\n\n📌 *${tk} — Short Put*\n\n🔴 Venta 1× Put ${k} (dic 18, 2026) @ $${cred}\n\n💰 *Crédito Neto:* $${Math.round(cred * 100)}\n\n📉 *Pérdida máx (riesgo):* $${riesgo}`;
+  pruebasAsync.push((async () => {
+    let r = await libro.procesarAlerta({ alertId: 'G1', mensajeAt: '2026-12-10T14:59:00Z', texto: SP('AGNC', 8, 0.23, 773), autorJid: '34605855722@s.whatsapp.net' });
+    let res = await libro.resumen({ marcar: false });
+    chequear('margin: el put vendido aparta el margen de TastyTrade ($250), no la pérdida máxima ($773)',
+      r.estado === 'ABIERTA' && res.reservado === 250 && res.abiertas[0].margenFuente === 'tastytrade', `${r.estado} reservado ${res.reservado}`);
+    chequear('tope 75%: con $1.000 de saldo se pueden comprometer $750', res.topeMargen === 750 && res.disponible === 500, `${res.topeMargen} ${res.disponible}`);
+    margenPorOrden = 600;
+    r = await libro.procesarAlerta({ alertId: 'G2', mensajeAt: '2026-12-10T14:59:30Z', texto: SP('SOFI', 16, 0.46, 1554), autorJid: '5491125371038@s.whatsapp.net' });
+    chequear('señal que no cabe en el tope: rechazada por poder de compra', r.estado === 'RECHAZADA' && /poder de compra/.test(r.motivo), JSON.stringify(r));
+    margenPorOrden = 300;
+    r = await libro.procesarAlerta({ alertId: 'G3', mensajeAt: '2026-12-10T15:00:00Z', texto: SP('SOFI', 16, 0.46, 1554), autorJid: '5491125371038@s.whatsapp.net' });
+    chequear('la misma señal con margen menor sí entra', r.estado === 'ABIERTA', JSON.stringify(r));
+
+    // Roll de rueda sobre AGNC: cierra la de dic (recompra al ask 0.24) y abre la de ene (vende al bid 0.33)
+    reloj = new Date('2026-12-10T16:00:00Z');
+    margenPorOrden = 260;
+    r = await libro.procesarAlerta({ alertId: 'G4', mensajeAt: '2026-12-10T16:00:00Z', texto: RUEDA, autorJid: '34605855722@s.whatsapp.net' });
+    let L = libro._cargar();
+    let t = L.trades.find((x) => x.activo === 'AGNC');
+    chequear('el roll de Tarri se replica en el demo sobre la misma posición', r.estado === 'AJUSTE_DEMO' && t.patas.length === 1 && t.patas[0].sym === 'AGNC270115P00008000', JSON.stringify(r));
+    // entrada 0.22 (bid) - 1.13; ajuste: (-0.24 + 0.33) * 100 - 1.13 - 1.13 = 6.74
+    chequear('el ajuste guarda su efectivo (cruzando el spread, con comisiones)', t.ajustes[0].caja === 6.74 && ls.cajaDe(t) === 27.61, `${t.ajustes[0].caja} ${ls.cajaDe(t)}`);
+    chequear('después del roll, el margen es el de la estructura nueva', t.margen === 260, `${t.margen}`);
+
+    r = await libro.procesarAlerta({ alertId: 'G5', mensajeAt: '2026-12-10T16:05:00Z', texto: RUEDA.replace(/AGNC/g, 'UBER'), autorJid: '34605855722@s.whatsapp.net' });
+    chequear('roll de una posición que no tenemos: se anota y no abre nada (decisión de Guillermo)', r.estado === 'ROLL_SIN_BASE', JSON.stringify(r));
+    r = await libro.procesarAlerta({ alertId: 'G6', mensajeAt: '2026-12-10T16:06:00Z', texto: '♻️ Roll de META', imagenB64: 'AAAA', autorJid: '13213201370@s.whatsapp.net' });
+    chequear('foto de roll de un activo que no tenemos: no gasta una lectura de Claude', r.estado === 'IGNORADA' || r.estado === 'ROLL_SIN_BASE', JSON.stringify(r));
+    r = await libro.procesarAlerta({ alertId: 'G7', mensajeAt: '2026-12-10T16:10:00Z', texto: 'Cerré la put vendida de SOFI 16, ajuste de la posición', autorJid: '5491125371038@s.whatsapp.net' });
+    L = libro._cargar();
+    t = L.trades.find((x) => x.activo === 'SOFI' && x.estado !== 'rechazada');
+    chequear('gestión en texto libre leída por Claude: cierre parcial que deja la posición sin patas = cerrada', r.estado === 'AJUSTE_CIERRA' && t.estado === 'cerrada', JSON.stringify(r));
+
+    // Cierre final de AGNC con el CLOSED del profe: P&L = caja + cierre
+    reloj = new Date('2026-12-11T16:00:00Z');
+    r = await libro.procesarAlerta({ alertId: 'G8', mensajeAt: '2026-12-11T16:00:00Z', texto: '⚠️ CERRADO\n\n✅ AGNC 15 de enero 8 Short Put @ 50%\nCerrado a 0.17 de débito', autorJid: '34605855722@s.whatsapp.net' });
+    L = libro._cargar();
+    t = L.trades.find((x) => x.activo === 'AGNC');
+    // cierre: recompra al ask 0.36 → 27.61 - 36 - 1.13 = -9.52
+    chequear('el CLOSED cierra la posición rolada y el P&L suma entrada + roll + cierre', r.estado === 'CIERRE_DEMO' && t.pnlRealizado === -9.52, `${r.estado} ${t.pnlRealizado}`);
+
+    // Llamada de margen: el margen usado supera el valor de la cuenta
+    r = await libro.procesarAlerta({ alertId: 'G9', mensajeAt: '2026-12-11T16:01:00Z', texto: SP('AGNC', 8, 0.23, 773), autorJid: '34605855722@s.whatsapp.net' });
+    margenPorOrden = 5000;
+    const m = await libro.recalcularMargen();
+    chequear('recalcular: si el margen de lo abierto supera el valor de la cuenta hay llamada de margen', m.llamada === true && m.usado === 5000, JSON.stringify(m));
+    margenPorOrden = 10;
+    r = await libro.procesarAlerta({ alertId: 'G10', mensajeAt: '2026-12-11T16:02:00Z', texto: SP('SOFI', 16, 0.46, 1554), autorJid: '5491125371038@s.whatsapp.net' });
+    chequear('con llamada de margen no se abren señales nuevas', r.estado === 'RECHAZADA' && /llamada de margen/.test(r.motivo), JSON.stringify(r));
+    fsS.rmSync(dir, { recursive: true, force: true });
+  })());
+}
+
 (async () => {
   // Pruebas de unidad asincronas (2026-11-09, ejecutor de TastyTrade): se esperan antes del resumen.
   await Promise.all(pruebasAsync);
