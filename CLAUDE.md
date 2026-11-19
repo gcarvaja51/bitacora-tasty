@@ -929,7 +929,8 @@ Diseño aprobado: documento "Diseño Bitácora Demo Tasty" (claude.ai/artifact/T
   `pendiente_ajuste`; P&L de la operación completa = `cajaDe(t)` + cierre). Formatos: alerta con "ES UN ROLL" (cierra
   todo), rueda de Tarri ("📊 Roll CSP – X … 📅 a → b"), y foto de Luis ("Rolar posición" de Sigma Terminal) o texto
   libre → `src/sigma_gestion.js` (Claude). **Sin posición base = `ROLL_SIN_BASE`, no se abre nada** (decisión de
-  Guillermo). Antes de llamar a Claude se exige que el mensaje nombre un activo abierto en el demo.
+  Guillermo). Antes de llamar a Claude se exige que el mensaje nombre un activo abierto en el demo. **Los rolls se
+  ejecutan desde las 10:00 ET** (`HORA_AJUSTES`, cadena estable); antes quedan en `pendiente_ajuste`.
 - **Fechas AM**: los mensuales de SPX/NDX/RUT llegan como "(dic 18 AM, 2026)"; antes del 18-nov no se leían.
 - **5491125371038 es Facu Melo**, no Gonza (verificado contra Sigma Terminal el 16-nov).
 - **El lector de la línea USA corre en el PC** (Vultr solo puede la línea Colombia: grupo Operaciones). Si el PC no

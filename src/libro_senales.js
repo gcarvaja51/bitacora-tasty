@@ -39,6 +39,7 @@ const sigma = require('./sigma_senales');
 
 const CAPITAL = 10000;
 const TOPE_MARGEN = 0.75;   // máximo del saldo comprometido como margen (Guillermo 18-nov-2026)
+const HORA_AJUSTES = 600;   // rolls/ajustes desde las 10:00 ET, con la cadena estable (Guillermo 18-nov-2026)
 const ESTADOS_VIVOS = ['pendiente_entrada', 'abierta', 'pendiente_cierre', 'pendiente_ajuste'];
 const ESTADOS_ABIERTOS = ['abierta', 'pendiente_cierre', 'pendiente_ajuste'];
 const r2 = (x) => +Number(x).toFixed(2);
@@ -251,6 +252,8 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
     const a = t.ajustePendiente;
     if (!a) { t.estado = 'abierta'; return 'ABIERTA'; }
     if (!calendario.enHorarioDeMercado(now)) { t.ultimoIntento = 'mercado cerrado'; return 'ESPERA'; }
+    // Guillermo 18-nov: "hagámoslos después de las 10 am, cuando la cadena de opciones es más estable".
+    if (calendario.minutosET(now) < HORA_AJUSTES) { t.ultimoIntento = 'espera a las 10:00 ET (cadena más estable)'; return 'ESPERA'; }
     const syms = [...new Set([...a.cerrar, ...a.abrir].map((p) => p.sym))];
     const c = await cotizar(syms);
     const netoC = a.cerrar.length ? (c ? netoCruzando(a.cerrar, c.q, 'cerrar') : null) : 0;

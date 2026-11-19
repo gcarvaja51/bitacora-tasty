@@ -2231,6 +2231,16 @@ seccion('Señales Sigma: margen, rolls y ajustes (2026-11-18)');
     margenPorOrden = 10;
     r = await libro.procesarAlerta({ alertId: 'G10', mensajeAt: '2026-12-11T16:02:00Z', texto: SP('SOFI', 16, 0.46, 1554), autorJid: '5491125371038@s.whatsapp.net' });
     chequear('con llamada de margen no se abren señales nuevas', r.estado === 'RECHAZADA' && /llamada de margen/.test(r.motivo), JSON.stringify(r));
+
+    // Rolls solo desde las 10:00 ET (cadena estable): uno publicado a las 9:45 espera y lo hace el tick de las 10:01
+    reloj = new Date('2026-12-14T14:45:00Z');   // lunes 9:45 ET
+    r = await libro.procesarAlerta({ alertId: 'G11', mensajeAt: '2026-12-14T14:45:00Z', texto: RUEDA, autorJid: '34605855722@s.whatsapp.net' });
+    chequear('roll antes de las 10:00 ET: queda pendiente', r.estado === 'AJUSTE_PENDIENTE' && /10:00/.test(r.motivo), JSON.stringify(r));
+    reloj = new Date('2026-12-14T15:01:00Z');   // 10:01 ET
+    await libro.tick();
+    L = libro._cargar();
+    t = L.trades.find((x) => x.alertId === 'G9');
+    chequear('a las 10:01 ET el tick ejecuta el roll pendiente', t.estado === 'abierta' && t.ajustes?.length === 1 && t.patas[0].sym === 'AGNC270115P00008000', `${t.estado} ${JSON.stringify(t.patas)}`);
     fsS.rmSync(dir, { recursive: true, force: true });
   })());
 }
