@@ -444,7 +444,23 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
           catch (e) { g = { ok: false, motivo: `Claude no pudo leerla: ${e.message}` }; }
           reg.gestion = g;
           if (!g.ok) res = { estado: g.motivo === 'no es una gestión concreta' ? 'IGNORADA' : 'REVISION', motivo: g.motivo };
-          else res = await aplicarGestion(L, g, { alertId, mensajeAt, profe: p.profe, formato: imagenB64 ? 'foto' : 'texto' });
+          else {
+            // Una foto/texto puede traer varias gestiones (una por activo): se aplica cada una a su posición.
+            const lista = Array.isArray(g.gestiones) ? g.gestiones : [g];
+            const resultados = [];
+            for (const x of lista) {
+              const r = await aplicarGestion(L, x, { alertId, mensajeAt, profe: p.profe, formato: imagenB64 ? 'foto' : 'texto' });
+              resultados.push({ activo: x.activo, ...r });
+            }
+            if (resultados.length === 1) { const { activo, ...r } = resultados[0]; res = r; }
+            else {
+              const aplicadas = resultados.filter((r) => r.estado !== 'ROLL_SIN_BASE' && r.estado !== 'REVISION');
+              const principal = aplicadas[0] || resultados[0];
+              res = { estado: principal.estado, id: principal.id,
+                      motivo: resultados.map((r) => `${r.activo}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ''}`).join(' · '),
+                      gestiones: resultados };
+            }
+          }
         }
       } else if (p.tipo === 'apertura' && !p.ok) {
         // No se entendió: queda a revisión y, si nadie la resuelve, vence a los 30 min como cualquier señal.

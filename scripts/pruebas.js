@@ -2257,6 +2257,50 @@ seccion('Señales Sigma: margen, rolls y ajustes (2026-11-18)');
   })());
 }
 
+seccion('Señales Sigma: una foto con varios rolls (2026-11-19, "Gestion SOFI y MARA")');
+{
+  const sgG = require('../src/sigma_gestion');
+  const ls = require('../src/libro_senales');
+  const calS = require('../src/calendario_nyse');
+  const fsS = require('fs'), osS = require('os'), pathS = require('path');
+  const pata = (k, d, m, lado) => ({ tipo: 'P', strike: k, dia: d, mes: m, anio: 2026, cantidad: 1, lado, precio: null });
+  const lectura = { gestiones: [
+    { es_gestion: true, activo: 'SOFI', accion: 'roll', cerrar: [pata(16, 20, 11, 'vendida')], abrir: [pata(16, 18, 12, 'vendida')], neto_usd: 12 },
+    { es_gestion: true, activo: 'MARA', accion: 'roll', cerrar: [pata(7, 20, 11, 'vendida')], abrir: [pata(7, 18, 12, 'vendida')], neto_usd: 41 },
+  ] };
+  const g = sgG.aGestiones(lectura);
+  chequear('el intérprete devuelve las dos gestiones de la foto (SOFI y MARA)', g.ok && g.gestiones.length === 2 && g.gestiones[1].activo === 'MARA' && g.gestiones[1].netoPublicadoUsd === 41, JSON.stringify(g));
+  chequear('el esquema pide una lista de gestiones', sgG.ESQUEMA.properties.gestiones.type === 'array');
+  chequear('lectura sin gestiones = no es gestión', sgG.aGestiones({ gestiones: [] }).ok === false);
+  chequear('la forma vieja (una sola gestión) se sigue aceptando', sgG.aGestiones(lectura.gestiones[0]).gestiones.length === 1);
+
+  const dir = fsS.mkdtempSync(pathS.join(osS.tmpdir(), 'libro-senales-m-'));
+  let reloj = new Date('2026-11-12T17:00:00Z');
+  const Q = {
+    SOFI261120P00016000: { bid: 2.30, ask: 2.36 }, SOFI261218P00016000: { bid: 2.48, ask: 2.52 },
+    MARA261120P00007000: { bid: 0.70, ask: 0.72 }, MARA261218P00007000: { bid: 1.13, ask: 1.16 },
+  };
+  const libro = ls.crearLibroSenales({
+    dataDir: dir, calendario: calS, ahora: () => reloj, capital: 10000,
+    cotizar: async () => ({ q: Q }),
+    dryRun: async (b) => ({ ok: true, fees: b.legs.length * 1.13, margen: 300 }),
+    interpretar: async () => sgG.aGestiones(lectura),
+  });
+  const SP = (tk, k, cred, riesgo) => `🔔 *Alerta de Opción — Sigma Trade*\n\n📌 *${tk} — Short Put*\n\n🔴 Venta 1× Put ${k} (nov 20, 2026) @ $${cred}\n\n💰 *Crédito Neto:* $${Math.round(cred * 100)}\n\n📉 *Pérdida máx (riesgo):* $${riesgo}`;
+  pruebasAsync.push((async () => {
+    await libro.procesarAlerta({ alertId: 'M1', mensajeAt: '2026-11-12T16:59:00Z', texto: SP('SOFI', 16, 2.30, 1370), autorJid: '5491125371038@s.whatsapp.net' });
+    await libro.procesarAlerta({ alertId: 'M2', mensajeAt: '2026-11-12T16:59:30Z', texto: SP('MARA', 7, 0.70, 630), autorJid: '5491125371038@s.whatsapp.net' });
+    reloj = new Date('2026-11-19T20:58:00Z');   // jueves 15:58 ET
+    const r = await libro.procesarAlerta({ alertId: 'M3', mensajeAt: '2026-11-19T20:57:00Z', texto: 'Gestion SOFI y MARA', imagenB64: 'AAAA', autorJid: '5491125371038@s.whatsapp.net' });
+    const res = await libro.resumen({ marcar: false });
+    const sofi = res.abiertas.find((t) => t.activo === 'SOFI'), mara = res.abiertas.find((t) => t.activo === 'MARA');
+    chequear('foto con dos rolls: se aplican los dos (SOFI y MARA pasan a dic-18)',
+      sofi?.patas[0].sym === 'SOFI261218P00016000' && mara?.patas[0].sym === 'MARA261218P00007000', `${r.motivo} | ${sofi?.patas[0].sym} ${mara?.patas[0].sym}`);
+    chequear('el resultado detalla cada gestión', Array.isArray(r.gestiones) && r.gestiones.length === 2 && /MARA/.test(r.motivo), JSON.stringify(r));
+    chequear('cada roll guarda el neto que publicó el profe', mara?.ajustes?.[0]?.netoPublicadoUsd === 41 && sofi?.ajustes?.[0]?.netoPublicadoUsd === 12);
+  })());
+}
+
 seccion('Señales Sigma: SPX PM y cierres a decisión de Guillermo (2026-11-19)');
 {
   const sg = require('../src/sigma_senales');

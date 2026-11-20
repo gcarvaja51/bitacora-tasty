@@ -14,12 +14,13 @@ const MODELO = process.env.SIGMA_MODELO_GESTION || process.env.IRONBALLS_MODELO_
 const PROMPT = `Este mensaje lo publica un mentor de trading de opciones en un canal de señales. Puede describir una GESTIÓN de una posición abierta (un roll, un ajuste, un cierre parcial) o puede ser cualquier otra cosa (comentario, reflexión, plan del día, noticia, invitación a un directo).
 
 Si describe una gestión concreta con patas identificables, extrae:
-- activo: el ticker (ej. META, SPX, F). Si hay varios activos, el de la gestión principal.
+Devuelve una entrada en "gestiones" POR CADA ACTIVO gestionado (una foto puede traer varias órdenes, ej. un roll de SOFI y otro de MARA: son dos entradas). En cada una:
+- activo: el ticker (ej. META, SPX, F).
 - accion: "roll" (cierra patas y abre otras), "cierre_parcial" (solo cierra algunas patas), "ajuste" (abre patas nuevas sobre una posición existente, sin cerrar), "cierre_total".
 - cerrar: cada pata que se CIERRA, con tipo ("P" put o "C" call), strike, día y mes de vencimiento (número), año si aparece (si no, null), cantidad (positiva) y lado ORIGINAL de la pata ("vendida" si era una opción vendida, "comprada" si era comprada; en Sigma Terminal "-1x" es vendida y "1x" es comprada). Precio de cierre por acción si aparece.
 - abrir: cada pata NUEVA que se abre, con tipo, strike, día, mes, año (o null), cantidad y lado ("vendida" o "comprada"). Prima por acción si aparece.
-- neto_usd: el neto del roll/ajuste en dólares por posición (+ si es crédito, - si es débito), si aparece. Si no, null.
-Si NO es una gestión concreta (o no se pueden identificar strikes), marca es_gestion=false, accion="ninguna" y deja las listas vacías.
+- neto_usd: el neto del roll/ajuste de ESE activo en dólares por posición (+ si es crédito, - si es débito), si aparece (en el pie o en la foto). Si no, null.
+Si NO hay ninguna gestión concreta (o no se pueden identificar strikes), devuelve "gestiones" vacío.
 No adivines: si un dato no se lee con claridad, pon null. Un "roll de X" sin patas visibles NO es gestión concreta.`;
 
 const PATA = {
@@ -37,7 +38,7 @@ const PATA = {
   required: ['tipo', 'strike', 'dia', 'mes', 'anio', 'cantidad', 'lado', 'precio'],
   additionalProperties: false,
 };
-const ESQUEMA = {
+const GESTION = {
   type: 'object',
   properties: {
     es_gestion: { type: 'boolean' },
@@ -48,6 +49,13 @@ const ESQUEMA = {
     neto_usd: { type: ['number', 'null'] },
   },
   required: ['es_gestion', 'activo', 'accion', 'cerrar', 'abrir', 'neto_usd'],
+  additionalProperties: false,
+};
+// Varias gestiones por mensaje (2026-11-19: la foto "Gestion SOFI y MARA" de Facu traía dos rolls y solo se aplicó uno).
+const ESQUEMA = {
+  type: 'object',
+  properties: { gestiones: { type: 'array', items: GESTION } },
+  required: ['gestiones'],
   additionalProperties: false,
 };
 
@@ -96,4 +104,13 @@ function aGestion(lectura) {
            cerrar, abrir, netoPublicadoUsd: lectura.neto_usd };
 }
 
-module.exports = { interpretarGestion, aGestion, ESQUEMA };
+/** PURA. Lectura con varias gestiones → { ok, gestiones: [aGestion ok…], descartadas: [motivos] }. Acepta la forma vieja (una sola). */
+function aGestiones(lectura) {
+  const lista = Array.isArray(lectura?.gestiones) ? lectura.gestiones : (lectura ? [lectura] : []);
+  const gs = lista.map(aGestion);
+  const buenas = gs.filter((g) => g.ok);
+  if (!buenas.length) return { ok: false, motivo: gs.length ? gs[0].motivo : 'no es una gestión concreta', gestiones: [] };
+  return { ok: true, gestiones: buenas, descartadas: gs.filter((g) => !g.ok).map((g) => g.motivo) };
+}
+
+module.exports = { interpretarGestion, aGestion, aGestiones, ESQUEMA };

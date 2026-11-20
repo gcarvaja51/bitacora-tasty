@@ -8921,8 +8921,8 @@ const libroSenales = crearLibroSenales({
   interpretar: async ({ texto, imagenB64, mime }) => {
     const sg = require('./src/sigma_gestion');
     const { lectura, ms } = await sg.interpretarGestion({ texto, imagenB64, mime });
-    const g = sg.aGestion(lectura);
-    console.log(`[LIBRO_SENALES] gestión leída por Claude en ${ms} ms: ${g.ok ? `${g.activo} ${g.accion} cierra ${g.cerrar.length} abre ${g.abrir.length}` : g.motivo}`);
+    const g = sg.aGestiones(lectura);
+    console.log(`[LIBRO_SENALES] gestión leída por Claude en ${ms} ms: ${g.ok ? g.gestiones.map((x) => `${x.activo} ${x.accion} cierra ${x.cerrar.length} abre ${x.abrir.length}`).join(' | ') : g.motivo}`);
     return g;
   },
 });
