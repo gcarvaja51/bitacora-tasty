@@ -8899,6 +8899,14 @@ const libroSenales = crearLibroSenales({
   dataDir: DATA_DIR, calendario,
   cotizar: (simbolos, opciones) => cotizarPatasTasty(simbolos, opciones),
   dryRun: (cuerpo) => ejecutorTasty.dryRun(cuerpo),
+  // Vencimientos (2026-11-19): precio del subyacente para liquidar las patas vencidas al intrínseco.
+  // El libro decide qué dato sirve (`fuente`: last | open | prev-close); aquí solo se lee de /market-data.
+  precioSubyacente: async (activo, { fuente }) => {
+    const sim = activo === 'SPXW' ? 'SPX' : activo;
+    const it = (await tt._req(`/market-data?symbols[]=${encodeURIComponent(sim)}`))?.data?.items?.[0];
+    const x = it ? parseFloat(it[fuente]) : NaN;
+    return Number.isFinite(x) ? { precio: x, fuente } : null;
+  },
   // Cierre a decisión de Guillermo (2026-11-19): diferencia > 30% con el cierre del profe → correo + ntfy con el link.
   // El WhatsApp lo manda el lector del PC desde la cola (/api/libros/senales/avisos-ws).
   pedirDecision: async (t, { clave, recordatorio }) => {
@@ -9009,6 +9017,12 @@ app.get('/api/libros/senales', async (req, res) => {
   try { res.json(await libroSenales.resumen({ marcar: req.query.marcar !== '0' })); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+// Vencimientos: cada 5 min se liquidan las patas vencidas (desde las 16:05 ET del día del vencimiento).
+setInterval(() => {
+  libroSenales.liquidarVencimientos()
+    .then((r) => { for (const x of r) console.log(`[LIBRO_SENALES] vencimiento ${x.id} ${x.activo}: ${x.estado} neto ${x.neto}${x.asignacion ? ' (asignación)' : ''}`); })
+    .catch((e) => console.error('[LIBRO_SENALES] vencimientos:', e.message));
+}, 5 * 60000);
 // Reintentos: aperturas dentro de sus 30 min y cierres que no tuvieron precio. Solo con mercado abierto.
 setInterval(() => {
   if (!calendario.enHorarioDeMercado()) return;

@@ -936,11 +936,19 @@ Diseño aprobado: documento "Diseño Bitácora Demo Tasty" (claude.ai/artifact/T
   aunque sea tercer viernes. Ese día el IC de Luis se cotizó en el SPX mensual AM (otro contrato): −$144 contra +$85.
 - **Cierre a decisión de Guillermo** (19-nov-2026): si al llegar el CERRADO del profe nuestro cierre (cruzando el spread)
   sale **más de 30% peor** que el precio publicado (`compararConProfe`, base mínima 0.05), NO se cierra: estado
-  `pendiente_decision` y se le manda el link `GET /api/libros/senales/decidir/:id?c=<clave>` por **correo** (Gmail,
-  `GMAIL_USER` + `GMAIL_APP_PASSWORD`, destino `AVISO_CORREO_A`), **ntfy** y **WhatsApp** (el lector del PC toma la cola
-  `POST /api/libros/senales/avisos-ws` y manda desde la línea Colombia a su propio chat). La página muestra profe vs
+  `pendiente_decision` y se le manda el link `GET /api/libros/senales/decidir/:id?c=<clave>` por **ntfy** y, desde el
+  lector del PC (cola `POST /api/libros/senales/avisos-ws`), por **WhatsApp** (línea Colombia, chat propio) y **correo**
+  (Gmail con `GMAIL_USER` + `GMAIL_APP_PASSWORD` de `ironballs/.env`: **Railway bloquea el SMTP**, "Connection timeout";
+  el servidor solo lo intenta con `CORREO_DESDE_SERVIDOR=1`). La página muestra profe vs
   nosotros y el precio de ahora; botones POST "Cerrar ahora" / "Mantener" (un GET nunca ejecuta). Sin clic no se cierra
   nunca; recordatorio a las 15:30 ET una vez al día. La clave del link no sale en `/api/libros/senales` (`sinClave`).
+- **Varias gestiones por mensaje** (19-nov-2026): el intérprete (`sigma_gestion.js`) devuelve `gestiones[]`, una por
+  activo, y el libro aplica cada una a su posición. La foto "Gestion SOFI y MARA" de Facu traía dos rolls y solo se aplicó SOFI.
+- **Vencimientos** (19-nov-2026, `liquidarVencimientos`, cada 5 min): desde las **16:05 ET** del día del vencimiento las
+  patas vencidas se liquidan al **intrínseco** con el precio del subyacente (`precioSubyacente`): `last` si no hubo otra
+  sesión desde ese día, `prev-close` si hubo exactamente una, `open` para el SPX AM del mismo día; con dos sesiones o más
+  no adivina y avisa para revisar. Índices = efectivo; acciones ITM = en real habría **asignación** (el demo liquida al
+  intrínseco y lo avisa). Un roll/cierre/decisión pendiente que no alcanzó a hacerse se anota como no ejecutado.
 - **5491125371038 es Facu Melo**, no Gonza (verificado contra Sigma Terminal el 16-nov).
 - **El lector de la línea USA corre en el PC** (Vultr solo puede la línea Colombia: grupo Operaciones). Si el PC no
   corre el lector, el Canal Oficial, el Chat VIP y el canal de Sigma no se leen.

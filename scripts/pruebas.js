@@ -2301,6 +2301,118 @@ seccion('Señales Sigma: una foto con varios rolls (2026-11-19, "Gestion SOFI y 
   })());
 }
 
+seccion('Señales Sigma: vencimientos (liquidación al intrínseco, 2026-11-19)');
+{
+  const ls = require('../src/libro_senales');
+  const calS = require('../src/calendario_nyse');
+  const fsS = require('fs'), osS = require('os'), pathS = require('path');
+  const nuevoLibro = (precios, avisos) => {
+    const dir = fsS.mkdtempSync(pathS.join(osS.tmpdir(), 'libro-senales-v-'));
+    const st = { reloj: new Date('2026-11-12T17:00:00Z'), pedidos: [] };
+    const Q = {
+      MARA261120P00007000: { bid: 0.70, ask: 0.72 }, MARA261218P00007000: { bid: 1.13, ask: 1.16 },
+      SOFI261120P00016000: { bid: 1.00, ask: 1.04 },
+      SPXW261120C07385000: { bid: 2.90, ask: 3.00 }, SPXW261120C07395000: { bid: 2.35, ask: 2.45 },
+      SPXW261120P07035000: { bid: 9.30, ask: 9.40 }, SPXW261120P07025000: { bid: 8.40, ask: 8.50 },
+    };
+    st.libro = ls.crearLibroSenales({
+      dataDir: dir, calendario: calS, ahora: () => st.reloj, capital: 10000,
+      cotizar: async () => ({ q: Q }),
+      dryRun: async (b) => ({ ok: true, fees: b.legs.length * 1.13, margen: 300 }),
+      avisar: (m, t) => avisos.push({ m, t }),
+      precioSubyacente: async (activo, o) => { st.pedidos.push({ activo, ...o }); return precios[`${activo}|${o.fuente}`] != null ? { precio: precios[`${activo}|${o.fuente}`] } : null; },
+    });
+    return st;
+  };
+  const SP = (tk, k, cred, riesgo, vto = 'nov 20, 2026') => `🔔 *Alerta de Opción — Sigma Trade*\n\n📌 *${tk} — Short Put*\n\n🔴 Venta 1× Put ${k} (${vto}) @ $${cred}\n\n💰 *Crédito Neto:* $${Math.round(cred * 100)}\n\n📉 *Pérdida máx (riesgo):* $${riesgo}`;
+  const IC_PM = '🔔 *Alerta de Opción — Sigma Trade*\n*Vencimiento PM*\n\n📌 *SPX — SPX Nov 20 7385/7395/7035/7025 Iron Condor*\n\n🔴 Venta 1× Call 7385 (nov 20, 2026) @ $2.95\n🟢 Compra 1× Call 7395 (nov 20, 2026) @ $2.40\n🔴 Venta 1× Put 7035 (nov 20, 2026) @ $9.35\n🟢 Compra 1× Put 7025 (nov 20, 2026) @ $8.45\n\n💰 *Crédito Neto:* $145.00\n\n📉 *Pérdida máx (riesgo):* $855.00';
+  const FACU = '5491125371038@s.whatsapp.net', LUIS = '13213201370@s.whatsapp.net';
+
+  pruebasAsync.push((async () => {
+    // 1) Short puts: MARA fuera del dinero, SOFI dentro (asignación en real); IC SPXW fuera del dinero
+    const avisos = [];
+    const v = nuevoLibro({ 'MARA|last': 9.10, 'SOFI|last': 15.00, 'SPX|last': 7200 }, avisos);
+    await v.libro.procesarAlerta({ alertId: 'V1', mensajeAt: '2026-11-12T16:59:00Z', texto: SP('MARA', 7, 0.70, 630), autorJid: FACU });
+    await v.libro.procesarAlerta({ alertId: 'V2', mensajeAt: '2026-11-12T16:59:10Z', texto: SP('SOFI', 16, 1.00, 1500), autorJid: FACU });
+    await v.libro.procesarAlerta({ alertId: 'V3', mensajeAt: '2026-11-12T16:59:20Z', texto: IC_PM, autorJid: LUIS });
+    let res = await v.libro.resumen({ marcar: false });
+    chequear('vencimientos: entran las tres posiciones de prueba', res.abiertas.length === 3, String(res.abiertas.length));
+
+    v.reloj = new Date('2026-11-20T20:59:00Z');   // viernes 15:59 ET: todavía no
+    let r = await v.libro.liquidarVencimientos();
+    chequear('antes de las 16:05 ET del vencimiento no se liquida nada', r.length === 0, JSON.stringify(r));
+
+    v.reloj = new Date('2026-11-20T21:06:00Z');   // viernes 16:06 ET
+    r = await v.libro.liquidarVencimientos();
+    res = await v.libro.resumen({ marcar: false });
+    const h = (a) => res.historial.find((t) => t.activo === a);
+    chequear('a las 16:05 ET se liquidan las tres (todas vencían hoy)', r.length === 3 && res.abiertas.length === 0, JSON.stringify(r));
+    chequear('se pide el precio de cierre (last) del mismo día', v.pedidos.every((x) => x.fuente === 'last' && x.fecha === '2026-11-20'), JSON.stringify(v.pedidos));
+    const mara = h('MARA');
+    chequear('MARA put 7 con MARA en 9.10: vence en 0 y se queda con todo el crédito menos comisiones',
+      mara.estado === 'cerrada' && mara.salida.porVencimiento && mara.pnlRealizado === Math.round((mara.entrada.precio * 100 - mara.entrada.fees) * 100) / 100, JSON.stringify(mara.salida) + ' ' + mara.pnlRealizado);
+    const sofi = h('SOFI'), ajS = sofi.ajustes.find((a) => a.accion === 'vencimiento');
+    chequear('SOFI put 16 con SOFI en 15: dentro del dinero, vale 1.00 → la caja baja $100',
+      ajS.caja === -100 && ajS.vencimiento[0].intrinseco === 1 && ajS.vencimiento[0].asignacion === true, JSON.stringify(ajS));
+    chequear('SOFI: el P&L = crédito − comisiones − $100 de intrínseco', sofi.pnlRealizado === Math.round((sofi.entrada.precio * 100 - sofi.entrada.fees - 100) * 100) / 100, String(sofi.pnlRealizado));
+    chequear('el aviso de SOFI advierte la asignación de 100 acciones', avisos.some((a) => /SOFI/.test(a.m) && /ASIGNACIÓN de 100 acciones/.test(a.m)));
+    const ic = h('SPX'), ajI = ic.ajustes.find((a) => a.accion === 'vencimiento');
+    chequear('IC SPXW con SPX en 7200 (entre los cortos): las 4 patas vencen en 0, sin asignación (efectivo)',
+      ajI.vencimiento.length === 4 && ajI.vencimiento.every((d) => d.intrinseco === 0 && !d.asignacion) && ic.estado === 'cerrada', JSON.stringify(ajI.vencimiento));
+    r = await v.libro.liquidarVencimientos();
+    chequear('liquidar dos veces no hace nada la segunda', r.length === 0);
+
+    // 2) IC dentro del dinero por el lado put: SPX en 7030 → put 7035 vale 5, put 7025 vale 0 → −$500
+    const a2 = [];
+    const v2 = nuevoLibro({ 'SPX|last': 7030 }, a2);
+    await v2.libro.procesarAlerta({ alertId: 'W1', mensajeAt: '2026-11-12T16:59:20Z', texto: IC_PM, autorJid: LUIS });
+    v2.reloj = new Date('2026-11-20T21:06:00Z');
+    await v2.libro.liquidarVencimientos();
+    let res2 = await v2.libro.resumen({ marcar: false });
+    const aj2 = res2.historial[0].ajustes.find((a) => a.accion === 'vencimiento');
+    chequear('IC con SPX en 7030: la put corta 7035 vale 5 → caja −$500, la larga 7025 vence en 0', aj2.caja === -500 && aj2.netoCierre === -5, JSON.stringify(aj2));
+
+    // 3) Roll pendiente que no alcanzó a hacerse: se cancela y la pata se liquida
+    const a3 = [];
+    const v3 = nuevoLibro({ 'MARA|last': 6.50 }, a3);
+    await v3.libro.procesarAlerta({ alertId: 'X1', mensajeAt: '2026-11-12T16:59:00Z', texto: SP('MARA', 7, 0.70, 630), autorJid: FACU });
+    v3.reloj = new Date('2026-11-20T01:00:00Z');   // jueves de noche: mercado cerrado, el roll queda pendiente
+    await v3.libro.procesarAlerta({ alertId: 'X2', mensajeAt: '2026-11-19T20:57:00Z', autorJid: FACU,
+      texto: 'Roll CSP – MARA\nRoll Short Put strike 7\n📅 20 de noviembre → 18 de diciembre\nCrédito recibido: $41' });
+    let res3 = await v3.libro.resumen({ marcar: false });
+    chequear('el roll de MARA queda pendiente con el mercado cerrado', res3.abiertas[0].estado === 'pendiente_ajuste');
+    v3.reloj = new Date('2026-11-20T21:06:00Z');
+    await v3.libro.liquidarVencimientos();
+    res3 = await v3.libro.resumen({ marcar: false });
+    const t3 = res3.historial[0];
+    chequear('vencimiento con roll pendiente: el roll se anota como no ejecutado y la put 7 (MARA 6.50) se liquida a 0.50',
+      t3.estado === 'cerrada' && t3.ajustes.some((a) => a.estado === 'no_ejecutado') && t3.ajustes.find((a) => a.accion === 'vencimiento').caja === -50,
+      JSON.stringify(t3.ajustes));
+
+    // 4) Qué precio usa según cuándo corre
+    const a4 = [];
+    const v4 = nuevoLibro({ 'MARA|prev-close': 9, 'MARA|last': 9 }, a4);
+    await v4.libro.procesarAlerta({ alertId: 'Y1', mensajeAt: '2026-11-12T16:59:00Z', texto: SP('MARA', 7, 0.70, 630), autorJid: FACU });
+    v4.reloj = new Date('2026-11-23T15:00:00Z');   // lunes 10:00 ET: hubo una sesión desde el viernes
+    await v4.libro.liquidarVencimientos();
+    chequear('el lunes (una sesión después) se usa el cierre anterior (prev-close)', v4.pedidos[0]?.fuente === 'prev-close', JSON.stringify(v4.pedidos));
+    const a5 = [];
+    const v5 = nuevoLibro({ 'MARA|last': 9 }, a5);
+    await v5.libro.procesarAlerta({ alertId: 'Z1', mensajeAt: '2026-11-12T16:59:00Z', texto: SP('MARA', 7, 0.70, 630), autorJid: FACU });
+    v5.reloj = new Date('2026-11-21T15:00:00Z');   // sábado: no ha habido otra sesión
+    await v5.libro.liquidarVencimientos();
+    chequear('el sábado se usa el último precio (no hubo sesión desde el viernes)', v5.pedidos[0]?.fuente === 'last', JSON.stringify(v5.pedidos));
+    const a6 = [];
+    const v6 = nuevoLibro({}, a6);
+    await v6.libro.procesarAlerta({ alertId: 'Q1', mensajeAt: '2026-11-12T16:59:00Z', texto: SP('MARA', 7, 0.70, 630), autorJid: FACU });
+    v6.reloj = new Date('2026-11-24T15:00:00Z');   // martes: dos sesiones después, sin dato confiable
+    let r6 = await v6.libro.liquidarVencimientos();
+    let res6 = await v6.libro.resumen({ marcar: false });
+    chequear('dos sesiones después no se adivina: queda abierta y avisa para revisar a mano',
+      r6.length === 0 && res6.abiertas.length === 1 && a6.some((a) => /no se pudo liquidar sola/.test(a.m)), JSON.stringify(a6));
+  })());
+}
+
 seccion('Señales Sigma: SPX PM y cierres a decisión de Guillermo (2026-11-19)');
 {
   const sg = require('../src/sigma_senales');

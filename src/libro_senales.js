@@ -46,6 +46,9 @@ const HORA_AJUSTES = 600;   // rolls/ajustes desde las 10:00 ET, con la cadena e
 // decisión". Sin su clic NO se cierra; a las 15:30 ET se le recuerda (una vez al día).
 const UMBRAL_DECISION = 0.30;
 const HORA_RECORDATORIO = 930;   // 15:30 ET
+const HORA_VENCIMIENTO = 965;    // 16:05 ET: el día del vencimiento, las patas que vencen se liquidan al valor intrínseco
+// Índices: liquidan en efectivo. Acciones/ETF: entregan acciones (en el demo se liquida al intrínseco y se marca asignación).
+const CASH_SETTLED = new Set(['SPX', 'SPXW', 'XSP', 'NDX', 'NDXP', 'RUT', 'RUTW', 'VIX', 'VIXW', 'DJX', 'OEX', 'XEO']);
 const ESTADOS_VIVOS = ['pendiente_entrada', 'abierta', 'pendiente_cierre', 'pendiente_ajuste', 'pendiente_decision'];
 const ESTADOS_ABIERTOS = ['abierta', 'pendiente_cierre', 'pendiente_ajuste', 'pendiente_decision'];
 const r2 = (x) => +Number(x).toFixed(2);
@@ -148,7 +151,7 @@ function mismaPata(pg, pd, mensajeAt) {
 
 function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () => new Date(), capital = CAPITAL,
                              archivo = 'libro_senales.json', avisar = () => {}, interpretar = null,
-                             topeMargen = TOPE_MARGEN, pedirDecision = () => {} }) {
+                             topeMargen = TOPE_MARGEN, pedirDecision = () => {}, precioSubyacente = null }) {
   const ARCHIVO = path.join(dataDir, archivo);
   const vacio = () => ({ capital, creado: ahora().toISOString(), trades: [], alertas: [] });
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return vacio(); } };
@@ -358,6 +361,109 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
            (a.netoPublicadoUsd != null ? ` (el profe: ${a.netoPublicadoUsd >= 0 ? '+' : '-'}$${Math.abs(a.netoPublicadoUsd)})` : ''),
            '🔁 Señales Sigma ajustó (demo)');
     return 'AJUSTE_DEMO';
+  }
+
+  // ── Vencimientos (2026-11-19) ───────────────────────────────────────────────────────────────────────────────────
+  // El día del vencimiento, desde las 16:05 ET (o cualquier día posterior), cada pata vencida se liquida a su valor
+  // intrínseco con el precio del subyacente: fuera del dinero vence en 0; dentro, vale (strike − precio) en puts y
+  // (precio − strike) en calls. SPX AM (raíz SPX, tercer viernes) liquida con la apertura del día.
+  // Si la posición tenía un roll/cierre/decisión pendiente que ya no se puede hacer, se cancela y se anota.
+  function pataVencida(pa, hoy, minutos) {
+    return pa.vto < hoy || (pa.vto === hoy && minutos >= HORA_VENCIMIENTO);
+  }
+  function raizDe(sym) { return (String(sym).match(/^([A-Z]+)\d{6}[CP]/) || [])[1] || ''; }
+  // Qué dato del subyacente sirve para liquidar el vencimiento `fecha`:
+  //   'last'       → no ha habido otra sesión desde ese día (el mismo día después de las 16:05, o el fin de semana)
+  //   'open'       → SPX AM del mismo día (liquida con la apertura)
+  //   'prev-close' → hubo exactamente UNA sesión después: el cierre anterior es el de ese día
+  //   null         → pasaron dos sesiones o más (o SPX AM de otro día): sin dato confiable, se avisa para revisión
+  const masUnDia = (f) => { const d = new Date(f + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
+  function fuentePrecio(fecha, am, now) {
+    const hoy = calendario.fechaET(now), minutos = calendario.minutosET(now);
+    if (am) return fecha === hoy ? 'open' : null;
+    let sesiones = 0;
+    for (let d = masUnDia(fecha), i = 0; d <= hoy && i < 30; d = masUnDia(d), i++) {
+      if (calendario.esDiaDeMercado(d) && (d < hoy || minutos >= 570)) sesiones++;
+    }
+    return sesiones === 0 ? 'last' : sesiones === 1 ? 'prev-close' : null;
+  }
+
+  async function liquidarVencimientosInterno(L) {
+    const now = ahora();
+    const hoy = calendario.fechaET(now), minutos = calendario.minutosET(now);
+    const hechos = [];
+    for (const t of L.trades.filter((x) => ESTADOS_ABIERTOS.includes(x.estado) && (x.patas || []).length)) {
+      const vencidas = t.patas.filter((pa) => pataVencida(pa, hoy, minutos));
+      if (!vencidas.length) continue;
+      if (!precioSubyacente) { t.ultimoIntento = 'vencimiento: falta el precio del subyacente'; continue; }
+      // Un precio por (subyacente, vencimiento, AM/PM)
+      const precios = {};
+      let falta = null;
+      for (const pa of vencidas) {
+        const am = raizDe(pa.sym) === 'SPX';
+        const k = `${pa.vto}|${am ? 'AM' : 'PM'}`;
+        if (precios[k] !== undefined) continue;
+        const fuente = fuentePrecio(pa.vto, am, now);
+        let px = null;
+        if (fuente) { try { px = await precioSubyacente(t.activo, { fecha: pa.vto, am, fuente }); } catch (e) { px = null; } }
+        if (!fuente && !t.avisoVencimientoSinPrecio) {
+          t.avisoVencimientoSinPrecio = now.toISOString();
+          avisar(`${t.profe} · ${t.activo}: la pata que vencía el ${pa.vto} no se pudo liquidar sola (no hay precio confiable de ese día). Revisar a mano.`,
+                 '⚠️ Señales Sigma: vencimiento sin precio (demo)');
+        }
+        precios[k] = px && Number.isFinite(px.precio) && px.precio > 0 ? { ...px, fuente: px.fuente || fuente } : null;
+        if (!precios[k]) falta = `${t.activo} ${pa.vto}`;
+      }
+      if (falta) { t.ultimoIntento = `vencimiento: sin precio de ${falta}`; continue; }
+      // Pendientes que ya no se pueden hacer
+      const cancelado = t.estado !== 'abierta' ? t.estado : null;
+      if (t.estado === 'pendiente_ajuste' && t.ajustePendiente) {
+        (t.ajustes = t.ajustes || []).push({ at: now.toISOString(), alertId: t.ajustePendiente.alertId, estado: 'no_ejecutado',
+                                             motivo: 'la pata venció antes de poder hacer el roll' });
+        delete t.ajustePendiente;
+      }
+      if (t.decision && t.estado === 'pendiente_decision') t.decision.cerradaPorVencimiento = now.toISOString();
+      const detalle = vencidas.map((pa) => {
+        const px = precios[`${pa.vto}|${raizDe(pa.sym) === 'SPX' ? 'AM' : 'PM'}`];
+        const intr = r2(Math.max(0, pa.tipo === 'P' ? pa.strike - px.precio : px.precio - pa.strike));
+        return { sym: pa.sym, q: pa.q, tipo: pa.tipo, strike: pa.strike, vto: pa.vto, subyacente: px.precio, fuente: px.fuente || null,
+                 intrinseco: intr, asignacion: intr > 0 && !CASH_SETTLED.has(raizDe(pa.sym)) };
+      });
+      const neto = r3(detalle.reduce((a, d) => a + d.q * d.intrinseco, 0));   // + entra plata, − sale
+      const caja = r2(neto * 100);
+      const restantes = t.patas.slice();
+      for (const d of detalle) {
+        const i = restantes.findIndex((p) => p.sym === d.sym && Math.sign(p.q) === Math.sign(d.q));
+        if (i >= 0) restantes.splice(i, 1);
+      }
+      t.patas = restantes;
+      (t.ajustes = t.ajustes || []).push({ at: now.toISOString(), accion: 'vencimiento', cerradas: detalle.map((d) => d.sym), abiertas: [],
+                                           netoCierre: neto, netoApertura: 0, fees: 0, caja, vencimiento: detalle,
+                                           ...(cancelado ? { cancelado } : {}) });
+      delete t.ultimoIntento;
+      const asign = detalle.filter((d) => d.asignacion);
+      let estado;
+      if (!t.patas.length) {
+        t.salida = { at: now.toISOString(), precio: 0, fees: 0, porVencimiento: true };
+        t.pnlRealizado = r2((t.pnlRealizado || 0) + cajaDe(t));
+        t.estado = 'cerrada'; t.cerradaAt = now.toISOString();
+        estado = 'VENCIDA_CERRADA';
+      } else {
+        t.estado = 'abierta';
+        estado = 'VENCIDA_PARCIAL';
+      }
+      const txt = detalle.map((d) => `${d.q < 0 ? '−' : '+'}${d.tipo}${d.strike} ${d.intrinseco > 0 ? `dentro (${d.intrinseco})` : 'vence en 0'}`).join(', ');
+      avisar(`${t.profe} · ${t.activo} ${t.estrategia}: vencimiento ${vencidas[0].vto} con ${t.activo} en ${detalle[0].subyacente}: ${txt}.` +
+             (estado === 'VENCIDA_CERRADA' ? ` P&L de la operación ${t.pnlRealizado >= 0 ? '+' : '-'}$${Math.abs(t.pnlRealizado).toFixed(2)}.` : ' Siguen abiertas las otras patas.') +
+             (asign.length ? ` OJO: en real habría ASIGNACIÓN de ${asign.reduce((a, d) => a + Math.abs(d.q) * 100, 0)} acciones (el demo lo liquida al intrínseco).` : '') +
+             (cancelado && cancelado !== 'abierta' ? ` Se canceló lo pendiente (${cancelado}).` : ''),
+             `${asign.length ? '⚠️' : '📅'} Señales Sigma: vencimiento (demo)`);
+      hechos.push({ id: t.id, activo: t.activo, estado, neto, asignacion: asign.length > 0, pnl: t.pnlRealizado });
+    }
+    return hechos;
+  }
+  function liquidarVencimientos() {
+    return enCola(async () => { const L = cargar(); const r = await liquidarVencimientosInterno(L); if (r.length) guardar(L); return r; });
   }
 
   // Registra la gestión sobre la posición y la ejecuta si se puede. g = { activo, cerrar|null, abrir, accion, ... }.
@@ -725,7 +831,7 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
   }
 
   return { procesarAlerta, tick, importarDemoJson, resumen, recalcularMargen, reprogramar,
-           verDecision, decidir, tomarAvisosWs, devolverAvisoWs, _cargar: cargar };
+           verDecision, decidir, tomarAvisosWs, devolverAvisoWs, liquidarVencimientos, _cargar: cargar };
 }
 
 module.exports = { crearLibroSenales, netoCruzando, netoAlMedio, cuerpoOrden, feesEstimadas, pataDesdeOcc, cajaDe,
