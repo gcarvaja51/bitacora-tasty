@@ -154,7 +154,9 @@ class Hiro {
       const p = num(o.price); if (!p) return;
       this.spx = p;
       const hm = hmET(Date.now());
-      (this.min[hm] = this.min[hm] || { c: 0, p: 0, spx: p }).spx = p;
+      const f = this.min[hm] = this.min[hm] || { c: 0, p: 0, spx: p };
+      // vela de 1 minuto del SPX (para la vista en velas de la página)
+      f.spx = p; if (f.o == null) f.o = p; f.h = Math.max(f.h ?? p, p); f.l = Math.min(f.l ?? p, p);
       if (this.centro === null || Math.abs(p - this.centro) > RECENTRAR) this.suscribirStrikes();
     } else if (tipo === 'Summary' && o.eventSymbol === 'SPX') {
       this.cierrePrevio = num(o.prevDayClosePrice) || this.cierrePrevio;
@@ -195,8 +197,8 @@ class Hiro {
     }
     let c = 0, p = 0, spx = null;
     const filas = Object.keys(min).sort().map((hm) => {
-      c += min[hm].c; p += min[hm].p; spx = min[hm].spx || spx;
-      return { hora: hm, spx, calls: Math.round(c), puts: Math.round(p), total: Math.round(c + p) };
+      const b = min[hm]; c += b.c; p += b.p; spx = b.spx || spx;
+      return { hora: hm, spx, o: b.o ?? spx, h: b.h ?? spx, l: b.l ?? spx, calls: Math.round(c), puts: Math.round(p), total: Math.round(c + p) };
     });
     return {
       fecha, filas, cierrePrevio,
