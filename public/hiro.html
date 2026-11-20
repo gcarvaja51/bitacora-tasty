@@ -66,9 +66,9 @@
   </div>
 </div>
 <div id="zona">
-  <div class="seccion" id="secPrecio"><span class="rotulo">SPX · 1 min</span><div id="gPrecio"></div></div>
-  <div id="divisor" title="Arrastra para agrandar o achicar la sección de precio (doble clic: tamaño normal)"></div>
   <div class="seccion" id="secHiro"><span class="rotulo" id="rotHiro">HEDGING IMPACT · PUT/CALL</span><div id="gHiro"></div></div>
+  <div id="divisor" title="Arrastra para agrandar o achicar la sección de precio (doble clic: tamaño normal)"></div>
+  <div class="seccion" id="secPrecio"><span class="rotulo">SPX · 1 min</span><div id="gPrecio"></div></div>
 </div>
 <footer>
   <span class="punto" id="punto"></span><span id="estado">cargando…</span><br>
@@ -95,11 +95,11 @@ const base = {
   handleScale: { axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true }, mouseWheel: true, pinch: true },
   handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
 };
-// Sección de precio (arriba): SPX en velas o línea + niveles. Mismo ancho de eje derecho en las dos para que el tiempo calce.
+// Sección de precio (abajo, pedido 20-nov): SPX en velas o línea + niveles. Mismo ancho de eje derecho en las dos para que el tiempo calce.
 const gP = LightweightCharts.createChart($('gPrecio'), { ...base,
   rightPriceScale: { visible: true, borderColor: '#2a2a2a', minimumWidth: 78 }, leftPriceScale: { visible: false },
   localization: { priceFormatter: (p) => p.toFixed(2) } });
-// Sección HIRO (abajo): calls/puts o total; el SPX como línea solo si la sección de precio está cerrada (como el HIRO original).
+// Sección HIRO (arriba): calls/puts o total; el SPX como línea solo si la sección de precio está cerrada (como el HIRO original).
 const gH = LightweightCharts.createChart($('gHiro'), { ...base,
   rightPriceScale: { visible: true, borderColor: '#2a2a2a', minimumWidth: 78 }, leftPriceScale: { visible: false, borderColor: '#2a2a2a' },
   localization: { priceFormatter: (p) => (Math.abs(p) >= 100000 ? fmtB(p) : p.toFixed(2)) } });
@@ -137,7 +137,7 @@ function medir() {
 }
 (() => {
   const d = $('divisor'); let y0 = null, a0 = 0;
-  const mover = (y) => { if (y0 === null) return; const alto = $('zona').clientHeight - 12; altoPrecio = Math.max(0.15, Math.min(0.85, a0 + (y - y0) / alto)); medir(); };
+  const mover = (y) => { if (y0 === null) return; const alto = $('zona').clientHeight - 12; altoPrecio = Math.max(0.15, Math.min(0.85, a0 - (y - y0) / alto)); /* el precio va ABAJO: bajar la barra lo achica */ medir(); };
   d.addEventListener('pointerdown', (e) => { y0 = e.clientY; a0 = altoPrecio; d.setPointerCapture(e.pointerId); });
   d.addEventListener('pointermove', (e) => mover(e.clientY));
   d.addEventListener('pointerup', () => { y0 = null; guardar('hiroAlto', String(altoPrecio)); });
