@@ -129,7 +129,7 @@ async function niveles() {
   const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null);
   lineas.forEach((l) => sSpx.removePriceLine(l)); lineas = [];
   nivelesSpx = [];
-  const add = (precio, titulo, color) => { if (precio) nivelesSpx.push(+precio); if (precio) lineas.push(sSpx.createPriceLine({ price: +precio, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: `${titulo} $${(+precio).toLocaleString('en-US')}` })); };
+  const add = (precio, titulo, color) => { if (precio) nivelesSpx.push(+precio); if (precio) lineas.push(sSpx.createPriceLine({ price: +precio, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${titulo} $${(+precio).toLocaleString('en-US')}` })); };
   add(window.__cierrePrevio, 'Last Closing', '#8a8a8a');
   if (n && n.ok) {
     add(n.callWall, 'Call Wall', '#2e8b57');
