@@ -132,6 +132,28 @@ const espejo = (desde, hacia) => desde.timeScale().subscribeVisibleLogicalRangeC
   if (sincro || !r) return; sincro = true; hacia.timeScale().setVisibleLogicalRange(r); sincro = false; });
 espejo(gP, gH); espejo(gH, gP);
 
+// Cursor sincronizado: al mover el mouse en una sección, la otra marca la misma hora (línea vertical + valor)
+const serieH = () => (!precioAbierta ? sSpxH : modo === 'pc' ? sCalls : sTotal);
+const serieP = () => (tipoPrecio === 'velas' ? sVelas : sLinea);
+const valor = (d) => (d ? (d.close ?? d.value) : undefined);
+let cruzando = false;
+function cursorEspejo(desde, hacia, serieDesde, serieHacia) {
+  desde.subscribeCrosshairMove((p) => {
+    if (cruzando) return; cruzando = true;
+    try {
+      if (!p || p.time === undefined || !p.point) hacia.clearCrosshairPosition();
+      else {
+        const sh = serieHacia(); let v = valor(p.seriesData.get(sh));
+        if (v === undefined) { const dd = sh.data(); const i = dd.findIndex((x) => x.time >= p.time); v = valor(dd[i] && (dd[i].value !== undefined || dd[i].close !== undefined) ? dd[i] : null); }
+        if (v !== undefined) hacia.setCrosshairPosition(v, p.time, sh); else hacia.clearCrosshairPosition();
+      }
+    } catch (e) { /* versión sin setCrosshairPosition: no hace nada */ }
+    cruzando = false;
+  });
+}
+cursorEspejo(gP, gH, serieP, serieH);
+cursorEspejo(gH, gP, serieH, serieP);
+
 // Tamaños: la barra del medio reparte el alto entre precio y HIRO
 function medir() {
   const alto = $('zona').clientHeight;
