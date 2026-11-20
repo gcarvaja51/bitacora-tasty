@@ -8910,6 +8910,8 @@ const libroSenales = crearLibroSenales({
                              message: decisionCierre.textoDecision(t, link, { recordatorio }), click: link,
                              actions: [{ action: 'view', label: 'Decidir', url: link }] }),
     }).catch(() => {});
+    // Railway bloquea el SMTP (Connection timeout, 2026-11-19): el correo lo manda el lector del PC con el WhatsApp.
+    if (process.env.CORREO_DESDE_SERVIDOR !== '1') return;
     try {
       const r = await decisionCierre.enviarCorreo(correo);
       console.log(`[LIBRO_SENALES] decisión ${t.id} ${t.activo}: correo ${r.ok ? 'enviado' : `NO enviado (${r.motivo})`}`);
@@ -8998,20 +9000,10 @@ app.post('/api/libros/senales/avisos-ws', async (req, res) => {
     const avisos = (await libroSenales.tomarAvisosWs()).map((a) => ({
       seq: a.seq, id: a.trade.id,
       texto: decisionCierre.textoDecision(a.trade, decisionCierre.linkDecision(URL_PUBLICA, a.trade.id, a.clave), { recordatorio: a.tipo === 'recordatorio' }),
+      correo: decisionCierre.correoDecision(a.trade, decisionCierre.linkDecision(URL_PUBLICA, a.trade.id, a.clave), { recordatorio: a.tipo === 'recordatorio' }),
     }));
     res.json({ ok: true, avisos });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-// Prueba del correo de decisión (2026-11-19): manda un correo de muestra, sin tocar el libro. Con la clave del lector.
-app.post('/api/libros/senales/prueba-correo', async (req, res) => {
-  const v = claveLectorValida(req);
-  if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
-  const t = { id: 'PRUEBA', profe: 'Prueba', activo: 'SPX', estrategia: 'Iron Condor (correo de prueba)',
-              decision: { profe: 1.0, nuestro: 0.5, pct: 0.5, pnlProfeUsd: 100, pnlNuestroEstimado: 50, pedidaAt: new Date().toISOString() } };
-  const correo = decisionCierre.correoDecision(t, decisionCierre.linkDecision(URL_PUBLICA, 'PRUEBA', '0'.repeat(32)));
-  correo.asunto = 'PRUEBA — ' + correo.asunto;
-  try { res.json(await decisionCierre.enviarCorreo(correo)); }
-  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 app.get('/api/libros/senales', async (req, res) => {
   try { res.json(await libroSenales.resumen({ marcar: req.query.marcar !== '0' })); }

@@ -311,6 +311,14 @@ async function avisosDecision() {
     } catch (e) {
       log(`[Decisión] WhatsApp de ${a.id} falló (${e.message}); se devuelve a la cola`);
       await enviar('/api/libros/senales/avisos-ws', { devolver: a.seq }).catch(() => {});
+      continue;
+    }
+    // Correo desde el PC (Railway bloquea el SMTP): Gmail con clave de aplicación de ironballs/.env.
+    if (a.correo) {
+      try {
+        const r = await require('../src/decision_cierre').enviarCorreo(a.correo, ENV);
+        log(`[Decisión] correo de ${a.id}: ${r.ok ? 'enviado' : `NO enviado (${r.motivo})`}`);
+      } catch (e) { log(`[Decisión] correo de ${a.id} falló: ${e.message}`); }
     }
   }
 }
