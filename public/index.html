@@ -64,6 +64,9 @@
       <span class="nav-icon">⚡</span>
       <span class="nav-label">SPX Señales</span>
     </div>
+    <div class="nav-item" onclick="nav('hiro',this)">
+      <span class="icon">〰</span> Hiro
+    </div>
     <div class="nav-item" onclick="nav('demo',this)">
       <span class="icon">🧪</span> Cuenta demo SPX
     </div>
@@ -665,6 +668,11 @@
     </div>
 
     <!-- ══ HOY ════════════════════════════ -->
+    <!-- HIRO propio (2026-11-20): la página /hiro.html dentro de la bitácora; el iframe se carga al abrir la hoja -->
+    <div id="panel-hiro" class="panel">
+      <iframe id="hiro-frame" title="HIRO propio" style="width:100%;height:calc(100vh - 120px);min-height:520px;border:0;border-radius:10px;background:#141414;display:block;"></iframe>
+    </div>
+
     <div id="panel-today" class="panel">
       <div class="kpi-row cols-4" id="today-kpis" style="margin-bottom:16px;"></div>
       <div class="card">
@@ -1099,6 +1107,7 @@ function nav(tab, el) {
   else if (tab==='today') loadToday();
   else if (tab==='backtester') loadBacktester();
   else if (tab==='impuestos') initImpuestos();
+  else if (tab==='hiro') { const f = $('hiro-frame'); if (!f.src) f.src = '/hiro.html'; }
 }
 
 // ══════════════════════════════════════════
