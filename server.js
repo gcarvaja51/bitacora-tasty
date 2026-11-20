@@ -266,6 +266,12 @@ const tt = new TastytradeClient({
 });
 tt.startAutoRefresh();
 
+// ── HIRO propio (2026-11-20) — ver src/hiro.js. Conexión de DATOS aparte (dxLink, solo lectura), no toca órdenes.
+// Arranca solo en horario de mercado; con MODO_PRUEBAS no se enciende.
+const { Hiro } = require('./src/hiro');
+const hiro = new Hiro({ tt, dataDir: DATA_DIR });
+if (!MODO_PRUEBAS && process.env.HIRO_APAGADO !== '1') hiro.start();
+
 // ── Cliente Tradier (sandbox) — ejecución automática de spreads SPX ──
 const tradier = new TradierClient({});
 
@@ -16969,6 +16975,14 @@ app.get('/api/curve-tradier', async (req, res) => {
     });
     res.json(data);
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// HIRO propio: serie acumulada del día (calls/puts/total en USD de cobertura) + estado del colector
+app.get('/api/hiro', (req, res) => {
+  try {
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : undefined;
+    res.json({ ok: true, ...hiro.serie(fecha) });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

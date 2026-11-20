@@ -49,6 +49,7 @@ Tradier. Node.js/Express + vanilla JS (sin framework frontend).
 | `public/sw.js` | Service worker PWA (network-first) |
 | `gamma_daemon/` | Proceso local de Node que refresca los muros de Gamma. No se despliega |
 | `scripts/pruebas.js` | Batería de pruebas + humo |
+| `src/hiro.js` + `public/hiro.html` | **HIRO propio** (2026-11-20): colector dxLink de TastyTrade (solo lectura) de las operaciones 0DTE del SPX con lado agresor → impacto de cobertura acumulado (calls/puts). `/api/hiro`, página `/hiro.html`. Excluye patas de spreads (dxFeed les pone el mismo lado a todas). Apagar con `HIRO_APAGADO=1` |
 | `scripts/control_cambios.py` | Genera los libros de control de cambios desde git |
 
 > ### ⚠️ El frontend que se sirve es `public/index.html` — el `index.html` de la raíz NO

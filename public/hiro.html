@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HIRO propio · SPX</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root { --bg:#141414; --panel:#1b1b1b; --borde:#2a2a2a; --txt:#d9d9d9; --suave:#8a8a8a; --azul:#3b82f6; --naranja:#f07a2a; --total:#22c3b8; --rojo:#ef4444; --verde:#22c55e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:18px; padding:12px 16px; border-bottom:1px solid var(--borde); flex-wrap:wrap; }
+  .logo { display:flex; align-items:center; gap:8px; font-weight:700; font-size:18px; letter-spacing:.5px; }
+  .logo svg { width:26px; height:26px; }
+  .tick { display:flex; gap:16px; margin-left:auto; flex-wrap:wrap; }
+  .tick div { background:var(--panel); border:1px solid var(--borde); border-radius:6px; padding:5px 10px; font-size:12px; line-height:1.35; min-width:120px; }
+  .tick b { color:#fff; font-size:13px; }
+  .neg { color:var(--rojo); } .pos { color:var(--verde); }
+  .barra { display:flex; align-items:center; gap:14px; padding:10px 16px; flex-wrap:wrap; }
+  .fecha { font-size:15px; color:#fff; margin-right:8px; }
+  .pill { border:1px solid #555; border-radius:999px; padding:5px 14px; font-size:13px; color:#ddd; }
+  .pill.on { background:#1f6f63; border-color:#1f6f63; color:#fff; }
+  .seg { display:inline-flex; border:1px solid #3a3a3a; border-radius:5px; overflow:hidden; margin-left:auto; }
+  .seg button { background:transparent; color:#bbb; border:0; padding:6px 12px; font-size:13px; cursor:pointer; }
+  .seg button.on { background:#1f6f63; color:#fff; }
+  .info { font-size:12px; color:var(--suave); }
+  #chart { width:100%; height:calc(100vh - 170px); min-height:380px; }
+  footer { padding:6px 16px 12px; font-size:11.5px; color:var(--suave); line-height:1.5; }
+  .punto { display:inline-block; width:8px; height:8px; border-radius:50%; background:#666; margin-right:6px; vertical-align:middle; }
+  .punto.vivo { background:var(--verde); box-shadow:0 0 6px var(--verde); }
+  @media (max-width:640px) { .tick { margin-left:0; } .tick div { min-width:0; } #chart { height:62vh; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="13" stroke="#22c3b8" stroke-width="2.5"/><path d="M9 18c3-6 5 4 8-2s4 2 6-3" stroke="#22c3b8" stroke-width="2.2" stroke-linecap="round"/></svg>
+    HIRO <span style="font-weight:400;color:#8a8a8a;font-size:13px">propio</span>
+  </div>
+  <div class="tick">
+    <div>^SPX <b id="tSpx">—</b><br><span id="tSpxCh" class="info">—</span></div>
+    <div>Calls <b id="tC" style="color:var(--azul)">—</b><br><span class="info">impacto acumulado</span></div>
+    <div>Puts <b id="tP" style="color:var(--naranja)">—</b><br><span class="info">impacto acumulado</span></div>
+  </div>
+</header>
+<div class="barra">
+  <span class="fecha" id="fecha">—</span>
+  <span class="pill">S&amp;P 500</span><span class="pill on">SPX</span>
+  <span class="info">1d · 0DTE · todas las operaciones</span>
+  <div class="seg"><button id="bTotal">Total</button><button id="bPC" class="on">Put/Call</button></div>
+</div>
+<div id="chart"></div>
+<footer>
+  <span class="punto" id="punto"></span><span id="estado">cargando…</span><br>
+  Reconstrucción propia del HIRO de SpotGamma: por cada operación de opciones 0DTE del SPX (streaming de TastyTrade, con lado agresor)
+  se suma lado × delta × contratos × 100 × SPX. <b>Sube</b> = los creadores de mercado compran SPX para cubrirse (alcista); <b>baja</b> = venden (bajista).
+  Azul = calls · naranja = puts. Líneas: muros de Sigma Terminal. Prueba en sombra: no es una recomendación de inversión.
+</footer>
+<script>
+const $ = (id) => document.getElementById(id);
+let modo = localStorage.getItem('hiroModo') || 'pc';
+const fmtB = (v) => { const a = Math.abs(v); return (v < 0 ? '-' : '') + (a >= 1e9 ? (a / 1e9).toFixed(2) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(0) + 'M' : (a / 1e3).toFixed(0) + 'K'); };
+const chart = LightweightCharts.createChart($('chart'), {
+  layout: { background: { color: '#141414' }, textColor: '#9a9a9a', fontSize: 11 },
+  grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
+  leftPriceScale: { visible: true, borderColor: '#2a2a2a' },
+  rightPriceScale: { visible: true, borderColor: '#2a2a2a' },
+  timeScale: { borderColor: '#2a2a2a', timeVisible: true, secondsVisible: false },
+  crosshair: { mode: 0 },
+  localization: { priceFormatter: (p) => p.toFixed(2) },
+});
+const sSpx = chart.addLineSeries({ priceScaleId: 'left', color: '#e8e8e8', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: '' });
+const fmtSerie = { type: 'custom', formatter: fmtB, minMove: 1 };
+const sCalls = chart.addLineSeries({ priceScaleId: 'right', color: '#3b82f6', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
+const sPuts = chart.addLineSeries({ priceScaleId: 'right', color: '#f07a2a', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
+const sTotal = chart.addLineSeries({ priceScaleId: 'right', color: '#22c3b8', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
+sCalls.createPriceLine({ price: 0, color: '#444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+let lineas = [];
+
+function aplicarModo() {
+  $('bTotal').classList.toggle('on', modo === 'total'); $('bPC').classList.toggle('on', modo === 'pc');
+  sCalls.applyOptions({ visible: modo === 'pc' }); sPuts.applyOptions({ visible: modo === 'pc' }); sTotal.applyOptions({ visible: modo === 'total' });
+}
+$('bTotal').onclick = () => { modo = 'total'; localStorage.setItem('hiroModo', modo); aplicarModo(); };
+$('bPC').onclick = () => { modo = 'pc'; localStorage.setItem('hiroModo', modo); aplicarModo(); };
+aplicarModo();
+
+// Hora ET de la serie dibujada tal cual en el eje (se pasa como si fuera UTC)
+const ts = (fecha, hm) => Date.UTC(+fecha.slice(0, 4), +fecha.slice(5, 7) - 1, +fecha.slice(8, 10), +hm.slice(0, 2), +hm.slice(3, 5)) / 1000;
+let primera = true;
+
+async function cargar() {
+  const q = new URLSearchParams(location.search).get('fecha');
+  const r = await fetch('/api/hiro' + (q ? '?fecha=' + q : '')).then((x) => x.json()).catch(() => null);
+  if (!r || !r.ok) { $('estado').textContent = 'sin respuesta del servidor'; return; }
+  const f = r.fecha;
+  $('fecha').textContent = new Date(f + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const filas = r.filas.filter((x) => x.spx);
+  sSpx.setData(filas.map((x) => ({ time: ts(f, x.hora), value: x.spx })));
+  sCalls.setData(filas.map((x) => ({ time: ts(f, x.hora), value: x.calls })));
+  sPuts.setData(filas.map((x) => ({ time: ts(f, x.hora), value: x.puts })));
+  sTotal.setData(filas.map((x) => ({ time: ts(f, x.hora), value: x.total })));
+  if (filas.length) {
+    const u = filas[filas.length - 1];
+    $('tSpx').textContent = u.spx.toFixed(2);
+    if (r.cierrePrevio) { const ch = u.spx - r.cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / r.cierrePrevio * 100).toFixed(2)}%)</span>`; }
+    $('tC').textContent = fmtB(u.calls); $('tP').textContent = fmtB(u.puts);
+    if (primera) { chart.timeScale().fitContent(); primera = false; }
+  }
+  const e = r.estado || {};
+  $('punto').classList.toggle('vivo', !!e.conectado);
+  $('estado').textContent = e.conectado
+    ? `En vivo · ${e.contratos} contratos 0DTE · ${Number(e.trades || 0).toLocaleString('es')} operaciones · último dato ${e.ultimo ? new Date(e.ultimo).toLocaleTimeString('en-US', { timeZone: 'America/New_York' }) + ' ET' : '—'}`
+    : (e.mensaje || 'Colector detenido (fuera de horario o reconectando)') + (e.error ? ' · ' + e.error : '');
+  window.__cierrePrevio = r.cierrePrevio;
+}
+
+async function niveles() {
+  const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null);
+  lineas.forEach((l) => sSpx.removePriceLine(l)); lineas = [];
+  const add = (precio, titulo, color) => { if (precio) lineas.push(sSpx.createPriceLine({ price: +precio, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: `${titulo} $${(+precio).toLocaleString('en-US')}` })); };
+  add(window.__cierrePrevio, 'Last Closing', '#8a8a8a');
+  if (n && n.ok) {
+    add(n.callWall, 'Call Wall', '#2e8b57');
+    add(n.putWall, 'Put Wall', '#b5651d');
+    add(n.mvs, 'Key Gamma Strike', '#7fb2e5');
+    add(n.gammaFlip, 'Gamma Flip', '#c9a227');
+  }
+}
+
+(async () => { await cargar(); await niveles(); })();
+setInterval(cargar, 15000);
+setInterval(niveles, 120000);
+new ResizeObserver(() => chart.applyOptions({ width: $('chart').clientWidth, height: $('chart').clientHeight })).observe($('chart'));
+</script>
+</body>
+</html>
