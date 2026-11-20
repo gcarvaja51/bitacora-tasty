@@ -24,6 +24,8 @@
   .seg { display:inline-flex; border:1px solid #3a3a3a; border-radius:5px; overflow:hidden; }
   .seg button { background:transparent; color:#bbb; border:0; padding:6px 12px; font-size:13px; cursor:pointer; }
   .seg button.on { background:#1f6f63; color:#fff; }
+  .tf button { padding:6px 9px; font-weight:500; }
+  .tf button.on { background:#2a2e39; color:#fff; box-shadow:inset 0 -2px 0 #2962ff; }
   .derecha { margin-left:auto; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   .info { font-size:12px; color:var(--suave); }
   #zona { flex:1; display:flex; flex-direction:column; min-height:420px; padding:0 0 4px; }
@@ -59,6 +61,10 @@
   <span class="pill">S&amp;P 500</span><span class="pill on">SPX</span>
   <span class="info">1d · 0DTE · todas las operaciones</span>
   <div class="derecha">
+    <div class="seg tf" id="tfs">
+      <button data-tf="1">1m</button><button data-tf="2">2m</button><button data-tf="3">3m</button><button data-tf="5">5m</button>
+      <button data-tf="10">10m</button><button data-tf="15">15m</button><button data-tf="30">30m</button><button data-tf="60">1h</button>
+    </div>
     <span class="info">Precio:</span>
     <div class="seg"><button id="bVelas">Velas</button><button id="bLinea">Línea</button></div>
     <div class="seg"><button id="bSecc" title="Mostrar u ocultar la sección de precio">▾ Sección precio</button></div>
@@ -68,7 +74,7 @@
 <div id="zona">
   <div class="seccion" id="secHiro"><span class="rotulo" id="rotHiro">HEDGING IMPACT · PUT/CALL</span><div id="gHiro"></div></div>
   <div id="divisor" title="Arrastra para agrandar o achicar la sección de precio (doble clic: tamaño normal)"></div>
-  <div class="seccion" id="secPrecio"><span class="rotulo">SPX · 1 min</span><div id="gPrecio"></div></div>
+  <div class="seccion" id="secPrecio"><span class="rotulo" id="rotPrecio">SPX · 1m</span><div id="gPrecio"></div></div>
 </div>
 <footer>
   <span class="punto" id="punto"></span><span id="estado">cargando…</span><br>
@@ -84,7 +90,8 @@ const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let modo = leer('hiroModo', 'pc');            // 'pc' | 'total'
 let tipoPrecio = leer('hiroPrecio', 'velas');  // 'velas' | 'linea'
 let precioAbierta = leer('hiroSecc', '1') === '1';
-let altoPrecio = +leer('hiroAlto', '0.45');    // fracción de la zona para la sección de precio
+let altoPrecio = +leer('hiroAlto', '0.45');
+let tf = +leer('hiroTf', '1');                 // temporalidad en minutos (1, 2, 3, 5, 10, 15, 30, 60)    // fracción de la zona para la sección de precio
 
 const fmtB = (v) => { const a = Math.abs(v); return (v < 0 ? '-' : '') + (a >= 1e9 ? (a / 1e9).toFixed(2) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(0) + 'M' : (a / 1e3).toFixed(0) + 'K'); };
 const base = {
@@ -163,6 +170,43 @@ $('bVelas').onclick = () => { tipoPrecio = 'velas'; guardar('hiroPrecio', tipoPr
 $('bLinea').onclick = () => { tipoPrecio = 'linea'; guardar('hiroPrecio', tipoPrecio); aplicarVista(); };
 $('bSecc').onclick = () => { precioAbierta = !precioAbierta; guardar('hiroSecc', precioAbierta ? '1' : '0'); aplicarVista(); };
 
+let filasCrudas = [], ultimaFecha = null;
+// Agrupa las filas de 1 min en velas de tf minutos, alineadas al inicio de la sesión (9:30), como TradingView.
+// Calls/puts/total son acumulados: se toma el último valor de cada vela.
+function agrupar(filas, tf) {
+  if (tf === 1) return filas.map((x) => ({ ...x, o: x.o ?? x.spx, h: x.h ?? x.spx, l: x.l ?? x.spx }));
+  const out = [];
+  for (const x of filas) {
+    const m = +x.hora.slice(0, 2) * 60 + +x.hora.slice(3, 5), k = 570 + Math.floor((m - 570) / tf) * tf;
+    const hm = String(Math.floor(k / 60)).padStart(2, '0') + ':' + String(k % 60).padStart(2, '0');
+    const u = out[out.length - 1];
+    if (u && u.hora === hm) { u.h = Math.max(u.h, x.h ?? x.spx); u.l = Math.min(u.l, x.l ?? x.spx); u.spx = x.spx; u.calls = x.calls; u.puts = x.puts; u.total = x.total; }
+    else out.push({ hora: hm, o: x.o ?? x.spx, h: x.h ?? x.spx, l: x.l ?? x.spx, spx: x.spx, calls: x.calls, puts: x.puts, total: x.total });
+  }
+  return out;
+}
+function pintar() {
+  const f = ultimaFecha; if (!f) return;
+  const filas = agrupar(filasCrudas, tf);
+  // la sesión completa (9:30–16:00) en el eje aunque todavía no haya datos
+  const conDato = new Set(filas.map((x) => x.hora)), vacios = [];
+  for (let m = 570; m < 960; m += tf) { const hm = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); if (!conDato.has(hm)) vacios.push({ time: ts(f, hm) }); }
+  const cv = (arr) => [...arr, ...vacios].sort((a, b) => a.time - b.time);
+  const t = (x) => ts(f, x.hora);
+  sVelas.setData(cv(filas.map((x) => ({ time: t(x), open: x.o, high: x.h, low: x.l, close: x.spx }))));
+  sLinea.setData(cv(filas.map((x) => ({ time: t(x), value: x.spx }))));
+  sSpxH.setData(cv(filas.map((x) => ({ time: t(x), value: x.spx }))));
+  sCalls.setData(cv(filas.map((x) => ({ time: t(x), value: x.calls }))));
+  sPuts.setData(cv(filas.map((x) => ({ time: t(x), value: x.puts }))));
+  sTotal.setData(cv(filas.map((x) => ({ time: t(x), value: x.total }))));
+}
+function aplicarTf() {
+  document.querySelectorAll('#tfs button').forEach((b) => b.classList.toggle('on', +b.dataset.tf === tf));
+  $('rotPrecio').textContent = 'SPX · ' + (tf === 60 ? '1h' : tf + 'm');
+  pintar(); gH.timeScale().fitContent();
+}
+document.querySelectorAll('#tfs button').forEach((b) => b.onclick = () => { tf = +b.dataset.tf; guardar('hiroTf', String(tf)); aplicarTf(); });
+
 const ts = (fecha, hm) => Date.UTC(+fecha.slice(0, 4), +fecha.slice(5, 7) - 1, +fecha.slice(8, 10), +hm.slice(0, 2), +hm.slice(3, 5)) / 1000;
 let primera = true, cierrePrevio = null, muros = null;
 
@@ -172,18 +216,9 @@ async function cargar() {
   if (!r || !r.ok) { $('estado').textContent = 'sin respuesta del servidor'; return; }
   const f = r.fecha;
   $('fecha').textContent = new Date(f + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const filas = r.filas.filter((x) => x.spx);
-  // la sesión completa (9:30–16:00) en el eje aunque todavía no haya datos
-  const conDato = new Set(filas.map((x) => x.hora)), vacios = [];
-  for (let m = 570; m <= 960; m++) { const hm = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); if (!conDato.has(hm)) vacios.push({ time: ts(f, hm) }); }
-  const cv = (arr) => [...arr, ...vacios].sort((a, b) => a.time - b.time);
-  const t = (x) => ts(f, x.hora);
-  sVelas.setData(cv(filas.map((x) => ({ time: t(x), open: x.o ?? x.spx, high: x.h ?? x.spx, low: x.l ?? x.spx, close: x.spx }))));
-  sLinea.setData(cv(filas.map((x) => ({ time: t(x), value: x.spx }))));
-  sSpxH.setData(cv(filas.map((x) => ({ time: t(x), value: x.spx }))));
-  sCalls.setData(cv(filas.map((x) => ({ time: t(x), value: x.calls }))));
-  sPuts.setData(cv(filas.map((x) => ({ time: t(x), value: x.puts }))));
-  sTotal.setData(cv(filas.map((x) => ({ time: t(x), value: x.total }))));
+  ultimaFecha = f; filasCrudas = r.filas.filter((x) => x.spx);
+  pintar();
+  const filas = filasCrudas;
   if (filas.length) {
     const u = filas[filas.length - 1];
     $('tSpx').textContent = u.spx.toFixed(2);
@@ -216,6 +251,7 @@ async function niveles() {
 }
 
 aplicarVista();
+aplicarTf();
 (async () => { await cargar(); await niveles(); })();
 setInterval(cargar, 15000);
 setInterval(niveles, 120000);
