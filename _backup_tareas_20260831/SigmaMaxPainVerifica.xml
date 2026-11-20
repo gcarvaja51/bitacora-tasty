@@ -86,7 +86,7 @@
 
       <Command>wscript.exe</Command>
 
-      <Arguments>"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\estrategias automatizadas\06_vencimiento de opciones\verificar_captura.vbs"</Arguments>
+      <Arguments>"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\estrategias automatizadas\06_vencimiento de opciones\verificar_captura.vbs"</Arguments>
 
     </Exec>
 

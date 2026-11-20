@@ -142,7 +142,7 @@ await caso('registrar guarda los muros del ciclo en la fila', () => {
 });
 
 await caso('serie con el dia real del 11-nov (lector viejo): formato que entiende el Pine', () => {
-  const archivo = 'C:/Users/gcarv/Documents/CARPETA PERSONAL/01. guillermo carvajal/01_Sigma/chalito/datos/sigma_flow/2026-11-11.jsonl';
+  const archivo = 'C:/Users/gcarv/Documents/CARPETA PERSONAL/01. guillermo carvajal/01. Trading/01_Sigma/chalito/datos/sigma_flow/2026-11-11.jsonl';
   if (!fs.existsSync(archivo)) { console.log('    (sin archivo del 11-nov, se salta)'); return; }
   const dir = tmpDir();
   const f = crearFlujo({ dir, log: silencio });

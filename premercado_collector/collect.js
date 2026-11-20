@@ -33,7 +33,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GAMMA_STATUS_PATH = path.join(__dirname, '..', 'gamma_daemon', 'status.json');
-const OUT_ROOT = process.env.PREMERCADO_OUT_ROOT || 'C:\\Users\\gcarv\\Documents\\CARPETA PERSONAL\\01. guillermo carvajal\\01_Sigma\\mentoria alejandro\\premercados alejandro\\control premercado\\data_collector';
+const OUT_ROOT = process.env.PREMERCADO_OUT_ROOT || 'C:\\Users\\gcarv\\Documents\\CARPETA PERSONAL\\01. guillermo carvajal\\01. Trading\\01_Sigma\\mentoria alejandro\\premercados alejandro\\control premercado\\data_collector';
 const LOG_PATH = path.join(OUT_ROOT, 'collector.log');
 
 // Presupuesto de tiempo para TODA la parte de TradingView. Incidente real 19 y 20 de

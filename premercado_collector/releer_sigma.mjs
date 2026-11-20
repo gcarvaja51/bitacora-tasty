@@ -21,7 +21,7 @@ import { esperarSigmaDeHoy, diagnosticoDaemon } from './elegir_sigma.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GAMMA_STATUS_PATH = path.join(__dirname, '..', 'gamma_daemon', 'status.json');
 // PREMERCADO_DATA_DIR solo para probarlo contra una copia sin tocar el bundle real.
-const OUT_ROOT = process.env.PREMERCADO_DATA_DIR || 'C:\\Users\\gcarv\\Documents\\CARPETA PERSONAL\\01. guillermo carvajal\\01_Sigma\\mentoria alejandro\\premercados alejandro\\control premercado\\data_collector';
+const OUT_ROOT = process.env.PREMERCADO_DATA_DIR || 'C:\\Users\\gcarv\\Documents\\CARPETA PERSONAL\\01. guillermo carvajal\\01. Trading\\01_Sigma\\mentoria alejandro\\premercados alejandro\\control premercado\\data_collector';
 const MAX_ANTIGUEDAD_MIN = Number(process.env.SIGMA_MAX_ANTIGUEDAD_MIN || 45);
 const SIN_ESPERA = process.argv.includes('--sin-espera');
 

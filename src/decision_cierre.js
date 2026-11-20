@@ -57,7 +57,7 @@ Sin tu clic la posición sigue abierta; a las 3:30pm ET te llega un recordatorio
 async function enviarCorreo({ asunto, html, texto }, env = process.env) {
   if (!env.GMAIL_USER || !env.GMAIL_APP_PASSWORD) return { ok: false, motivo: 'faltan GMAIL_USER / GMAIL_APP_PASSWORD en Railway' };
   const nodemailer = require('nodemailer');
-  const tr = nodemailer.createTransport({ service: 'gmail', auth: { user: env.GMAIL_USER, pass: String(env.GMAIL_APP_PASSWORD).replace(/\s+/g, '') } });
+  const tr = nodemailer.createTransport({ service: 'gmail', connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000, auth: { user: env.GMAIL_USER, pass: String(env.GMAIL_APP_PASSWORD).replace(/\s+/g, '') } });
   await tr.sendMail({ from: `Bitácora Señales Sigma <${env.GMAIL_USER}>`, to: env.AVISO_CORREO_A || env.GMAIL_USER,
                       subject: asunto, html, text: texto });
   return { ok: true };

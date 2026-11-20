@@ -5,7 +5,7 @@ from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
-BASE = r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\premercados alejandro"
+BASE = r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\premercados alejandro"
 DOC = BASE + r"\documentos premercado\09232026_premercado claude.docx"
 LOG = BASE + r"\control premercado\premercado_hipotesis_log.json"
 XLS = BASE + r"\control premercado\control_premercado.xlsx"

@@ -86,9 +86,9 @@
 
       <Command>powershell.exe</Command>
 
-      <Arguments>-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\estrategias automatizadas\06_vencimiento de opciones\correr_captura_mediodia.ps1"</Arguments>
+      <Arguments>-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\estrategias automatizadas\06_vencimiento de opciones\correr_captura_mediodia.ps1"</Arguments>
 
-      <WorkingDirectory>C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\estrategias automatizadas\06_vencimiento de opciones</WorkingDirectory>
+      <WorkingDirectory>C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\estrategias automatizadas\06_vencimiento de opciones</WorkingDirectory>
 
     </Exec>
 

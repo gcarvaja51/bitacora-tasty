@@ -355,7 +355,7 @@ debería bloquearse porque el puerto CDP esté desalineado o la extensión de Ch
 
 **Antes de tocar cualquier tool de `mcp__tradingview__*` o `claude-in-chrome` para este
 skill, revisar primero si ya existe el bundle de hoy:**
-`C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria
+`C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria
 alejandro\premercados alejandro\control premercado\data_collector\<MMDDAAAA>\` — contiene
 `chart_30m.png` (captura ya lista para el Paso "Chart 30 minutos") y `bundle.json` (con
 `tradingview.studyValues` — POC/EMAs/MACD leídos del chart — y `sigma` — Call Wall/Put
