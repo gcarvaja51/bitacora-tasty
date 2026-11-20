@@ -498,9 +498,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     // en un CREDITO, alejar la vendida fuera del dinero protege; en un DEBITO hacia lo contrario (Bear Put 7400/7395
     // con el SPX en 7400: mas barato pero necesita mas caida). En el debito la opcion protegida va 5 pts DENTRO del
     // dinero (Bear Put 7410/7405, Bull Call 7390/7395): cuesta mas y gana menos, pero gana con el SPX quieto.
-    // 2026-11-20 (Guillermo: "todo lo que tenías para spread de 5 puntos debes ajustarlo a 10"): la opción protegida se
-    // aleja del precio lo mismo que el ancho (5 pts con verticales de 5, 10 con los de 10), redondeado a la rejilla de 5.
-    const dist = Math.max(5, Math.round(ancho / 5) * 5);
+    // La opción protegida queda a 5 pts del precio aunque el vertical sea de 10 (Guillermo 2026-11-20: "mantenla a 5
+    // puntos"). El lado sale de la estructura: crédito -> la vendida se aleja FUERA del dinero (Bear Call +5, Bull Put
+    // -5); débito -> la comprada entra DENTRO del dinero (Bull Call -5, Bear Put +5). La otra pata va a +-ancho.
+    const dist = 5;
     const otm = (a.tipo === 'C' ? dist : -dist) * (a.credito ? 1 : -1);
     const lejos = (corto) => (a.tipo === 'C') === a.credito ? corto + ancho : corto - ancho;   // la comprada
     const armar = async (clave, etiqueta, corto) => {
