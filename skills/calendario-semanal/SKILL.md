@@ -62,7 +62,7 @@ esto espera. Probado el 2026-09-28: sin ellas, 0 de 4 intentos vieron Calendar; 
 al primero. Los 3 intentos se quedan como red de seguridad.
 
 **Los datos van fuera de `.claude`**, en
-`Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\calendario semanal\semanas\`.
+`Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\calendario semanal\semanas\`.
 Dentro de `.claude` Claude en `-p` no puede escribir (carpeta protegida): la primera prueba
 cargó bien el calendario pero no pudo dejar su `_cargada.json`. Claude arranca en esa carpeta.
 

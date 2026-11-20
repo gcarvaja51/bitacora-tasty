@@ -184,17 +184,6 @@ PROPUESTAS = [
         #
         # El dato ya existe en el libro (filledAt, closedAt, pnl, strategyFamily);
         # falta el script que lo parta, al estilo de sombra_direccion.py.
-        #
-        # MEDIDO A MANO 2026-11-19 (revision semanal 13-19 nov), comparables
-        # 17-ago a 19-nov, n=203, trade anterior cerrado el MISMO dia:
-        #   primer trade del dia      n=64  WR 53.1%  -$31.8/trade
-        #   tras ganancia             n=97  WR 64.9%  -$0.4
-        #   tras perdida, misma dir   n=36  WR 50.0%  -$39.9
-        #   tras perdida, dir opuesta n=6   WR 66.7%  +$42.5
-        # La premisa aguanta contra "tras ganancia", no contra "primer trade".
-        # Variante anotada (no propuesta): que el liston mire la direccion de la
-        # perdida. El lado que rescataria tiene n=6. Sigue sin juez escrito.
-        "actualizada": "2026-11-19",
         "instrumento": None,
     },
     # REV-8 (earlyExitPct 0.6 vs 0.9) RETIRADA el 2026-09-10: Guillermo confirmo

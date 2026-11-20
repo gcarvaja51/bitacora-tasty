@@ -30,7 +30,7 @@ $ETAPAS = @(
     @{ id = 'p5'; min = -5; titulo = { param($t) "Sigma Club empezo hace 5 min" } }
 )
 $GRUPO = "120363403656198230@g.us"   # Notificaciones 5 de Opcion Sigma, cuenta usa
-$datos = "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\calendario semanal"
+$datos = "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\calendario semanal"
 $semanas = Join-Path $datos "semanas"
 $estadoF = Join-Path $datos "avisos_enviados.json"
 $logF = Join-Path $datos "aviso_sesiones.log"

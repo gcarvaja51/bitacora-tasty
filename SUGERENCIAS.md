@@ -893,68 +893,6 @@ ser idénticos a los de Finviz. Mientras tanto la Rueda auto corre solo con
 
 ## Anotaciones diarias — sin propuesta todavía (lun–jue se anota)
 
-### 2026-11-19 (bis) · revisión SEMANAL del jueves, 13 a 19-nov — SIN PROPUESTA
-
-3.425 evaluaciones contra 1.572 en la previa. ⚠️ **La previa está recortada** (el log arranca el
-10-nov 11:36 ET, faltan ~15,1 h de sesión): comparo por proporción, no por conteo.
-
-**Resultado de la semana (comparables, `resultadoOficial`):** TENDENCIA n=11, 8 ganan, +$725.
-Bajista (Bear Put, todas con GEX NEGATIVO y `vetoMuroSombra.vetaria` false) n=9, 7 ganan, +$1.245;
-alcista (19-nov, Bull Put en el gap que se deshizo) n=2, −$520. Acumulado del v2 (11 a 19-nov):
-**n=16, +$645** (bajista n=10 +$995; alcista n=6 −$350). MEDIODIA n=5, 1 gana, −$905. REVERSION
-apertura n=3, $0 (−290, +90, +200). NEUTRAL 0 (92 de 93 `GATE_FAIL` por gamma negativo).
-
-**Propuestas por familia:**
-
-| Familia | Propuesta | Por qué |
-|---|---|---|
-| TENDENCIA | **Ninguna** | El v2 lleva 16 trades de los ~30 de la norma 3. Cualquier ALTO ahora se mezcla con él |
-| REVERSION | **Ninguna** | Apertura n=3 en la semana; media mañana en sombra. Sin muestra |
-| NEUTRAL | **Ninguna** | Cero trades: el gate de GEX positivo mató el IC 0DTE toda la semana, como dice la regla |
-| MEDIODIA | **Ninguna** | La variable candidata (régimen de gamma) no llega a 30 por lado (ver abajo) |
-
-**MEDIODIA — régimen de gamma a las 12:25-12:36 ET** (archivo `gamma`, existe desde el 16-oct;
-19-nov sin lectura a esa hora por el hueco de Sigma, toda la tarde NEGATIVO):
-
-| | n | ganan | P&L | por trade |
-|---|---|---|---|---|
-| Gamma NEGATIVO | 11 | 4 | −$800 | −$72,7 |
-| Gamma POSITIVO | 7 | 4 | −$5 | −$0,7 |
-| (10-nov sin lectura) | 1 | 1 | +$235 | |
-
-La brecha existe, pero 11 contra 7 no se distingue del azar y NEGATIVO tiene 4 TP fuera de lo
-esperable (29-oct, 3-nov, 6-nov y 17-nov). Familia entera, 29-sep a 19-nov: n=30, −$1.445
-(−$48 por trade). La distancia centro-spot sigue sin separar: el 16-nov perdió −$295 con 2,8 pts.
-Se sigue anotando; el dato se junta solo con `entryGamma`… que MEDIODIA **todavía no sella**
-(bug de completitud ya anotado). Si se sellara, esta tabla no dependería del archivo.
-
-**TENDENCIA — el listón tras pérdida, partido por dirección** (premisa de DIR-3, comparables
-17-ago a 19-nov, n=203; trade anterior cerrado el mismo día):
-
-| Trade anterior del día | n | WR | por trade |
-|---|---|---|---|
-| ninguno (primer trade) | 64 | 53,1% | −$31,8 |
-| ganó | 97 | 64,9% | −$0,4 |
-| perdió, **misma** dirección | 36 | 50,0% | −$39,9 |
-| perdió, dirección **contraria** | 6 | 66,7% | +$42,5 |
-
-La premisa «después de una pérdida se rinde peor» se sostiene contra «después de una ganancia»,
-no contra el primer trade del día. Que el listón mire la dirección (lo del 19-nov: 30 bajistas
-frenadas por la pérdida alcista de la mañana) tiene **n=6** del lado que rescataría: no alcanza.
-Y estas filas ya pasaron por el listón, así que no ven a las que el listón frenó.
-
-**Calidad del dato:** spot n=1.573, mediana 20 s, p90 62 s, máx 351 s; 58 sobre 120 s (3,7%,
-antes 1,7%). Los que pasaron de 180 s los frenó `SPOT_NO_FIABLE` (47 en REVERSION el 18-nov, con
-Tradier a ~900 s). Lo que el motor no ve: el spot de Sigma **congelado con sello fresco** (19-nov,
-7383,36 en 10 capturas y 7328,18 en 8; con esa cifra se calculó un veto de DIR-5 a las 11:51) y
-`spotEdadSeg` registrando ~115 s menos de lo real. Sellos 128 de 484, libro los 5 de siempre,
-`CIERRE_PRE_CLOSE_30MIN` sin cotización 15 de 17.
-
-**Embudo por proporción:** TENDENCIA `NO_PULLBACK_2M` 33,1% (31,6%); `SCORE_FAIL` 2,9% (1,0%), 39
-por el listón tras pérdida; `V2_BLOQUEA` 60 (27); `META_DIA_ALCANZADA` 71, nueva (17-nov, $386 de
-$200); `NO_STRIKES` 0 (18). REVERSION `SIN_ALEJAMIENTO` 14,6% (22,5%); `NO_STRIKES` 8 (34). NEUTRAL
-`GATE_FAIL` 2,7% (2,7%).
-
 ### 2026-11-12 (bis) · revisión SEMANAL del jueves, 6 a 12-nov — SIN PROPUESTA
 
 2.956 evaluaciones contra 2.033 en la ventana previa. ⚠️ **La previa está recortada**: el log

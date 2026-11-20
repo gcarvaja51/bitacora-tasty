@@ -11,7 +11,7 @@
 param([switch]$Prueba)
 
 $BASE = "https://web-production-23473.up.railway.app"
-$LOG_PREM = Join-Path $env:USERPROFILE "Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\premercados alejandro\control premercado\premercado_hipotesis_log.json"
+$LOG_PREM = Join-Path $env:USERPROFILE "Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\premercados alejandro\control premercado\premercado_hipotesis_log.json"
 $logPath = "C:\Users\gcarv\bitacora-tasty\datos\enviar_premercado_log.txt"
 New-Item -ItemType Directory -Force -Path (Split-Path $logPath) | Out-Null
 function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m" | Out-File -FilePath $logPath -Append -Encoding utf8 }

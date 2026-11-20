@@ -32,7 +32,7 @@ $GRUPOS = @(
     "120363233546136336@g.us",   # Canal Oficial - Iron Balls, cuenta usa
     "120363399540609677@g.us"    # CHAT V.I.P, cuenta usa
 )
-$datos = "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\calendario semanal\ironballs"
+$datos = "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\calendario semanal\ironballs"
 if (-not (Test-Path $datos)) { New-Item -ItemType Directory -Force $datos | Out-Null }
 $sesionesF = Join-Path $datos "sesiones.json"
 $avisosF = Join-Path $datos "avisos.json"

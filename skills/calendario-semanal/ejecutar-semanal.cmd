@@ -24,7 +24,7 @@ cd /d "%~dp0"
 
 set "PY=C:\Users\gcarv\AppData\Local\Programs\Python\Python314\python.exe"
 set "LOG=%~dp0ejecuciones.log"
-set "DATOS=C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\calendario semanal"
+set "DATOS=C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\calendario semanal"
 set "PYTHONIOENCODING=utf-8"
 
 echo [%DATE% %TIME%] Iniciando calendario semanal >> "%LOG%"

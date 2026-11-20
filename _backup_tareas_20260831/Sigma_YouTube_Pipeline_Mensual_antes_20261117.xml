@@ -61,7 +61,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>wscript.exe</Command>
-      <Arguments>"C:\Users\gcarv\bitacora-tasty\scripts\oculto.vbs" "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\notebooklm\run_pipeline.bat"</Arguments>
+      <Arguments>"C:\Users\gcarv\bitacora-tasty\scripts\oculto.vbs" "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\notebooklm\run_pipeline.bat"</Arguments>
     </Exec>
   </Actions>
 </Task>

@@ -83,7 +83,7 @@ sin memoria (0,7 GB libres de 15,7 el 17-nov de madrugada; ese día se liberaron
 ## La carpeta Pipe (bot de Polymarket) se mudó afuera (2026-11-17)
 
 **Pedido.** Guillermo: "deja solo la de afuera… ajusta lo que debas ajustar, hazlo ya". Había dos carpetas: la viva en
-`01. guillermo carvajal/01. Trading/01_Sigma/Pipe` (el bot corría desde ahí) y una copia del 16-nov 12:45 en
+`01. guillermo carvajal/01_Sigma/Pipe` (el bot corría desde ahí) y una copia del 16-nov 12:45 en
 `01. guillermo carvajal/01. Pipe`, sin nada propio (comparadas archivo por archivo).
 
 **Qué se hizo (3:53 a 3:55, mercado cerrado).** Bot detenido con el archivo `STOP`; la copia vieja a la papelera; la viva

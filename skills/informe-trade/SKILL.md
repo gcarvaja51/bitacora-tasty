@@ -38,7 +38,7 @@ cualquier momento.
 ## Ubicación de salida
 
 ```
-C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\analisis tradier\
+C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\analisis tradier\
 ```
 
 - PDFs: `<MMDDYYYY_fecha_cierre>_<ESTRATEGIA>_<ganador|perdedor><monto_entero>.pdf`

@@ -14,7 +14,7 @@
 # guards corrian. Dos listas que dicen lo mismo es una lista que va a derivar.
 . "C:\Users\gcarv\bitacora-tasty\scripts\calendario_nyse.ps1"
 
-$logDir = "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\premercados alejandro\control premercado"
+$logDir = "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\premercados alejandro\control premercado"
 $logFile = Join-Path $logDir "premercado_auto_launch.log"
 
 function Write-Log($msg) {

@@ -50,7 +50,7 @@ BASE = "https://web-production-23473.up.railway.app"
 ET = ZoneInfo("America/New_York")
 REPO = Path(__file__).resolve().parent.parent
 TRABAJO = REPO / "informes_semanales"
-SALIDA = Path(r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\informes bitacora")
+SALIDA = Path(r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\informes bitacora")
 CHROME = [r"C:\Program Files\Google\Chrome\Application\chrome.exe",
           r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"]
 DIAS_ES = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"]
