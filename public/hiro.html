@@ -54,7 +54,7 @@
   <span class="punto" id="punto"></span><span id="estado">cargando…</span><br>
   Reconstrucción propia del HIRO de SpotGamma: por cada operación de opciones 0DTE del SPX (streaming de TastyTrade, con lado agresor)
   se suma lado × delta × contratos × 100 × SPX. <b>Sube</b> = los creadores de mercado compran SPX para cubrirse (alcista); <b>baja</b> = venden (bajista).
-  Azul = calls · naranja = puts. Líneas: muros de Sigma Terminal. Prueba en sombra: no es una recomendación de inversión.
+  Azul = calls · naranja = puts. Líneas: muros de Sigma Terminal. Arrastra los ejes para escalar; doble clic en un eje para volver al ajuste automático. Prueba en sombra: no es una recomendación de inversión.
 </footer>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -67,6 +67,9 @@ const chart = LightweightCharts.createChart($('chart'), {
   rightPriceScale: { visible: true, borderColor: '#2a2a2a' },
   timeScale: { borderColor: '#2a2a2a', timeVisible: true, secondsVisible: false },
   crosshair: { mode: 0 },
+  // ejes arrastrables con el mouse (como TradingView/HIRO); doble clic en un eje lo vuelve a ajustar solo
+  handleScale: { axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true }, mouseWheel: true, pinch: true },
+  handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
   // un solo formateador: los valores de HIRO son millones/miles de millones; el SPX va con 2 decimales
   localization: { priceFormatter: (p) => (Math.abs(p) >= 100000 ? fmtB(p) : p.toFixed(2)) },
 });
@@ -115,7 +118,6 @@ async function cargar() {
     if (r.cierrePrevio) { const ch = u.spx - r.cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / r.cierrePrevio * 100).toFixed(2)}%)</span>`; }
     $('tC').textContent = fmtB(u.calls); $('tP').textContent = fmtB(u.puts);
     if (primera) { chart.timeScale().fitContent(); primera = false; }
-    chart.priceScale('left').applyOptions({ autoScale: true });
   }
   const e = r.estado || {};
   $('punto').classList.toggle('vivo', !!e.conectado);
