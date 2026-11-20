@@ -932,6 +932,15 @@ Diseño aprobado: documento "Diseño Bitácora Demo Tasty" (claude.ai/artifact/T
   Guillermo). Antes de llamar a Claude se exige que el mensaje nombre un activo abierto en el demo. **Los rolls se
   ejecutan desde las 10:00 ET** (`HORA_AJUSTES`, cadena estable); antes quedan en `pendiente_ajuste`.
 - **Fechas AM**: los mensuales de SPX/NDX/RUT llegan como "(dic 18 AM, 2026)"; antes del 18-nov no se leían.
+- **AM/PM manda sobre el calendario** (19-nov-2026): "Vencimiento PM" en la alerta o "(nov 20 PM, 2026)" en la pata = SPXW
+  aunque sea tercer viernes. Ese día el IC de Luis se cotizó en el SPX mensual AM (otro contrato): −$144 contra +$85.
+- **Cierre a decisión de Guillermo** (19-nov-2026): si al llegar el CERRADO del profe nuestro cierre (cruzando el spread)
+  sale **más de 30% peor** que el precio publicado (`compararConProfe`, base mínima 0.05), NO se cierra: estado
+  `pendiente_decision` y se le manda el link `GET /api/libros/senales/decidir/:id?c=<clave>` por **correo** (Gmail,
+  `GMAIL_USER` + `GMAIL_APP_PASSWORD`, destino `AVISO_CORREO_A`), **ntfy** y **WhatsApp** (el lector del PC toma la cola
+  `POST /api/libros/senales/avisos-ws` y manda desde la línea Colombia a su propio chat). La página muestra profe vs
+  nosotros y el precio de ahora; botones POST "Cerrar ahora" / "Mantener" (un GET nunca ejecuta). Sin clic no se cierra
+  nunca; recordatorio a las 15:30 ET una vez al día. La clave del link no sale en `/api/libros/senales` (`sinClave`).
 - **5491125371038 es Facu Melo**, no Gonza (verificado contra Sigma Terminal el 16-nov).
 - **El lector de la línea USA corre en el PC** (Vultr solo puede la línea Colombia: grupo Operaciones). Si el PC no
   corre el lector, el Canal Oficial, el Chat VIP y el canal de Sigma no se leen.

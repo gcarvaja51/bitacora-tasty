@@ -35,13 +35,19 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const sigma = require('./sigma_senales');
 
 const CAPITAL = 10000;
 const TOPE_MARGEN = 0.75;   // máximo del saldo comprometido como margen (Guillermo 18-nov-2026)
 const HORA_AJUSTES = 600;   // rolls/ajustes desde las 10:00 ET, con la cadena estable (Guillermo 18-nov-2026)
-const ESTADOS_VIVOS = ['pendiente_entrada', 'abierta', 'pendiente_cierre', 'pendiente_ajuste'];
-const ESTADOS_ABIERTOS = ['abierta', 'pendiente_cierre', 'pendiente_ajuste'];
+// Cierre a decisión de Guillermo (19-nov-2026): "si el profe envía un cierre y hay una diferencia mayor al 30% entre
+// el valor enviado por el profe vs el posible cierre, me envías el dato a mi WhatsApp y al correo para que yo tome la
+// decisión". Sin su clic NO se cierra; a las 15:30 ET se le recuerda (una vez al día).
+const UMBRAL_DECISION = 0.30;
+const HORA_RECORDATORIO = 930;   // 15:30 ET
+const ESTADOS_VIVOS = ['pendiente_entrada', 'abierta', 'pendiente_cierre', 'pendiente_ajuste', 'pendiente_decision'];
+const ESTADOS_ABIERTOS = ['abierta', 'pendiente_cierre', 'pendiente_ajuste', 'pendiente_decision'];
 const r2 = (x) => +Number(x).toFixed(2);
 const r3 = (x) => +Number(x).toFixed(3);
 
@@ -109,6 +115,24 @@ function cajaDe(t) {
   return r2(base + (t.ajustes || []).reduce((a, x) => a + (x.caja || 0), 0));
 }
 
+// ¿Nuestro cierre es más de 30% peor que el que publicó el profe? Precios por acción con signo (+ = entra plata):
+// el profe "Cerrado a 0.60 de débito" = -0.60; el nuestro, cruzando el spread, -1.15 → peor en 0.55 = 92%.
+// Solo cuenta si el nuestro es PEOR; si es igual o mejor se cierra solo. Base mínima 0.05 para precios casi cero.
+function compararConProfe(cp, neto) {
+  if (!cp || cp.precio == null || !cp.efecto || neto == null) return null;
+  const profe = cp.efecto === 'debito' ? -Math.abs(cp.precio) : Math.abs(cp.precio);
+  const peor = r3(profe - neto);
+  const pct = peor > 0 ? Math.round(1000 * peor / Math.max(Math.abs(profe), 0.05)) / 1000 : 0;
+  return { profe, nuestro: neto, peor, pct };
+}
+
+// Copia del trade sin la clave del link (lo que se muestra en pantallas públicas).
+function sinClave(t) {
+  if (!t || !t.decision || t.decision.clave === undefined) return t;
+  const { clave, ...d } = t.decision;
+  return { ...t, decision: d };
+}
+
 // Lo que aparta cada posición abierta: el margen de TastyTrade si se conoce; si no, la pérdida máxima publicada.
 const margenDe = (t) => (t.margen != null ? t.margen : (t.riesgoUsd || 0));
 
@@ -124,7 +148,7 @@ function mismaPata(pg, pd, mensajeAt) {
 
 function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () => new Date(), capital = CAPITAL,
                              archivo = 'libro_senales.json', avisar = () => {}, interpretar = null,
-                             topeMargen = TOPE_MARGEN }) {
+                             topeMargen = TOPE_MARGEN, pedirDecision = () => {} }) {
   const ARCHIVO = path.join(dataDir, archivo);
   const vacio = () => ({ capital, creado: ahora().toISOString(), trades: [], alertas: [] });
   const cargar = () => { try { return JSON.parse(fs.readFileSync(ARCHIVO, 'utf8')); } catch (e) { return vacio(); } };
@@ -198,6 +222,25 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
     const c = await cotizar(t.patas.map((p) => p.sym));
     const neto = c ? netoCruzando(t.patas, c.q, 'cerrar') : null;
     if (neto == null) { t.ultimoIntento = 'TastyTrade no cotizó todas las patas'; return 'ESPERA'; }
+    // Cierre del profe con una diferencia de más del 30%: no se cierra, decide Guillermo (link por WhatsApp y correo).
+    if (t.cierrePublicado && !(t.decision && t.decision.accion === 'cerrar')) {
+      const ev = compararConProfe(t.cierrePublicado, neto);
+      if (ev && ev.pct > UMBRAL_DECISION) {
+        t.estado = 'pendiente_decision';
+        t.decision = {
+          clave: crypto.randomBytes(16).toString('hex'), pedidaAt: now.toISOString(), ...ev,
+          pnlProfeUsd: t.cierrePublicado.pnlUsd ?? null,
+          pnlNuestroEstimado: r2(cajaDe(t) + neto * 100 - feesEstimadas(t.patas, false)),
+          avisos: [{ at: now.toISOString(), tipo: 'decision' }],
+        };
+        delete t.ultimoIntento;
+        L.colaWs = L.colaWs || [];
+        L.colaWs.push({ seq: (L.seqWs = (L.seqWs || 0) + 1), at: now.toISOString(), id: t.id, tipo: 'decision' });
+        try { await pedirDecision(sinClave(t), { clave: t.decision.clave, recordatorio: false }); }
+        catch (e) { t.decision.errorAviso = e.message; }
+        return 'DECISION';
+      }
+    }
     let dr = { ok: false };
     try { dr = await dryRun(cuerpoOrden(t.patas, neto, false)); } catch (e) { dr = { ok: false, detalle: e.message }; }
     const fees = dr.ok && dr.fees != null ? dr.fees : feesEstimadas(t.patas, false);
@@ -420,9 +463,12 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
         const pendiente = L.trades.find((t) => t.estado === 'pendiente_entrada' && sigma.coincideCierre(t, p));
         if (vivo) {
           vivo.estado = 'pendiente_cierre';
-          vivo.cierrePublicado = { alertId, mensajeAt, pct: p.pctPublicado, precio: p.precioCierre, pnlUsd: p.pnlPublicadoUsd };
+          vivo.cierrePublicado = { alertId, mensajeAt, pct: p.pctPublicado, precio: p.precioCierre, efecto: p.efectoCierre,
+                                   pnlUsd: p.pnlPublicadoUsd };
           const r = await intentarCerrar(L, vivo);
-          res = { estado: r === 'CERRADA' ? 'CIERRE_DEMO' : 'CIERRE_PENDIENTE', id: vivo.id, motivo: vivo.ultimoIntento || null };
+          res = r === 'DECISION'
+            ? { estado: 'CIERRE_A_DECISION', id: vivo.id, motivo: `nuestro cierre es ${Math.round(vivo.decision.pct * 100)}% peor que el del profe: decide Guillermo` }
+            : { estado: r === 'CERRADA' ? 'CIERRE_DEMO' : 'CIERRE_PENDIENTE', id: vivo.id, motivo: vivo.ultimoIntento || null };
         } else if (pendiente) {
           pendiente.estado = 'no_ejecutada'; pendiente.motivo = 'el profe la cerró antes de que el demo pudiera entrar';
           pendiente.cerradaAt = ahora().toISOString();
@@ -453,8 +499,21 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
         else if (t.estado === 'pendiente_cierre') { const r = await intentarCerrar(L, t); if (r !== 'ESPERA') cambios++; }
         else if (t.estado === 'pendiente_ajuste') { const r = await intentarAjuste(L, t); if (r !== 'ESPERA') cambios++; }
       }
-      // Margen del día: una vez, desde las 10:00 ET (la cadena ya está asentada)
       const hoy = calendario.fechaET(ahora());
+      // Cierres esperando decisión: recordatorio a las 15:30 ET, una vez al día, si se pidió hace más de una hora.
+      if (calendario.enHorarioDeMercado(ahora()) && calendario.minutosET(ahora()) >= HORA_RECORDATORIO) {
+        for (const t of L.trades.filter((x) => x.estado === 'pendiente_decision' && x.decision)) {
+          const d = t.decision;
+          if (d.recordadoFecha === hoy || ahora() - new Date(d.pedidaAt) < 60 * 60000) continue;
+          d.recordadoFecha = hoy;
+          d.avisos = [...(d.avisos || []), { at: ahora().toISOString(), tipo: 'recordatorio' }];
+          L.colaWs = L.colaWs || [];
+          L.colaWs.push({ seq: (L.seqWs = (L.seqWs || 0) + 1), at: ahora().toISOString(), id: t.id, tipo: 'recordatorio' });
+          try { await pedirDecision(sinClave(t), { clave: d.clave, recordatorio: true }); } catch (e) { d.errorAviso = e.message; }
+          cambios++;
+        }
+      }
+      // Margen del día: una vez, desde las 10:00 ET (la cadena ya está asentada)
       if (calendario.enHorarioDeMercado(ahora()) && calendario.minutosET(ahora()) >= 600 && (!L.margenDia || L.margenDia.fecha !== hoy)) {
         try { await recalcularMargenInterno(L); cambios++; } catch (e) { /* se reintenta el minuto siguiente */ }
       }
@@ -540,8 +599,10 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
       ok: true, libro: 'Señales Sigma', ...s, pnlHoy, pnlMes,
       cerradas: cerradas.length, ganadas, winRate: cerradas.length ? Math.round(100 * ganadas / cerradas.length) : null,
       latente: r2(abiertas.reduce((a, t) => a + (t.latenteCruzando || 0), 0)),
-      abiertas, pendientes: L.trades.filter((t) => t.estado === 'pendiente_entrada'),
-      historial: L.trades.filter((t) => !ESTADOS_VIVOS.includes(t.estado)).sort((a, b) => String(b.cerradaAt).localeCompare(String(a.cerradaAt))),
+      abiertas: abiertas.map(sinClave), pendientes: L.trades.filter((t) => t.estado === 'pendiente_entrada'),
+      decisiones: L.trades.filter((t) => t.estado === 'pendiente_decision').map(sinClave),
+      historial: L.trades.filter((t) => !ESTADOS_VIVOS.includes(t.estado)).map(sinClave)
+        .sort((a, b) => String(b.cerradaAt).localeCompare(String(a.cerradaAt))),
       porProfe: Object.values(porProfe).sort((a, b) => b.pnl - a.pnl), curva,
       margenDia: L.margenDia || null,
       ajustes: L.trades.flatMap((t) => (t.ajustes || []).map((x) => ({ id: t.id, profe: t.profe, activo: t.activo, ...x })))
@@ -568,8 +629,88 @@ function crearLibroSenales({ dataDir, cotizar, dryRun, calendario, ahora = () =>
     });
   }
 
-  return { procesarAlerta, tick, importarDemoJson, resumen, recalcularMargen, reprogramar, _cargar: cargar };
+  // ── Decisión de Guillermo sobre un cierre (19-nov-2026) ─────────────────────────────────────────────────────────
+  // El link que le llega por WhatsApp/correo lleva el id y una clave de 32 hex propia de ese trade.
+  const claveValida = (t, clave) => {
+    const a = Buffer.from(String(t?.decision?.clave || '')), b = Buffer.from(String(clave || ''));
+    return a.length === 32 && a.length === b.length && crypto.timingSafeEqual(a, b);
+  };
+
+  // Para la página del link: el trade (sin clave) y, si hay cadena, lo que daría cerrar AHORA.
+  async function verDecision(id, clave) {
+    const t = cargar().trades.find((x) => x.id === id);
+    if (!t || !claveValida(t, clave)) return { ok: false, motivo: 'link inválido o vencido' };
+    let ahoraCierre = null;
+    if (ESTADOS_ABIERTOS.includes(t.estado)) {
+      try {
+        const c = await cotizar(t.patas.map((p) => p.sym));
+        const neto = c ? netoCruzando(t.patas, c.q, 'cerrar') : null;
+        if (neto != null) ahoraCierre = { neto, pnlEstimado: r2(cajaDe(t) + neto * 100 - feesEstimadas(t.patas, false)),
+                                          ...compararConProfe(t.cierrePublicado, neto) };
+      } catch (e) { /* sin cadena: la página muestra el dato del aviso */ }
+    }
+    return { ok: true, trade: sinClave(t), ahoraCierre, mercadoAbierto: calendario.enHorarioDeMercado(ahora()) };
+  }
+
+  // accion: 'cerrar' (cierra ya, o al abrir el mercado) | 'mantener' (sigue abierta; el mismo link sirve para cerrar después).
+  function decidir(id, clave, accion) {
+    return enCola(async () => {
+      const L = cargar();
+      const t = L.trades.find((x) => x.id === id);
+      if (!t || !claveValida(t, clave)) return { ok: false, motivo: 'link inválido o vencido' };
+      const now = ahora().toISOString();
+      if (accion === 'mantener') {
+        if (t.estado !== 'pendiente_decision') return { ok: false, motivo: `la posición ya está ${t.estado}` };
+        t.estado = 'abierta';
+        Object.assign(t.decision, { accion: 'mantener', decididaAt: now });
+        guardar(L);
+        avisar(`${t.profe} · ${t.activo} ${t.estrategia}: Guillermo decidió MANTENERLA abierta`, '⏸️ Señales Sigma (demo)');
+        return { ok: true, estado: 'MANTENIDA' };
+      }
+      if (accion !== 'cerrar') return { ok: false, motivo: 'acción desconocida' };
+      if (!['pendiente_decision', 'abierta'].includes(t.estado)) return { ok: false, motivo: `la posición ya está ${t.estado}` };
+      Object.assign(t.decision, { accion: 'cerrar', decididaAt: now });
+      t.estado = 'pendiente_cierre';
+      const r = await intentarCerrar(L, t);
+      guardar(L);
+      return r === 'CERRADA'
+        ? { ok: true, estado: 'CERRADA', pnl: t.pnlRealizado, precio: t.salida.precio }
+        : { ok: true, estado: 'CIERRE_PENDIENTE', motivo: t.ultimoIntento || 'se cierra en cuanto haya precio' };
+    });
+  }
+
+  // Cola de WhatsApp: el lector del PC (que tiene GOWA) toma los avisos pendientes y los manda al chat de Guillermo.
+  // `tomar` los marca como tomados en la misma operación (dos lectores no mandan el mismo aviso dos veces).
+  function tomarAvisosWs() {
+    return enCola(async () => {
+      const L = cargar();
+      const cola = (L.colaWs || []).filter((a) => !a.tomadoAt);
+      const out = [];
+      for (const a of cola) {
+        const t = L.trades.find((x) => x.id === a.id);
+        a.tomadoAt = ahora().toISOString();
+        if (!t || !t.decision) continue;
+        out.push({ seq: a.seq, tipo: a.tipo, trade: sinClave(t), clave: t.decision.clave });
+      }
+      L.colaWs = (L.colaWs || []).slice(-200);
+      if (cola.length) guardar(L);
+      return out;
+    });
+  }
+  function devolverAvisoWs(seq) {
+    return enCola(async () => {
+      const L = cargar();
+      const a = (L.colaWs || []).find((x) => x.seq === Number(seq));
+      if (!a) return { ok: false };
+      delete a.tomadoAt; a.reintentos = (a.reintentos || 0) + 1;
+      guardar(L);
+      return { ok: true };
+    });
+  }
+
+  return { procesarAlerta, tick, importarDemoJson, resumen, recalcularMargen, reprogramar,
+           verDecision, decidir, tomarAvisosWs, devolverAvisoWs, _cargar: cargar };
 }
 
 module.exports = { crearLibroSenales, netoCruzando, netoAlMedio, cuerpoOrden, feesEstimadas, pataDesdeOcc, cajaDe,
-                   CAPITAL, TOPE_MARGEN };
+                   compararConProfe, CAPITAL, TOPE_MARGEN, UMBRAL_DECISION };

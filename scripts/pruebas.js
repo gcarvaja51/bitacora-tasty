@@ -2121,7 +2121,7 @@ seccion('Señales Sigma: el libro demo (src/libro_senales.js, TastyTrade falso)'
     chequear('señal recibida pasados los 30 min: VENCIDA, no se toma', r.estado === 'VENCIDA', JSON.stringify(r));
     reloj = new Date('2026-11-13T18:53:00Z');
     r = await libro.procesarAlerta({ alertId: 'A3', mensajeAt: '2026-11-13T18:52:14Z',
-      texto: '⚠️ CLOSED\n\n✅ SPX December 18 7490/7500 Bull Put Spread @ 14.49%\nClosed at 2.95 debit\n\nProfit of $50 per position' });
+      texto: '⚠️ CLOSED\n\n✅ SPX December 18 7490/7500 Bull Put Spread @ 14.49%\nClosed at 4.00 debit\n\nLoss of $55 per position' });   // 4.30 nuestro vs 4.00: 7.5%, cierra solo
     chequear('el CLOSED del profe cierra la posición del demo', r.estado === 'CIERRE_DEMO', JSON.stringify(r));
     const res = await libro.resumen({ marcar: false });
     // entrada 2.60 crédito, salida -4.30 → (2.60 - 4.30) * 100 - 2.28 - 2.28 = -174.56
@@ -2217,7 +2217,7 @@ seccion('Señales Sigma: margen, rolls y ajustes (2026-11-18)');
 
     // Cierre final de AGNC con el CLOSED del profe: P&L = caja + cierre
     reloj = new Date('2026-12-11T16:00:00Z');
-    r = await libro.procesarAlerta({ alertId: 'G8', mensajeAt: '2026-12-11T16:00:00Z', texto: '⚠️ CERRADO\n\n✅ AGNC 15 de enero 8 Short Put @ 50%\nCerrado a 0.17 de débito', autorJid: '34605855722@s.whatsapp.net' });
+    r = await libro.procesarAlerta({ alertId: 'G8', mensajeAt: '2026-12-11T16:00:00Z', texto: '⚠️ CERRADO\n\n✅ AGNC 15 de enero 8 Short Put @ 50%\nCerrado a 0.30 de débito', autorJid: '34605855722@s.whatsapp.net' });
     L = libro._cargar();
     t = L.trades.find((x) => x.activo === 'AGNC');
     // cierre: recompra al ask 0.36 → 27.61 - 36 - 1.13 = -9.52
@@ -2253,6 +2253,99 @@ seccion('Señales Sigma: margen, rolls y ajustes (2026-11-18)');
     reloj = new Date('2026-12-15T15:01:00Z');   // 10:01 ET
     await libro.tick();
     chequear('a las 10:01 ET la reprogramada entra', libro._cargar().trades.find((x) => x.id === r.id).estado === 'abierta');
+    fsS.rmSync(dir, { recursive: true, force: true });
+  })());
+}
+
+seccion('Señales Sigma: SPX PM y cierres a decisión de Guillermo (2026-11-19)');
+{
+  const sg = require('../src/sigma_senales');
+  const ls = require('../src/libro_senales');
+  const dc = require('../src/decision_cierre');
+  const calS = require('../src/calendario_nyse');
+  const fsS = require('fs'), osS = require('os'), pathS = require('path');
+
+  // La alerta real del IC de Luis del 19-nov: "Vencimiento PM" y fecha del tercer viernes (nov 20) → SPXW, no SPX AM.
+  const IC_PM = '🔔 *Alerta de Opción — Sigma Trade*\n*Vencimiento PM* *Overnight*\n\n📌 *SPX — SPX Nov 20 7385/7395/7035/7025 Iron Condor*\n\n──────────\n🔴 Venta 1× Call 7385 (nov 20, 2026) @ $2.95\n🟢 Compra 1× Call 7395 (nov 20, 2026) @ $2.40\n🔴 Venta 1× Put 7035 (nov 20, 2026) @ $9.35\n🟢 Compra 1× Put 7025 (nov 20, 2026) @ $8.45\n\n💰 *Crédito Neto:* $145.00\n\n📉 *Pérdida máx (riesgo):* $855.00';
+  let p = sg.parsearSenalSigma(IC_PM, { autorJid: '13213201370@s.whatsapp.net' });
+  chequear('"Vencimiento PM" en el tercer viernes = SPXW (el IC de Luis del 19-nov)', p.ok && p.patas.every((x) => x.sym.startsWith('SPXW261120')), JSON.stringify(p.patas.map((x) => x.sym)));
+  chequear('el precio de cada pata se sigue leyendo con el grupo AM/PM nuevo', p.patas[0].precio === 2.95 && p.patas[3].precio === 8.45, JSON.stringify(p.patas.map((x) => x.precio)));
+  chequear('"(dic 18 AM, 2026)" sigue siendo SPX mensual', sg.parsearSenalSigma(IC_PM.replace('*Vencimiento PM* *Overnight*\n', '').replace(/\(nov 20, 2026\)/g, '(dic 18 AM, 2026)')).patas[0].sym === 'SPX261218C07385000');
+  chequear('"(nov 20 PM, 2026)" en la pata = SPXW', sg.parsearSenalSigma(IC_PM.replace('*Vencimiento PM* *Overnight*\n', '').replace(/\(nov 20, 2026\)/g, '(nov 20 PM, 2026)')).patas[0].sym === 'SPXW261120C07385000');
+
+  // Regla del 30%: solo cuando el nuestro es PEOR que el del profe
+  let ev = ls.compararConProfe({ precio: 0.60, efecto: 'debito' }, -1.15);
+  chequear('IC SPX: profe débito 0.60, nosotros 1.15 → 92% peor', ev.pct === 0.917 && ev.peor === 0.55, JSON.stringify(ev));
+  ev = ls.compararConProfe({ precio: 0.10, efecto: 'debito' }, -0.12);
+  chequear('SPY: profe 0.10, nosotros 0.12 → 20%, no llega al 30%', ev.pct === 0.2, JSON.stringify(ev));
+  ev = ls.compararConProfe({ precio: 0.58, efecto: 'credito' }, 0.38);
+  chequear('WMT: profe cobró 0.58, nosotros 0.38 → 34% peor', ev.pct === 0.345, JSON.stringify(ev));
+  chequear('si nuestro cierre es mejor que el del profe, 0%', ls.compararConProfe({ precio: 0.71, efecto: 'credito' }, 0.80).pct === 0);
+
+  const dir = fsS.mkdtempSync(pathS.join(osS.tmpdir(), 'libro-senales-d-'));
+  let reloj = new Date('2026-11-19T19:57:54Z');   // jueves 14:57 ET
+  const S = (k, t) => `SPXW261120${t}0${k}000`;
+  const Q = {
+    [S(7385, 'C')]: { bid: 2.90, ask: 3.00 }, [S(7395, 'C')]: { bid: 2.35, ask: 2.45 },
+    [S(7035, 'P')]: { bid: 9.30, ask: 9.40 }, [S(7025, 'P')]: { bid: 8.40, ask: 8.50 },
+  };
+  const pedidas = [];
+  const libro = ls.crearLibroSenales({
+    dataDir: dir, calendario: calS, ahora: () => reloj,
+    cotizar: async () => ({ q: Q }),
+    dryRun: async () => ({ ok: true, fees: 6.88, margen: 1000 }),
+    pedirDecision: async (t, o) => { pedidas.push({ t, ...o }); },
+  });
+  pruebasAsync.push((async () => {
+    let r = await libro.procesarAlerta({ alertId: 'D1', mensajeAt: '2026-11-19T19:57:22Z', texto: IC_PM, autorJid: '13213201370@s.whatsapp.net' });
+    chequear('el IC PM entra al demo con las patas SPXW', r.estado === 'ABIERTA', JSON.stringify(r));
+    // Al cierre del profe la cadena se abrió: recomprar cuesta 1.15 (el profe cerró a 0.60)
+    Object.assign(Q[S(7385, 'C')], { bid: 0.50, ask: 0.70 }); Object.assign(Q[S(7395, 'C')], { bid: 0.15, ask: 0.20 });
+    Object.assign(Q[S(7035, 'P')], { bid: 0.60, ask: 0.90 }); Object.assign(Q[S(7025, 'P')], { bid: 0.30, ask: 0.40 });
+    reloj = new Date('2026-11-19T20:59:13Z');
+    const CIERRE = '⚠️ CERRADO\n(Compartido en 19 nov)\n\n✅ SPX Nov 20 7385/7395/7035/7025 Iron Condor @ 58.62%\nCerrado a 0.60 de débito\n\nGanancia de $85 por posición';
+    r = await libro.procesarAlerta({ alertId: 'D2', mensajeAt: '2026-11-19T20:58:52Z', texto: CIERRE, autorJid: '13213201370@s.whatsapp.net' });
+    let t = libro._cargar().trades[0];
+    chequear('cierre 92% peor que el del profe: NO cierra, queda a decisión de Guillermo', r.estado === 'CIERRE_A_DECISION' && t.estado === 'pendiente_decision', JSON.stringify(r));
+    chequear('se pide la decisión una vez, con la clave del link', pedidas.length === 1 && /^[0-9a-f]{32}$/.test(pedidas[0].clave) && !pedidas[0].t.decision.clave);
+    chequear('la decisión guarda los dos precios y el P&L de cada uno', t.decision.profe === -0.6 && t.decision.nuestro === -1.15 && t.decision.pnlProfeUsd === 85, JSON.stringify(t.decision));
+    const res = await libro.resumen({ marcar: false });
+    chequear('la pantalla pública no muestra la clave del link', !JSON.stringify(res).includes(pedidas[0].clave) && res.decisiones.length === 1);
+    chequear('el link mal firmado no ve nada', !(await libro.verDecision(t.id, 'f'.repeat(32))).ok);
+    let w = await libro.tomarAvisosWs();
+    chequear('la cola de WhatsApp entrega el aviso una sola vez', w.length === 1 && w[0].tipo === 'decision' && (await libro.tomarAvisosWs()).length === 0);
+    const txt = dc.textoDecision(w[0].trade, dc.linkDecision('https://x.app', t.id, w[0].clave));
+    chequear('el WhatsApp dice profe vs nosotros y lleva el link', /0\.60 de débito/.test(txt) && /1\.15 de débito/.test(txt) && txt.includes(`/api/libros/senales/decidir/${t.id}?c=${w[0].clave}`), txt);
+    const pg = dc.paginaDecision(await libro.verDecision(t.id, pedidas[0].clave), { id: t.id, clave: pedidas[0].clave });
+    chequear('la página del link trae los botones Cerrar ahora y Mantener (POST)', /method="post"/.test(pg) && /Cerrar ahora/.test(pg) && /Mantener abierta/.test(pg));
+    // Tick sin decisión: no cierra solo
+    reloj = new Date('2026-11-19T21:00:00Z');
+    await libro.tick();
+    chequear('sin clic, el tick no la cierra', libro._cargar().trades[0].estado === 'pendiente_decision');
+    // Recordatorio: al día siguiente a las 15:30 ET
+    reloj = new Date('2026-11-20T15:00:00Z'); await libro.tick();
+    chequear('a las 10:00 ET del día siguiente todavía no recuerda', pedidas.length === 1);
+    reloj = new Date('2026-11-20T20:31:00Z'); await libro.tick(); await libro.tick();
+    chequear('a las 15:31 ET recuerda una sola vez (correo + WhatsApp)', pedidas.length === 2 && pedidas[1].recordatorio === true && (await libro.tomarAvisosWs()).length === 1);
+    // Mantener y luego cerrar con el mismo link
+    r = await libro.decidir(t.id, pedidas[0].clave, 'mantener');
+    chequear('Mantener: la posición vuelve a abierta', r.ok && libro._cargar().trades[0].estado === 'abierta', JSON.stringify(r));
+    r = await libro.decidir(t.id, 'a'.repeat(32), 'cerrar');
+    chequear('cerrar con otra clave: rechazado', !r.ok);
+    r = await libro.decidir(t.id, pedidas[0].clave, 'cerrar');
+    t = libro._cargar().trades[0];
+    chequear('Cerrar ahora (aunque sea peor): cierra al precio del momento', r.ok && r.estado === 'CERRADA' && t.estado === 'cerrada' && t.salida.precio === -1.15, JSON.stringify(r));
+    r = await libro.decidir(t.id, pedidas[0].clave, 'cerrar');
+    chequear('el link ya usado no cierra dos veces', !r.ok);
+
+    // SPY: diferencia del 20% → cierra solo, sin preguntar
+    const BPS = '🔔 *Alerta de Opción — Sigma Trade*\n\n📌 *SPY — SPY Nov 23 719/718 Bull Put Spread*\n\n🔴 Venta 1× Put 719 (nov 23, 2026) @ $3.285\n🟢 Compra 1× Put 718 (nov 23, 2026) @ $3.065\n\n💰 *Crédito Neto:* $22.00\n\n📉 *Pérdida máx (riesgo):* $78.00';
+    Q.SPY261123P00719000 = { bid: 3.25, ask: 3.30 }; Q.SPY261123P00718000 = { bid: 3.05, ask: 3.07 };
+    reloj = new Date('2026-11-20T15:10:00Z');
+    await libro.procesarAlerta({ alertId: 'D3', mensajeAt: '2026-11-20T15:09:00Z', texto: BPS, autorJid: '13213201370@s.whatsapp.net' });
+    Q.SPY261123P00719000 = { bid: 0.20, ask: 0.22 }; Q.SPY261123P00718000 = { bid: 0.10, ask: 0.12 };
+    r = await libro.procesarAlerta({ alertId: 'D4', mensajeAt: '2026-11-20T16:00:00Z', texto: '⚠️ CERRADO\n\n✅ SPY Nov 23 719/718 Bull Put Spread @ 54.55%\nCerrado a 0.10 de débito\n\nGanancia de $12 por posición', autorJid: '13213201370@s.whatsapp.net' });
+    chequear('diferencia de 20% (SPY): cierra solo, sin pedir decisión', r.estado === 'CIERRE_DEMO' && pedidas.length === 2, JSON.stringify(r));
     fsS.rmSync(dir, { recursive: true, force: true });
   })());
 }

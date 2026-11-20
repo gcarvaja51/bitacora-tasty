@@ -15,7 +15,9 @@ const path = require('path');
 
 const CON_CLAVE_PROPIA = ['/api/spx/clic', '/api/spx/clic-real', '/api/ironballs/alerta', '/api/ironballs/ale',
   '/api/libros/senales/alerta', '/api/libros/senales/importar', '/api/libros/senales/margen',
-  '/api/libros/senales/reprogramar'];
+  '/api/libros/senales/reprogramar', '/api/libros/senales/avisos-ws'];
+// El link de decisión de un cierre (2026-11-19) lleva su propia clave por trade en el cuerpo del POST.
+const CON_CLAVE_PROPIA_PREFIJO = '/api/libros/senales/decidir/';
 const LECTURA = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 function igual(a, b) {
@@ -56,7 +58,7 @@ function crearPuerta({ dataDir, env = process.env, ahora = () => new Date(), arc
     const p = req.path || '';
     if (LECTURA.has(req.method) || !p.startsWith('/api/')) return next();
     const e = estado();
-    if (e === 'apagada' || CON_CLAVE_PROPIA.includes(p) || traeClave(req)) return next();
+    if (e === 'apagada' || CON_CLAVE_PROPIA.includes(p) || p.startsWith(CON_CLAVE_PROPIA_PREFIJO) || traeClave(req)) return next();
     anotar(req, e === 'cerrada');
     if (e === 'aviso') return next();
     return res.status(401).json({ ok: false, puerta: true, error: 'Esta acción pide la clave de la Bitácora' });

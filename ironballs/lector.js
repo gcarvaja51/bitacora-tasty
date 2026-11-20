@@ -280,6 +280,41 @@ async function pasada() {
   return res;
 }
 
+// ── Cierres a decisión de Guillermo (2026-11-19): el servidor encola el aviso y el lector, que tiene GOWA, lo manda
+// por WhatsApp desde la línea Colombia a su propio chat. Solo el lector que lee Sigma (el PC), para no duplicar.
+let ultimoAvisoWs = 0;
+function numeroAvisos() {
+  if (ENV.AVISO_WS_A) return String(ENV.AVISO_WS_A).replace(/\D/g, '');
+  try { return JSON.parse(fs.readFileSync(path.join(WHATSAPP_DIR, 'cuentas.json'), 'utf8')).colombia.numero.replace(/\D/g, ''); }
+  catch { return null; }
+}
+async function avisosDecision() {
+  if (SECO || !FUENTES.some((f) => f.modo === 'sigma') || Date.now() - ultimoAvisoWs < 55 * 1000) return;
+  if (!calendario.enVentanaET(9 * 60 + 30, 16 * 60 + 15)) return;
+  ultimoAvisoWs = Date.now();
+  const numero = numeroAvisos();
+  if (!numero) return;
+  let lista = [];
+  try {
+    const { status, j } = await enviar('/api/libros/senales/avisos-ws', {});
+    if (status !== 200) return;
+    lista = j.avisos || [];
+  } catch { return; }
+  for (const a of lista) {
+    try {
+      const r = await fetch(`${GOWA}/send/message`, {
+        method: 'POST', headers: { ...cabecerasGowa('colombia'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: `${numero}@s.whatsapp.net`, message: a.texto }), signal: AbortSignal.timeout(30000),
+      });
+      if (!r.ok) throw new Error(`GOWA ${r.status}`);
+      log(`[Decisión] WhatsApp enviado: ${a.id}`);
+    } catch (e) {
+      log(`[Decisión] WhatsApp de ${a.id} falló (${e.message}); se devuelve a la cola`);
+      await enviar('/api/libros/senales/avisos-ws', { devolver: a.seq }).catch(() => {});
+    }
+  }
+}
+
 async function main() {
   estado = cargarEstado();
   log(`Lector Iron Balls + Sigma v3 arrancando — ${SECO ? 'EN SECO (no manda nada)' : `enviando a ${URL_SERVIDOR}`} — grupos: ${FUENTES.map(f => f.grupo).join(', ')}.`);
@@ -292,6 +327,7 @@ async function main() {
     } else {
       latido({ ok: true, dormido: true, motivoCierre: calendario.motivoCierre() || 'fuera_de_horario' });
     }
+    await avisosDecision().catch((e) => log(`[Decisión] ${e.message}`));
     if (args.has('--una-vez')) break;
     // Duerme hasta la fuente activa más rápida (10 s si Operaciones está en su ventana; si no, 2 min).
     const paso = activo ? Math.min(...FUENTES.filter(enSuVentana).map(cadaDe)) : 60 * 1000;

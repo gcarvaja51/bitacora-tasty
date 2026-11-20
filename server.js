@@ -8893,10 +8893,28 @@ function libroIronBalls() {
 }
 
 const { crearLibroSenales } = require('./src/libro_senales');
+const decisionCierre = require('./src/decision_cierre');
+const URL_PUBLICA = (process.env.URL_PUBLICA || 'https://web-production-23473.up.railway.app').replace(/\/$/, '');
 const libroSenales = crearLibroSenales({
   dataDir: DATA_DIR, calendario,
   cotizar: (simbolos, opciones) => cotizarPatasTasty(simbolos, opciones),
   dryRun: (cuerpo) => ejecutorTasty.dryRun(cuerpo),
+  // Cierre a decisión de Guillermo (2026-11-19): diferencia > 30% con el cierre del profe → correo + ntfy con el link.
+  // El WhatsApp lo manda el lector del PC desde la cola (/api/libros/senales/avisos-ws).
+  pedirDecision: async (t, { clave, recordatorio }) => {
+    const link = decisionCierre.linkDecision(URL_PUBLICA, t.id, clave);
+    const correo = decisionCierre.correoDecision(t, link, { recordatorio });
+    fetch('https://ntfy.sh/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic: 'bitacora_gcarvaja51', title: correo.asunto, priority: 5, tags: ['question'],
+                             message: decisionCierre.textoDecision(t, link, { recordatorio }), click: link,
+                             actions: [{ action: 'view', label: 'Decidir', url: link }] }),
+    }).catch(() => {});
+    try {
+      const r = await decisionCierre.enviarCorreo(correo);
+      console.log(`[LIBRO_SENALES] decisión ${t.id} ${t.activo}: correo ${r.ok ? 'enviado' : `NO enviado (${r.motivo})`}`);
+    } catch (e) { console.error(`[LIBRO_SENALES] decisión ${t.id}: correo falló: ${e.message}`); }
+  },
   // Rolls/ajustes en foto o texto libre (2026-11-18): los lee Claude y el libro los aplica a la posición del demo.
   interpretar: async ({ texto, imagenB64, mime }) => {
     const sg = require('./src/sigma_gestion');
@@ -8954,6 +8972,35 @@ app.post('/api/libros/senales/importar', async (req, res) => {
   if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
   try { res.json(await libroSenales.importarDemoJson(req.body?.demo || {}, req.body?.senales || {})); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+// ── Cierres a decisión de Guillermo (2026-11-19) — ver src/decision_cierre.js ──
+// El link del correo/WhatsApp: GET muestra la página (nunca ejecuta), POST con la clave del trade ejecuta.
+// Fuera de /api/ a propósito: la clave propia de cada trade hace de puerta.
+app.get('/api/libros/senales/decidir/:id', async (req, res) => {
+  try {
+    const v = await libroSenales.verDecision(String(req.params.id), String(req.query.c || ''));
+    res.status(v.ok ? 200 : 404).type('html').send(decisionCierre.paginaDecision(v, { id: String(req.params.id), clave: String(req.query.c || '') }));
+  } catch (e) { res.status(500).type('html').send(decisionCierre.paginaResultado({ ok: false, motivo: e.message })); }
+});
+app.post('/api/libros/senales/decidir/:id', async (req, res) => {
+  try {
+    const r = await libroSenales.decidir(String(req.params.id), String(req.body?.c || ''), String(req.body?.accion || ''));
+    console.log(`[LIBRO_SENALES] decisión de Guillermo sobre ${req.params.id}: ${req.body?.accion} → ${r.estado || r.motivo}`);
+    res.status(r.ok ? 200 : 400).type('html').send(decisionCierre.paginaResultado(r));
+  } catch (e) { res.status(500).type('html').send(decisionCierre.paginaResultado({ ok: false, motivo: e.message })); }
+});
+// Cola de WhatsApp para el lector del PC: toma los avisos pendientes (ya con el texto y el link) y devuelve los que fallaron.
+app.post('/api/libros/senales/avisos-ws', async (req, res) => {
+  const v = claveLectorValida(req);
+  if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
+  try {
+    if (req.body?.devolver != null) return res.json(await libroSenales.devolverAvisoWs(req.body.devolver));
+    const avisos = (await libroSenales.tomarAvisosWs()).map((a) => ({
+      seq: a.seq, id: a.trade.id,
+      texto: decisionCierre.textoDecision(a.trade, decisionCierre.linkDecision(URL_PUBLICA, a.trade.id, a.clave), { recordatorio: a.tipo === 'recordatorio' }),
+    }));
+    res.json({ ok: true, avisos });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 app.get('/api/libros/senales', async (req, res) => {
   try { res.json(await libroSenales.resumen({ marcar: req.query.marcar !== '0' })); }

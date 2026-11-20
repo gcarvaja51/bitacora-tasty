@@ -45,29 +45,35 @@ function esTercerViernes(y, m, d) {
   return dow === 5 && d >= 15 && d <= 21;
 }
 
-function raizOpcion(activo, y, m, d) {
-  if (activo === 'SPX') return esTercerViernes(y, m, d) ? 'SPX' : 'SPXW';
-  if (activo === 'NDX') return esTercerViernes(y, m, d) ? 'NDX' : 'NDXP';
-  if (activo === 'RUT') return esTercerViernes(y, m, d) ? 'RUT' : 'RUTW';
-  return activo;
+// `liquida` = 'AM' | 'PM' | null, lo que diga la alerta. Manda sobre el calendario (19-nov-2026: el IC de Luis decía
+// "Vencimiento PM" con fecha del tercer viernes y el demo cotizó el SPX mensual AM, otro contrato: −$144 contra +$85).
+function raizOpcion(activo, y, m, d, liquida = null) {
+  const RAICES = { SPX: ['SPX', 'SPXW'], NDX: ['NDX', 'NDXP'], RUT: ['RUT', 'RUTW'] };
+  const r = RAICES[activo];
+  if (!r) return activo;
+  if (liquida === 'PM') return r[1];
+  if (liquida === 'AM') return r[0];
+  return esTercerViernes(y, m, d) ? r[0] : r[1];
 }
 
 // Símbolo en el formato que usa el servidor (Tradier/OCC sin espacios): SPXW261218P07500000
-function simbolo(activo, y, m, d, tipo, strike) {
-  const r = raizOpcion(activo, y, m, d);
+function simbolo(activo, y, m, d, tipo, strike, liquida = null) {
+  const r = raizOpcion(activo, y, m, d, liquida);
   const fecha = `${String(y).slice(2)}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
   return `${r}${fecha}${tipo}${String(Math.round(strike * 1000)).padStart(8, '0')}`;
 }
 
 // "🔴 Sell 1× Put 7500 (Dec 18, 2026) @ $132.45" | "🟢 Compra 1× Call 279 (nov 23, 2026) @ $1.135"
 // Vencimientos mensuales AM (SPX/NDX/RUT, tercer viernes): "(dic 18 AM, 2026)" — 18-nov-2026 se perdió un IC de Luis por esto.
-const RE_PATA = /(Sell|Buy|Venta|Compra)\s+(\d+)\s*[×x]\s*(Put|Call)\s+([\d.]+)\s*\(\s*([A-Za-zÁÉÍÓÚáéíóú]{3})[a-zé]*\.?\s+(\d{1,2})(?:\s*(?:AM|PM))?,\s*(\d{4})\s*\)\s*@\s*\$?\s*([\d.,]+)/gi;
+const RE_PATA = /(Sell|Buy|Venta|Compra)\s+(\d+)\s*[×x]\s*(Put|Call)\s+([\d.]+)\s*\(\s*([A-Za-zÁÉÍÓÚáéíóú]{3})[a-zé]*\.?\s+(\d{1,2})(?:\s*(AM|PM))?,\s*(\d{4})\s*\)\s*@\s*\$?\s*([\d.,]+)/gi;
 
 function parsearApertura(texto, base) {
   const activoM = texto.match(/📌\s*\*?\s*([A-Z][A-Z0-9.]{0,6})\s*[—–-]\s*([^*\n]+)/);
   const activo = activoM ? activoM[1] : null;
   const estrategia = activoM ? activoM[2].trim() : null;
   const patas = [];
+  const venc = texto.match(/Vencimiento\s*\*?\s*(AM|PM)\b/i);
+  const liquidaAlerta = venc ? venc[1].toUpperCase() : null;
   let m;
   RE_PATA.lastIndex = 0;
   while ((m = RE_PATA.exec(texto))) {
@@ -76,10 +82,12 @@ function parsearApertura(texto, base) {
     const tipo = /^put$/i.test(m[3]) ? 'P' : 'C';
     const strike = num(m[4]);
     const mes = MESES[sinTildes(m[5]).toLowerCase()];
-    const dia = Number(m[6]), anio = Number(m[7]);
+    const dia = Number(m[6]), anio = Number(m[8]);
+    // AM/PM: el de la pata; si no trae, el encabezado "Vencimiento PM" / "Vencimiento AM" de la alerta.
+    const liquida = m[7] ? m[7].toUpperCase() : (liquidaAlerta || null);
     if (!activo || !mes || strike == null) continue;
-    patas.push({ sym: simbolo(activo, anio, mes, dia, tipo, strike), q, tipo, strike,
-                 vto: `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`, precio: num(m[8]) });
+    patas.push({ sym: simbolo(activo, anio, mes, dia, tipo, strike, liquida), q, tipo, strike,
+                 vto: `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`, precio: num(m[9]) });
   }
   const cred = texto.match(/(?:Net Credit|Cr[eé]dito Neto)\s*:?\**\s*:?\s*\$\s*([\d.,]+)/i);
   const deb = texto.match(/(?:Net Debit|D[eé]bito Neto)\s*:?\**\s*:?\s*\$\s*([\d.,]+)/i);
