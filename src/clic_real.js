@@ -30,7 +30,7 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 const limCred = (ancho) => Math.round(0.24 * (ancho || 5) * 100) / 100;
 const limDeb  = (ancho) => Math.round(0.76 * (ancho || 5) * 100) / 100;
 
-function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, avisar = () => {} }) {
+function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, avisar = () => {}, anchoClic = () => 10 }) {
   const ARCHIVO = path.join(dataDir, 'clic_real.json');
   const modo = () => String(process.env.CLIC_REAL_MODO || 'apagado').toLowerCase();
   // Real o demo por trade (Guillermo 2026-10-22: "un botón, última validación antes de enviar el trade, que me pregunte
@@ -255,14 +255,14 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     return l.length ? mediana(l.map((x) => x.off)) : null;
   }
 
-  // Cotizacion estable para los PRECIOS QUE VE GUILLERMO (2026-11-05): mediana de `n` lecturas separadas ~300 ms.
+  // Cotizacion estable para los PRECIOS QUE VE GUILLERMO (2026-11-05): mediana de `n` lecturas separadas ~150 ms.
   // Con una sola lectura la ventana ofrecio el Bear Put protegido 7390/7385 a 1.25 y el ATM 7385/7380 a 3.80 (al
   // reves de lo posible); al ejecutar se recotizo a 2.40 y luego 2.70 y pidio validar dos veces.
   async function cotizarEstable(legs, n = 3) {
     const l = [];
     for (let i = 0; i < n; i++) {
       try { l.push(await cotizar(legs)); } catch (e) { if (i === n - 1 && !l.length) throw e; }
-      if (i < n - 1) await dormir(300);
+      if (i < n - 1) await dormir(150);   // 300 -> 150 ms (2026-11-20, velocidad del clic)
     }
     const med = (k) => +mediana(l.map((q) => q[k])).toFixed(2);
     const ult = l[l.length - 1];
@@ -318,7 +318,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
   const leerOrden = async (id) => (await tt._req(`/accounts/${cuenta()}/orders/${id}`))?.data || {};
 
   // medio de la estructura para el fill simulado, en precio positivo (débito pagado / crédito cobrado): mediana de 4
-  // lecturas en ~1,2 s, más el medio del preview al abrir y las lecturas de los últimos 20 s de la tabla al cerrar.
+  // lecturas en ~0,6 s, más el medio del preview al abrir y las lecturas de los últimos 20 s de la tabla al cerrar.
   async function medioDemo(rec, abrir) {
     const n = rec.contratos || 1;
     const tope = rec.ancho || (rec.riesgoMaxUsd != null && rec.gananciaMaxUsd != null ? (rec.riesgoMaxUsd + rec.gananciaMaxUsd) / (100 * n) : null);
@@ -326,7 +326,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const crudas = [];
     for (let i = 0; i < 4; i++) {
       try { const q = await cotizar(rec.legs); crudas.push({ q, t: teoricoSincronizado(q, rec.vence) }); } catch (e) { /* una lectura menos */ }
-      if (i < 3) await dormir(400);
+      if (i < 3) await dormir(200);      // 400 -> 200 ms (2026-11-20, velocidad del clic)
     }
     // 2026-11-06: una lectura con las patas desfasadas (> 1 s) y cuyo medio se aleja más de la tolerancia del teórico
     // sincronizado + sesgo trae una pata atrasada -> vale el teórico + sesgo. Sin sesgo medido, solo se corrige si el
@@ -474,7 +474,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       const atmN = Math.round(spxN / 5) * 5;
       const alc = direccion === 'BULLISH';
       out = { signal: { strategy: alc ? 'BULL_CALL_SPREAD' : 'BEAR_PUT_SPREAD',
-                        strikes: { expiry: vence, shortStrike: atmN, longStrike: alc ? atmN - 5 : atmN + 5 } },
+                        strikes: { expiry: vence, shortStrike: atmN, longStrike: alc ? atmN - anchoClic() : atmN + anchoClic() } },   // 2026-11-20: ancho del clic (10), era 5 fijo
               ctx: { spxPrice: spxN } };
     } else {
       var _ts = Date.now();
@@ -488,7 +488,7 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     const k = sig.strikes;
     const exp = k.expiry.replace(/-/g, '').slice(2);
     const occ = (strike) => `SPXW  ${exp}${a.tipo}${String(Math.round(strike * 1000)).padStart(8, '0')}`;
-    const ancho = Math.abs(k.shortStrike - k.longStrike) || 5;
+    const ancho = Math.abs(k.shortStrike - k.longStrike) || anchoClic();
     // Dos opciones para la pata VENDIDA (Guillermo 2026-10-19): "at the money" (el strike mas cercano al precio) o
     // "a 5 puntos del precio" del lado fuera del dinero (calls arriba, puts abajo): mas protegido, menos credito /
     // debito mas barato. La estructura (credito o debito) la sigue eligiendo la Bitacora; la comprada va a +-ancho.
@@ -498,7 +498,10 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     // en un CREDITO, alejar la vendida fuera del dinero protege; en un DEBITO hacia lo contrario (Bear Put 7400/7395
     // con el SPX en 7400: mas barato pero necesita mas caida). En el debito la opcion protegida va 5 pts DENTRO del
     // dinero (Bear Put 7410/7405, Bull Call 7390/7395): cuesta mas y gana menos, pero gana con el SPX quieto.
-    const otm = (a.tipo === 'C' ? 5 : -5) * (a.credito ? 1 : -1);
+    // 2026-11-20 (Guillermo: "todo lo que tenías para spread de 5 puntos debes ajustarlo a 10"): la opción protegida se
+    // aleja del precio lo mismo que el ancho (5 pts con verticales de 5, 10 con los de 10), redondeado a la rejilla de 5.
+    const dist = Math.max(5, Math.round(ancho / 5) * 5);
+    const otm = (a.tipo === 'C' ? dist : -dist) * (a.credito ? 1 : -1);
     const lejos = (corto) => (a.tipo === 'C') === a.credito ? corto + ancho : corto - ancho;   // la comprada
     const armar = async (clave, etiqueta, corto) => {
       const largo = lejos(corto);
@@ -530,11 +533,11 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
     };
     // las dos en paralelo (2026-10-20, meta de 5 s del clic a la orden): cada una cotiza y hace su dry-run
     const _tv = Date.now();
-    const variantes = await Promise.all([armar('ATM', 'At the money', atm), armar('OTM5', 'A 5 puntos del precio', atm + otm)]);
+    const variantes = await Promise.all([armar('ATM', 'At the money', atm), armar('OTM5', `A ${dist} puntos del precio`, atm + otm)]);
     const tiempos = { ...(out.diag || {}), senalMs: typeof _senalMs === 'number' ? _senalMs : null, variantesMs: Date.now() - _tv };
     for (const [kk, v] of previews) if (Date.now() - v.creado > 6 * 3600 * 1000) previews.delete(kk);
     if (variantes.every((v) => v.noCumple)) {
-      return { ok: false, error: `ninguna opcion cumple las reglas del clic (ATM: ${variantes[0].noCumple}; a 5 pts: ${variantes[1].noCumple})` };
+      return { ok: false, error: `ninguna opcion cumple las reglas del clic (ATM: ${variantes[0].noCumple}; a ${dist} pts: ${variantes[1].noCumple})` };
     }
     const p = variantes.find((v) => !v.noCumple);
     return { ok: true, modo: modo(), modosPermitidos: permitidos(), cuenta: cuenta(), preview: p, variantes, venceEnSeg: null, tiempos, metaDia: metaDia() };
@@ -608,8 +611,11 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       const nat = p.credito ? r05(-q.compraNat, false) : r05(q.compraNat, true);
       const peor = p.credito ? p.precioMedio - medio : medio - p.precioMedio;
       // 2026-10-22 (Guillermo: "fue un poco lento"): un IB de ~$16 se movió 0.20 en 6 s y pidió segunda confirmación.
-      // En el IB la tolerancia escala con el crédito (2 %); en los verticales sigue fija (CLIC_REAL_TOL_PTS, 0.15)
-      const tol = p.estructura === 'IB' ? Math.max(tolPts(), r05(0.02 * p.precioMedio, false)) : tolPts();
+      // En el IB la tolerancia escala con el crédito (2 %). En los verticales escala con el ancho (2026-11-20, Guillermo:
+      // "debemos ser más rápidos"): 0.15 con 5 pts, 0.30 con 10. Con el tope fijo de 0.15 un vertical de 10 (prima de
+      // $5-6, se mueve el doble) pidió validar tres veces seguidas a las 15:29 y al final no entró.
+      const tol = p.estructura === 'IB' ? Math.max(tolPts(), r05(0.02 * p.precioMedio, false))
+                                        : r05(tolPts() * (p.ancho || 5) / 5, false);
       if (peor > tol + 1e-9) {
         // 2026-10-19: en un movimiento rapido el spread se encarecio 0.35 en 7 s y la entrada se perdio. En vez de
         // rechazar seco, se devuelve un preview nuevo con el precio de ahora para que Guillermo decida otra vez.

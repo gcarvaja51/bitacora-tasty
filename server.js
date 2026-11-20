@@ -7908,9 +7908,10 @@ async function processDirectionalEntry(direction, meta = {}) {
     // contratos con score >=90. La funcion queda sin uso pero no se borra, por si
     // se quiere volver a este esquema mas adelante.
     sel.contracts = 1;
-    // CLIC_TV (2026-10-18, decision de Guillermo): ancho fijo de 5 puntos ($500 de riesgo maximo). Se fija aca, antes
-    // de maxRisk, para que el riesgo registrado y los strikes usen el mismo ancho. El direccional automatico no cambia.
-    if (forzado) sel.spreadWidth = (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).clicSpreadWidth || 5;
+    // CLIC_TV (2026-10-18, decision de Guillermo): ancho fijo del clic, 5 puntos hasta el 2026-11-20 y 10 desde entonces
+    // ($1.000 de riesgo maximo). Se fija aca, antes de maxRisk, para que el riesgo registrado y los strikes usen el mismo
+    // ancho. El direccional automatico no cambia.
+    if (forzado) sel.spreadWidth = (spxConfig.trading || SPX_CONFIG_DEFAULTS.trading).clicSpreadWidth || 10;
     sel.maxRisk   = sel.contracts * sel.spreadWidth * 100;
 
     // Parámetros de trading desde config
@@ -9209,6 +9210,8 @@ async function procesarAle({ alertId, mensajeAt, texto, imagenB64, mime, autor, 
 const { crearClicReal } = require('./src/clic_real');
 const clicReal = crearClicReal({
   tt, dataDir: DATA_DIR, horaETmin, isMarketHours,
+  // ancho de los verticales del clic (2026-11-20: 10 pts), el mismo que usa processDirectionalEntry
+  anchoClic: () => (loadSPXConfig().trading || SPX_CONFIG_DEFAULTS.trading).clicSpreadWidth || 10,
   obtenerSenal: async (direccion) => {
     const out = {};
     await processDirectionalEntry(direccion, { source: 'CLIC_REAL', timeframe: 'clic', forzado: true, soloPreview: true, familia: 'CLIC_REAL', out });
