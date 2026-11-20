@@ -9002,6 +9002,17 @@ app.post('/api/libros/senales/avisos-ws', async (req, res) => {
     res.json({ ok: true, avisos });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+// Prueba del correo de decisión (2026-11-19): manda un correo de muestra, sin tocar el libro. Con la clave del lector.
+app.post('/api/libros/senales/prueba-correo', async (req, res) => {
+  const v = claveLectorValida(req);
+  if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
+  const t = { id: 'PRUEBA', profe: 'Prueba', activo: 'SPX', estrategia: 'Iron Condor (correo de prueba)',
+              decision: { profe: 1.0, nuestro: 0.5, pct: 0.5, pnlProfeUsd: 100, pnlNuestroEstimado: 50, pedidaAt: new Date().toISOString() } };
+  const correo = decisionCierre.correoDecision(t, decisionCierre.linkDecision(URL_PUBLICA, 'PRUEBA', '0'.repeat(32)));
+  correo.asunto = 'PRUEBA — ' + correo.asunto;
+  try { res.json(await decisionCierre.enviarCorreo(correo)); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 app.get('/api/libros/senales', async (req, res) => {
   try { res.json(await libroSenales.resumen({ marcar: req.query.marcar !== '0' })); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }

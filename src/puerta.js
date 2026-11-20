@@ -15,7 +15,8 @@ const path = require('path');
 
 const CON_CLAVE_PROPIA = ['/api/spx/clic', '/api/spx/clic-real', '/api/ironballs/alerta', '/api/ironballs/ale',
   '/api/libros/senales/alerta', '/api/libros/senales/importar', '/api/libros/senales/margen',
-  '/api/libros/senales/reprogramar', '/api/libros/senales/avisos-ws'];
+  '/api/libros/senales/reprogramar', '/api/libros/senales/avisos-ws',
+  '/api/libros/senales/prueba-correo'];
 // El link de decisión de un cierre (2026-11-19) lleva su propia clave por trade en el cuerpo del POST.
 const CON_CLAVE_PROPIA_PREFIJO = '/api/libros/senales/decidir/';
 const LECTURA = new Set(['GET', 'HEAD', 'OPTIONS']);
