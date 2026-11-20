@@ -3,7 +3,7 @@
 //
 // "hagamos el mismo bot pero ahora vamos con valores reales y dinero real, vamos a hacerlo hacia tastytrade".
 // Mismo camino que CLIC_TV (estructura y strikes de processDirectionalEntry sobre la cadena real de TastyTrade,
-// ancho 5, credito >= 1.20 / debito <= 3.80, 1 contrato), pero la orden sale a la cuenta REAL en dos pasos:
+// ancho 10, credito >= 2.40 / debito <= 7.60 desde 2026-11-20; antes 5 y 1.20 / 3.80, 1 contrato), pero la orden sale a la cuenta REAL en dos pasos:
 //   1. preview  -> elige el vertical, cotiza y hace el dry-run en TastyTrade (no manda nada)
 //   2. ejecutar -> solo despues de que Guillermo lo aprueba en el PC; recotiza y, si el precio no se movio de mas,
 //                  manda una orden LIMITE al medio y la persigue de a 0.05 hasta el natural; si no llena, la cancela.
@@ -25,6 +25,10 @@ const TICK = 0.05;
 const r05 = (x, arriba) => +((arriba ? Math.ceil(x / TICK - 1e-9) : Math.floor(x / TICK + 1e-9)) * TICK).toFixed(2);
 const fechaET = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d);
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Limites del clic proporcionales al ancho del vertical (2026-11-20): 24 % / 76 % = 1.20 / 3.80 con 5 pts, 2.40 / 7.60 con 10.
+const limCred = (ancho) => Math.round(0.24 * (ancho || 5) * 100) / 100;
+const limDeb  = (ancho) => Math.round(0.76 * (ancho || 5) * 100) / 100;
 
 function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, avisar = () => {} }) {
   const ARCHIVO = path.join(dataDir, 'clic_real.json');
@@ -511,9 +515,11 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       };
       v.riesgoMaxUsd = Math.round((v.credito ? ancho - precioMedio : precioMedio) * 100 * nC);
       v.gananciaMaxUsd = Math.round((v.credito ? precioMedio : ancho - precioMedio) * 100 * nC);
-      // mismas reglas del clic: credito >= 1.20 / debito <= 3.80; si no cumple, la opcion no se ofrece
-      if (v.credito ? precioMedio < 1.20 - 1e-9 : precioMedio > 3.80 + 1e-9) {
-        v.noCumple = v.credito ? `crédito $${precioMedio.toFixed(2)} < $1.20` : `débito $${precioMedio.toFixed(2)} > $3.80`;
+      // mismas reglas del clic: credito >= 24 % del ancho / debito <= 76 % del ancho (1.20 / 3.80 con 5 pts; 2.40 / 7.60
+      // con 10 pts, Guillermo 2026-11-20); si no cumple, la opcion no se ofrece
+      if (v.credito ? precioMedio < limCred(ancho) - 1e-9 : precioMedio > limDeb(ancho) + 1e-9) {
+        v.noCumple = v.credito ? `crédito $${precioMedio.toFixed(2)} < $${limCred(ancho).toFixed(2)}`
+                               : `débito $${precioMedio.toFixed(2)} > $${limDeb(ancho).toFixed(2)}`;
       }
       if (!v.noCumple && v.riesgoMaxUsd > cuentaDemo().disponible) {
         if (soloDemo()) v.noCumple = 'no cabe en el saldo de la cuenta demo';
@@ -607,9 +613,9 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
       if (peor > tol + 1e-9) {
         // 2026-10-19: en un movimiento rapido el spread se encarecio 0.35 en 7 s y la entrada se perdio. En vez de
         // rechazar seco, se devuelve un preview nuevo con el precio de ahora para que Guillermo decida otra vez.
-        const fuera = p.estructura === 'IB' ? false : p.credito ? medio < 1.20 - 1e-9 : medio > 3.80 + 1e-9;
+        const fuera = p.estructura === 'IB' ? false : p.credito ? medio < limCred(p.ancho) - 1e-9 : medio > limDeb(p.ancho) + 1e-9;
         const msg = `el precio se movio ${peor.toFixed(2)} pts en contra desde el preview (${p.precioMedio} -> ${medio})`;
-        if (fuera) return { ok: false, error: `${msg} y quedo fuera de los limites del clic (${p.credito ? 'credito < 1.20' : 'debito > 3.80'})` };
+        if (fuera) return { ok: false, error: `${msg} y quedo fuera de los limites del clic (${p.credito ? 'credito < ' + limCred(p.ancho).toFixed(2) : 'debito > ' + limDeb(p.ancho).toFixed(2)})` };
         const p2 = { ...p, id: 'pv-' + Date.now(), creado: Date.now(), precioAnterior: p.precioMedio, precioMedio: medio, natural: nat,
                      deltaNeto: q.deltaNeto };
         p2.riesgoMaxUsd = Math.round((p2.credito ? p2.ancho - medio : medio) * 100 * (p2.contratos || 1));
@@ -618,14 +624,14 @@ function crearClicReal({ tt, dataDir, horaETmin, isMarketHours, obtenerSenal, av
         return { ok: false, recotizado: true, error: msg, preview: p2, modo: m, modosPermitidos: permitidos(), cuenta: cuenta() };
       }
       // escalera: medio, medio+0.05, ... hasta el natural, sin pasar de los limites del clic
-      const tope = p.estructura === 'IB' ? (p.credito ? 0.05 : 1e9) : p.credito ? 1.20 : 3.80;
+      const tope = p.estructura === 'IB' ? (p.credito ? 0.05 : 1e9) : p.credito ? limCred(p.ancho) : limDeb(p.ancho);
       const precios = [];
       for (let x = medio; p.credito ? x >= nat - 1e-9 : x <= nat + 1e-9; x = +(x + (p.credito ? -TICK : TICK)).toFixed(2)) {
         if (p.credito ? x < tope - 1e-9 : x > tope + 1e-9) break;
         precios.push(x);
         if (precios.length >= 4) break;
       }
-      if (!precios.length) return { ok: false, error: `fuera de los limites del clic (${p.credito ? 'credito < 1.20' : 'debito > 3.80'})` };
+      if (!precios.length) return { ok: false, error: `fuera de los limites del clic (${p.credito ? 'credito < ' + limCred(p.ancho).toFixed(2) : 'debito > ' + limDeb(p.ancho).toFixed(2)})` };
       if (m === 'dryrun') {
         const riesgo = Math.round((p.credito ? p.ancho - precios[0] : precios[0]) * 100 * (p.contratos || 1));
         const disp = cuentaDemo().disponible;

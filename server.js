@@ -4889,10 +4889,10 @@ const SPX_CONFIG_DEFAULTS = {
     tpPct:       25,      // Take Profit % del crédito (25% → 94% prob. éxito, playbook Alejandro)
     slMult:      2.0,     // Stop Loss multiplicador del crédito (rango playbook: 1.5x-2x)
     spreadWidth: 10,      // Puntos del spread (calculado automático)
-    clicSpreadWidth: 5,   // Ancho de los spreads abiertos con clic en TradingView (CLIC_TV, 2026-10-18)
-    clicCreditoMin:  1.20, // CLIC_TV en credito: minimo $1.20/contrato; si no, se acerca el delta hasta clicDeltaMax
+    clicSpreadWidth: 10,  // Ancho de los spreads abiertos con clic en TradingView (CLIC_TV, 2026-10-18; 5 -> 10 el 2026-11-20, decisión de Guillermo)
+    clicCreditoMin:  2.40, // CLIC_TV en credito: minimo $2.40/contrato (1.20 -> 2.40 el 2026-11-20, con el ancho de 10); si no, se acerca el delta hasta clicDeltaMax
     clicDeltaMax:    0.50, // o no se entra
-    clicDebitoMax:   3.80, // CLIC_TV en debito: maximo $3.80/contrato (espejo del credito $1.20/5); si no, se corre fuera del dinero
+    clicDebitoMax:   7.60, // CLIC_TV en debito: maximo $7.60/contrato (espejo del credito $2.40/10; 3.80 -> 7.60 el 2026-11-20); si no, se corre fuera del dinero
     clicDeltaMinDebito: 0.30, // mientras la pata comprada conserve este delta, o no se entra
     // Tolerancia de deslizamiento al ABRIR (2026-08-13). Cuanto se acepta
     // perder contra el premium que estimo la señal: en credito el piso es
@@ -7955,7 +7955,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     // objetivo no lo da, se acerca la pata corta al precio de 0.01 en 0.01 hasta clicDeltaMax; si ni asi alcanza, no
     // se entra. Se mide sobre la cadena real de TastyTrade, la misma que fija el P&L oficial (no sobre el sandbox).
     if (forzado && sel.isCredit) {
-      const minCred  = tradingCfg.clicCreditoMin ?? 1.20;
+      const minCred  = tradingCfg.clicCreditoMin ?? 2.40;
       const deltaMax = tradingCfg.clicDeltaMax ?? 0.50;
       for (let d = targetDelta; (!strikes || strikes.premium < minCred) && d < deltaMax - 1e-9; ) {
         d = +(d + 0.01).toFixed(2);
@@ -7975,7 +7975,7 @@ async function processDirectionalEntry(direction, meta = {}) {
     // ($380), espejo exacto del credito minimo de $1.20 en ancho 5: los dos ganan >= $120 arriesgando <= $380. Si el ATM cuesta mas, el spread se corre
     // fuera del dinero de 5 en 5 puntos mientras la pata comprada conserve delta >= clicDeltaMinDebito; si no, no se entra.
     if (forzado && !sel.isCredit && strikes) {
-      const maxDeb   = tradingCfg.clicDebitoMax ?? 3.80;
+      const maxDeb   = tradingCfg.clicDebitoMax ?? 7.60;
       const deltaMin = tradingCfg.clicDeltaMinDebito ?? 0.30;
       const esCall   = sel.strategy === 'BULL_CALL_SPREAD';
       const lista    = ((chainData.expirations || []).find(e => e.expiry === strikes.expiry) || {}).strikes || [];
