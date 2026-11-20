@@ -67,9 +67,14 @@ const chart = LightweightCharts.createChart($('chart'), {
   rightPriceScale: { visible: true, borderColor: '#2a2a2a' },
   timeScale: { borderColor: '#2a2a2a', timeVisible: true, secondsVisible: false },
   crosshair: { mode: 0 },
-  localization: { priceFormatter: (p) => p.toFixed(2) },
+  // un solo formateador: los valores de HIRO son millones/miles de millones; el SPX va con 2 decimales
+  localization: { priceFormatter: (p) => (Math.abs(p) >= 100000 ? fmtB(p) : p.toFixed(2)) },
 });
-const sSpx = chart.addLineSeries({ priceScaleId: 'left', color: '#e8e8e8', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: '' });
+let nivelesSpx = [];   // la escala del SPX incluye los niveles cercanos (cierre previo, muros), como HIRO
+const sSpx = chart.addLineSeries({ priceScaleId: 'left', color: '#e8e8e8', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: '',
+  autoscaleInfoProvider: (base) => { const r = base(); if (!r) return r; const ref = (r.priceRange.minValue + r.priceRange.maxValue) / 2;
+    const cerca = nivelesSpx.filter((v) => Math.abs(v - ref) < 320);
+    return { priceRange: { minValue: Math.min(r.priceRange.minValue, ...cerca) - 5, maxValue: Math.max(r.priceRange.maxValue, ...cerca) + 5 } }; } });
 const fmtSerie = { type: 'custom', formatter: fmtB, minMove: 1 };
 const sCalls = chart.addLineSeries({ priceScaleId: 'right', color: '#3b82f6', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 const sPuts = chart.addLineSeries({ priceScaleId: 'right', color: '#f07a2a', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
@@ -96,7 +101,11 @@ async function cargar() {
   const f = r.fecha;
   $('fecha').textContent = new Date(f + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   const filas = r.filas.filter((x) => x.spx);
-  sSpx.setData(filas.map((x) => ({ time: ts(f, x.hora), value: x.spx })));
+  // eje de tiempo con la sesión completa (9:30–16:00) aunque todavía no haya datos, como HIRO
+  const conDato = new Set(filas.map((x) => x.hora)), vacios = [];
+  for (let m = 570; m <= 960; m++) { const hm = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); if (!conDato.has(hm)) vacios.push({ time: ts(f, hm) }); }
+  const conVacios = (arr) => [...arr, ...vacios].sort((a, b) => a.time - b.time);
+  sSpx.setData(conVacios(filas.map((x) => ({ time: ts(f, x.hora), value: x.spx }))));
   sCalls.setData(filas.map((x) => ({ time: ts(f, x.hora), value: x.calls })));
   sPuts.setData(filas.map((x) => ({ time: ts(f, x.hora), value: x.puts })));
   sTotal.setData(filas.map((x) => ({ time: ts(f, x.hora), value: x.total })));
@@ -106,6 +115,7 @@ async function cargar() {
     if (r.cierrePrevio) { const ch = u.spx - r.cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / r.cierrePrevio * 100).toFixed(2)}%)</span>`; }
     $('tC').textContent = fmtB(u.calls); $('tP').textContent = fmtB(u.puts);
     if (primera) { chart.timeScale().fitContent(); primera = false; }
+    chart.priceScale('left').applyOptions({ autoScale: true });
   }
   const e = r.estado || {};
   $('punto').classList.toggle('vivo', !!e.conectado);
@@ -118,7 +128,8 @@ async function cargar() {
 async function niveles() {
   const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null);
   lineas.forEach((l) => sSpx.removePriceLine(l)); lineas = [];
-  const add = (precio, titulo, color) => { if (precio) lineas.push(sSpx.createPriceLine({ price: +precio, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: `${titulo} $${(+precio).toLocaleString('en-US')}` })); };
+  nivelesSpx = [];
+  const add = (precio, titulo, color) => { if (precio) nivelesSpx.push(+precio); if (precio) lineas.push(sSpx.createPriceLine({ price: +precio, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: `${titulo} $${(+precio).toLocaleString('en-US')}` })); };
   add(window.__cierrePrevio, 'Last Closing', '#8a8a8a');
   if (n && n.ok) {
     add(n.callWall, 'Call Wall', '#2e8b57');
