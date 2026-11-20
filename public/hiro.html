@@ -133,7 +133,7 @@ const espejo = (desde, hacia) => desde.timeScale().subscribeVisibleLogicalRangeC
 espejo(gP, gH); espejo(gH, gP);
 
 // Cursor sincronizado: al mover el mouse en una sección, la otra marca la misma hora (línea vertical + valor)
-const serieH = () => (!precioAbierta ? sSpxH : modo === 'pc' ? sCalls : sTotal);
+const serieH = () => (modo === 'pc' ? sCalls : sTotal);
 const serieP = () => (tipoPrecio === 'velas' ? sVelas : sLinea);
 const valor = (d) => (d ? (d.close ?? d.value) : undefined);
 let cruzando = false;
@@ -181,8 +181,9 @@ function aplicarVista() {
   sVelas.applyOptions({ visible: tipoPrecio === 'velas' }); sLinea.applyOptions({ visible: tipoPrecio === 'linea' });
   $('zona').classList.toggle('cerrada', !precioAbierta);
   // con la sección de precio cerrada, el SPX se dibuja sobre el HIRO (eje izquierdo), como el original
-  sSpxH.applyOptions({ visible: !precioAbierta }); gH.applyOptions({ leftPriceScale: { visible: !precioAbierta } });
-  $('rotHiro').textContent = 'HEDGING IMPACT · ' + (modo === 'pc' ? 'PUT/CALL' : 'TOTAL') + (precioAbierta ? '' : ' · SPX (blanco)');
+  // 20-nov: el SPX (línea blanca, eje izquierdo) y sus niveles van SIEMPRE también sobre el HIRO, como el original
+  sSpxH.applyOptions({ visible: true }); gH.applyOptions({ leftPriceScale: { visible: true } });
+  $('rotHiro').textContent = 'HEDGING IMPACT · ' + (modo === 'pc' ? 'PUT/CALL' : 'TOTAL') + ' · SPX (blanco)';
   requestAnimationFrame(medir);
   dibujarNiveles();
 }
@@ -260,9 +261,10 @@ async function cargar() {
 let lineas = [];
 function dibujarNiveles() {
   lineas.forEach(([s, l]) => { try { s.removePriceLine(l); } catch {} }); lineas = []; nivelesSpx = [];
-  const destino = precioAbierta ? (tipoPrecio === 'velas' ? sVelas : sLinea) : sSpxH;
+  // los niveles van en el HIRO (sobre la línea blanca del SPX) y, si está abierta, también en la sección de precio
+  const destinos = [sSpxH, ...(precioAbierta ? [tipoPrecio === 'velas' ? sVelas : sLinea] : [])];
   const add = (precio, titulo, color) => { if (!precio) return; nivelesSpx.push(+precio);
-    lineas.push([destino, destino.createPriceLine({ price: +precio, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${titulo} $${(+precio).toLocaleString('en-US')}` })]); };
+    for (const d of destinos) lineas.push([d, d.createPriceLine({ price: +precio, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${titulo} $${(+precio).toLocaleString('en-US')}` })]); };
   add(cierrePrevio, 'Last Closing', '#8a8a8a');
   if (muros) { add(muros.callWall, 'Call Wall', '#2e8b57'); add(muros.putWall, 'Put Wall', '#b5651d'); add(muros.mvs, 'Key Gamma Strike', '#7fb2e5'); add(muros.gammaFlip, 'Gamma Flip', '#c9a227'); }
 }
