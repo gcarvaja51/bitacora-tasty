@@ -105,8 +105,10 @@ const gH = LightweightCharts.createChart($('gHiro'), { ...base,
   localization: { priceFormatter: (p) => (Math.abs(p) >= 100000 ? fmtB(p) : p.toFixed(2)) } });
 
 let nivelesSpx = [];
-const autoscaleNiveles = (b) => { const r = b(); if (!r) return r; const ref = (r.priceRange.minValue + r.priceRange.maxValue) / 2;
-  const cerca = nivelesSpx.filter((v) => Math.abs(v - ref) < 320);
+// la escala automática solo abarca los niveles a <=40 pts del rango de precio (si no, las velas quedan aplastadas);
+// los lejanos (p. ej. el cierre previo en un día de -3 %) se ven arrastrando el eje
+const autoscaleNiveles = (b) => { const r = b(); if (!r) return r; const lo = r.priceRange.minValue, hi = r.priceRange.maxValue;
+  const cerca = nivelesSpx.filter((v) => v >= lo - 40 && v <= hi + 40);
   return { priceRange: { minValue: Math.min(r.priceRange.minValue, ...cerca) - 5, maxValue: Math.max(r.priceRange.maxValue, ...cerca) + 5 } }; };
 const sVelas = gP.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444', priceLineVisible: false, autoscaleInfoProvider: autoscaleNiveles });
 const sLinea = gP.addLineSeries({ color: '#e8e8e8', lineWidth: 1, priceLineVisible: false, autoscaleInfoProvider: autoscaleNiveles });
