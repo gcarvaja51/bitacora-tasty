@@ -17013,9 +17013,12 @@ app.post('/api/capas/discord', (req, res) => {
         barras: Array.isArray(st.barras) ? st.barras.slice(0, 80).map((x) => [num(x[0]), num(x[1]) || 0, num(x[2]) || 0]).filter((x) => x[0] !== null) : [],
         puntos: Array.isArray(st.puntos) ? st.puntos.slice(0, 80).map((x) => [num(x[0]), (Array.isArray(x[1]) ? x[1] : []).slice(0, 8)
           .map((q) => [num(q[0]), Array.isArray(q[1]) ? q[1].slice(0, 3).map((c) => Math.max(0, Math.min(255, +c || 0))) : [80, 200, 220]]).filter((q) => q[0] !== null)]).filter((x) => x[0] !== null) : [] },
-      bola8: b8.sesgo == null && b8.objetivo1 == null ? null : { sesgo: b8.sesgo || null, fuerza: num(b8.fuerza), objetivo1: num(b8.objetivo1), objetivo2: num(b8.objetivo2), calls: num(b8.calls), puts: num(b8.puts) },
-      tradytics: tr.sentimiento ? { sentimiento: tr.sentimiento, monto: tr.monto ?? tr.texto ?? null } : null,
-      hiro: num(hr.hiro_bn) !== null ? { bn: num(hr.hiro_bn) } : null,
+      bola8: b8.sesgo == null && b8.objetivo1 == null ? null : { sesgo: b8.sesgo || null, fuerza: num(b8.fuerza), objetivo1: num(b8.objetivo1), objetivo2: num(b8.objetivo2), calls: num(b8.calls), puts: num(b8.puts),
+        precio: num(b8.precio), curva: Array.isArray(b8.curva) ? b8.curva.slice(0, 120).map((x) => [num(x[0]), num(x[1])]).filter((x) => x[0] !== null && x[1] !== null) : [] },
+      tradytics: tr.sentimiento ? { sentimiento: tr.sentimiento, exceso: tr.exceso_prima ? { monto: num(tr.exceso_prima.monto), unidad: String(tr.exceso_prima.unidad || '').slice(0, 2), lado: String(tr.exceso_prima.lado || '').slice(0, 6) } : null,
+        spyRango: Array.isArray(tr.spy_rango) ? tr.spy_rango.slice(0, 2).map(num) : null, spy: num(tr.spy), vol: tr.vol ? String(tr.vol).slice(0, 40) : null,
+        volDetalle: tr.vol_detalle ? { implicita: num(tr.vol_detalle.implicita), realizada: num(tr.vol_detalle.realizada), relacion: String(tr.vol_detalle.relacion || '').slice(0, 20) } : null } : null,
+      hiro: num(hr.hiro_bn) !== null || num(hr.puts_bn) !== null ? { bn: num(hr.hiro_bn), calls: num(hr.calls_bn ?? hr.hiro_bn), puts: num(hr.puts_bn) } : null,
       confluencia: lc.A_tendencia || lc.B_fade ? { A: lc.A_tendencia?.senal || null, B: lc.B_fade?.senal || null, motivoA: String(lc.A_tendencia?.motivo || '').slice(0, 160),
         motivoB: String(lc.B_fade?.motivo || '').slice(0, 160), neto: num(lc.neto_herramientas) } : null,
     };

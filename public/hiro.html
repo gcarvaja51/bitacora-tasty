@@ -106,9 +106,9 @@ const CAPAS = [
   { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing']] },
   { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
   { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
-  { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true },
-  { id: 'bola8', nom: 'Bola 8', color: '#ffd54f', opciones: [['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
-  { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Recuadro sentimiento']] },
+  { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO real de SpotGamma (punteado)']] },
+  { id: 'bola8', nom: 'Bola 8', color: '#ffa500', opciones: [['curva', 'Curva Sonar'], ['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
+  { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Tarjetas (sentimiento, rango, volatilidad)'], ['rango', 'Rango SPY convertido a SPX']] },
   { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['rec', 'Recuadro lecturas A/B']] },
   { id: 'flow', nom: 'Option flow', color: '#22c55e', opciones: [], prox: true },
 ];
@@ -117,9 +117,9 @@ const DEFECTO = {
   sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false },
   gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
   gbs: { on: false, hist: true, freno: true, acel: true },
-  hiro: { on: true, sel: 'pc' },
-  bola8: { on: false, obj: true, rec: true },
-  trad: { on: false, rec: true },
+  hiro: { on: true, sel: 'pc', real: true },
+  bola8: { on: false, curva: true, obj: true, rec: true },
+  trad: { on: false, rec: true, rango: true },
   conf: { on: false, rec: true },
   flow: { on: false },
 };
@@ -157,13 +157,17 @@ const L = {
   gbFlip: esc('#ff9800', RAYA, 2), gbPos: esc('#5eead4', RAYA), gbNeg: esc('#ff6b6b', RAYA),
   gbPosOi: esc('rgba(94,234,212,.55)', RAYA), gbNegOi: esc('rgba(255,107,107,.55)', RAYA),
   freno: esc('#00bcd4', RAYA, 2), acel: esc('#b04cff', RAYA, 2),
-  obj1: esc('#ffd54f', PUNTEADA, 2), obj2: esc('rgba(255,213,79,.7)', PUNTEADA),
+  // Bola 8 igual que la Sonar original: objetivo 1 naranja, objetivo 2 naranja claro, sólidas y gruesas
+  obj1: esc('rgb(255,165,0)', 0, 3), obj2: esc('rgb(255,209,127)', 0, 3),
 };
 const fmtSerie = { type: 'custom', formatter: fmtB, minMove: 1 };
 const sCalls = gH.addLineSeries({ color: '#3b82f6', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 const sPuts = gH.addLineSeries({ color: '#f07a2a', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 const sTotal = gH.addLineSeries({ color: '#22c3b8', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 sCalls.createPriceLine({ price: 0, color: '#444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+// HIRO real de SpotGamma (leído de Discord cada ~5 min): punteado, mismos colores, para comparar contra el propio
+const sCallsReal = gH.addLineSeries({ color: 'rgba(96,165,250,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: true, lastValueVisible: true, title: 'real' });
+const sPutsReal = gH.addLineSeries({ color: 'rgba(251,146,60,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: true, lastValueVisible: true, title: 'real' });
 
 // Tiempo y cursor sincronizados entre el gráfico principal y la franja HIRO
 let sincro = false;
@@ -200,8 +204,9 @@ function armarBarra() {
       const menu = document.createElement('div'); menu.className = 'menu';
       menu.innerHTML = `<div class="t">${cp.nom}</div>` + cp.opciones.map(([k, t]) => cp.radio
         ? `<label><input type="radio" name="r_${cp.id}" value="${k}" ${e.sel === k ? 'checked' : ''}> ${t}</label>`
-        : `<label><input type="checkbox" value="${k}" ${e[k] ? 'checked' : ''}> ${t}</label>`).join('');
-      menu.onchange = (ev) => { const i = ev.target; if (cp.radio) e.sel = i.value; else e[i.value] = i.checked; e.on = true; guardar('hiroCapas', est); div.classList.add('on'); redibujar(); };
+        : `<label><input type="checkbox" value="${k}" ${e[k] ? 'checked' : ''}> ${t}</label>`).join('')
+        + (cp.extra || []).map(([k, t]) => `<label><input type="checkbox" data-extra="1" value="${k}" ${e[k] ? 'checked' : ''}> ${t}</label>`).join('');
+      menu.onchange = (ev) => { const i = ev.target; if (cp.radio && !i.dataset.extra) e.sel = i.value; else e[i.value] = i.checked; e.on = true; guardar('hiroCapas', est); div.classList.add('on'); redibujar(); };
       m.onclick = (ev) => { ev.stopPropagation(); document.querySelectorAll('.menu.abierto').forEach((x) => x !== menu && x.classList.remove('abierto')); menu.classList.toggle('abierto'); };
       div.appendChild(m); div.appendChild(menu);
     }
@@ -266,6 +271,10 @@ function redibujar() {
   $('zona').classList.toggle('sinHiro', !est.hiro.on);
   sCalls.applyOptions({ visible: est.hiro.sel === 'pc' }); sPuts.applyOptions({ visible: est.hiro.sel === 'pc' }); sTotal.applyOptions({ visible: est.hiro.sel === 'total' });
   $('rotHiro').textContent = 'HEDGING IMPACT · ' + (est.hiro.sel === 'pc' ? 'PUT/CALL (azul calls · naranja puts)' : 'TOTAL');
+  const real = (campo) => { const m = new Map(); for (const r of capas) { const v = r.hiro?.[campo]; if (v != null) m.set(ts(fecha, balde(r.at.slice(11, 16))), v * 1e9); } return [...m].map(([time, value]) => ({ time, value })); };
+  const verReal = est.hiro.on && est.hiro.real && est.hiro.sel === 'pc';
+  sCallsReal.setData(verReal ? real('calls') : []); sPutsReal.setData(verReal ? real('puts') : []);
+  sCallsReal.applyOptions({ visible: verReal }); sPutsReal.applyOptions({ visible: verReal });
   const pon = (serie, visible, campo) => { serie.setData(visible ? conVacios(escalon(campo, horas), horas) : []); serie.applyOptions({ visible }); };
   pon(L.gbFlip, est.gbc.on && est.gbc.flip, (r) => r.gexbot_classic?.flip);
   pon(L.gbPos, est.gbc.on && est.gbc.imanes, (r) => r.gexbot_classic?.imanPos);
@@ -274,8 +283,8 @@ function redibujar() {
   pon(L.gbNegOi, est.gbc.on && est.gbc.imanesOi, (r) => r.gexbot_classic?.imanNegOi);
   pon(L.freno, est.gbs.on && est.gbs.freno, (r) => r.gexbot_state?.freno);
   pon(L.acel, est.gbs.on && est.gbs.acel, (r) => r.gexbot_state?.acelerador);
-  pon(L.obj1, est.bola8.on && est.bola8.obj, (r) => r.bola8?.objetivo1);
-  pon(L.obj2, est.bola8.on && est.bola8.obj, (r) => r.bola8?.objetivo2);
+  // Bola 8: como en la Sonar original, los objetivos son líneas horizontales completas (de la última lectura)
+  pon(L.obj1, false, () => null); pon(L.obj2, false, () => null);
   lineasNivel.forEach((l) => { try { sBase.removePriceLine(l); } catch {} }); lineasNivel = [];
   nivelesCercanos = [];
   const add = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` })); };
@@ -287,6 +296,23 @@ function redibujar() {
     if (est.sigma.maxPain) add(muros.maxPain, 'Max Pain', '#9e9e9e');
   }
   if (est.sigma.on && est.sigma.last) add(cierrePrevio, 'Last Closing', '#8a8a8a');
+  if (est.trad.on && est.trad.rango) {   // rango de SPY de Tradytics convertido a SPX con la relación SPX/SPY del momento
+    const t = ultimo((x) => (x.tradytics?.spyRango?.[0] && x.tradytics?.spy ? x : null));
+    if (t && t.v.spx) {
+      const k = t.v.spx / t.v.tradytics.spy;
+      for (const [p, tit] of [[t.v.tradytics.spyRango[1], 'SPY range alto'], [t.v.tradytics.spyRango[0], 'SPY range bajo']]) {
+        const v = Math.round(p * k * 100) / 100; nivelesCercanos.push(v);
+        lineasNivel.push(sBase.createPriceLine({ price: v, color: 'rgba(56,132,255,.9)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${tit} $${p} (≈${v.toFixed(0)})` }));
+      }
+    }
+  }
+  if (est.bola8.on && est.bola8.obj) {
+    const b = ultimo((x) => (x.bola8?.objetivo1 != null ? x.bola8 : null));
+    if (b) {
+      const lin = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 3, lineStyle: 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` })); };
+      lin(b.v.objetivo1, 'Target 1', 'rgb(255,165,0)'); lin(b.v.objetivo2, 'Target 2', 'rgb(255,209,127)');
+    }
+  }
   for (const s of Object.values(L)) { const d = s.data(); const u = d.length && d[d.length - 1].value; if (u) nivelesCercanos.push(u); }
   recuadros();
   pedirLienzo();
@@ -300,7 +326,14 @@ function recuadros() {
   const b8 = ultimo((x) => x.bola8);
   if (est.bola8.on && est.bola8.rec && b8) { const [n, c] = nom(b8.v.sesgo); r.push(`<div class="rec"><b style="color:#ffd54f">Bola 8</b> · ${b8.at.slice(11, 16)} · <span class="${c}">${n}</span> fuerza <b>${b8.v.fuerza ?? '—'}</b> · objetivos ${b8.v.objetivo1 ?? '—'} / ${b8.v.objetivo2 ?? '—'}</div>`); }
   const tr = ultimo((x) => x.tradytics);
-  if (est.trad.on && est.trad.rec && tr) { const [n, c] = nom(tr.v.sentimiento); r.push(`<div class="rec"><b style="color:#ef4444">Tradytics</b> · ${tr.at.slice(11, 16)} · flujo <span class="${c}">${n.toLowerCase()}</span>${tr.v.monto ? ' · ' + tr.v.monto : ''}</div>`); }
+  if (est.trad.on && est.trad.rec && tr) {   // las tres tarjetas de la página "Options market" de Tradytics
+    const [n, c] = nom(tr.v.sentimiento), x = tr.v.exceso, rg = tr.v.spyRango, vd = tr.v.volDetalle;
+    // mismas palabras y colores que las tarjetas originales (Bearish rojo / Bullish verde, rango azul, volatilidad naranja)
+    const sentOrig = { bearish: ['Bearish', '#dc2626'], bullish: ['Bullish', '#16a34a'], neutral: ['Neutral', '#9ca3af'] }[tr.v.sentimiento] || [n, '#ccc'];
+    r.push(`<div class="rec"><b style="color:#ef4444">Tradytics</b> · ${tr.at.slice(11, 16)}<br>Flow sentiment: <b style="color:${sentOrig[1]}">${sentOrig[0]}</b>${x ? ` · $${x.monto}${(x.unidad || '').toUpperCase()} más en ${x.lado === 'puts' ? 'puts' : 'calls'} que en ${x.lado === 'puts' ? 'calls' : 'puts'}` : ''}`
+      + (rg && rg[0] ? `<br>SPY range: <b style="color:#3b82f6">$${rg[0]} – $${rg[1]}</b>${tr.v.spy ? ` (SPY $${tr.v.spy})` : ''}` : '')
+      + (tr.v.vol || vd ? `<br>Volatility pricing: <b style="color:#f59e0b">${(tr.v.vol || '').replace(/^iv/i, 'IV')}</b>${vd ? ` · implícita ${vd.implicita}% vs realizada ${vd.realizada}%` : ''}` : '') + '</div>');
+  }
   const cf = ultimo((x) => x.confluencia);
   if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia</b> · ${cf.at.slice(11, 16)}<br>A (tendencia): <b>${cf.v.A || '—'}</b> · B (fade): <b>${cf.v.B || '—'}</b><br><span style="color:#888">${cf.v.motivoA || ''}</span></div>`);
   $('recuadros').innerHTML = r.join('');
@@ -337,6 +370,15 @@ function lienzo() {
         for (const [dx, c] of lista) { ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.arc(cero0 + (dx < 0 ? -esc(dx) : esc(dx)), yc, rad, 0, Math.PI * 2); ctx.fill(); }
       }
       ctx.fillStyle = 'rgba(0,188,212,.85)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('GexBot State ' + s.at.slice(11, 16), cero0 + 6, 16);
+    }
+  }
+  // Curva Sonar de la Bola 8: valor 0-1 por strike, desde la línea de cero hacia la derecha (azul del original)
+  if (est.bola8.on && est.bola8.curva) {
+    const b8 = ultimo((x) => (x.bola8?.curva?.length ? x.bola8 : null));
+    if (b8) {
+      const anchoC = (ancho0 - cero0) * 0.9; ctx.strokeStyle = 'rgba(128,128,255,0.95)'; ctx.lineWidth = 1.2; ctx.beginPath(); let primero = true;
+      for (const [k, v] of b8.v.curva) { const y = sBase.priceToCoordinate(k); if (y == null) continue; const x = cero0 + v * anchoC; if (primero) { ctx.moveTo(x, y); primero = false; } else ctx.lineTo(x, y); }
+      ctx.stroke(); ctx.lineWidth = 1; ctx.fillStyle = 'rgba(128,128,255,.9)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('Bola 8 Sonar ' + b8.at.slice(11, 16), cero0 + 6, 30);
     }
   }
   if (!(est.gbc.on && est.gbc.hist)) return;
