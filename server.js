@@ -59,6 +59,9 @@ if (MODO_PRUEBAS) console.log('[MODO_PRUEBAS] ciclos periodicos APAGADOS — sol
 // ── Directorio de datos persistentes ────────────────────────
 // En Railway: agrega un volumen montado en /data para persistencia entre deploys
 const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname;
+// Red de seguridad global (2026-11-21, ver src/red_seguridad.js): un error no atrapado en cualquier parte ya no apaga
+// el robot; se anota y se ve en /api/health. Si hay más de 10 excepciones en 1 min, reinicia limpio.
+const redSeguridad = require('./src/red_seguridad').instalar({ dataDir: DATA_DIR });
 if (DATA_DIR !== __dirname) {
   try { require('fs').mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {}
   console.log('[DATA] Usando volumen persistente:', DATA_DIR);
@@ -1119,6 +1122,7 @@ app.get('/api/health', (req, res) => res.json({
   commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || null,
   arrancadoEn: ARRANCADO_EN,
   uptimeSeg: Math.round(process.uptime()),
+  erroresGlobales: (({ total, ultimo }) => ({ total, ultimo: ultimo && { tipo: ultimo.tipo, ts: ultimo.ts, mensaje: ultimo.mensaje } }))(redSeguridad.resumen()),
   ts: new Date().toISOString()
 }));
 

@@ -2029,6 +2029,26 @@ seccion('Informe diario de los cuatro libros (src/informe_diario.js)');
   chequear('libros/filas: el día es el de Nueva York (un cierre a las 01:30 UTC cuenta para el día anterior) y las pruebas no entran', TL.ironballs.filas.length === 1 && TL.ironballs.filas[0].dia === '2026-11-17' && TL.ironballs.saldo === 10030);
 }
 
+// ── Red de seguridad global (src/red_seguridad.js) — 2026-11-21 ──
+seccion('Red de seguridad: un error no atrapado no apaga el robot (src/red_seguridad.js)');
+{
+  const { EventEmitter } = require('events');
+  const { instalar } = require('../src/red_seguridad');
+  const proc = new EventEmitter(); let salida = null; proc.exit = (c) => { salida = c; };
+  let t = 0;
+  const R = instalar({ proceso: proc, log: () => {}, limite: 3, ventanaMs: 60000, ahora: () => t });
+  proc.emit('unhandledRejection', new Error('promesa rota'));
+  chequear('red: una promesa sin catch se anota y el proceso sigue', R.resumen().total === 1 && R.resumen().ultimo.tipo === 'promesa sin catch' && salida === null);
+  proc.emit('uncaughtException', new Error('uno')); proc.emit('uncaughtException', new Error('dos')); proc.emit('uncaughtException', 'tres (no es Error)');
+  chequear('red: hasta el límite de excepciones por minuto el proceso sigue', salida === null && R.resumen().total === 4 && R.resumen().ultimo.mensaje.includes('tres'));
+  t = 120000; proc.emit('uncaughtException', new Error('dos minutos después'));
+  chequear('red: las excepciones viejas salen de la ventana (no reinicia por errores espaciados)', salida === null);
+  proc.emit('uncaughtException', new Error('a')); proc.emit('uncaughtException', new Error('b')); proc.emit('uncaughtException', new Error('c'));
+  chequear('red: más de `limite` excepciones en la ventana → sale con código 1 para que Railway reinicie limpio', salida === 1);
+  R.desinstalar();
+  chequear('red: desinstalar quita los manejadores', proc.listenerCount('uncaughtException') === 0 && proc.listenerCount('unhandledRejection') === 0);
+}
+
 // ── Puerta de escritura (src/puerta.js) — 2026-11-16 ──
 seccion('Puerta de escritura: clave para todo lo que escribe (src/puerta.js)');
 {

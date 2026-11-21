@@ -146,3 +146,4 @@ informes_libros/
 # HIRO propio y capas de Discord: datos que el servidor escribe en DATA_DIR (en local, la raíz del repo)
 hiro/
 capas/
+errores_globales.json
