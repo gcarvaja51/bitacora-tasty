@@ -60,6 +60,23 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
     // cualquier put vendida DESPUES de tener las acciones nunca llegaba a la base.
     const syncBasis = () => { if (shares > 0) costBasis = avgCost - totalPremium / shares; };
 
+    // ── Asignaciones (2026-11-21) ──────────────────────────────────
+    // Tastytrade parte una asignacion en DOS filas `Receive Deliver` del mismo dia:
+    // la opcion que se va (`sub-type: Assignment`, sin `action`, net-value 0) y el
+    // movimiento de acciones (`Buy to Open` de equity si fue una put, `Sell to Close`
+    // si fue una call). Antes se descartaba la primera y la segunda salia como una
+    // compra cualquiera: la put NU $14 12-04 asignada el 2026-11-20 se veia como
+    // "Compra 100 acc. @ $14", y la cadena de rolls de esa put no tenia cierre, asi
+    // que el timeline no la fundia y Primas/Semana la daba por viva hasta el 04-dic.
+    // Se recogen primero (las dos filas traen la misma hora y el orden no es fiable).
+    const asignaciones = new Set();   // `${fecha}|P` / `${fecha}|C`
+    for (const tx of txs) {
+      const p = parseSymbol(tx.symbol || '');
+      if (p.isOption && /Assignment/i.test(tx['transaction-sub-type'] || '')) {
+        asignaciones.add(`${(tx['transaction-date'] || '').slice(0, 10)}|${p.type}`);
+      }
+    }
+
     for (const tx of txs) {
       const action    = tx.action || '';
       const txType    = tx['transaction-type'] || '';
@@ -86,7 +103,18 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
         else if (/Buy to Close/i.test(action))  type = parsed.type === 'P' ? 'BTC_PUT' : 'BTC_CALL';
         else if (/Buy to Open/i.test(action))   type = parsed.type === 'P' ? 'BTO_PUT' : 'BTO_CALL';
         else if (/Sell to Close/i.test(action)) type = parsed.type === 'P' ? 'STC_PUT' : 'STC_CALL';
-        // Assignment / Expiration: sin `action` y net-value 0 — no mueven plata.
+        // Assignment: la pata corta se va a $0. Se emite como su cierre (BTC) para
+        // que la cadena apertura → rolls → cierre se funda en una sola operacion.
+        // No mueve plata: el desembolso viene en la fila de acciones.
+        if (!type && /Assignment/i.test(tx['transaction-sub-type'] || '')) {
+          events.push({ date, type: parsed.type === 'P' ? 'BTC_PUT' : 'BTC_CALL',
+                        strike:parsed.strike, expiry:parsed.expiry,
+                        contracts: Math.abs(parseFloat(tx.quantity || 0)) || undefined,
+                        amount:0, gross:0, orderId:null, asignada:true });
+          continue;
+        }
+        // Expiration: sin `action` y net-value 0 — no mueve plata. La prima se
+        // realiza por vencimiento (Primas/Semana mira el expiry).
         if (!type) continue;
         const qty = Math.abs(parseFloat(tx.quantity || 0)) || undefined;
         // order-id: Tastytrade mete todas las patas de un spread o de un roll en
@@ -124,14 +152,23 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
         shares    += qty;
         avgCost    = shares > 0 ? stockCost / shares : 0;
         syncBasis();
-        events.push({ date, type:'STOCK_BUY', qty, price, fees:+(cost - price * qty).toFixed(2), amount:-cost });
+        const fees = +(cost - price * qty).toFixed(2);
+        // Compra que acompaña a la asignacion de una put → ASSIGNED, con el precio y
+        // los fees reales. El importe es la caja real (−cost) para que la columna
+        // VALOR siga sumando el flujo del subyacente.
+        if (asignaciones.has(`${date}|P`)) {
+          events.push({ date, type:'ASSIGNED', qty, price, fees, costBasis, amount:-cost });
+        } else {
+          events.push({ date, type:'STOCK_BUY', qty, price, fees, amount:-cost });
+        }
         continue;
       }
 
       if (instrType === 'Equity' && /Sell/i.test(action)) {
         const qty   = parseFloat(tx.quantity || 0);
         const price = parseFloat(tx.price || 0);
-        events.push({ date, type:'STOCK_SELL', qty, price, amount:Math.abs(nv) });
+        events.push({ date, type:'STOCK_SELL', qty, price, amount:Math.abs(nv),
+                      ...(asignaciones.has(`${date}|C`) ? { asignada:true } : {}) });
         stockCost -= avgCost * Math.min(qty, shares);
         shares    -= qty;
         if (shares <= 0) { shares = 0; stockCost = 0; }

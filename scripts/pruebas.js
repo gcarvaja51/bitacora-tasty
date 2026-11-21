@@ -409,6 +409,39 @@ seccion('Posiciones Tradier por ejecucion (src/positions_tradier_adapter.js)');
   chequear('sin registro se agrupa como antes', g.length === 1 && !g[0].execId);
 }
 
+seccion('La Rueda manual: asignaciones (src/wheel.js)');
+{
+  const { buildWheelData } = require('../src/wheel');
+  // Caso real NU 2026-11-20: STO put $14 → roll → asignada antes del vencimiento.
+  // TastyTrade la manda en dos filas: la opcion (Assignment, $0) y el Buy to Open
+  // de equity con el desembolso. La compra suelta de JBLU no debe cambiar.
+  const OPT = 'NU    261204P00014000';
+  const tx = [
+    { 'transaction-type':'Trade', 'instrument-type':'Equity Option', 'underlying-symbol':'NU', symbol:OPT,
+      action:'Sell to Open', quantity:'1', 'net-value':'209.87', 'net-value-effect':'Credit', value:'211', 'value-effect':'Credit',
+      'transaction-date':'2026-11-12', 'executed-at':'2026-11-12T19:12:28Z', 'order-id':1 },
+    { 'transaction-type':'Receive Deliver', 'transaction-sub-type':'Buy to Open', 'instrument-type':'Equity', 'underlying-symbol':'NU', symbol:'NU',
+      action:'Buy to Open', quantity:'100', price:'14.0', 'net-value':'1405.0', 'net-value-effect':'Debit', value:'1400', 'value-effect':'Debit',
+      'transaction-date':'2026-11-20', 'executed-at':'2026-11-20T22:00:00Z' },
+    { 'transaction-type':'Receive Deliver', 'transaction-sub-type':'Assignment', 'instrument-type':'Equity Option', 'underlying-symbol':'NU', symbol:OPT,
+      quantity:'1', 'net-value':'0.0', 'net-value-effect':'None', value:'0.0', 'value-effect':'None',
+      'transaction-date':'2026-11-20', 'executed-at':'2026-11-20T22:00:00Z' },
+    { 'transaction-type':'Trade', 'instrument-type':'Equity', 'underlying-symbol':'JBLU', symbol:'JBLU',
+      action:'Buy to Open', quantity:'10', price:'5', 'net-value':'50.0', 'net-value-effect':'Debit', value:'50', 'value-effect':'Debit',
+      'transaction-date':'2026-11-20', 'executed-at':'2026-11-20T15:00:00Z' },
+  ];
+  const [nu, jblu] = buildWheelData(tx, [], ['NU', 'JBLU']);
+  const asig = nu.events.find(e => e.type === 'ASSIGNED');
+  const cierre = nu.events.find(e => e.type === 'BTC_PUT');
+  chequear('la compra que acompaña la asignacion sale como ASSIGNED', asig && asig.qty === 100 && asig.price === 14 && asig.fees === 5,
+           JSON.stringify(asig));
+  chequear('ASSIGNED lleva la caja real (-1405)', asig && asig.amount === -1405);
+  chequear('la put asignada se cierra a $0 (cierra la cadena)', cierre && cierre.asignada === true && cierre.amount === 0 && cierre.expiry === '2026-12-04');
+  chequear('no queda ninguna STOCK_BUY en NU', !nu.events.some(e => e.type === 'STOCK_BUY'));
+  chequear('costo base = 14,05 - 209,87/100', Math.abs(nu.costBasis - (14.05 - 2.0987)) < 1e-9, `dio ${nu.costBasis}`);
+  chequear('una compra sin asignacion sigue siendo STOCK_BUY', jblu.events.length === 1 && jblu.events[0].type === 'STOCK_BUY');
+}
+
 // ── 2. Los frenos ───────────────────────────────────────────────────────────
 seccion('El circuito diario (src/frenos.js)');
 

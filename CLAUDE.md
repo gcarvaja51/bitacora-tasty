@@ -333,6 +333,14 @@ compra de equity separada.
   incrementales ni casos especiales.
 - **`avgCost` sale del `net-value`** de la compra, no de `price × qty` — así incluye los
   `clearing-fees` de la asignación.
+- **Una asignación son DOS filas `Receive Deliver` del mismo día** (2026-11-21): la opción
+  que se va (`sub-type: Assignment`, sin `action`, $0) y el movimiento de acciones
+  (`Buy to Open` de equity para una put). `src/wheel.js` las junta: la compra sale como
+  **`ASSIGNED`** (precio, fees y `amount` = caja real), y la opción como un `BTC_PUT`/`BTC_CALL`
+  de $0 con `asignada: true`, que **cierra la cadena** de rolls de esa put — sin él el
+  timeline no la funde y Primas/Semana la da por viva hasta el vencimiento nominal. Una
+  compra de acciones sin asignación ese día sigue siendo `STOCK_BUY`. Histórico § *La
+  asignación de NU que salía como compra*.
 - **Las patas largas cuentan.** No hay forma confiable de distinguir "cobertura" de "pata de
   spread" en el feed, y en ambos casos es dinero real del subyacente.
 - **Los dividendos usan el signo, no valor absoluto.** TastyTrade parte cada pago en **dos

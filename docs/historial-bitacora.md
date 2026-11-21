@@ -83,7 +83,7 @@ sin memoria (0,7 GB libres de 15,7 el 17-nov de madrugada; ese día se liberaron
 ## La carpeta Pipe (bot de Polymarket) se mudó afuera (2026-11-17)
 
 **Pedido.** Guillermo: "deja solo la de afuera… ajusta lo que debas ajustar, hazlo ya". Había dos carpetas: la viva en
-`01. guillermo carvajal/01_Sigma/Pipe` (el bot corría desde ahí) y una copia del 16-nov 12:45 en
+`01. guillermo carvajal/01. Trading/01_Sigma/Pipe` (el bot corría desde ahí) y una copia del 16-nov 12:45 en
 `01. guillermo carvajal/01. Pipe`, sin nada propio (comparadas archivo por archivo).
 
 **Qué se hizo (3:53 a 3:55, mercado cerrado).** Bot detenido con el archivo `STOP`; la copia vieja a la papelera; la viva
@@ -4245,6 +4245,33 @@ llego por ningun lado. Y el 2026-09-01 el propio vigilante se colgo en 7 corrida
 seguidas (06:26-07:26) y el Programador lo mato por su limite de 5 minutos — una
 hora ciega justo en premercado. El unico punto sin acotar de ese script es la
 enumeracion WMI de `Win32_Process`. Los dos siguen pendientes.
+
+## La asignación de NU que salía como compra (2026-11-21)
+
+**Reporte.** Guillermo: *"me asignaron 100 acciones de nu, pero veo que la hoja de la rueda en mi bitacora no esta
+actualizada"*. La put NU $14 12-04 (abierta el 08-oct como $14 10-30, rolada el 27-oct a 11-13 y el 12-nov a 12-04)
+se asignó antes de tiempo el viernes 20-nov: 100 acciones a $14 + $5 de clearing = $1.405.
+
+**Qué pasaba.** Los números estaban bien (300 acciones, promedio $13,37, costo base $12,33): TastyTrade asentó la
+asignación el 21-nov a las 5:33am ET, así que antes de esa hora no había nada que mostrar. Lo que fallaba era la
+lectura: TastyTrade manda la asignación en dos filas `Receive Deliver` — la opción (`sub-type: Assignment`, sin
+`action`, $0) y un `Buy to Open` de equity. `src/wheel.js` descartaba la primera ("no mueve plata") y la segunda
+caía en la rama genérica de compra de acciones. Resultado:
+- el timeline decía *"🛒 Compra 100 acc. @ $14.000"*, no *"🎯 Asignado"*;
+- la cadena de la put no tenía cierre: el timeline no la fundía y Primas/Semana la excluía como "STO aún abierto"
+  hasta el 04-dic, cuando la operación terminó el 20-nov.
+
+La rama `ASSIGNED` que existía (`txType === 'Receive Deliver' && /Receive/i.test(action)`) nunca se disparaba: la
+fila de acciones trae `action: 'Buy to Open'`. Mismo defecto en las dos asignaciones anteriores — NU $13 06-05 el
+3-jun (200 acciones) y GAP $27 06-18 el 29-may — que también salían como compras.
+
+**Arreglo.** Se recogen primero las fechas con una opción `Assignment` (las dos filas traen la misma hora y el orden
+no es fiable). La opción asignada se emite como `BTC_PUT`/`BTC_CALL` de $0 con `asignada: true`, y la compra de equity
+de ese día como `ASSIGNED` con precio, fees y `amount` = caja real (la columna VALOR sigue sumando el flujo del
+subyacente). Una venta de acciones el día de una call asignada lleva `asignada: true`. El front la etiqueta *"Put
+asignada"* / *"Covered Call asignada"*. Verificado contra las 2.472 transacciones reales: acciones, costo base y caja
+de cada subyacente no cambian; las compras sueltas de JBLU siguen siendo `STOCK_BUY`. Prueba en `scripts/pruebas.js`,
+bloque *La Rueda manual: asignaciones*.
 
 ## Desarrollo local
 

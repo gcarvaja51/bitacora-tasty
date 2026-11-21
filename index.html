@@ -4662,6 +4662,9 @@ async function loadWheel() {
 
     const evLabelFor = (e) => e.type === 'DIVIDENDO' && (e.amount || 0) < 0
       ? 'Retención dividendo'
+      // Cierre por asignacion (src/wheel.js, 2026-11-21): no fue un BTC pagado.
+      : e.asignada && e.type === 'BTC_PUT'  ? 'Put asignada'
+      : e.asignada && e.type === 'BTC_CALL' ? 'Covered Call asignada'
       : e.longStrike != null ? evSpreadName(e)
       : (evLabel[e.type] || e.type);
 
@@ -4928,8 +4931,8 @@ async function loadWheel() {
           const tipo = evIconFor(e);
           const desc = isRoll ? `Roll $${e.fromStrike}→$${e.toStrike} · ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
             : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
-            : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
-            : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+            : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}${e.asignada?' (asignada)':''}`
+            : e.type === 'ASSIGNED'   ? `Asignado ${e.qty} acc. @ $${e.price?.toFixed(2)}${e.fees?' + $'+e.fees.toFixed(2)+' fees':''}`
             : e.type === 'DIVIDENDO' && e.retencion ? `Bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
             : `${evLabelFor(e)}${evStrikes(e)}${e.expiry?' '+e.expiry.slice(5):''}${detalleCierre(e)}`;
           const amt = e.amount||0;
@@ -5017,8 +5020,8 @@ async function loadWheel() {
         const isRoll = e.type === 'ROLL';
         const desc   = isRoll ? `Roll: $${e.fromStrike}→$${e.toStrike} | ${e.fromExpiry?.slice(5)}→${e.toExpiry?.slice(5)}`
           : e.type === 'STOCK_BUY'  ? `Compra ${e.qty} acc. @ $${e.price?.toFixed(3)}`
-          : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}`
-          : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}`
+          : e.type === 'STOCK_SELL' ? `Venta ${e.qty} acc. @ $${e.price?.toFixed(2)}${e.asignada?' (asignada)':''}`
+          : e.type === 'ASSIGNED'   ? `Asignado: ${e.qty} acc. @ $${e.price?.toFixed(2)}${e.fees?' + $'+e.fees.toFixed(2)+' fees':''}`
           : e.type === 'DIVIDENDO' && e.retencion ? `Dividendo: bruto $${e.bruto?.toFixed(2)} − retención $${e.retencion?.toFixed(2)}`
           : `${evLabelFor(e)}${evStrikes(e)}${e.expiry?` ${e.expiry.slice(5)}` :''}${detalleCierre(e)}`;
         const amt = e.amount||0;
