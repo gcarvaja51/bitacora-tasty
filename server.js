@@ -17000,7 +17000,12 @@ function capasDelDia(fecha) {
   if (fecha === calendario.fechaET()) { capasCache.fecha = fecha; capasCache.registros = regs; }
   return regs;
 }
+// 2026-11-21: las capas exigen la clave aunque la puerta general esté en aviso (antes cualquiera con la dirección podía
+// agregar o borrar lecturas). Con la puerta apagada (sin BITACORA_TOKEN) todo sigue como antes.
+const capasSinClave = (req, res) => (puerta.estado() !== 'apagada' && !puerta.traeClave(req)
+  ? (res.status(401).json({ ok: false, puerta: true, error: 'las capas piden la clave de la Bitácora' }), true) : false);
 app.post('/api/capas/discord', (req, res) => {
+  if (capasSinClave(req, res)) return;
   try {
     const b = req.body || {};
     const num = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
@@ -17059,6 +17064,7 @@ app.post('/api/capas/discord', (req, res) => {
 });
 // Vaciar las lecturas de un día (para recargarlas con el lector corregido: gexbot-sombra/recargar_capas.py)
 app.post('/api/capas/limpiar', (req, res) => {
+  if (capasSinClave(req, res)) return;
   try {
     const fecha = fechaValida(req.body?.fecha) ? req.body.fecha : calendario.fechaET();
     fs.mkdirSync(CAPAS_DIR, { recursive: true });
