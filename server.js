@@ -17029,6 +17029,16 @@ app.post('/api/capas/discord', (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+// Vaciar las lecturas de un día (para recargarlas con el lector corregido: gexbot-sombra/recargar_capas.py)
+app.post('/api/capas/limpiar', (req, res) => {
+  try {
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || '') ? req.body.fecha : calendario.fechaET();
+    fs.mkdirSync(CAPAS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), '');
+    if (capasCache.fecha === fecha) capasCache.registros = [];
+    res.json({ ok: true, fecha });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 app.get('/api/capas', (req, res) => {
   const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : calendario.fechaET();
   res.json({ ok: true, fecha, registros: capasDelDia(fecha) });
