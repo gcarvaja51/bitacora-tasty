@@ -1,0 +1,16 @@
+{
+ "2026-11-19": {
+  "ciclos_confluencia": 1,
+  "capas": 0,
+  "hiro_minutos": 0,
+  "velas_spx": 0,
+  "gexbot_propio": 2
+ },
+ "2026-11-20": {
+  "ciclos_confluencia": 44,
+  "capas": 46,
+  "hiro_minutos": 94,
+  "velas_spx": 391,
+  "gexbot_propio": 41
+ }
+}
