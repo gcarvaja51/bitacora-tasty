@@ -105,7 +105,7 @@ const CAPAS = [
   { id: 'precio', nom: 'Precio', color: '#e8e8e8', opciones: [['velas', 'Velas'], ['linea', 'Línea']], radio: true },
   { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing']] },
   { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
-  { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
+  { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['perfil', 'Options profile (puntos rojo/verde)'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
   { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO real de SpotGamma (punteado)']] },
   { id: 'bola8', nom: 'Bola 8', color: '#ffa500', opciones: [['curva', 'Curva Sonar'], ['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
   { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Tarjetas (sentimiento, rango, volatilidad)'], ['rango', 'Rango SPY convertido a SPX']] },
@@ -116,7 +116,7 @@ const DEFECTO = {
   precio: { on: true, sel: 'velas' },
   sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false },
   gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
-  gbs: { on: false, hist: true, freno: true, acel: true },
+  gbs: { on: false, hist: true, perfil: true, freno: true, acel: true },
   hiro: { on: true, sel: 'pc', real: true },
   bola8: { on: false, curva: true, obj: true, rec: true },
   trad: { on: false, rec: true, rango: true },
@@ -371,6 +371,16 @@ function lienzo() {
         if (yc == null || y5 == null || yc < 0 || yc > H - altoT0) continue;
         const u = Math.max(4, yc - y5), rad = Math.max(1.5, Math.min(3.5, u * 0.1));
         for (const [dx, c] of lista) { ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.arc(cero0 + (dx < 0 ? -esc(dx) : esc(dx)), yc, rad, 0, Math.PI * 2); ctx.fill(); }
+      }
+      if (est.gbs.perfil) {   // columnas del options profile, a la derecha del gráfico, con los mismos desplazamientos
+        const col = ancho0 - 70;
+        for (const [k, dr, dg] of (s.v.perfil || [])) {
+          const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
+          if (yc == null || yc < 0 || yc > H - altoT0) continue;
+          const rad = Math.max(1.5, Math.min(3, Math.abs(yc - (y5 ?? yc - 10)) * 0.12));
+          if (dr != null) { ctx.fillStyle = 'rgb(245,6,24)'; ctx.beginPath(); ctx.arc(col + dr, yc, rad, 0, Math.PI * 2); ctx.fill(); }
+          if (dg != null) { ctx.fillStyle = 'rgb(111,248,25)'; ctx.beginPath(); ctx.arc(col + dg, yc, rad, 0, Math.PI * 2); ctx.fill(); }
+        }
       }
       ctx.fillStyle = 'rgba(0,188,212,.85)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('GexBot State ' + s.at.slice(11, 16), cero0 + 6, 16);
     }

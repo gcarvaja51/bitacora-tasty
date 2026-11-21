@@ -17012,7 +17012,9 @@ app.post('/api/capas/discord', (req, res) => {
         // histograma de State: [strike, largo cian (long gamma, derecha), largo violeta (short gamma, izquierda, negativo)]
         barras: Array.isArray(st.barras) ? st.barras.slice(0, 80).map((x) => [num(x[0]), num(x[1]) || 0, num(x[2]) || 0]).filter((x) => x[0] !== null) : [],
         puntos: Array.isArray(st.puntos) ? st.puntos.slice(0, 80).map((x) => [num(x[0]), (Array.isArray(x[1]) ? x[1] : []).slice(0, 8)
-          .map((q) => [num(q[0]), Array.isArray(q[1]) ? q[1].slice(0, 3).map((c) => Math.max(0, Math.min(255, +c || 0))) : [80, 200, 220]]).filter((q) => q[0] !== null)]).filter((x) => x[0] !== null) : [] },
+          .map((q) => [num(q[0]), Array.isArray(q[1]) ? q[1].slice(0, 3).map((c) => Math.max(0, Math.min(255, +c || 0))) : [80, 200, 220]]).filter((q) => q[0] !== null)]).filter((x) => x[0] !== null) : [],
+        // columnas del "options profile": [strike, desplazamiento del punto rojo, del verde] en px respecto de su centro
+        perfil: Array.isArray(st.perfil) ? st.perfil.slice(0, 80).map((x) => [num(x[0]), num(x[1]), num(x[2])]).filter((x) => x[0] !== null) : [] },
       bola8: b8.sesgo == null && b8.objetivo1 == null ? null : { sesgo: b8.sesgo || null, fuerza: num(b8.fuerza), objetivo1: num(b8.objetivo1), objetivo2: num(b8.objetivo2), calls: num(b8.calls), puts: num(b8.puts),
         precio: num(b8.precio), curva: Array.isArray(b8.curva) ? b8.curva.slice(0, 120).map((x) => [num(x[0]), num(x[1])]).filter((x) => x[0] !== null && x[1] !== null) : [] },
       tradytics: tr.sentimiento ? { sentimiento: tr.sentimiento, exceso: tr.exceso_prima ? { monto: num(tr.exceso_prima.monto), unidad: String(tr.exceso_prima.unidad || '').slice(0, 2), lado: String(tr.exceso_prima.lado || '').slice(0, 6) } : null,
