@@ -17008,7 +17008,11 @@ app.post('/api/capas/discord', (req, res) => {
         sombras: Array.isArray(gb.sombras) ? gb.sombras.slice(0, 80).map((x) => [num(x[0]), num(x[1])]).filter((x) => x[0] !== null && x[1] !== null) : [],
         puntos: Array.isArray(gb.puntos) ? gb.puntos.slice(0, 80).map((x) => [num(x[0]), (Array.isArray(x[1]) ? x[1] : []).slice(0, 8)
           .map((q) => [num(q[0]), Array.isArray(q[1]) ? q[1].slice(0, 3).map((c) => Math.max(0, Math.min(255, +c || 0))) : [80, 140, 220]]).filter((q) => q[0] !== null)]).filter((x) => x[0] !== null) : [] },
-      gexbot_state: st.freno_gamma == null && st.acelerador_gamma == null ? null : { freno: num(st.freno_gamma), acelerador: num(st.acelerador_gamma) },
+      gexbot_state: st.freno_gamma == null && st.acelerador_gamma == null ? null : { freno: num(st.freno_gamma), acelerador: num(st.acelerador_gamma),
+        // histograma de State: [strike, largo cian (long gamma, derecha), largo violeta (short gamma, izquierda, negativo)]
+        barras: Array.isArray(st.barras) ? st.barras.slice(0, 80).map((x) => [num(x[0]), num(x[1]) || 0, num(x[2]) || 0]).filter((x) => x[0] !== null) : [],
+        puntos: Array.isArray(st.puntos) ? st.puntos.slice(0, 80).map((x) => [num(x[0]), (Array.isArray(x[1]) ? x[1] : []).slice(0, 8)
+          .map((q) => [num(q[0]), Array.isArray(q[1]) ? q[1].slice(0, 3).map((c) => Math.max(0, Math.min(255, +c || 0))) : [80, 200, 220]]).filter((q) => q[0] !== null)]).filter((x) => x[0] !== null) : [] },
       bola8: b8.sesgo == null && b8.objetivo1 == null ? null : { sesgo: b8.sesgo || null, fuerza: num(b8.fuerza), objetivo1: num(b8.objetivo1), objetivo2: num(b8.objetivo2), calls: num(b8.calls), puts: num(b8.puts) },
       tradytics: tr.sentimiento ? { sentimiento: tr.sentimiento, monto: tr.monto ?? tr.texto ?? null } : null,
       hiro: num(hr.hiro_bn) !== null ? { bn: num(hr.hiro_bn) } : null,

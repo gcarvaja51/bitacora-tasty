@@ -105,7 +105,7 @@ const CAPAS = [
   { id: 'precio', nom: 'Precio', color: '#e8e8e8', opciones: [['velas', 'Velas'], ['linea', 'Línea']], radio: true },
   { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing']] },
   { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
-  { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
+  { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
   { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true },
   { id: 'bola8', nom: 'Bola 8', color: '#ffd54f', opciones: [['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
   { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Recuadro sentimiento']] },
@@ -116,7 +116,7 @@ const DEFECTO = {
   precio: { on: true, sel: 'velas' },
   sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false },
   gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
-  gbs: { on: false, freno: true, acel: true },
+  gbs: { on: false, hist: true, freno: true, acel: true },
   hiro: { on: true, sel: 'pc' },
   bola8: { on: false, obj: true, rec: true },
   trad: { on: false, rec: true },
@@ -238,7 +238,11 @@ function escalon(campo, horas) {
   for (const t of horas) { while (i < lect.length && lect[i][0] <= t) actual = lect[i++][1]; if (actual != null && t <= Math.max(fin, ahoraT())) out.push({ time: t, value: actual }); }
   return out;
 }
-let ultimaVela = 0; const ahoraT = () => ultimaVela;
+let ultimaVela = 0;
+// hasta dónde se extiende el último valor de un nivel: la última vela, la última lectura o la hora actual (si es hoy)
+const ahoraT = () => { let t = ultimaVela; const u = capas[capas.length - 1]; if (u) t = Math.max(t, ts(fecha, balde(u.at.slice(11, 16))));
+  const ny = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York', hour12: false }); if (ny.slice(0, 10) === fecha) { const hm = ny.slice(12, 17); if (hm >= '09:30' && hm <= '16:00') t = Math.max(t, ts(fecha, balde(hm))); }
+  return t; };
 const ultimo = (f) => { for (let i = capas.length - 1; i >= 0; i--) { const v = f(capas[i]); if (v != null) return { v, at: capas[i].at }; } return null; };
 
 let lineasNivel = [];
@@ -248,7 +252,10 @@ function redibujar() {
   const filas = agrupar(filasHiro);
   const t = (x) => ts(fecha, x.hora);
   ultimaVela = filas.length ? t(filas[filas.length - 1]) : 0;
-  sBase.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.spx })), horas));
+  // el eje del precio se sostiene con el HIRO; si no hay HIRO (antes de abrir, colector caído), con el precio de cada lectura de Discord
+  let baseSpx = filas.map((x) => ({ time: t(x), value: x.spx }));
+  if (!baseSpx.length) { const m = new Map(); for (const r of capas) if (r.spx) m.set(ts(fecha, balde(r.at.slice(11, 16))), r.spx); baseSpx = [...m].map(([time, value]) => ({ time, value })); }
+  sBase.setData(conVacios(baseSpx, horas));
   sVelas.setData(conVacios(filas.map((x) => ({ time: t(x), open: x.o, high: x.h, low: x.l, close: x.spx })), horas));
   sLinea.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.spx })), horas));
   sCalls.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.calls })), horas));
@@ -307,6 +314,31 @@ function lienzo() {
   const cv = $('lienzo'), dpr = window.devicePixelRatio || 1, W = $('gMain').clientWidth, H = $('gMain').clientHeight;
   if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const ancho0 = W - gM.priceScale('right').width(), altoT0 = 28, cero0 = Math.round(ancho0 * 0.45);
+  // Histograma de GexBot State (control de calidad 20-nov): cian = long gamma a la derecha, violeta = short gamma a la izquierda
+  if (est.gbs.on && est.gbs.hist) {
+    const s = ultimo((x) => (x.gexbot_state?.barras?.length ? x.gexbot_state : null));
+    if (s) {
+      const maxS = Math.max(1, ...s.v.barras.flatMap((b) => [Math.abs(b[1]), Math.abs(b[2])]));
+      // UNA sola escala para los dos lados del cero, como el original (un píxel vale lo mismo a izquierda y derecha)
+      const pxU = Math.min(cero0 - 12, (ancho0 - cero0) * 0.55) / maxS;
+      const esc = (v) => Math.abs(v) * pxU;
+      for (const [k, c, v] of s.v.barras) {
+        const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
+        if (yc == null || y5 == null || yc < 0 || yc > H - altoT0) continue;
+        const u = Math.max(4, yc - y5), h = Math.max(2, u * 0.2);
+        if (c) { const l = esc(c); ctx.fillStyle = 'rgb(14,255,251)'; ctx.fillRect(cero0, yc - h / 2, l, h); }
+        if (v) { const l = esc(v); ctx.fillStyle = 'rgb(174,79,220)'; ctx.fillRect(cero0 - l, yc - h / 2, l, h); }
+      }
+      for (const [k, lista] of (s.v.puntos || [])) {   // puntos de cambio con su color original
+        const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
+        if (yc == null || y5 == null || yc < 0 || yc > H - altoT0) continue;
+        const u = Math.max(4, yc - y5), rad = Math.max(1.5, Math.min(3.5, u * 0.1));
+        for (const [dx, c] of lista) { ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.arc(cero0 + (dx < 0 ? -esc(dx) : esc(dx)), yc, rad, 0, Math.PI * 2); ctx.fill(); }
+      }
+      ctx.fillStyle = 'rgba(0,188,212,.85)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('GexBot State ' + s.at.slice(11, 16), cero0 + 6, 16);
+    }
+  }
   if (!(est.gbc.on && est.gbc.hist)) return;
   const g = ultimo((x) => (x.gexbot_classic?.barras?.length ? x.gexbot_classic : null)); if (!g) return;
   // Igual que GexBot Classic (control de calidad 20-nov contra la captura): barra brillante centrada en el strike con
@@ -316,7 +348,8 @@ function lienzo() {
   const cero = Math.round(ancho * 0.45), maxIzq = cero - 12, maxDer = (ancho - cero) * 0.55;
   const todos = [...barras.map((b) => b[1]), ...[...sombras.values()], ...puntos.flatMap((p) => p[1].map((q) => q[0]))];
   const maxL = Math.max(1, ...todos.map((v) => Math.abs(v)));
-  const escala = (v) => Math.abs(v) / maxL * (v < 0 ? maxIzq : maxDer);
+  const pxL = Math.min(maxIzq, maxDer) / maxL;   // una sola escala a los dos lados del cero, como GexBot
+  const escala = (v) => Math.abs(v) * pxL;
   const solido = est.gbc.solido;
   const COL = solido ? { r: 'rgb(239,73,77)', rS: 'rgb(142,16,17)', v: 'rgb(56,214,120)', vS: 'rgb(18,92,52)' }
                      : { r: 'rgba(242,54,69,0.30)', rS: 'rgba(142,16,17,0.35)', v: 'rgba(8,153,129,0.30)', vS: 'rgba(18,92,52,0.35)' };
