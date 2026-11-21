@@ -22,6 +22,7 @@ const CAMPOS = {
   Greeks: ['eventType', 'eventSymbol', 'delta'],
   Trade: ['eventType', 'eventSymbol', 'price'],
   Summary: ['eventType', 'eventSymbol', 'prevDayClosePrice'],
+  Candle: ['eventType', 'eventSymbol', 'time', 'open', 'high', 'low', 'close'],
 };
 const num = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
 
@@ -47,6 +48,7 @@ class Hiro {
   reset(fecha) {
     this.fecha = fecha;
     this.min = {};          // 'HH:MM' -> { c, p, spx }
+    this.velas = {};        // 'HH:MM' -> { o, h, l, c } (velas de 1 min del SPX, de dxLink)
     this.greeks = {};       // símbolo -> delta
     this.simbolos = new Set();
     this.centro = null; this.spx = null; this.cierrePrevio = null; this.ultimoMs = 0;
@@ -54,7 +56,7 @@ class Hiro {
     const f = path.join(this.dir, fecha + '.json');
     try {
       const d = JSON.parse(fs.readFileSync(f, 'utf8'));
-      this.min = d.min || {}; this.cierrePrevio = d.cierrePrevio || null; this.ultimoMs = d.ultimoMs || 0; this.nTrades = d.nTrades || 0;
+      this.min = d.min || {}; this.velas = d.velas || {}; this.cierrePrevio = d.cierrePrevio || null; this.ultimoMs = d.ultimoMs || 0; this.nTrades = d.nTrades || 0;
     } catch { /* día nuevo */ }
   }
 
@@ -62,7 +64,7 @@ class Hiro {
     try {
       fs.mkdirSync(this.dir, { recursive: true });
       fs.writeFileSync(path.join(this.dir, this.fecha + '.json'),
-        JSON.stringify({ fecha: this.fecha, min: this.min, cierrePrevio: this.cierrePrevio, ultimoMs: this.ultimoMs, nTrades: this.nTrades }));
+        JSON.stringify({ fecha: this.fecha, min: this.min, velas: this.velas, cierrePrevio: this.cierrePrevio, ultimoMs: this.ultimoMs, nTrades: this.nTrades }));
     } catch (e) { this.log('no se pudo guardar: ' + e.message); }
   }
 
@@ -116,7 +118,9 @@ class Hiro {
     else if (d.type === 'AUTH_STATE' && d.state === 'AUTHORIZED') send({ type: 'CHANNEL_REQUEST', channel: 1, service: 'FEED', parameters: { contract: 'AUTO' } });
     else if (d.type === 'CHANNEL_OPENED') {
       send({ type: 'FEED_SETUP', channel: 1, acceptAggregationPeriod: 0.5, acceptDataFormat: 'COMPACT', acceptEventFields: CAMPOS });
-      send({ type: 'FEED_SUBSCRIPTION', channel: 1, reset: true, add: [{ type: 'Trade', symbol: 'SPX' }, { type: 'Summary', symbol: 'SPX' }] });
+      // 20-nov: velas de 1 min del SPX con historial desde la apertura (el precio queda completo aunque el colector arranque tarde)
+      send({ type: 'FEED_SUBSCRIPTION', channel: 1, reset: true, add: [{ type: 'Trade', symbol: 'SPX' }, { type: 'Summary', symbol: 'SPX' },
+        { type: 'Candle', symbol: 'SPX{=1m}', fromTime: new Date(`${this.fecha}T09:30:00-05:00`).getTime() }] });
     } else if (d.type === 'FEED_DATA') {
       for (let i = 0; i < d.data.length; i += 2) {
         const tipo = d.data[i], v = d.data[i + 1], campos = CAMPOS[tipo];
@@ -158,6 +162,8 @@ class Hiro {
       // vela de 1 minuto del SPX (para la vista en velas de la página)
       f.spx = p; if (f.o == null) f.o = p; f.h = Math.max(f.h ?? p, p); f.l = Math.min(f.l ?? p, p);
       if (this.centro === null || Math.abs(p - this.centro) > RECENTRAR) this.suscribirStrikes();
+    } else if (tipo === 'Candle') {
+      this.vela(o, this.velas, this.fecha);
     } else if (tipo === 'Summary' && o.eventSymbol === 'SPX') {
       this.cierrePrevio = num(o.prevDayClosePrice) || this.cierrePrevio;
     } else if (tipo === 'Greeks') {
@@ -188,20 +194,74 @@ class Hiro {
     }
   }
 
+  vela(o, destino, fecha) {
+    const t = num(o.time), op = num(o.open), hi = num(o.high), lo = num(o.low), cl = num(o.close);
+    if (!t || !cl || !op) return;
+    if (new Date(t).toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10) !== fecha) return;
+    const hm = hmET(t);
+    if (hm < '09:30' || hm > '16:00') return;
+    destino[hm] = { o: op, h: hi ?? Math.max(op, cl), l: lo ?? Math.min(op, cl), c: cl };
+  }
+
+  // Velas de 1 min de un día a pedido (con el mercado cerrado o un día pasado): conexión corta a dxLink, solo lectura.
+  // Se guardan en DATA_DIR/hiro/velas_AAAA-MM-DD.json cuando el día ya cerró.
+  async cargarVelas(fecha) {
+    const f = path.join(this.dir, `velas_${fecha}.json`);
+    try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* no hay caché */ }
+    if (this._cargando) return null;
+    this._cargando = true;
+    try {
+      const q = (await this.tt._req('/api-quote-tokens')).data;
+      const velas = {};
+      await new Promise((ok) => {
+        const ws = new WebSocket(q['dxlink-url']);
+        const send = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
+        let quieto = null;
+        const fin = () => { clearTimeout(quieto); try { ws.close(); } catch {} ok(); };
+        const tope = setTimeout(fin, 20000);
+        ws.on('open', () => send({ type: 'SETUP', channel: 0, keepaliveTimeout: 60, acceptKeepaliveTimeout: 60, version: '0.1-bitacora-hiro-velas' }));
+        ws.on('message', (raw) => {
+          const d = JSON.parse(raw.toString());
+          if (d.type === 'AUTH_STATE' && d.state === 'UNAUTHORIZED') send({ type: 'AUTH', channel: 0, token: q.token });
+          else if (d.type === 'AUTH_STATE' && d.state === 'AUTHORIZED') send({ type: 'CHANNEL_REQUEST', channel: 3, service: 'FEED', parameters: { contract: 'AUTO' } });
+          else if (d.type === 'CHANNEL_OPENED') {
+            send({ type: 'FEED_SETUP', channel: 3, acceptAggregationPeriod: 1, acceptDataFormat: 'COMPACT', acceptEventFields: { Candle: CAMPOS.Candle } });
+            send({ type: 'FEED_SUBSCRIPTION', channel: 3, reset: true, add: [{ type: 'Candle', symbol: 'SPX{=1m}', fromTime: new Date(`${fecha}T09:25:00-05:00`).getTime() }] });
+          } else if (d.type === 'FEED_DATA') {
+            for (let i = 0; i < d.data.length; i += 2) {
+              if (d.data[i] !== 'Candle') continue;
+              const v = d.data[i + 1], n = CAMPOS.Candle.length;
+              for (let j = 0; j + n <= v.length; j += n) { const o = {}; CAMPOS.Candle.forEach((c, k) => { o[c] = v[j + k]; }); this.vela(o, velas, fecha); }
+            }
+            // se espera a tener velas de la sesión (el primer paquete puede traer solo la de después del cierre)
+            if (Object.keys(velas).length) { clearTimeout(quieto); quieto = setTimeout(() => { clearTimeout(tope); fin(); }, 4000); }
+          }
+        });
+        ws.on('error', () => { clearTimeout(tope); fin(); });
+      });
+      const cerrado = fecha < cal.fechaET() || cal.minutosET() > cal.horaCierreMin() + 5;
+      if (Object.keys(velas).length && cerrado) { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(f, JSON.stringify(velas)); }
+      return velas;
+    } catch (e) { this.log('velas: ' + e.message); return null; } finally { this._cargando = false; }
+  }
+
   // Serie acumulada para la página: [{hora, spx, calls, puts, total}] (miles de millones = valor/1e9 en el cliente)
   serie(fecha = this.fecha) {
-    let min = this.min, cierrePrevio = this.cierrePrevio;
+    let min = this.min, cierrePrevio = this.cierrePrevio, velas = this.velas;
     if (fecha !== this.fecha) {
-      try { const d = JSON.parse(fs.readFileSync(path.join(this.dir, fecha + '.json'), 'utf8')); min = d.min || {}; cierrePrevio = d.cierrePrevio; }
-      catch { return { fecha, filas: [], estado: { mensaje: 'sin datos para ese día' } }; }
+      min = {}; velas = {};
+      try { const d = JSON.parse(fs.readFileSync(path.join(this.dir, fecha + '.json'), 'utf8')); min = d.min || {}; velas = d.velas || {}; cierrePrevio = d.cierrePrevio; } catch { /* sin HIRO ese día */ }
     }
+    if (!Object.keys(velas).length) { try { velas = JSON.parse(fs.readFileSync(path.join(this.dir, `velas_${fecha}.json`), 'utf8')); } catch { /* sin velas en caché */ } }
     let c = 0, p = 0, spx = null;
     const filas = Object.keys(min).sort().map((hm) => {
       const b = min[hm]; c += b.c; p += b.p; spx = b.spx || spx;
       return { hora: hm, spx, o: b.o ?? spx, h: b.h ?? spx, l: b.l ?? spx, calls: Math.round(c), puts: Math.round(p), total: Math.round(c + p) };
     });
+    // velas de 1 min del SPX de todo el día (dxLink); el precio de la página sale de aquí aunque el HIRO empiece tarde
+    const listaVelas = Object.keys(velas).sort().map((hm) => ({ hora: hm, ...velas[hm] }));
     return {
-      fecha, filas, cierrePrevio,
+      fecha, filas, cierrePrevio, velas: listaVelas,
       estado: { conectado: !!this.ws && fecha === this.fecha, desde: this.conectadoDesde, contratos: this.simbolos.size, trades: this.nTrades, patasExcluidas: this.nPatas || 0,
                 ultimo: this.ultimoMs ? new Date(this.ultimoMs).toISOString() : null, error: this.error },
     };

@@ -17059,7 +17059,10 @@ app.get('/api/capas', (req, res) => {
 app.get('/api/hiro', (req, res) => {
   try {
     const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : undefined;
-    res.json({ ok: true, ...hiro.serie(fecha) });
+    const r = hiro.serie(fecha);
+    // sin velas del día (colector apagado o día pasado): se piden a dxLink en segundo plano; el próximo refresco ya las trae
+    if (!r.velas.length && !hiro._cargando) hiro.cargarVelas(r.fecha).then((v) => { if (v && r.fecha === hiro.fecha) Object.assign(hiro.velas, v); }).catch(() => {});
+    res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 

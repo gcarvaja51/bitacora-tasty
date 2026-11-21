@@ -232,7 +232,7 @@ $('bReset').onclick = () => { est = copia(DEFECTO); guardar('hiroCapas', est); a
 const ts = (f, hm) => Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10), +hm.slice(0, 2), +hm.slice(3, 5)) / 1000;
 const hmDe = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 const balde = (hm) => { const m = +hm.slice(0, 2) * 60 + +hm.slice(3, 5); return hmDe(570 + Math.floor((m - 570) / tf) * tf); };
-let fecha = null, filasHiro = [], cierrePrevio = null, muros = null, capas = [];
+let fecha = null, filasHiro = [], velasDia = [], cierrePrevio = null, muros = null, capas = [];
 
 function agrupar(filas) {
   const out = [];
@@ -267,14 +267,16 @@ function redibujar() {
   if (!fecha) return;
   const horas = []; for (let m = 570; m < 960; m += tf) horas.push(ts(fecha, hmDe(m)));
   const filas = agrupar(filasHiro);
+  // precio: velas de 1 min de TODO el día (dxLink de Tasty); si no hay, las del colector del HIRO
+  const velasP = velasDia.length ? agrupar(velasDia.map((v) => ({ hora: v.hora, o: v.o, h: v.h, l: v.l, spx: v.c }))) : filas;
   const t = (x) => ts(fecha, x.hora);
   ultimaVela = filas.length ? t(filas[filas.length - 1]) : 0;
   // el eje del precio se sostiene con el HIRO; si no hay HIRO (antes de abrir, colector caído), con el precio de cada lectura de Discord
-  let baseSpx = filas.map((x) => ({ time: t(x), value: x.spx }));
+  let baseSpx = velasP.map((x) => ({ time: t(x), value: x.spx }));
   if (!baseSpx.length) { const m = new Map(); for (const r of capas) if (r.spx) m.set(ts(fecha, balde(r.at.slice(11, 16))), r.spx); baseSpx = [...m].map(([time, value]) => ({ time, value })); }
   sBase.setData(conVacios(baseSpx, horas));
-  sVelas.setData(conVacios(filas.map((x) => ({ time: t(x), open: x.o, high: x.h, low: x.l, close: x.spx })), horas));
-  sLinea.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.spx })), horas));
+  sVelas.setData(conVacios(velasP.map((x) => ({ time: t(x), open: x.o, high: x.h, low: x.l, close: x.spx })), horas));
+  sLinea.setData(conVacios(velasP.map((x) => ({ time: t(x), value: x.spx })), horas));
   sCalls.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.calls })), horas));
   sPuts.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.puts })), horas));
   sTotal.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.total })), horas));
@@ -526,14 +528,15 @@ async function cargar() {
   const q = new URLSearchParams(location.search).get('fecha'), qs = q ? '?fecha=' + q : '';
   const [r, c] = await Promise.all([fetch('/api/hiro' + qs).then((x) => x.json()).catch(() => null), fetch('/api/capas' + qs).then((x) => x.json()).catch(() => null)]);
   if (!r || !r.ok) { $('estado').textContent = 'sin respuesta del servidor'; return; }
-  fecha = r.fecha; filasHiro = r.filas.filter((x) => x.spx); cierrePrevio = r.cierrePrevio || cierrePrevio;
+  fecha = r.fecha; filasHiro = r.filas.filter((x) => x.spx); velasDia = r.velas || []; cierrePrevio = r.cierrePrevio || cierrePrevio;
   capas = (c && c.ok ? c.registros : []).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
   $('fecha').textContent = new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  if (filasHiro.length) {
-    const u = filasHiro[filasHiro.length - 1];
+  const precios = velasDia.length ? velasDia.map((v) => ({ spx: v.c })) : filasHiro;
+  if (precios.length) {
+    const u = { ...(filasHiro[filasHiro.length - 1] || {}), spx: precios[precios.length - 1].spx };
     $('tSpx').textContent = u.spx.toFixed(2);
     if (cierrePrevio) { const ch = u.spx - cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / cierrePrevio * 100).toFixed(2)}%)</span>`; }
-    $('tC').textContent = fmtB(u.calls); $('tP').textContent = fmtB(u.puts);
+    if (u.calls != null) { $('tC').textContent = fmtB(u.calls); $('tP').textContent = fmtB(u.puts); }
   }
   redibujar();
   if (primera) { gM.timeScale().fitContent(); primera = false; }
