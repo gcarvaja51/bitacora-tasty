@@ -6,280 +6,393 @@
 <title>HIRO propio · SPX</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
-  :root { --bg:#141414; --panel:#1b1b1b; --borde:#2a2a2a; --txt:#d9d9d9; --suave:#8a8a8a; --azul:#3b82f6; --naranja:#f07a2a; --total:#22c3b8; --rojo:#ef4444; --verde:#22c55e; }
+  :root { --bg:#141414; --panel:#1b1b1b; --borde:#2a2a2a; --txt:#d9d9d9; --suave:#8a8a8a; --azul:#3b82f6; --naranja:#f07a2a; --rojo:#ef4444; --verde:#22c55e; }
   * { box-sizing:border-box; }
   html, body { height:100%; }
   body { margin:0; background:var(--bg); color:var(--txt); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; display:flex; flex-direction:column; }
-  header { display:flex; align-items:center; gap:18px; padding:12px 16px; border-bottom:1px solid var(--borde); flex-wrap:wrap; }
+  header { display:flex; align-items:center; gap:18px; padding:10px 16px; border-bottom:1px solid var(--borde); flex-wrap:wrap; }
   .logo { display:flex; align-items:center; gap:8px; font-weight:700; font-size:18px; letter-spacing:.5px; }
   .logo svg { width:26px; height:26px; }
-  .tick { display:flex; gap:16px; margin-left:auto; flex-wrap:wrap; }
-  .tick div { background:var(--panel); border:1px solid var(--borde); border-radius:6px; padding:5px 10px; font-size:12px; line-height:1.35; min-width:120px; }
+  .tick { display:flex; gap:12px; margin-left:auto; flex-wrap:wrap; }
+  .tick div { background:var(--panel); border:1px solid var(--borde); border-radius:6px; padding:5px 10px; font-size:12px; line-height:1.35; min-width:110px; }
   .tick b { color:#fff; font-size:13px; }
   .neg { color:var(--rojo); } .pos { color:var(--verde); }
-  .barra { display:flex; align-items:center; gap:12px; padding:10px 16px; flex-wrap:wrap; }
-  .fecha { font-size:15px; color:#fff; margin-right:8px; }
-  .pill { border:1px solid #555; border-radius:999px; padding:5px 14px; font-size:13px; color:#ddd; }
-  .pill.on { background:#1f6f63; border-color:#1f6f63; color:#fff; }
-  .seg { display:inline-flex; border:1px solid #3a3a3a; border-radius:5px; overflow:hidden; }
-  .seg button { background:transparent; color:#bbb; border:0; padding:6px 12px; font-size:13px; cursor:pointer; }
-  .seg button.on { background:#1f6f63; color:#fff; }
-  .tf button { padding:6px 9px; font-weight:500; }
-  .tf button.on { background:#2a2e39; color:#fff; box-shadow:inset 0 -2px 0 #2962ff; }
-  .derecha { margin-left:auto; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  .info { font-size:12px; color:var(--suave); }
-  #zona { flex:1; display:flex; flex-direction:column; min-height:420px; padding:0 0 4px; }
+  .barra { display:flex; align-items:center; gap:10px; padding:8px 16px; flex-wrap:wrap; border-bottom:1px solid #1f1f1f; }
+  .fecha { font-size:14px; color:#fff; margin-right:6px; }
+  .seg { display:inline-flex; border:1px solid #3a3a3a; border-radius:5px; }
+  .seg > button { background:transparent; color:#bbb; border:0; padding:6px 10px; font-size:12.5px; cursor:pointer; white-space:nowrap; }
+  .tf > button { padding:6px 8px; font-weight:500; }
+  .tf > button.on { background:#2a2e39; color:#fff; box-shadow:inset 0 -2px 0 #2962ff; }
+  .capas { display:flex; gap:6px; flex-wrap:wrap; }
+  .capa { position:relative; display:inline-flex; border:1px solid #3a3a3a; border-radius:5px; }
+  .capa > .nom { background:transparent; color:#888; border:0; padding:6px 9px; font-size:12.5px; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .capa > .nom i { width:9px; height:9px; border-radius:2px; display:inline-block; opacity:.35; }
+  .capa.on { border-color:#555; }
+  .capa.on > .nom { color:#fff; background:#23272f; }
+  .capa.on > .nom i { opacity:1; }
+  .capa > .mas { background:transparent; color:#888; border:0; border-left:1px solid #333; padding:6px 6px; cursor:pointer; font-size:11px; }
+  .capa.prox { opacity:.45; }
+  .menu { display:none; position:absolute; top:100%; left:0; margin-top:4px; z-index:20; background:#1e1e1e; border:1px solid #3a3a3a; border-radius:6px; padding:6px 0; min-width:200px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  .menu.abierto { display:block; }
+  .menu label { display:flex; align-items:center; gap:8px; padding:5px 12px; font-size:12.5px; color:#ccc; cursor:pointer; white-space:nowrap; }
+  .menu label:hover { background:#262626; }
+  .menu .t { padding:4px 12px; font-size:11px; color:#777; text-transform:uppercase; letter-spacing:.5px; }
+  .restablecer { background:transparent; border:1px solid #3a3a3a; color:#888; border-radius:5px; padding:6px 9px; font-size:12px; cursor:pointer; }
+  #zona { flex:1; display:flex; flex-direction:column; min-height:440px; }
   .seccion { position:relative; min-height:0; }
+  #secMain { flex:1 1 auto; }
+  #secHiro { flex:0 0 auto; }
+  #gMain, #gHiro, #lienzo { position:absolute; inset:0; }
+  #lienzo { pointer-events:none; z-index:2; width:100%; height:100%; display:block; }
+  body { overflow-x:hidden; }
   .rotulo { position:absolute; left:10px; top:6px; z-index:3; font-size:11px; color:var(--suave); letter-spacing:.4px; pointer-events:none; }
-  #secPrecio { flex:0 0 auto; }
-  #secHiro { flex:1 1 auto; }
-  #gPrecio, #gHiro { position:absolute; inset:0; }
-  #divisor { flex:0 0 12px; display:flex; align-items:center; justify-content:center; cursor:row-resize; background:#181818; border-top:1px solid var(--borde); border-bottom:1px solid var(--borde); user-select:none; touch-action:none; }
+  #recuadros { position:absolute; left:10px; top:24px; z-index:4; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+  .rec { background:rgba(20,20,20,.85); border:1px solid #333; border-radius:6px; padding:5px 9px; font-size:11.5px; line-height:1.35; max-width:330px; }
+  .rec b { color:#fff; }
+  #divisor { flex:0 0 10px; cursor:row-resize; background:#181818; border-top:1px solid var(--borde); border-bottom:1px solid var(--borde); display:flex; align-items:center; justify-content:center; touch-action:none; }
   #divisor::before { content:''; width:46px; height:3px; border-radius:2px; background:#444; }
-  #divisor:hover::before { background:#1f9c8c; }
-  .cerrada #secPrecio, .cerrada #divisor { display:none; }
-  footer { padding:6px 16px 12px; font-size:11.5px; color:var(--suave); line-height:1.5; }
+  .sinHiro #secHiro, .sinHiro #divisor { display:none; }
+  footer { padding:6px 16px 10px; font-size:11px; color:var(--suave); line-height:1.5; }
   .punto { display:inline-block; width:8px; height:8px; border-radius:50%; background:#666; margin-right:6px; vertical-align:middle; }
   .punto.vivo { background:var(--verde); box-shadow:0 0 6px var(--verde); }
-  @media (max-width:640px) { .tick { margin-left:0; } .tick div { min-width:0; } .derecha { margin-left:0; } #zona { min-height:70vh; } }
+  @media (max-width:700px) { .tick { margin-left:0; } #zona { min-height:72vh; } }
 </style>
 </head>
 <body>
 <header>
   <div class="logo">
     <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="13" stroke="#22c3b8" stroke-width="2.5"/><path d="M9 18c3-6 5 4 8-2s4 2 6-3" stroke="#22c3b8" stroke-width="2.2" stroke-linecap="round"/></svg>
-    HIRO <span style="font-weight:400;color:#8a8a8a;font-size:13px">propio</span>
+    HIRO <span style="font-weight:400;color:#8a8a8a;font-size:13px">análisis por capas</span>
   </div>
   <div class="tick">
-    <div>^SPX <b id="tSpx">—</b><br><span id="tSpxCh" class="info">—</span></div>
-    <div>Calls <b id="tC" style="color:var(--azul)">—</b><br><span class="info">impacto acumulado</span></div>
-    <div>Puts <b id="tP" style="color:var(--naranja)">—</b><br><span class="info">impacto acumulado</span></div>
+    <div>^SPX <b id="tSpx">—</b><br><span id="tSpxCh">—</span></div>
+    <div>Calls <b id="tC" style="color:var(--azul)">—</b><br><span style="font-size:11px;color:#888">HIRO acumulado</span></div>
+    <div>Puts <b id="tP" style="color:var(--naranja)">—</b><br><span style="font-size:11px;color:#888">HIRO acumulado</span></div>
   </div>
 </header>
 <div class="barra">
   <span class="fecha" id="fecha">—</span>
-  <span class="pill">S&amp;P 500</span><span class="pill on">SPX</span>
-  <span class="info">1d · 0DTE · todas las operaciones</span>
-  <div class="derecha">
-    <div class="seg tf" id="tfs">
-      <button data-tf="1">1m</button><button data-tf="2">2m</button><button data-tf="3">3m</button><button data-tf="5">5m</button>
-      <button data-tf="10">10m</button><button data-tf="15">15m</button><button data-tf="30">30m</button><button data-tf="60">1h</button>
-    </div>
-    <span class="info">Precio:</span>
-    <div class="seg"><button id="bVelas">Velas</button><button id="bLinea">Línea</button></div>
-    <div class="seg"><button id="bSecc" title="Mostrar u ocultar la sección de precio">▾ Sección precio</button></div>
-    <div class="seg"><button id="bTotal">Total</button><button id="bPC">Put/Call</button></div>
+  <div class="seg tf" id="tfs">
+    <button data-tf="1">1m</button><button data-tf="2">2m</button><button data-tf="3">3m</button><button data-tf="5">5m</button>
+    <button data-tf="10">10m</button><button data-tf="15">15m</button><button data-tf="30">30m</button><button data-tf="60">1h</button>
   </div>
+  <div class="capas" id="capas"></div>
+  <button class="restablecer" id="bReset" title="Volver al esquema inicial">↺ Esquema inicial</button>
 </div>
 <div id="zona">
-  <div class="seccion" id="secHiro"><span class="rotulo" id="rotHiro">HEDGING IMPACT · PUT/CALL</span><div id="gHiro"></div></div>
-  <div id="divisor" title="Arrastra para agrandar o achicar la sección de precio (doble clic: tamaño normal)"></div>
-  <div class="seccion" id="secPrecio"><span class="rotulo" id="rotPrecio">SPX · 1m</span><div id="gPrecio"></div></div>
+  <div class="seccion" id="secMain">
+    <span class="rotulo" id="rotMain">SPX</span>
+    <div id="recuadros"></div>
+    <div id="gMain"></div>
+    <canvas id="lienzo"></canvas>
+  </div>
+  <div id="divisor" title="Arrastra para cambiar el alto de la franja HIRO (doble clic: tamaño normal)"></div>
+  <div class="seccion" id="secHiro"><span class="rotulo" id="rotHiro">HEDGING IMPACT</span><div id="gHiro"></div></div>
 </div>
 <footer>
-  <span class="punto" id="punto"></span><span id="estado">cargando…</span><br>
-  Reconstrucción propia del HIRO de SpotGamma: por cada operación de opciones 0DTE del SPX (streaming de TastyTrade, con lado agresor)
-  se suma lado × delta × contratos × 100 × SPX. <b>Sube</b> = los creadores de mercado compran SPX para cubrirse (alcista); <b>baja</b> = venden (bajista).
-  Azul = calls · naranja = puts. Líneas: muros de Sigma Terminal. Arrastra los ejes para escalar (doble clic: ajuste automático) y la barra del medio para el tamaño de cada sección.
+  <span class="punto" id="punto"></span><span id="estado">cargando…</span> · <span id="estadoCapas"></span><br>
+  Cada capa se prende o apaga por separado (▾ para elegir qué elementos mostrar); la página recuerda tu combinación. Eje vertical = precio del SPX
+  para todo lo que es un nivel o un strike; la franja HIRO comparte el eje de tiempo. Estilo de línea = fuente: sólida Sigma · raya GexBot · punteada Bola 8.
   Prueba en sombra: no es una recomendación de inversión.
 </footer>
 <script>
 const $ = (id) => document.getElementById(id);
-const leer = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
-const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
-let modo = leer('hiroModo', 'pc');            // 'pc' | 'total'
-let tipoPrecio = leer('hiroPrecio', 'velas');  // 'velas' | 'linea'
-let precioAbierta = leer('hiroSecc', '1') === '1';
-let altoPrecio = +leer('hiroAlto', '0.45');
-let tf = +leer('hiroTf', '1');                 // temporalidad en minutos (1, 2, 3, 5, 10, 15, 30, 60)    // fracción de la zona para la sección de precio
+const leer = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
+const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
+// ── Capas (20-nov-2026). Cada una se prende/apaga sola; DEFECTO es solo el esquema con el que arranca la primera vez ──
+const CAPAS = [
+  { id: 'precio', nom: 'Precio', color: '#e8e8e8', opciones: [['velas', 'Velas'], ['linea', 'Línea']], radio: true },
+  { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing']] },
+  { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
+  { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
+  { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true },
+  { id: 'bola8', nom: 'Bola 8', color: '#ffd54f', opciones: [['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
+  { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Recuadro sentimiento']] },
+  { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['rec', 'Recuadro lecturas A/B']] },
+  { id: 'flow', nom: 'Option flow', color: '#22c55e', opciones: [], prox: true },
+];
+const DEFECTO = {
+  precio: { on: true, sel: 'velas' },
+  sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false },
+  gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
+  gbs: { on: false, freno: true, acel: true },
+  hiro: { on: true, sel: 'pc' },
+  bola8: { on: false, obj: true, rec: true },
+  trad: { on: false, rec: true },
+  conf: { on: false, rec: true },
+  flow: { on: false },
+};
+const copia = (o) => JSON.parse(JSON.stringify(o));
+function cargarEstado() { const g = leer('hiroCapas', {}); const e = copia(DEFECTO); for (const k of Object.keys(e)) Object.assign(e[k], g[k] || {}); return e; }
+let est = cargarEstado();
+let tf = leer('hiroTf', 2);
+let altoHiro = leer('hiroAltoFranja', 0.32);
+
+// ── Gráficos ───────────────────────────────────────────────────────────────────────────────────────────────────────
 const fmtB = (v) => { const a = Math.abs(v); return (v < 0 ? '-' : '') + (a >= 1e9 ? (a / 1e9).toFixed(2) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(0) + 'M' : (a / 1e3).toFixed(0) + 'K'); };
 const base = {
   layout: { background: { color: '#141414' }, textColor: '#9a9a9a', fontSize: 11 },
-  grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
+  grid: { vertLines: { color: '#202020' }, horzLines: { color: '#202020' } },
   timeScale: { borderColor: '#2a2a2a', timeVisible: true, secondsVisible: false },
   crosshair: { mode: 0 },
   handleScale: { axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true }, mouseWheel: true, pinch: true },
   handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
 };
-// Sección de precio (abajo, pedido 20-nov): SPX en velas o línea + niveles. Mismo ancho de eje derecho en las dos para que el tiempo calce.
-const gP = LightweightCharts.createChart($('gPrecio'), { ...base,
-  rightPriceScale: { visible: true, borderColor: '#2a2a2a', minimumWidth: 78 }, leftPriceScale: { visible: false },
-  localization: { priceFormatter: (p) => p.toFixed(2) } });
-// Sección HIRO (arriba): calls/puts o total; el SPX como línea solo si la sección de precio está cerrada (como el HIRO original).
-const gH = LightweightCharts.createChart($('gHiro'), { ...base,
-  rightPriceScale: { visible: true, borderColor: '#2a2a2a', minimumWidth: 78 }, leftPriceScale: { visible: false, borderColor: '#2a2a2a' },
-  localization: { priceFormatter: (p) => (Math.abs(p) >= 100000 ? fmtB(p) : p.toFixed(2)) } });
+const gM = LightweightCharts.createChart($('gMain'), { ...base, rightPriceScale: { borderColor: '#2a2a2a', minimumWidth: 80 }, localization: { priceFormatter: (p) => p.toFixed(2) } });
+const gH = LightweightCharts.createChart($('gHiro'), { ...base, rightPriceScale: { borderColor: '#2a2a2a', minimumWidth: 80 }, localization: { priceFormatter: (p) => (Math.abs(p) >= 100000 ? fmtB(p) : p.toFixed(2)) } });
 
-let nivelesSpx = [];
-// la escala automática solo abarca los niveles a <=40 pts del rango de precio (si no, las velas quedan aplastadas);
-// los lejanos (p. ej. el cierre previo en un día de -3 %) se ven arrastrando el eje
-const autoscaleNiveles = (b) => { const r = b(); if (!r) return r; const lo = r.priceRange.minValue, hi = r.priceRange.maxValue;
-  const cerca = nivelesSpx.filter((v) => v >= lo - 40 && v <= hi + 40);
-  return { priceRange: { minValue: Math.min(r.priceRange.minValue, ...cerca) - 5, maxValue: Math.max(r.priceRange.maxValue, ...cerca) + 5 } }; };
-const sVelas = gP.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444', priceLineVisible: false, autoscaleInfoProvider: autoscaleNiveles });
-const sLinea = gP.addLineSeries({ color: '#e8e8e8', lineWidth: 1, priceLineVisible: false, autoscaleInfoProvider: autoscaleNiveles });
-const sSpxH = gH.addLineSeries({ priceScaleId: 'left', color: '#e8e8e8', lineWidth: 1, priceLineVisible: false, autoscaleInfoProvider: autoscaleNiveles });
+// Serie base invisible con el SPX: sostiene el eje de precio y los niveles aunque el precio esté apagado.
+let nivelesCercanos = [];
+const autoscale = (b) => { const r = b(); if (!r) return r; const lo = r.priceRange.minValue, hi = r.priceRange.maxValue;
+  const c = nivelesCercanos.filter((v) => v >= lo - 40 && v <= hi + 40);
+  return { priceRange: { minValue: Math.min(lo, ...c) - 4, maxValue: Math.max(hi, ...c) + 4 } }; };
+const sBase = gM.addLineSeries({ color: 'rgba(0,0,0,0)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: autoscale });
+const sVelas = gM.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350', priceLineVisible: false, autoscaleInfoProvider: autoscale });
+const sLinea = gM.addLineSeries({ color: '#e8e8e8', lineWidth: 1, priceLineVisible: false, autoscaleInfoProvider: autoscale });
+// Niveles que cambian en el día (GexBot, Bola 8): líneas escalonadas en el tiempo, sobre el eje del SPX
+const esc = (color, estilo, ancho = 1) => gM.addLineSeries({ color, lineWidth: ancho, lineStyle: estilo, lineType: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, autoscaleInfoProvider: autoscale });
+const RAYA = 3, PUNTEADA = 1;
+const L = {
+  gbFlip: esc('#ff9800', RAYA, 2), gbPos: esc('#5eead4', RAYA), gbNeg: esc('#ff6b6b', RAYA),
+  gbPosOi: esc('rgba(94,234,212,.55)', RAYA), gbNegOi: esc('rgba(255,107,107,.55)', RAYA),
+  freno: esc('#00bcd4', RAYA, 2), acel: esc('#b04cff', RAYA, 2),
+  obj1: esc('#ffd54f', PUNTEADA, 2), obj2: esc('rgba(255,213,79,.7)', PUNTEADA),
+};
 const fmtSerie = { type: 'custom', formatter: fmtB, minMove: 1 };
 const sCalls = gH.addLineSeries({ color: '#3b82f6', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 const sPuts = gH.addLineSeries({ color: '#f07a2a', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 const sTotal = gH.addLineSeries({ color: '#22c3b8', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 sCalls.createPriceLine({ price: 0, color: '#444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
 
-// Tiempo sincronizado entre las dos secciones (zoom y desplazamiento)
+// Tiempo y cursor sincronizados entre el gráfico principal y la franja HIRO
 let sincro = false;
-const espejo = (desde, hacia) => desde.timeScale().subscribeVisibleLogicalRangeChange((r) => {
-  if (sincro || !r) return; sincro = true; hacia.timeScale().setVisibleLogicalRange(r); sincro = false; });
-espejo(gP, gH); espejo(gH, gP);
-
-// Cursor sincronizado: al mover el mouse en una sección, la otra marca la misma hora (línea vertical + valor)
-const serieH = () => (modo === 'pc' ? sCalls : sTotal);
-const serieP = () => (tipoPrecio === 'velas' ? sVelas : sLinea);
+const espejo = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (sincro || !r) return; sincro = true; b.timeScale().setVisibleLogicalRange(r); sincro = false; });
+espejo(gM, gH); espejo(gH, gM);
 const valor = (d) => (d ? (d.close ?? d.value) : undefined);
+const serieHiro = () => (est.hiro.sel === 'total' ? sTotal : sCalls);
 let cruzando = false;
-function cursorEspejo(desde, hacia, serieDesde, serieHacia) {
-  desde.subscribeCrosshairMove((p) => {
+function cursorEspejo(a, b, sb) {
+  a.subscribeCrosshairMove((p) => {
     if (cruzando) return; cruzando = true;
     try {
-      if (!p || p.time === undefined || !p.point) hacia.clearCrosshairPosition();
-      else {
-        const sh = serieHacia(); let v = valor(p.seriesData.get(sh));
-        if (v === undefined) { const dd = sh.data(); const i = dd.findIndex((x) => x.time >= p.time); v = valor(dd[i] && (dd[i].value !== undefined || dd[i].close !== undefined) ? dd[i] : null); }
-        if (v !== undefined) hacia.setCrosshairPosition(v, p.time, sh); else hacia.clearCrosshairPosition();
-      }
-    } catch (e) { /* versión sin setCrosshairPosition: no hace nada */ }
+      if (!p || p.time === undefined || !p.point) b.clearCrosshairPosition();
+      else { const s = sb(); const d = s.data().find((x) => x.time === p.time); const v = valor(d); if (v !== undefined) b.setCrosshairPosition(v, p.time, s); else b.clearCrosshairPosition(); }
+    } catch {}
     cruzando = false;
   });
 }
-cursorEspejo(gP, gH, serieP, serieH);
-cursorEspejo(gH, gP, serieH, serieP);
+cursorEspejo(gM, gH, serieHiro);
+cursorEspejo(gH, gM, () => sBase);
 
-// Tamaños: la barra del medio reparte el alto entre precio y HIRO
-function medir() {
-  const alto = $('zona').clientHeight;
-  if (precioAbierta) {
-    const hP = Math.max(120, Math.min(alto - 160, Math.round((alto - 12) * altoPrecio)));
-    $('secPrecio').style.height = hP + 'px';
+// ── Barra de capas ───────────────────────────────────────────────────────────────────────────────────────────────
+function armarBarra() {
+  const c = $('capas'); c.innerHTML = '';
+  for (const cp of CAPAS) {
+    const e = est[cp.id];
+    const div = document.createElement('div'); div.className = 'capa' + (e.on ? ' on' : '') + (cp.prox ? ' prox' : '');
+    const b = document.createElement('button'); b.className = 'nom'; b.title = cp.prox ? 'Próximamente' : (e.on ? 'Apagar' : 'Prender') + ' ' + cp.nom;
+    b.innerHTML = `<i style="background:${cp.color}"></i>${cp.nom}${cp.prox ? ' · pronto' : ''}`;
+    b.onclick = () => { if (cp.prox) return; e.on = !e.on; guardar('hiroCapas', est); armarBarra(); redibujar(); };
+    div.appendChild(b);
+    if (cp.opciones.length) {
+      const m = document.createElement('button'); m.className = 'mas'; m.textContent = '▾';
+      const menu = document.createElement('div'); menu.className = 'menu';
+      menu.innerHTML = `<div class="t">${cp.nom}</div>` + cp.opciones.map(([k, t]) => cp.radio
+        ? `<label><input type="radio" name="r_${cp.id}" value="${k}" ${e.sel === k ? 'checked' : ''}> ${t}</label>`
+        : `<label><input type="checkbox" value="${k}" ${e[k] ? 'checked' : ''}> ${t}</label>`).join('');
+      menu.onchange = (ev) => { const i = ev.target; if (cp.radio) e.sel = i.value; else e[i.value] = i.checked; e.on = true; guardar('hiroCapas', est); div.classList.add('on'); redibujar(); };
+      m.onclick = (ev) => { ev.stopPropagation(); document.querySelectorAll('.menu.abierto').forEach((x) => x !== menu && x.classList.remove('abierto')); menu.classList.toggle('abierto'); };
+      div.appendChild(m); div.appendChild(menu);
+    }
+    c.appendChild(div);
   }
-  gP.applyOptions({ width: $('gPrecio').clientWidth, height: $('gPrecio').clientHeight });
-  gH.applyOptions({ width: $('gHiro').clientWidth, height: $('gHiro').clientHeight });
 }
-(() => {
-  const d = $('divisor'); let y0 = null, a0 = 0;
-  const mover = (y) => { if (y0 === null) return; const alto = $('zona').clientHeight - 12; altoPrecio = Math.max(0.15, Math.min(0.85, a0 - (y - y0) / alto)); /* el precio va ABAJO: bajar la barra lo achica */ medir(); };
-  d.addEventListener('pointerdown', (e) => { y0 = e.clientY; a0 = altoPrecio; d.setPointerCapture(e.pointerId); });
-  d.addEventListener('pointermove', (e) => mover(e.clientY));
-  d.addEventListener('pointerup', () => { y0 = null; guardar('hiroAlto', String(altoPrecio)); });
-  d.addEventListener('dblclick', () => { altoPrecio = 0.45; guardar('hiroAlto', '0.45'); medir(); });
-})();
+document.addEventListener('click', (ev) => { if (!ev.target.closest('.capa')) document.querySelectorAll('.menu.abierto').forEach((x) => x.classList.remove('abierto')); });
+$('bReset').onclick = () => { est = copia(DEFECTO); guardar('hiroCapas', est); armarBarra(); redibujar(); };
 
-function aplicarVista() {
-  $('bTotal').classList.toggle('on', modo === 'total'); $('bPC').classList.toggle('on', modo === 'pc');
-  $('bVelas').classList.toggle('on', tipoPrecio === 'velas'); $('bLinea').classList.toggle('on', tipoPrecio === 'linea');
-  $('bSecc').classList.toggle('on', precioAbierta); $('bSecc').textContent = (precioAbierta ? '▾' : '▸') + ' Sección precio';
-  sCalls.applyOptions({ visible: modo === 'pc' }); sPuts.applyOptions({ visible: modo === 'pc' }); sTotal.applyOptions({ visible: modo === 'total' });
-  sVelas.applyOptions({ visible: tipoPrecio === 'velas' }); sLinea.applyOptions({ visible: tipoPrecio === 'linea' });
-  $('zona').classList.toggle('cerrada', !precioAbierta);
-  // con la sección de precio cerrada, el SPX se dibuja sobre el HIRO (eje izquierdo), como el original
-  // 20-nov: el SPX (línea blanca, eje izquierdo) y sus niveles van SIEMPRE también sobre el HIRO, como el original
-  sSpxH.applyOptions({ visible: true }); gH.applyOptions({ leftPriceScale: { visible: true } });
-  $('rotHiro').textContent = 'HEDGING IMPACT · ' + (modo === 'pc' ? 'PUT/CALL' : 'TOTAL') + ' · SPX (blanco)';
-  requestAnimationFrame(medir);
-  dibujarNiveles();
-}
-$('bTotal').onclick = () => { modo = 'total'; guardar('hiroModo', modo); aplicarVista(); };
-$('bPC').onclick = () => { modo = 'pc'; guardar('hiroModo', modo); aplicarVista(); };
-$('bVelas').onclick = () => { tipoPrecio = 'velas'; guardar('hiroPrecio', tipoPrecio); aplicarVista(); };
-$('bLinea').onclick = () => { tipoPrecio = 'linea'; guardar('hiroPrecio', tipoPrecio); aplicarVista(); };
-$('bSecc').onclick = () => { precioAbierta = !precioAbierta; guardar('hiroSecc', precioAbierta ? '1' : '0'); aplicarVista(); };
+// ── Datos ────────────────────────────────────────────────────────────────────────────────────────────────────────
+const ts = (f, hm) => Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10), +hm.slice(0, 2), +hm.slice(3, 5)) / 1000;
+const hmDe = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+const balde = (hm) => { const m = +hm.slice(0, 2) * 60 + +hm.slice(3, 5); return hmDe(570 + Math.floor((m - 570) / tf) * tf); };
+let fecha = null, filasHiro = [], cierrePrevio = null, muros = null, capas = [];
 
-let filasCrudas = [], ultimaFecha = null;
-// Agrupa las filas de 1 min en velas de tf minutos, alineadas al inicio de la sesión (9:30), como TradingView.
-// Calls/puts/total son acumulados: se toma el último valor de cada vela.
-function agrupar(filas, tf) {
-  if (tf === 1) return filas.map((x) => ({ ...x, o: x.o ?? x.spx, h: x.h ?? x.spx, l: x.l ?? x.spx }));
+function agrupar(filas) {
   const out = [];
   for (const x of filas) {
-    const m = +x.hora.slice(0, 2) * 60 + +x.hora.slice(3, 5), k = 570 + Math.floor((m - 570) / tf) * tf;
-    const hm = String(Math.floor(k / 60)).padStart(2, '0') + ':' + String(k % 60).padStart(2, '0');
-    const u = out[out.length - 1];
-    if (u && u.hora === hm) { u.h = Math.max(u.h, x.h ?? x.spx); u.l = Math.min(u.l, x.l ?? x.spx); u.spx = x.spx; u.calls = x.calls; u.puts = x.puts; u.total = x.total; }
-    else out.push({ hora: hm, o: x.o ?? x.spx, h: x.h ?? x.spx, l: x.l ?? x.spx, spx: x.spx, calls: x.calls, puts: x.puts, total: x.total });
+    const hm = balde(x.hora), u = out[out.length - 1];
+    const o = x.o ?? x.spx, h = x.h ?? x.spx, l = x.l ?? x.spx;
+    if (u && u.hora === hm) { u.h = Math.max(u.h, h); u.l = Math.min(u.l, l); u.spx = x.spx; u.calls = x.calls; u.puts = x.puts; u.total = x.total; }
+    else out.push({ hora: hm, o, h, l, spx: x.spx, calls: x.calls, puts: x.puts, total: x.total });
   }
   return out;
 }
-function pintar() {
-  const f = ultimaFecha; if (!f) return;
-  const filas = agrupar(filasCrudas, tf);
-  // la sesión completa (9:30–16:00) en el eje aunque todavía no haya datos
-  const conDato = new Set(filas.map((x) => x.hora)), vacios = [];
-  for (let m = 570; m < 960; m += tf) { const hm = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); if (!conDato.has(hm)) vacios.push({ time: ts(f, hm) }); }
-  const cv = (arr) => [...arr, ...vacios].sort((a, b) => a.time - b.time);
-  const t = (x) => ts(f, x.hora);
-  sVelas.setData(cv(filas.map((x) => ({ time: t(x), open: x.o, high: x.h, low: x.l, close: x.spx }))));
-  sLinea.setData(cv(filas.map((x) => ({ time: t(x), value: x.spx }))));
-  sSpxH.setData(cv(filas.map((x) => ({ time: t(x), value: x.spx }))));
-  sCalls.setData(cv(filas.map((x) => ({ time: t(x), value: x.calls }))));
-  sPuts.setData(cv(filas.map((x) => ({ time: t(x), value: x.puts }))));
-  sTotal.setData(cv(filas.map((x) => ({ time: t(x), value: x.total }))));
+function conVacios(arr, horas) { const tiene = new Set(arr.map((x) => x.time)); return [...arr, ...horas.filter((t) => !tiene.has(t)).map((t) => ({ time: t }))].sort((a, b) => a.time - b.time); }
+// Nivel que cambia en el día como escalón: último valor conocido, desde su lectura hasta la siguiente
+function escalon(campo, horas) {
+  const lect = [];
+  for (const r of capas) { const v = campo(r); if (v != null) lect.push([ts(fecha, balde(r.at.slice(11, 16))), v]); }
+  if (!lect.length) return [];
+  const out = []; let i = 0, actual = null;
+  const fin = lect[lect.length - 1][0];
+  for (const t of horas) { while (i < lect.length && lect[i][0] <= t) actual = lect[i++][1]; if (actual != null && t <= Math.max(fin, ahoraT())) out.push({ time: t, value: actual }); }
+  return out;
 }
-function aplicarTf() {
-  document.querySelectorAll('#tfs button').forEach((b) => b.classList.toggle('on', +b.dataset.tf === tf));
-  $('rotPrecio').textContent = 'SPX · ' + (tf === 60 ? '1h' : tf + 'm');
-  pintar(); gH.timeScale().fitContent();
+let ultimaVela = 0; const ahoraT = () => ultimaVela;
+const ultimo = (f) => { for (let i = capas.length - 1; i >= 0; i--) { const v = f(capas[i]); if (v != null) return { v, at: capas[i].at }; } return null; };
+
+let lineasNivel = [];
+function redibujar() {
+  if (!fecha) return;
+  const horas = []; for (let m = 570; m < 960; m += tf) horas.push(ts(fecha, hmDe(m)));
+  const filas = agrupar(filasHiro);
+  const t = (x) => ts(fecha, x.hora);
+  ultimaVela = filas.length ? t(filas[filas.length - 1]) : 0;
+  sBase.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.spx })), horas));
+  sVelas.setData(conVacios(filas.map((x) => ({ time: t(x), open: x.o, high: x.h, low: x.l, close: x.spx })), horas));
+  sLinea.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.spx })), horas));
+  sCalls.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.calls })), horas));
+  sPuts.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.puts })), horas));
+  sTotal.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.total })), horas));
+  sVelas.applyOptions({ visible: est.precio.on && est.precio.sel === 'velas' });
+  sLinea.applyOptions({ visible: est.precio.on && est.precio.sel === 'linea' });
+  $('zona').classList.toggle('sinHiro', !est.hiro.on);
+  sCalls.applyOptions({ visible: est.hiro.sel === 'pc' }); sPuts.applyOptions({ visible: est.hiro.sel === 'pc' }); sTotal.applyOptions({ visible: est.hiro.sel === 'total' });
+  $('rotHiro').textContent = 'HEDGING IMPACT · ' + (est.hiro.sel === 'pc' ? 'PUT/CALL (azul calls · naranja puts)' : 'TOTAL');
+  const pon = (serie, visible, campo) => { serie.setData(visible ? conVacios(escalon(campo, horas), horas) : []); serie.applyOptions({ visible }); };
+  pon(L.gbFlip, est.gbc.on && est.gbc.flip, (r) => r.gexbot_classic?.flip);
+  pon(L.gbPos, est.gbc.on && est.gbc.imanes, (r) => r.gexbot_classic?.imanPos);
+  pon(L.gbNeg, est.gbc.on && est.gbc.imanes, (r) => r.gexbot_classic?.imanNeg);
+  pon(L.gbPosOi, est.gbc.on && est.gbc.imanesOi, (r) => r.gexbot_classic?.imanPosOi);
+  pon(L.gbNegOi, est.gbc.on && est.gbc.imanesOi, (r) => r.gexbot_classic?.imanNegOi);
+  pon(L.freno, est.gbs.on && est.gbs.freno, (r) => r.gexbot_state?.freno);
+  pon(L.acel, est.gbs.on && est.gbs.acel, (r) => r.gexbot_state?.acelerador);
+  pon(L.obj1, est.bola8.on && est.bola8.obj, (r) => r.bola8?.objetivo1);
+  pon(L.obj2, est.bola8.on && est.bola8.obj, (r) => r.bola8?.objetivo2);
+  lineasNivel.forEach((l) => { try { sBase.removePriceLine(l); } catch {} }); lineasNivel = [];
+  nivelesCercanos = [];
+  const add = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` })); };
+  if (est.sigma.on && muros) {
+    if (est.sigma.callWall) add(muros.callWall, 'Call Wall', '#2e8b57');
+    if (est.sigma.putWall) add(muros.putWall, 'Put Wall', '#b5651d');
+    if (est.sigma.gammaFlip) add(muros.gammaFlip, 'Gamma Flip', '#c9a227');
+    if (est.sigma.mvs) add(muros.mvs, 'Key Gamma', '#7fb2e5');
+    if (est.sigma.maxPain) add(muros.maxPain, 'Max Pain', '#9e9e9e');
+  }
+  if (est.sigma.on && est.sigma.last) add(cierrePrevio, 'Last Closing', '#8a8a8a');
+  for (const s of Object.values(L)) { const d = s.data(); const u = d.length && d[d.length - 1].value; if (u) nivelesCercanos.push(u); }
+  recuadros();
+  pedirLienzo();
+  $('rotMain').textContent = 'SPX' + (est.precio.on ? ' · ' + (tf === 60 ? '1h' : tf + 'm') : ' (precio oculto)');
+  requestAnimationFrame(medir);
 }
-document.querySelectorAll('#tfs button').forEach((b) => b.onclick = () => { tf = +b.dataset.tf; guardar('hiroTf', String(tf)); aplicarTf(); });
 
-const ts = (fecha, hm) => Date.UTC(+fecha.slice(0, 4), +fecha.slice(5, 7) - 1, +fecha.slice(8, 10), +hm.slice(0, 2), +hm.slice(3, 5)) / 1000;
-let primera = true, cierrePrevio = null, muros = null;
+function recuadros() {
+  const r = [];
+  const nom = (s) => (s === 'bearish' ? ['Bajista', 'neg'] : s === 'bullish' ? ['Alcista', 'pos'] : ['Neutral', '']);
+  const b8 = ultimo((x) => x.bola8);
+  if (est.bola8.on && est.bola8.rec && b8) { const [n, c] = nom(b8.v.sesgo); r.push(`<div class="rec"><b style="color:#ffd54f">Bola 8</b> · ${b8.at.slice(11, 16)} · <span class="${c}">${n}</span> fuerza <b>${b8.v.fuerza ?? '—'}</b> · objetivos ${b8.v.objetivo1 ?? '—'} / ${b8.v.objetivo2 ?? '—'}</div>`); }
+  const tr = ultimo((x) => x.tradytics);
+  if (est.trad.on && est.trad.rec && tr) { const [n, c] = nom(tr.v.sentimiento); r.push(`<div class="rec"><b style="color:#ef4444">Tradytics</b> · ${tr.at.slice(11, 16)} · flujo <span class="${c}">${n.toLowerCase()}</span>${tr.v.monto ? ' · ' + tr.v.monto : ''}</div>`); }
+  const cf = ultimo((x) => x.confluencia);
+  if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia</b> · ${cf.at.slice(11, 16)}<br>A (tendencia): <b>${cf.v.A || '—'}</b> · B (fade): <b>${cf.v.B || '—'}</b><br><span style="color:#888">${cf.v.motivoA || ''}</span></div>`);
+  $('recuadros').innerHTML = r.join('');
+}
 
+// ── Histograma de GexBot Classic: barras horizontales en su strike exacto (eje del SPX), estilo GexBot ─────────────────
+let pendiente = false;
+function pedirLienzo() { if (!pendiente) { pendiente = true; requestAnimationFrame(() => { pendiente = false; lienzo(); }); } }
+function lienzo() {
+  // tamaño tomado del contenedor (no del lienzo: si no, el lienzo se agranda solo en cada redibujo)
+  const cv = $('lienzo'), dpr = window.devicePixelRatio || 1, W = $('gMain').clientWidth, H = $('gMain').clientHeight;
+  if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  if (!(est.gbc.on && est.gbc.hist)) return;
+  const g = ultimo((x) => (x.gexbot_classic?.barras?.length ? x.gexbot_classic : null)); if (!g) return;
+  // Igual que GexBot Classic (control de calidad 20-nov contra la captura): barra brillante centrada en el strike con
+  // extremos redondeados, sombra oscura debajo pegada al cero y puntos azules de "max change" con su color original.
+  const barras = g.v.barras, sombras = new Map(g.v.sombras || []), puntos = g.v.puntos || [];
+  const ancho = W - gM.priceScale('right').width(), altoT = 28;
+  const cero = Math.round(ancho * 0.45), maxIzq = cero - 12, maxDer = (ancho - cero) * 0.55;
+  const todos = [...barras.map((b) => b[1]), ...[...sombras.values()], ...puntos.flatMap((p) => p[1].map((q) => q[0]))];
+  const maxL = Math.max(1, ...todos.map((v) => Math.abs(v)));
+  const escala = (v) => Math.abs(v) / maxL * (v < 0 ? maxIzq : maxDer);
+  const solido = est.gbc.solido;
+  const COL = solido ? { r: 'rgb(239,73,77)', rS: 'rgb(142,16,17)', v: 'rgb(56,214,120)', vS: 'rgb(18,92,52)' }
+                     : { r: 'rgba(242,54,69,0.30)', rS: 'rgba(142,16,17,0.35)', v: 'rgba(8,153,129,0.30)', vS: 'rgba(18,92,52,0.35)' };
+  const redondo = (x, y, w, h) => { const r = Math.min(h / 2, 3); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.fill(); };
+  for (const [k, largo] of barras) {
+    const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
+    if (yc == null || y5 == null || yc < 0 || yc > H - altoT) continue;
+    const u = Math.max(4, yc - y5), neg = largo < 0;
+    const hB = Math.max(2, u * 0.2), L2 = Math.max(2, escala(largo));
+    ctx.fillStyle = neg ? COL.r : COL.v; redondo(neg ? cero - L2 : cero, yc - hB / 2, L2, hB);
+    const sb = sombras.get(k);
+    if (sb) { const Ls = Math.max(2, escala(sb)); ctx.fillStyle = neg ? COL.rS : COL.vS; ctx.fillRect(neg ? cero - Ls : cero, yc + u * 0.11, Ls, Math.max(2, u * 0.27)); }
+  }
+  if (est.gbc.puntos) for (const [k, lista] of puntos) {
+    const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
+    if (yc == null || y5 == null || yc < 0 || yc > H - altoT) continue;
+    const u = Math.max(4, yc - y5), rad = Math.max(1.5, Math.min(4, u * 0.11));
+    for (const [dx, c] of lista) { ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${solido ? 1 : 0.6})`; ctx.beginPath(); ctx.arc(cero + (dx < 0 ? -escala(dx) : escala(dx)), yc + u * 0.06, rad, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.strokeStyle = 'rgba(200,200,200,0.22)'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(cero + .5, 0); ctx.lineTo(cero + .5, H - altoT); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,152,0,.8)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('GexBot Classic ' + g.at.slice(11, 16), cero + 6, H - altoT - 6);
+}
+gM.timeScale().subscribeVisibleLogicalRangeChange(pedirLienzo);
+(function vigilar() { pedirLienzo(); setTimeout(vigilar, 250); })();   // también al arrastrar el eje de precio
+
+// ── Tamaños: franja HIRO redimensionable ─────────────────────────────────────────────────────────────────────────
+function medir() {
+  const alto = $('zona').clientHeight;
+  if (est.hiro.on) $('secHiro').style.height = Math.max(110, Math.min(alto - 200, Math.round((alto - 10) * altoHiro))) + 'px';
+  gM.applyOptions({ width: $('gMain').clientWidth, height: $('gMain').clientHeight });
+  gH.applyOptions({ width: $('gHiro').clientWidth, height: $('gHiro').clientHeight });
+  pedirLienzo();
+}
+(() => {
+  const d = $('divisor'); let y0 = null, a0 = 0;
+  d.addEventListener('pointerdown', (e) => { y0 = e.clientY; a0 = altoHiro; d.setPointerCapture(e.pointerId); });
+  d.addEventListener('pointermove', (e) => { if (y0 === null) return; altoHiro = Math.max(0.12, Math.min(0.7, a0 - (e.clientY - y0) / ($('zona').clientHeight - 10))); medir(); });
+  d.addEventListener('pointerup', () => { y0 = null; guardar('hiroAltoFranja', altoHiro); });
+  d.addEventListener('dblclick', () => { altoHiro = 0.32; guardar('hiroAltoFranja', altoHiro); medir(); });
+})();
+new ResizeObserver(medir).observe($('zona'));
+
+function aplicarTf() { document.querySelectorAll('#tfs button').forEach((b) => b.classList.toggle('on', +b.dataset.tf === tf)); redibujar(); gM.timeScale().fitContent(); }
+document.querySelectorAll('#tfs button').forEach((b) => b.onclick = () => { tf = +b.dataset.tf; guardar('hiroTf', tf); aplicarTf(); });
+
+// ── Carga periódica ──────────────────────────────────────────────────────────────────────────────────────────────
+let primera = true;
 async function cargar() {
-  const q = new URLSearchParams(location.search).get('fecha');
-  const r = await fetch('/api/hiro' + (q ? '?fecha=' + q : '')).then((x) => x.json()).catch(() => null);
+  const q = new URLSearchParams(location.search).get('fecha'), qs = q ? '?fecha=' + q : '';
+  const [r, c] = await Promise.all([fetch('/api/hiro' + qs).then((x) => x.json()).catch(() => null), fetch('/api/capas' + qs).then((x) => x.json()).catch(() => null)]);
   if (!r || !r.ok) { $('estado').textContent = 'sin respuesta del servidor'; return; }
-  const f = r.fecha;
-  $('fecha').textContent = new Date(f + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  ultimaFecha = f; filasCrudas = r.filas.filter((x) => x.spx);
-  pintar();
-  const filas = filasCrudas;
-  if (filas.length) {
-    const u = filas[filas.length - 1];
+  fecha = r.fecha; filasHiro = r.filas.filter((x) => x.spx); cierrePrevio = r.cierrePrevio || cierrePrevio;
+  capas = (c && c.ok ? c.registros : []).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
+  $('fecha').textContent = new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (filasHiro.length) {
+    const u = filasHiro[filasHiro.length - 1];
     $('tSpx').textContent = u.spx.toFixed(2);
-    if (r.cierrePrevio) { const ch = u.spx - r.cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / r.cierrePrevio * 100).toFixed(2)}%)</span>`; }
+    if (cierrePrevio) { const ch = u.spx - cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / cierrePrevio * 100).toFixed(2)}%)</span>`; }
     $('tC').textContent = fmtB(u.calls); $('tP').textContent = fmtB(u.puts);
   }
-  if (primera) { gH.timeScale().fitContent(); primera = false; }
+  redibujar();
+  if (primera) { gM.timeScale().fitContent(); primera = false; }
   const e = r.estado || {};
   $('punto').classList.toggle('vivo', !!e.conectado);
-  $('estado').textContent = e.conectado
-    ? `En vivo · ${e.contratos} contratos 0DTE · ${Number(e.trades || 0).toLocaleString('es')} operaciones · último dato ${e.ultimo ? new Date(e.ultimo).toLocaleTimeString('en-US', { timeZone: 'America/New_York' }) + ' ET' : '—'}`
-    : (e.mensaje || 'Colector detenido (fuera de horario o reconectando)') + (e.error ? ' · ' + e.error : '');
-  if (r.cierrePrevio && r.cierrePrevio !== cierrePrevio) { cierrePrevio = r.cierrePrevio; dibujarNiveles(); }
+  $('estado').textContent = e.conectado ? `HIRO en vivo · ${e.contratos} contratos 0DTE · ${Number(e.trades || 0).toLocaleString('es')} operaciones` : 'HIRO: colector detenido (fuera de horario o reconectando)';
+  const uc = capas[capas.length - 1];
+  $('estadoCapas').textContent = uc ? `Discord: última lectura ${uc.at.slice(11, 16)} ET (${capas.length} en el día)` : 'Discord: sin lecturas hoy';
 }
+async function cargarMuros() { const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null); if (n && n.ok) { muros = n; redibujar(); } }
 
-// Niveles (Last Closing + muros de Sigma) en la serie de precio visible
-let lineas = [];
-function dibujarNiveles() {
-  lineas.forEach(([s, l]) => { try { s.removePriceLine(l); } catch {} }); lineas = []; nivelesSpx = [];
-  // los niveles van en el HIRO (sobre la línea blanca del SPX) y, si está abierta, también en la sección de precio
-  const destinos = [sSpxH, ...(precioAbierta ? [tipoPrecio === 'velas' ? sVelas : sLinea] : [])];
-  const add = (precio, titulo, color) => { if (!precio) return; nivelesSpx.push(+precio);
-    for (const d of destinos) lineas.push([d, d.createPriceLine({ price: +precio, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${titulo} $${(+precio).toLocaleString('en-US')}` })]); };
-  add(cierrePrevio, 'Last Closing', '#8a8a8a');
-  if (muros) { add(muros.callWall, 'Call Wall', '#2e8b57'); add(muros.putWall, 'Put Wall', '#b5651d'); add(muros.mvs, 'Key Gamma Strike', '#7fb2e5'); add(muros.gammaFlip, 'Gamma Flip', '#c9a227'); }
-}
-async function niveles() {
-  const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null);
-  if (n && n.ok) muros = n;
-  dibujarNiveles();
-}
-
-aplicarVista();
+armarBarra();
 aplicarTf();
-(async () => { await cargar(); await niveles(); })();
+cargar().then(cargarMuros);
 setInterval(cargar, 15000);
-setInterval(niveles, 120000);
-new ResizeObserver(medir).observe($('zona'));
+setInterval(cargarMuros, 120000);
 </script>
 </body>
 </html>

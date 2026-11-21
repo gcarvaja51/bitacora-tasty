@@ -16980,6 +16980,53 @@ app.get('/api/curve-tradier', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Capas de Discord para la hoja Hiro (2026-11-20) ─────────────────────────
+// El bot del PC (gexbot-sombra/confluencia.py) lee cada ~4-5 min GexBot Classic/State, Tradytics, HIRO real y Bola 8
+// desde el Discord de Iron Balls y empuja aquí lo leído. Se guarda por día en DATA_DIR/capas/AAAA-MM-DD.jsonl.
+// Solo datos informativos para dibujar: ninguna estrategia los usa.
+const CAPAS_DIR = path.join(DATA_DIR, 'capas');
+const capasCache = { fecha: null, registros: [] };
+function capasDelDia(fecha) {
+  if (capasCache.fecha === fecha) return capasCache.registros;
+  let regs = [];
+  try { regs = fs.readFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { /* sin datos */ }
+  if (fecha === calendario.fechaET()) { capasCache.fecha = fecha; capasCache.registros = regs; }
+  return regs;
+}
+app.post('/api/capas/discord', (req, res) => {
+  try {
+    const b = req.body || {};
+    const num = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
+    const gb = b.gexbot_classic || {}, st = b.gexbot_state || {}, b8 = b.bola8 || {}, tr = b.tradytics || {}, hr = b.hiro || {}, lc = b.lecturas || {};
+    const reg = {
+      at: String(b.at || new Date().toISOString()).slice(0, 25), spx: num(b.spx), fase5m: b.fase5m ?? null, fase2m: b.fase2m ?? null,
+      gexbot_classic: gb.gamma_flip_gb == null && !Array.isArray(gb.barras) ? null : {
+        flip: num(gb.gamma_flip_gb), imanPos: num(gb.iman_pos_gb), imanNeg: num(gb.iman_neg_gb),
+        imanPosOi: num(gb.iman_pos_gb_oi), imanNegOi: num(gb.iman_neg_gb_oi),
+        barras: Array.isArray(gb.barras) ? gb.barras.slice(0, 80).map((x) => [num(x[0]), num(x[1])]).filter((x) => x[0] !== null && x[1] !== null) : [],
+        // sombra oscura y puntos azules de "max change" de cada strike (para dibujarlo igual que GexBot)
+        sombras: Array.isArray(gb.sombras) ? gb.sombras.slice(0, 80).map((x) => [num(x[0]), num(x[1])]).filter((x) => x[0] !== null && x[1] !== null) : [],
+        puntos: Array.isArray(gb.puntos) ? gb.puntos.slice(0, 80).map((x) => [num(x[0]), (Array.isArray(x[1]) ? x[1] : []).slice(0, 8)
+          .map((q) => [num(q[0]), Array.isArray(q[1]) ? q[1].slice(0, 3).map((c) => Math.max(0, Math.min(255, +c || 0))) : [80, 140, 220]]).filter((q) => q[0] !== null)]).filter((x) => x[0] !== null) : [] },
+      gexbot_state: st.freno_gamma == null && st.acelerador_gamma == null ? null : { freno: num(st.freno_gamma), acelerador: num(st.acelerador_gamma) },
+      bola8: b8.sesgo == null && b8.objetivo1 == null ? null : { sesgo: b8.sesgo || null, fuerza: num(b8.fuerza), objetivo1: num(b8.objetivo1), objetivo2: num(b8.objetivo2), calls: num(b8.calls), puts: num(b8.puts) },
+      tradytics: tr.sentimiento ? { sentimiento: tr.sentimiento, monto: tr.monto ?? tr.texto ?? null } : null,
+      hiro: num(hr.hiro_bn) !== null ? { bn: num(hr.hiro_bn) } : null,
+      confluencia: lc.A_tendencia || lc.B_fade ? { A: lc.A_tendencia?.senal || null, B: lc.B_fade?.senal || null, motivoA: String(lc.A_tendencia?.motivo || '').slice(0, 160),
+        motivoB: String(lc.B_fade?.motivo || '').slice(0, 160), neto: num(lc.neto_herramientas) } : null,
+    };
+    const fecha = calendario.fechaET();
+    fs.mkdirSync(CAPAS_DIR, { recursive: true });
+    fs.appendFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), JSON.stringify(reg) + '\n');
+    capasDelDia(fecha).push(reg);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get('/api/capas', (req, res) => {
+  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : calendario.fechaET();
+  res.json({ ok: true, fecha, registros: capasDelDia(fecha) });
+});
+
 // HIRO propio: serie acumulada del día (calls/puts/total en USD de cobertura) + estado del colector
 app.get('/api/hiro', (req, res) => {
   try {
