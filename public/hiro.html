@@ -141,9 +141,15 @@ const DEFECTO = {
   flow: { on: false, tabla: true, marcas: true, grandes: false },
 };
 const copia = (o) => JSON.parse(JSON.stringify(o));
-function cargarEstado() { const g = leer('hiroCapas', {}); const e = copia(DEFECTO); for (const k of Object.keys(e)) Object.assign(e[k], g[k] || {}); return e; }
+function cargarEstado() {
+  let g = leer('hiroCapas', {}); if (!g || typeof g !== 'object') g = {};
+  const e = copia(DEFECTO);
+  for (const k of Object.keys(e)) if (g[k] && typeof g[k] === 'object') Object.assign(e[k], g[k]);
+  if (!Array.isArray(e.kgs.medias) || e.kgs.medias.length !== DEFECTO.kgs.medias.length) e.kgs.medias = copia(DEFECTO.kgs.medias);
+  return e;
+}
 let est = cargarEstado();
-let tf = leer('hiroTf', 2);
+let tf = leer('hiroTf', 2); if (![1, 2, 3, 5, 10, 15, 30, 60].includes(tf)) tf = 2;
 let altoHiro = leer('hiroAltoFranja', 0.32);
 
 // ── Gráficos ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -262,6 +268,9 @@ document.addEventListener('click', (ev) => { if (!ev.target.closest('.capa')) do
 $('bReset').onclick = () => { est = copia(DEFECTO); guardar('hiroCapas', est); armarBarra(); redibujar(); };
 
 // ── Datos ────────────────────────────────────────────────────────────────────────────────────────────────────────
+const escHtml = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const limpiarTextos = (o) => (typeof o === 'string' ? escHtml(o) : Array.isArray(o) ? o.map(limpiarTextos)
+  : o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k, limpiarTextos(v)])) : o);
 const ts = (f, hm) => Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10), +hm.slice(0, 2), +hm.slice(3, 5)) / 1000;
 const hmDe = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 const balde = (hm) => { const m = +hm.slice(0, 2) * 60 + +hm.slice(3, 5); return hmDe(570 + Math.floor((m - 570) / tf) * tf); };
@@ -298,7 +307,7 @@ const ultimo = (f) => { for (let i = capas.length - 1; i >= 0; i--) { const v = 
 let lineasNivel = [];
 function redibujar() {
   if (!fecha) return;
-  const horas = []; for (let m = 570; m < 960; m += tf) horas.push(ts(fecha, hmDe(m)));
+  const horas = []; for (let m = 570; m <= 975; m += tf) horas.push(ts(fecha, hmDe(m)));
   const filas = agrupar(filasHiro);
   // precio: velas de 1 min de TODO el día (dxLink de Tasty); si no hay, las del colector del HIRO
   const velasP = velasDia.length ? agrupar(velasDia.map((v) => ({ hora: v.hora, o: v.o, h: v.h, l: v.l, spx: v.c }))) : filas;
@@ -324,9 +333,9 @@ function redibujar() {
   const real = (campo) => {
     const idx = campo === 'calls' ? 1 : 2, m = new Map();
     const conCurva = ultimo((x) => (x.hiro?.curva?.length ? x.hiro : null));
-    if (conCurva) for (const fila of conCurva.v.curva) { if (fila[idx] != null) m.set(ts(fecha, balde(fila[0])), fila[idx] * 1e9); }
+    if (conCurva) for (const fila of conCurva.v.curva) { if (fila[idx] != null && /^\d{2}:\d{2}$/.test(fila[0]) && fila[0] >= '09:30' && fila[0] <= '16:15') m.set(ts(fecha, balde(fila[0])), fila[idx] * 1e9); }
     else for (const r of capas) { const v = r.hiro?.[campo]; if (v != null) m.set(ts(fecha, balde(r.at.slice(11, 16))), v * 1e9); }
-    return [...m].map(([time, value]) => ({ time, value: est.hiro.invertir ? -value : value }));
+    return [...m].filter(([time]) => Number.isFinite(time)).sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value: est.hiro.invertir ? -value : value }));
   };
   const verReal = est.hiro.on && est.hiro.real && est.hiro.sel === 'pc';
   sCallsReal.setData(verReal ? real('calls') : []); sPutsReal.setData(verReal ? real('puts') : []);
@@ -444,7 +453,8 @@ function ordenesFlujo() {
     const k = [f.hora, f.strike, f.tipo, f.cantidad, f.precio].join('|');
     if (!vistas.has(k)) vistas.set(k, { ...f, hm });
   }
-  return [...vistas.values()].sort((a, b) => (b.hora > a.hora ? 1 : -1));
+  const seg = (h) => { const m = /(\d{1,2}):(\d{2}):(\d{2})\s*([AP])M/.exec(h || ''); if (!m) return 0; return ((+m[1] % 12) + (m[4] === 'P' ? 12 : 0)) * 3600 + +m[2] * 60 + +m[3]; };
+  return [...vistas.values()].sort((a, b) => seg(b.hora) - seg(a.hora));
 }
 const fmtUsd = (v) => (v == null ? '—' : v >= 1e9 ? '$' + (v / 1e9).toFixed(2) + ' B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + ' M' : '$' + (v / 1e3).toFixed(2) + ' K');
 function pintarFlujo() {
@@ -611,7 +621,7 @@ async function cargar() {
     previasDe = fecha;
     fetch('/api/hiro/previas?fecha=' + fecha).then((x) => x.json()).then((p) => { if (p && p.ok) { velasPrevias = p.velas; redibujar(); } else previasDe = null; }).catch(() => { previasDe = null; });
   }
-  capas = (c && c.ok ? c.registros : []).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
+  capas = (c && c.ok ? limpiarTextos(c.registros) : []).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
   $('fecha').textContent = new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const precios = velasDia.length ? velasDia.map((v) => ({ spx: v.c })) : filasHiro;
   if (precios.length) {

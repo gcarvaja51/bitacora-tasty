@@ -142,3 +142,7 @@ informes_libros/
 
 # Clave de la puerta de escritura (src/puerta.js): vive solo en el PC y en Railway
 .clave_puerta
+
+# HIRO propio y capas de Discord: datos que el servidor escribe en DATA_DIR (en local, la raíz del repo)
+hiro/
+capas/

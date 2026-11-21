@@ -16986,10 +16986,13 @@ app.get('/api/curve-tradier', async (req, res) => {
 // Solo datos informativos para dibujar: ninguna estrategia los usa.
 const CAPAS_DIR = path.join(DATA_DIR, 'capas');
 const capasCache = { fecha: null, registros: [] };
+// fecha AAAA-MM-DD válida de verdad (auditoría 20-nov: la regex sola aceptaba 2026-02-30)
+const fechaValida = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f || '') && new Date(f + 'T12:00:00Z').toISOString().slice(0, 10) === f;
 function capasDelDia(fecha) {
   if (capasCache.fecha === fecha) return capasCache.registros;
   let regs = [];
-  try { regs = fs.readFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { /* sin datos */ }
+  try { regs = fs.readFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), 'utf8').split('\n').filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { /* sin datos */ }
   if (fecha === calendario.fechaET()) { capasCache.fecha = fecha; capasCache.registros = regs; }
   return regs;
 }
@@ -16997,9 +17000,15 @@ app.post('/api/capas/discord', (req, res) => {
   try {
     const b = req.body || {};
     const num = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
+    // textos de valores conocidos: nada de lo que llega de Discord/OCR entra crudo (auditoría 20-nov)
+    const deLista = (x, lista) => (lista.includes(x) ? x : null);
+    const SENT = ['bullish', 'bearish', 'neutral'], SENAL = ['BULL PUT', 'BEAR CALL'];
     const gb = b.gexbot_classic || {}, st = b.gexbot_state || {}, b8 = b.bola8 || {}, tr = b.tradytics || {}, hr = b.hiro || {}, lc = b.lecturas || {};
     const reg = {
-      at: String(b.at || new Date().toISOString()).slice(0, 25), spx: num(b.spx), fase5m: b.fase5m ?? null, fase2m: b.fase2m ?? null,
+      // por defecto, hora de Nueva York (el cliente la lee así; antes era UTC)
+      at: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(b.at || '')) ? String(b.at).slice(0, 25)
+        : new Date().toLocaleString('sv-SE', { timeZone: 'America/New_York' }).replace(' ', 'T'),
+      spx: num(b.spx), fase5m: num(b.fase5m), fase2m: num(b.fase2m),
       gexbot_classic: gb.gamma_flip_gb == null && !Array.isArray(gb.barras) ? null : {
         flip: num(gb.gamma_flip_gb), imanPos: num(gb.iman_pos_gb), imanNeg: num(gb.iman_neg_gb),
         imanPosOi: num(gb.iman_pos_gb_oi), imanNegOi: num(gb.iman_neg_gb_oi),
@@ -17015,35 +17024,36 @@ app.post('/api/capas/discord', (req, res) => {
           .map((q) => [num(q[0]), Array.isArray(q[1]) ? q[1].slice(0, 3).map((c) => Math.max(0, Math.min(255, +c || 0))) : [80, 200, 220]]).filter((q) => q[0] !== null)]).filter((x) => x[0] !== null) : [],
         // columnas del "options profile": [strike, desplazamiento del punto rojo, del verde] en px respecto de su centro
         perfil: Array.isArray(st.perfil) ? st.perfil.slice(0, 80).map((x) => [num(x[0]), num(x[1]), num(x[2])]).filter((x) => x[0] !== null) : [] },
-      bola8: b8.sesgo == null && b8.objetivo1 == null ? null : { sesgo: b8.sesgo || null, fuerza: num(b8.fuerza), objetivo1: num(b8.objetivo1), objetivo2: num(b8.objetivo2), calls: num(b8.calls), puts: num(b8.puts),
+      bola8: b8.sesgo == null && b8.objetivo1 == null ? null : { sesgo: deLista(b8.sesgo, SENT), fuerza: num(b8.fuerza), objetivo1: num(b8.objetivo1), objetivo2: num(b8.objetivo2), calls: num(b8.calls), puts: num(b8.puts),
         precio: num(b8.precio), curva: Array.isArray(b8.curva) ? b8.curva.slice(0, 120).map((x) => [num(x[0]), num(x[1])]).filter((x) => x[0] !== null && x[1] !== null) : [] },
-      tradytics: tr.sentimiento ? { sentimiento: tr.sentimiento, exceso: tr.exceso_prima ? { monto: num(tr.exceso_prima.monto), unidad: String(tr.exceso_prima.unidad || '').slice(0, 2), lado: String(tr.exceso_prima.lado || '').slice(0, 6) } : null,
-        spyRango: Array.isArray(tr.spy_rango) ? tr.spy_rango.slice(0, 2).map(num) : null, spy: num(tr.spy), vol: tr.vol ? String(tr.vol).slice(0, 40) : null,
+      tradytics: deLista(tr.sentimiento, SENT) ? { sentimiento: tr.sentimiento, exceso: tr.exceso_prima ? { monto: num(tr.exceso_prima.monto), unidad: String(tr.exceso_prima.unidad || '').slice(0, 2), lado: deLista(tr.exceso_prima.lado, ['puts', 'calls']) } : null,
+        spyRango: Array.isArray(tr.spy_rango) ? tr.spy_rango.slice(0, 2).map(num) : null, spy: num(tr.spy), vol: tr.vol ? String(tr.vol).replace(/[<>&"']/g, '').slice(0, 40) : null,
         volDetalle: tr.vol_detalle ? { implicita: num(tr.vol_detalle.implicita), realizada: num(tr.vol_detalle.realizada), relacion: String(tr.vol_detalle.relacion || '').slice(0, 20) } : null } : null,
       // Quant Data (escenario "option flow"): resumen y órdenes [hora, strike, tipo, cantidad, precio, lado, prima, sentimiento]
       option_flow: (b.option_flow && (b.option_flow.filas || []).length) ? {
-        resumen: { sentimiento: b.option_flow.resumen?.sentimiento || null, pcRatio: num(b.option_flow.resumen?.put_call_ratio),
+        resumen: { sentimiento: deLista(b.option_flow.resumen?.sentimiento, SENT), pcRatio: num(b.option_flow.resumen?.put_call_ratio),
           primaPuts: num(b.option_flow.resumen?.prima_puts), primaCalls: num(b.option_flow.resumen?.prima_calls) },
         filas: b.option_flow.filas.slice(0, 40).map((f) => ({ hora: String(f.hora || '').slice(0, 12), strike: num(f.strike), tipo: f.tipo === 'call' ? 'call' : f.tipo === 'put' ? 'put' : null,
-          cantidad: num(f.cantidad), precio: num(f.precio), lado: f.lado ? String(f.lado).slice(0, 2) : null, prima: num(f.prima),
+          cantidad: num(f.cantidad), precio: num(f.precio), lado: deLista(f.lado, ['A', 'B', 'AA', 'BB']), prima: num(f.prima),
           sentimiento: f.sentimiento === 'bullish' || f.sentimiento === 'bearish' ? f.sentimiento : null })).filter((f) => f.hora && f.strike) } : null,
       hiro: num(hr.hiro_bn) !== null || num(hr.puts_bn) !== null ? { bn: num(hr.hiro_bn), calls: num(hr.calls_bn ?? hr.hiro_bn), puts: num(hr.puts_bn),
         // curva completa del día leída de la imagen: [hh:mm, calls, puts] (miles de millones)
-        curva: Array.isArray(hr.curva) ? hr.curva.slice(0, 420).map((x) => [String(x[0]).slice(0, 5), num(x[1]), num(x[2])]) : [] } : null,
-      confluencia: lc.A_tendencia || lc.B_fade ? { A: lc.A_tendencia?.senal || null, B: lc.B_fade?.senal || null, motivoA: String(lc.A_tendencia?.motivo || '').slice(0, 160),
-        motivoB: String(lc.B_fade?.motivo || '').slice(0, 160), neto: num(lc.neto_herramientas) } : null,
+        curva: Array.isArray(hr.curva) ? hr.curva.slice(0, 420).filter((x) => Array.isArray(x) && /^\d{2}:\d{2}$/.test(String(x[0]))).map((x) => [String(x[0]), num(x[1]), num(x[2])]) : [] } : null,
+      confluencia: lc.A_tendencia || lc.B_fade ? { A: deLista(lc.A_tendencia?.senal, SENAL), B: deLista(lc.B_fade?.senal, SENAL), motivoA: String(lc.A_tendencia?.motivo || '').replace(/[<>&"']/g, '').slice(0, 160),
+        motivoB: String(lc.B_fade?.motivo || '').replace(/[<>&"']/g, '').slice(0, 160), neto: num(lc.neto_herramientas) } : null,
     };
     const fecha = calendario.fechaET();
+    const lista = capasDelDia(fecha);   // se carga ANTES de escribir: así el registro nuevo no queda dos veces
     fs.mkdirSync(CAPAS_DIR, { recursive: true });
     fs.appendFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), JSON.stringify(reg) + '\n');
-    capasDelDia(fecha).push(reg);
+    lista.push(reg);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 // Vaciar las lecturas de un día (para recargarlas con el lector corregido: gexbot-sombra/recargar_capas.py)
 app.post('/api/capas/limpiar', (req, res) => {
   try {
-    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || '') ? req.body.fecha : calendario.fechaET();
+    const fecha = fechaValida(req.body?.fecha) ? req.body.fecha : calendario.fechaET();
     fs.mkdirSync(CAPAS_DIR, { recursive: true });
     fs.writeFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), '');
     if (capasCache.fecha === fecha) capasCache.registros = [];
@@ -17051,7 +17061,7 @@ app.post('/api/capas/limpiar', (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 app.get('/api/capas', (req, res) => {
-  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : calendario.fechaET();
+  const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaET();
   res.json({ ok: true, fecha, registros: capasDelDia(fecha) });
 });
 
@@ -17059,17 +17069,19 @@ app.get('/api/capas', (req, res) => {
 // Velas de 1 min de los días anteriores (para que las EMA de la hoja Hiro arranquen calientes, como TradingView)
 app.get('/api/hiro/previas', async (req, res) => {
   try {
-    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : calendario.fechaET();
+    const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaET();
     const v = await hiro.velasPrevias(fecha);
     res.json({ ok: !!v, fecha, velas: v || [] });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 app.get('/api/hiro', (req, res) => {
   try {
-    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : undefined;
+    // sin fecha: la de hoy en NY (no la del arranque del servidor, por si el colector está apagado)
+    const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaET();
     const r = hiro.serie(fecha);
-    // sin velas del día (colector apagado o día pasado): se piden a dxLink en segundo plano; el próximo refresco ya las trae
-    if (!r.velas.length && !hiro._cargando) hiro.cargarVelas(r.fecha).then((v) => { if (v && r.fecha === hiro.fecha) Object.assign(hiro.velas, v); }).catch(() => {});
+    // sin velas del día: se piden a dxLink en segundo plano (cargarVelas guarda 10 min un "no hay" para no reintentar en cada refresco)
+    const antesDeAbrir = r.fecha === calendario.fechaET() && calendario.minutosET() < 9 * 60 + 30;
+    if (!r.velas.length && !hiro._cargando && !MODO_PRUEBAS && process.env.HIRO_APAGADO !== '1' && !antesDeAbrir && r.fecha <= calendario.fechaET()) hiro.cargarVelas(r.fecha).then((v) => { if (v && r.fecha === hiro.fecha) Object.assign(hiro.velas, v); }).catch(() => {});
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });

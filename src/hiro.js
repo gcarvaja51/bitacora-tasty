@@ -29,6 +29,19 @@ const num = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
 function hmET(ms) {
   return new Date(ms).toLocaleTimeString('en-GB', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
 }
+// Hora de Nueva York -> epoch ms, respetando el horario de verano (auditoría 20-nov: antes había "-05:00" fijo,
+// que desde marzo corría todo una hora). fecha 'AAAA-MM-DD', hm 'HH:MM'.
+function msET(fecha, hm) {
+  const [y, mo, d] = fecha.split('-').map(Number), [h, mi] = hm.split(':').map(Number);
+  let t = Date.UTC(y, mo - 1, d, h + 5, mi);
+  for (let i = 0; i < 2; i++) {
+    const [ph, pm] = hmET(t).split(':').map(Number);
+    t -= ((ph % 24) * 60 + pm - (h * 60 + mi)) * 60000;
+  }
+  return t;
+}
+// Un manejador de mensajes del websocket nunca puede lanzar: en este proceso también corre el robot.
+const seguro = (fn, log) => (...a) => { try { fn(...a); } catch (e) { log('mensaje ignorado: ' + e.message); } };
 const N = (x) => 0.5 * (1 + erf(x / Math.SQRT2));
 function erf(x) { const t = 1 / (1 + 0.3275911 * Math.abs(x)); const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return x >= 0 ? y : -y; }
 function deltaBS(cp, S, K, T, iv) {
@@ -83,18 +96,30 @@ class Hiro {
     const m = cal.minutosET(ahora);
     const abierto = cal.esDiaDeMercado(ahora) && m >= 9 * 60 + 29 && m <= cal.horaCierreMin(ahora) + 1;
     if (!abierto) { if (this.ws) { this.guardar(); this.cerrar(); this.log('fuera de horario: desconectado'); } return; }
-    if (!this.ws) await this.conectar();
+    // conexión muda (TCP medio abierto): sin mensajes en 90 s se cierra y se reconecta en el próximo ciclo
+    if (this.ws && Date.now() - (this.ultimoMsg || Date.now()) > 90000) { this.log('sin mensajes hace 90 s: reconectando'); this.guardar(); this.cerrar(); }
+    if (!this.ws && !this._conectando) {
+      // una sola conexión a la vez, con tiempo máximo (si no, dos sockets podían contar doble)
+      this._conectando = true;
+      const intento = this._intento = (this._intento || 0) + 1;
+      try {
+        await Promise.race([this.conectar(intento), new Promise((_, ko) => setTimeout(() => ko(new Error('conectar: más de 25 s')), 25000).unref())]);
+      } catch (e) { if (this._intento === intento) this._intento++; throw e; } finally { this._conectando = false; }
+    }
   }
 
   cerrar() {
     clearInterval(this.ka); this.ka = null;
     if (this.ws) { try { this.ws.close(); } catch {} }
     this.ws = null; this.conectadoDesde = null;
+    // al reconectar hay que volver a suscribir los contratos (antes quedaban marcados y el HIRO dejaba de contar)
+    this.simbolos = new Set(); this.centro = null; this.autorizado = false;
   }
 
-  async conectar() {
+  async conectar(intento) {
     const q = (await this.tt._req('/api-quote-tokens')).data;
     const cadena = (await this.tt._req('/option-chains/SPX/nested')).data;
+    if (intento !== undefined && intento !== this._intento) return;   // llegó tarde: ya se dio por vencido este intento
     const exps = cadena.items.flatMap((it) => it.expirations.map((e) => ({ ...e, root: it['root-symbol'] })));
     this.exp = exps.find((e) => e['expiration-date'] === this.fecha && e.root === 'SPXW') || exps.find((e) => e['expiration-date'] === this.fecha);
     if (!this.exp) throw new Error('sin vencimiento 0DTE para ' + this.fecha);
@@ -103,7 +128,8 @@ class Hiro {
     const send = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
     this.send = send;
     ws.on('open', () => send({ type: 'SETUP', channel: 0, keepaliveTimeout: 60, acceptKeepaliveTimeout: 60, version: '0.1-bitacora-hiro' }));
-    ws.on('message', (raw) => this.mensaje(JSON.parse(raw.toString()), q.token));
+    this.ultimoMsg = Date.now();
+    ws.on('message', seguro((raw) => { if (this.ws !== ws) return; this.ultimoMsg = Date.now(); this.mensaje(JSON.parse(raw.toString()), q.token); }, this.log));
     ws.on('close', () => { if (this.ws === ws) { this.log('conexión cerrada (se reintenta en el próximo ciclo)'); this.guardar(); this.cerrar(); } });
     ws.on('error', (e) => { this.error = e.message; this.log('ws: ' + e.message); });
     this.ka = setInterval(() => send({ type: 'KEEPALIVE', channel: 0 }), 25000);
@@ -114,13 +140,16 @@ class Hiro {
 
   mensaje(d, token) {
     const send = this.send;
-    if (d.type === 'AUTH_STATE' && d.state === 'UNAUTHORIZED') send({ type: 'AUTH', channel: 0, token });
-    else if (d.type === 'AUTH_STATE' && d.state === 'AUTHORIZED') send({ type: 'CHANNEL_REQUEST', channel: 1, service: 'FEED', parameters: { contract: 'AUTO' } });
+    if (d.type === 'AUTH_STATE' && d.state === 'UNAUTHORIZED') {
+      // si ya estaba autorizado, el token venció: se cierra y el próximo ciclo pide uno nuevo (antes reenviaba el viejo)
+      if (this.autorizado) { this.log('token vencido: reconectando'); this.cerrar(); return; }
+      send({ type: 'AUTH', channel: 0, token });
+    } else if (d.type === 'AUTH_STATE' && d.state === 'AUTHORIZED') { this.autorizado = true; send({ type: 'CHANNEL_REQUEST', channel: 1, service: 'FEED', parameters: { contract: 'AUTO' } }); }
     else if (d.type === 'CHANNEL_OPENED') {
       send({ type: 'FEED_SETUP', channel: 1, acceptAggregationPeriod: 0.5, acceptDataFormat: 'COMPACT', acceptEventFields: CAMPOS });
       // 20-nov: velas de 1 min del SPX con historial desde la apertura (el precio queda completo aunque el colector arranque tarde)
       send({ type: 'FEED_SUBSCRIPTION', channel: 1, reset: true, add: [{ type: 'Trade', symbol: 'SPX' }, { type: 'Summary', symbol: 'SPX' },
-        { type: 'Candle', symbol: 'SPX{=1m}', fromTime: new Date(`${this.fecha}T09:30:00-05:00`).getTime() }] });
+        { type: 'Candle', symbol: 'SPX{=1m}', fromTime: msET(this.fecha, '09:30') }] });
     } else if (d.type === 'FEED_DATA') {
       for (let i = 0; i < d.data.length; i += 2) {
         const tipo = d.data[i], v = d.data[i + 1], campos = CAMPOS[tipo];
@@ -182,7 +211,7 @@ class Hiro {
       const cp = m[1], K = +m[2];
       let dl = this.greeks[sym];
       if (dl === undefined) {
-        const cierre = new Date(`${this.fecha}T16:00:00-05:00`).getTime();
+        const cierre = msET(this.fecha, '16:00');
         dl = deltaBS(cp, this.spx, K, Math.max(cierre - t, 60000) / (365 * 86400000), 0.25);
       }
       const imp = lado * dl * size * 100 * this.spx;
@@ -205,13 +234,14 @@ class Hiro {
 
   // Velas de 1 min de los días ANTERIORES a una fecha (para calentar las EMA como TradingView). Caché por fecha.
   async velasPrevias(fecha, dias = 4) {
+    if (fecha > cal.fechaET()) return [];
     const f = path.join(this.dir, `previas_${fecha}.json`);
     try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* sin caché */ }
     if (this._cargandoPrev) return null;
     this._cargandoPrev = true;
     try {
       const q = (await this.tt._req('/api-quote-tokens')).data;
-      const desde = new Date(`${fecha}T09:25:00-05:00`).getTime() - dias * 2 * 86400000;
+      const desde = msET(fecha, '09:25') - dias * 2 * 86400000;
       const lista = [];
       await new Promise((ok) => {
         const ws = new WebSocket(q['dxlink-url']);
@@ -220,7 +250,7 @@ class Hiro {
         const fin = () => { clearTimeout(quieto); try { ws.close(); } catch {} ok(); };
         const tope = setTimeout(fin, 25000);
         ws.on('open', () => send({ type: 'SETUP', channel: 0, keepaliveTimeout: 60, acceptKeepaliveTimeout: 60, version: '0.1-bitacora-hiro-previas' }));
-        ws.on('message', (raw) => {
+        ws.on('message', seguro((raw) => {
           const d = JSON.parse(raw.toString());
           if (d.type === 'AUTH_STATE' && d.state === 'UNAUTHORIZED') send({ type: 'AUTH', channel: 0, token: q.token });
           else if (d.type === 'AUTH_STATE' && d.state === 'AUTHORIZED') send({ type: 'CHANNEL_REQUEST', channel: 5, service: 'FEED', parameters: { contract: 'AUTO' } });
@@ -240,7 +270,7 @@ class Hiro {
             }
             if (lista.length) { clearTimeout(quieto); quieto = setTimeout(() => { clearTimeout(tope); fin(); }, 4000); }
           }
-        });
+        }, this.log));
         ws.on('error', () => { clearTimeout(tope); fin(); });
       });
       const unicas = [...new Map(lista.map((x) => [x.dia + x.hora, x])).values()].sort((a, b) => (a.dia + a.hora).localeCompare(b.dia + b.hora));
@@ -255,6 +285,7 @@ class Hiro {
     const f = path.join(this.dir, `velas_${fecha}.json`);
     try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* no hay caché */ }
     if (this._cargando) return null;
+    if (this._sinVelas && this._sinVelas[fecha] && Date.now() - this._sinVelas[fecha] < 600000) return null;
     this._cargando = true;
     try {
       const q = (await this.tt._req('/api-quote-tokens')).data;
@@ -266,13 +297,13 @@ class Hiro {
         const fin = () => { clearTimeout(quieto); try { ws.close(); } catch {} ok(); };
         const tope = setTimeout(fin, 20000);
         ws.on('open', () => send({ type: 'SETUP', channel: 0, keepaliveTimeout: 60, acceptKeepaliveTimeout: 60, version: '0.1-bitacora-hiro-velas' }));
-        ws.on('message', (raw) => {
+        ws.on('message', seguro((raw) => {
           const d = JSON.parse(raw.toString());
           if (d.type === 'AUTH_STATE' && d.state === 'UNAUTHORIZED') send({ type: 'AUTH', channel: 0, token: q.token });
           else if (d.type === 'AUTH_STATE' && d.state === 'AUTHORIZED') send({ type: 'CHANNEL_REQUEST', channel: 3, service: 'FEED', parameters: { contract: 'AUTO' } });
           else if (d.type === 'CHANNEL_OPENED') {
             send({ type: 'FEED_SETUP', channel: 3, acceptAggregationPeriod: 1, acceptDataFormat: 'COMPACT', acceptEventFields: { Candle: CAMPOS.Candle } });
-            send({ type: 'FEED_SUBSCRIPTION', channel: 3, reset: true, add: [{ type: 'Candle', symbol: 'SPX{=1m}', fromTime: new Date(`${fecha}T09:25:00-05:00`).getTime() }] });
+            send({ type: 'FEED_SUBSCRIPTION', channel: 3, reset: true, add: [{ type: 'Candle', symbol: 'SPX{=1m}', fromTime: msET(fecha, '09:25') }] });
           } else if (d.type === 'FEED_DATA') {
             for (let i = 0; i < d.data.length; i += 2) {
               if (d.data[i] !== 'Candle') continue;
@@ -282,10 +313,12 @@ class Hiro {
             // se espera a tener velas de la sesión (el primer paquete puede traer solo la de después del cierre)
             if (Object.keys(velas).length) { clearTimeout(quieto); quieto = setTimeout(() => { clearTimeout(tope); fin(); }, 4000); }
           }
-        });
+        }, this.log));
         ws.on('error', () => { clearTimeout(tope); fin(); });
       });
-      const cerrado = fecha < cal.fechaET() || cal.minutosET() > cal.horaCierreMin() + 5;
+      if (!Object.keys(velas).length) (this._sinVelas = this._sinVelas || {})[fecha] = Date.now();
+      // se guarda en caché solo con el día terminado (las velas del SPX llegan hasta las 16:15)
+      const cerrado = fecha < cal.fechaET() || cal.minutosET() > cal.horaCierreMin() + 20;
       if (Object.keys(velas).length && cerrado) { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(f, JSON.stringify(velas)); }
       return velas;
     } catch (e) { this.log('velas: ' + e.message); return null; } finally { this._cargando = false; }
@@ -300,7 +333,7 @@ class Hiro {
     }
     if (!Object.keys(velas).length) { try { velas = JSON.parse(fs.readFileSync(path.join(this.dir, `velas_${fecha}.json`), 'utf8')); } catch { /* sin velas en caché */ } }
     let c = 0, p = 0, spx = null;
-    const filas = Object.keys(min).sort().map((hm) => {
+    const filas = Object.keys(min).filter((hm) => hm >= '09:30' && hm <= '16:15').sort().map((hm) => {
       const b = min[hm]; c += b.c; p += b.p; spx = b.spx || spx;
       return { hora: hm, spx, o: b.o ?? spx, h: b.h ?? spx, l: b.l ?? spx, calls: Math.round(c), puts: Math.round(p), total: Math.round(c + p) };
     });
@@ -314,4 +347,4 @@ class Hiro {
   }
 }
 
-module.exports = { Hiro, deltaBS };
+module.exports = { Hiro, deltaBS, msET };
