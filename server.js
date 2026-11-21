@@ -17056,6 +17056,14 @@ app.get('/api/capas', (req, res) => {
 });
 
 // HIRO propio: serie acumulada del día (calls/puts/total en USD de cobertura) + estado del colector
+// Velas de 1 min de los días anteriores (para que las EMA de la hoja Hiro arranquen calientes, como TradingView)
+app.get('/api/hiro/previas', async (req, res) => {
+  try {
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : calendario.fechaET();
+    const v = await hiro.velasPrevias(fecha);
+    res.json({ ok: !!v, fecha, velas: v || [] });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 app.get('/api/hiro', (req, res) => {
   try {
     const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : undefined;

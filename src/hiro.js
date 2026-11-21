@@ -199,8 +199,54 @@ class Hiro {
     if (!t || !cl || !op) return;
     if (new Date(t).toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10) !== fecha) return;
     const hm = hmET(t);
-    if (hm < '09:30' || hm > '16:00') return;
+    if (hm < '09:30' || hm > '16:15') return;   // TradingView incluye las velas del SPX hasta las 16:15
     destino[hm] = { o: op, h: hi ?? Math.max(op, cl), l: lo ?? Math.min(op, cl), c: cl };
+  }
+
+  // Velas de 1 min de los días ANTERIORES a una fecha (para calentar las EMA como TradingView). Caché por fecha.
+  async velasPrevias(fecha, dias = 4) {
+    const f = path.join(this.dir, `previas_${fecha}.json`);
+    try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* sin caché */ }
+    if (this._cargandoPrev) return null;
+    this._cargandoPrev = true;
+    try {
+      const q = (await this.tt._req('/api-quote-tokens')).data;
+      const desde = new Date(`${fecha}T09:25:00-05:00`).getTime() - dias * 2 * 86400000;
+      const lista = [];
+      await new Promise((ok) => {
+        const ws = new WebSocket(q['dxlink-url']);
+        const send = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
+        let quieto = null;
+        const fin = () => { clearTimeout(quieto); try { ws.close(); } catch {} ok(); };
+        const tope = setTimeout(fin, 25000);
+        ws.on('open', () => send({ type: 'SETUP', channel: 0, keepaliveTimeout: 60, acceptKeepaliveTimeout: 60, version: '0.1-bitacora-hiro-previas' }));
+        ws.on('message', (raw) => {
+          const d = JSON.parse(raw.toString());
+          if (d.type === 'AUTH_STATE' && d.state === 'UNAUTHORIZED') send({ type: 'AUTH', channel: 0, token: q.token });
+          else if (d.type === 'AUTH_STATE' && d.state === 'AUTHORIZED') send({ type: 'CHANNEL_REQUEST', channel: 5, service: 'FEED', parameters: { contract: 'AUTO' } });
+          else if (d.type === 'CHANNEL_OPENED') {
+            send({ type: 'FEED_SETUP', channel: 5, acceptAggregationPeriod: 1, acceptDataFormat: 'COMPACT', acceptEventFields: { Candle: CAMPOS.Candle } });
+            send({ type: 'FEED_SUBSCRIPTION', channel: 5, reset: true, add: [{ type: 'Candle', symbol: 'SPX{=1m}', fromTime: desde }] });
+          } else if (d.type === 'FEED_DATA') {
+            for (let i = 0; i < d.data.length; i += 2) {
+              if (d.data[i] !== 'Candle') continue;
+              const v = d.data[i + 1], n = CAMPOS.Candle.length;
+              for (let j = 0; j + n <= v.length; j += n) {
+                const t = num(v[j + 2]), o_ = num(v[j + 3]), h = num(v[j + 4]), l = num(v[j + 5]), c = num(v[j + 6]);
+                if (!t || !c || !o_) continue;
+                const dia = new Date(t).toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10), hm = hmET(t);
+                if (dia < fecha && hm >= '09:30' && hm <= '16:15') lista.push({ dia, hora: hm, o: o_, h: h ?? Math.max(o_, c), l: l ?? Math.min(o_, c), c });
+              }
+            }
+            if (lista.length) { clearTimeout(quieto); quieto = setTimeout(() => { clearTimeout(tope); fin(); }, 4000); }
+          }
+        });
+        ws.on('error', () => { clearTimeout(tope); fin(); });
+      });
+      const unicas = [...new Map(lista.map((x) => [x.dia + x.hora, x])).values()].sort((a, b) => (a.dia + a.hora).localeCompare(b.dia + b.hora));
+      if (unicas.length) { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(f, JSON.stringify(unicas)); }
+      return unicas;
+    } catch (e) { this.log('velas previas: ' + e.message); return null; } finally { this._cargandoPrev = false; }
   }
 
   // Velas de 1 min de un día a pedido (con el mercado cerrado o un día pasado): conexión corta a dxLink, solo lectura.

@@ -113,6 +113,7 @@ const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } 
 // ── Capas (20-nov-2026). Cada una se prende/apaga sola; DEFECTO es solo el esquema con el que arranca la primera vez ──
 const CAPAS = [
   { id: 'precio', nom: 'Precio', color: '#e8e8e8', opciones: [['velas', 'Velas'], ['linea', 'Línea']], radio: true },
+  { id: 'kgs', nom: 'Medias (KGS)', color: '#FFEB3B', opciones: [], config: true },
   { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing']] },
   { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
   { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['perfil', 'Options profile (puntos rojo/verde)'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
@@ -124,6 +125,12 @@ const CAPAS = [
 ];
 const DEFECTO = {
   precio: { on: true, sel: 'velas' },
+  // Medias móviles configurables, como "SMA by KGS" en TradingView: EMA 10/20/50/100/200 (colores de su TV) + 3 casillas libres
+  kgs: { on: true, relleno: true, rellA: 0, rellB: 1, medias: [
+    { on: true, tipo: 'EMA', p: 10, color: '#FFEB3B', w: 1 }, { on: true, tipo: 'EMA', p: 20, color: '#F23645', w: 3 },
+    { on: true, tipo: 'EMA', p: 50, color: '#9C27B0', w: 2 }, { on: true, tipo: 'EMA', p: 100, color: '#2962FF', w: 2 },
+    { on: true, tipo: 'EMA', p: 200, color: '#FFFFFF', w: 2 }, { on: false, tipo: 'EMA', p: 8, color: '#00BCD4', w: 1 },
+    { on: false, tipo: 'SMA', p: 20, color: '#FF9800', w: 1 }, { on: false, tipo: 'SMA', p: 200, color: '#9E9E9E', w: 2 }] },
   sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false },
   gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
   gbs: { on: false, hist: true, perfil: true, freno: true, acel: true },
@@ -170,6 +177,8 @@ const L = {
   // Bola 8 igual que la Sonar original: objetivo 1 naranja, objetivo 2 naranja claro, sólidas y gruesas
   obj1: esc('rgb(255,165,0)', 0, 3), obj2: esc('rgb(255,209,127)', 0, 3),
 };
+// Series de las medias móviles (8 casillas configurables)
+const sMA = Array.from({ length: 8 }, () => gM.addLineSeries({ color: '#fff', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false }));
 const fmtSerie = { type: 'custom', formatter: fmtB, minMove: 1 };
 const sCalls = gH.addLineSeries({ color: '#3b82f6', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 const sPuts = gH.addLineSeries({ color: '#f07a2a', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
@@ -219,6 +228,30 @@ function armarBarra() {
         : `<label><input type="checkbox" value="${k}" ${e[k] ? 'checked' : ''}> ${t}</label>`).join('')
         + (cp.extra || []).map(([k, t]) => `<label><input type="checkbox" data-extra="1" value="${k}" ${e[k] ? 'checked' : ''}> ${t}</label>`).join('');
       menu.onchange = (ev) => { const i = ev.target; if (cp.radio && !i.dataset.extra) e.sel = i.value; else e[i.value] = i.checked; e.on = true; guardar('hiroCapas', est); div.classList.add('on'); redibujar(); };
+      m.onclick = (ev) => { ev.stopPropagation(); document.querySelectorAll('.menu.abierto').forEach((x) => x !== menu && x.classList.remove('abierto')); menu.classList.toggle('abierto'); };
+      div.appendChild(m); div.appendChild(menu);
+    }
+    if (cp.config) {   // Medias (KGS): cada fila = prender/apagar, tipo, período, color y grosor; y entre cuáles va el relleno
+      const m = document.createElement('button'); m.className = 'mas'; m.textContent = '▾';
+      const menu = document.createElement('div'); menu.className = 'menu'; menu.style.minWidth = '330px';
+      const fila = (x, i) => `<div style="display:flex;gap:6px;align-items:center;padding:4px 10px">`
+        + `<input type="checkbox" data-i="${i}" data-k="on" ${x.on ? 'checked' : ''}>`
+        + `<select data-i="${i}" data-k="tipo" style="background:#222;color:#ddd;border:1px solid #444"><option ${x.tipo === 'EMA' ? 'selected' : ''}>EMA</option><option ${x.tipo === 'SMA' ? 'selected' : ''}>SMA</option></select>`
+        + `<input type="number" min="1" max="500" data-i="${i}" data-k="p" value="${x.p}" style="width:58px;background:#222;color:#ddd;border:1px solid #444">`
+        + `<input type="color" data-i="${i}" data-k="color" value="${x.color}" style="width:30px;height:22px;border:0;background:none">`
+        + `<select data-i="${i}" data-k="w" style="background:#222;color:#ddd;border:1px solid #444">${[1, 2, 3, 4].map((w) => `<option value="${w}" ${x.w === w ? 'selected' : ''}>${w}px</option>`).join('')}</select></div>`;
+      const opc = (sel) => e.medias.map((x, i) => `<option value="${i}" ${sel === i ? 'selected' : ''}>${x.tipo} ${x.p}</option>`).join('');
+      menu.innerHTML = `<div class="t">Medias móviles (como SMA by KGS)</div>` + e.medias.map(fila).join('')
+        + `<label style="margin-top:4px"><input type="checkbox" data-k="relleno" ${e.relleno ? 'checked' : ''}> Relleno difuminado entre</label>`
+        + `<div style="display:flex;gap:6px;padding:2px 10px 6px 34px"><select data-k="rellA" style="background:#222;color:#ddd;border:1px solid #444">${opc(e.rellA)}</select> y `
+        + `<select data-k="rellB" style="background:#222;color:#ddd;border:1px solid #444">${opc(e.rellB)}</select></div>`;
+      menu.onclick = (ev) => ev.stopPropagation();
+      menu.onchange = (ev) => {
+        const i = ev.target, k = i.dataset.k, n = i.dataset.i;
+        if (n != null) { const x = e.medias[+n]; x[k] = k === 'on' ? i.checked : k === 'p' ? Math.max(1, Math.min(500, +i.value || 1)) : k === 'w' ? +i.value : i.value; }
+        else if (k === 'relleno') e.relleno = i.checked; else if (k === 'rellA' || k === 'rellB') e[k] = +i.value;
+        e.on = true; guardar('hiroCapas', est); div.classList.add('on'); redibujar();
+      };
       m.onclick = (ev) => { ev.stopPropagation(); document.querySelectorAll('.menu.abierto').forEach((x) => x !== menu && x.classList.remove('abierto')); menu.classList.toggle('abierto'); };
       div.appendChild(m); div.appendChild(menu);
     }
@@ -277,6 +310,7 @@ function redibujar() {
   sBase.setData(conVacios(baseSpx, horas));
   sVelas.setData(conVacios(velasP.map((x) => ({ time: t(x), open: x.o, high: x.h, low: x.l, close: x.spx })), horas));
   sLinea.setData(conVacios(velasP.map((x) => ({ time: t(x), value: x.spx })), horas));
+  pintarMedias();
   sCalls.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.calls })), horas));
   sPuts.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.puts })), horas));
   sTotal.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.total })), horas));
@@ -369,6 +403,35 @@ function recuadros() {
   $('recuadros').innerHTML = r.join('');
 }
 
+// ── Medias móviles (como "SMA by KGS"): sobre las velas de la temporalidad elegida, calentadas con los días previos ──
+let velasPrevias = [], previasDe = null, mediasHoy = [];
+function pintarMedias() {
+  const e = est.kgs;
+  mediasHoy = [];
+  if (!fecha || !velasDia.length) { sMA.forEach((s) => s.applyOptions({ visible: false })); return; }
+  // cierres por vela de tf minutos, cada día alineado a su apertura (9:30), igual que TradingView
+  const todas = [...velasPrevias, ...velasDia.map((v) => ({ ...v, dia: fecha }))];
+  const cierres = [];
+  for (const v of todas) {
+    const m = +v.hora.slice(0, 2) * 60 + +v.hora.slice(3, 5), k = 570 + Math.floor((m - 570) / tf) * tf, clave = v.dia + ' ' + hmDe(k);
+    const u = cierres[cierres.length - 1];
+    if (u && u.clave === clave) u.c = v.c; else cierres.push({ clave, dia: v.dia, hora: hmDe(k), c: v.c });
+  }
+  e.medias.forEach((x, i) => {
+    const s = sMA[i];
+    if (!(e.on && x.on)) { s.applyOptions({ visible: false }); s.setData([]); mediasHoy[i] = null; return; }
+    const out = [], a = 2 / (x.p + 1); let ema = null; const ventana = []; let suma = 0;
+    for (const c of cierres) {
+      let v;
+      if (x.tipo === 'SMA') { ventana.push(c.c); suma += c.c; if (ventana.length > x.p) suma -= ventana.shift(); v = ventana.length === x.p ? suma / x.p : null; }
+      else { ema = ema == null ? c.c : a * c.c + (1 - a) * ema; v = ema; }   // ta.ema de Pine: arranca en el primer valor
+      if (c.dia === fecha && v != null) out.push({ time: ts(fecha, c.hora), value: Math.round(v * 100) / 100 });
+    }
+    s.setData(out); s.applyOptions({ visible: true, color: x.color, lineWidth: x.w, title: '' });
+    mediasHoy[i] = out;
+  });
+}
+
 // ── Option flow (Quant Data, escenario "option flow" de Discord) ────────────────────────────────────────────────
 // Junta las órdenes de todas las lecturas del día sin repetir (misma hora, strike, tipo, cantidad y precio)
 const aHm = (h) => { const m = /(\d{1,2}):(\d{2}):(\d{2})\s*([AP])M/.exec(h || ''); if (!m) return null; let hh = +m[1] % 12; if (m[4] === 'P') hh += 12; return String(hh).padStart(2, '0') + ':' + m[2]; };
@@ -454,6 +517,20 @@ function lienzo() {
       ctx.stroke(); ctx.lineWidth = 1; ctx.fillStyle = 'rgba(128,128,255,.9)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('Bola 8 Sonar ' + b8.at.slice(11, 16), cero0 + 6, 30);
     }
   }
+  // Relleno difuminado entre dos medias (gris, como el de SMA by KGS en TradingView)
+  if (est.kgs.on && est.kgs.relleno) {
+    const A = mediasHoy[est.kgs.rellA], B = mediasHoy[est.kgs.rellB];
+    if (A && B && A.length && B.length) {
+      const mb = new Map(B.map((p) => [p.time, p.value])), pts = [];
+      for (const p of A) { if (!mb.has(p.time)) continue; const x = gM.timeScale().timeToCoordinate(p.time), ya = sBase.priceToCoordinate(p.value), yb = sBase.priceToCoordinate(mb.get(p.time)); if (x != null && ya != null && yb != null) pts.push([x, ya, yb]); }
+      if (pts.length > 1) {
+        ctx.fillStyle = 'rgba(120,123,134,0.40)'; ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+        for (const p of pts) ctx.lineTo(p[0], p[1]);
+        for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i][0], pts[i][2]);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+  }
   // Option flow (Quant Data): cada orden en su hora y su strike; ▲ verde = bullish, ▼ rojo = bearish, tamaño según la prima
   if (est.flow.on && est.flow.marcas) {
     for (const o of ordenesFlujo()) {
@@ -529,6 +606,10 @@ async function cargar() {
   const [r, c] = await Promise.all([fetch('/api/hiro' + qs).then((x) => x.json()).catch(() => null), fetch('/api/capas' + qs).then((x) => x.json()).catch(() => null)]);
   if (!r || !r.ok) { $('estado').textContent = 'sin respuesta del servidor'; return; }
   fecha = r.fecha; filasHiro = r.filas.filter((x) => x.spx); velasDia = r.velas || []; cierrePrevio = r.cierrePrevio || cierrePrevio;
+  if (previasDe !== fecha) {   // velas de los días anteriores, una vez por fecha, para calentar las medias
+    previasDe = fecha;
+    fetch('/api/hiro/previas?fecha=' + fecha).then((x) => x.json()).then((p) => { if (p && p.ok) { velasPrevias = p.velas; redibujar(); } else previasDe = null; }).catch(() => { previasDe = null; });
+  }
   capas = (c && c.ok ? c.registros : []).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
   $('fecha').textContent = new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const precios = velasDia.length ? velasDia.map((v) => ({ spx: v.c })) : filasHiro;
