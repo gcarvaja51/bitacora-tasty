@@ -18,7 +18,7 @@ const cal = require('./calendario_nyse');
 const RANGO = 150;            // strikes ±150 puntos del SPX
 const RECENTRAR = 40;         // si el SPX se aleja 40 pts del centro, se suman strikes nuevos
 const CAMPOS = {
-  TimeAndSale: ['eventType', 'eventSymbol', 'time', 'price', 'size', 'aggressorSide', 'bidPrice', 'askPrice', 'eventFlags', 'spreadLeg'],
+  TimeAndSale: ['eventType', 'eventSymbol', 'time', 'price', 'size', 'aggressorSide', 'bidPrice', 'askPrice', 'eventFlags', 'spreadLeg', 'type', 'validTick'],
   Greeks: ['eventType', 'eventSymbol', 'delta'],
   Trade: ['eventType', 'eventSymbol', 'price'],
   Summary: ['eventType', 'eventSymbol', 'prevDayClosePrice'],
@@ -66,6 +66,7 @@ class Hiro {
     this.simbolos = new Set();
     this.centro = null; this.spx = null; this.cierrePrevio = null; this.ultimoMs = 0;
     this.nTrades = 0; this.exp = null; this.cadena = null; this.conectadoDesde = null; this.error = null;
+    this.nPatas = 0; this.nAnulados = 0; this.campos = null;
     const f = path.join(this.dir, fecha + '.json');
     try {
       const d = JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -76,8 +77,9 @@ class Hiro {
   guardar() {
     try {
       fs.mkdirSync(this.dir, { recursive: true });
-      fs.writeFileSync(path.join(this.dir, this.fecha + '.json'),
-        JSON.stringify({ fecha: this.fecha, min: this.min, velas: this.velas, cierrePrevio: this.cierrePrevio, ultimoMs: this.ultimoMs, nTrades: this.nTrades }));
+      const f = path.join(this.dir, this.fecha + '.json');
+      fs.writeFileSync(f + '.tmp', JSON.stringify({ fecha: this.fecha, min: this.min, velas: this.velas, cierrePrevio: this.cierrePrevio, ultimoMs: this.ultimoMs, nTrades: this.nTrades }));
+      fs.renameSync(f + '.tmp', f);
     } catch (e) { this.log('no se pudo guardar: ' + e.message); }
   }
 
@@ -110,7 +112,7 @@ class Hiro {
 
   cerrar() {
     clearInterval(this.ka); this.ka = null;
-    if (this.ws) { try { this.ws.close(); } catch {} }
+    if (this.ws) { try { this.ws.terminate(); } catch {} }
     this.ws = null; this.conectadoDesde = null;
     // al reconectar hay que volver a suscribir los contratos (antes quedaban marcados y el HIRO dejaba de contar)
     this.simbolos = new Set(); this.centro = null; this.autorizado = false;
@@ -118,10 +120,13 @@ class Hiro {
 
   async conectar(intento) {
     const q = (await this.tt._req('/api-quote-tokens')).data;
-    const cadena = (await this.tt._req('/option-chains/SPX/nested')).data;
-    if (intento !== undefined && intento !== this._intento) return;   // llegó tarde: ya se dio por vencido este intento
-    const exps = cadena.items.flatMap((it) => it.expirations.map((e) => ({ ...e, root: it['root-symbol'] })));
-    this.exp = exps.find((e) => e['expiration-date'] === this.fecha && e.root === 'SPXW') || exps.find((e) => e['expiration-date'] === this.fecha);
+    if (!this.exp || this.exp['expiration-date'] !== this.fecha) {
+      const cadena = (await this.tt._req('/option-chains/SPX/nested')).data;
+      if (intento !== undefined && intento !== this._intento) return;   // llegó tarde: ya se dio por vencido este intento
+      const exps = cadena.items.flatMap((it) => it.expirations.map((e) => ({ ...e, root: it['root-symbol'] })));
+      this.exp = exps.find((e) => e['expiration-date'] === this.fecha && e.root === 'SPXW') || exps.find((e) => e['expiration-date'] === this.fecha);
+    }
+    if (intento !== undefined && intento !== this._intento) return;
     if (!this.exp) throw new Error('sin vencimiento 0DTE para ' + this.fecha);
     const ws = new WebSocket(q['dxlink-url']);
     this.ws = ws;
@@ -152,13 +157,15 @@ class Hiro {
         { type: 'Candle', symbol: 'SPX{=1m}', fromTime: msET(this.fecha, '09:30') }] });
     } else if (d.type === 'FEED_DATA') {
       for (let i = 0; i < d.data.length; i += 2) {
-        const tipo = d.data[i], v = d.data[i + 1], campos = CAMPOS[tipo];
+        const tipo = d.data[i], v = d.data[i + 1], campos = (this.campos && this.campos[tipo]) || CAMPOS[tipo];
         if (!campos) continue;
         for (let j = 0; j + campos.length <= v.length; j += campos.length) {
           const o = {}; campos.forEach((c, k) => { o[c] = v[j + k]; });
           this.evento(tipo, o);
         }
       }
+    } else if (d.type === 'FEED_CONFIG' && d.eventFields && typeof d.eventFields === 'object') {
+      this.campos = { ...(this.campos || {}), ...d.eventFields };
     } else if (d.type === 'ERROR') { this.error = d.message || d.error; this.log('dxLink: ' + JSON.stringify(d).slice(0, 200)); }
   }
 
@@ -200,6 +207,8 @@ class Hiro {
     } else if (tipo === 'TimeAndSale') {
       const t = num(o.time), size = num(o.size), precio = num(o.price);
       if (!t || !size || !this.spx || ((o.eventFlags || 0) & 2) || t <= this.ultimoMs - 120000) return;
+      // 21-nov: una cancelación o corrección no es un trade nuevo (antes sumaba impacto con el mismo signo)
+      if ((o.type && o.type !== 'NEW') || o.validTick === false) { this.nAnulados = (this.nAnulados || 0) + 1; return; }
       // Patas de spreads/combos: dxFeed marca TODAS las patas con el mismo lado agresor y precios fuera del bid/ask
       // (p. ej. un put spread 7060/7045 sale como dos COMPRAS). No dicen quién compró qué: se excluyen.
       if (o.spreadLeg === true) { this.nPatas = (this.nPatas || 0) + 1; return; }
@@ -211,7 +220,7 @@ class Hiro {
       const cp = m[1], K = +m[2];
       let dl = this.greeks[sym];
       if (dl === undefined) {
-        const cierre = msET(this.fecha, '16:00');
+        const cm = cal.horaCierreMin(new Date(t)), cierre = msET(this.fecha, `${String(Math.floor(cm / 60)).padStart(2, '0')}:${String(cm % 60).padStart(2, '0')}`);
         dl = deltaBS(cp, this.spx, K, Math.max(cierre - t, 60000) / (365 * 86400000), 0.25);
       }
       const imp = lado * dl * size * 100 * this.spx;
@@ -238,6 +247,7 @@ class Hiro {
     const f = path.join(this.dir, `previas_${fecha}.json`);
     try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* sin caché */ }
     if (this._cargandoPrev) return null;
+    if (this._sinPrev && this._sinPrev[fecha] && Date.now() - this._sinPrev[fecha] < 600000) return null;
     this._cargandoPrev = true;
     try {
       const q = (await this.tt._req('/api-quote-tokens')).data;
@@ -275,7 +285,8 @@ class Hiro {
       });
       const unicas = [...new Map(lista.map((x) => [x.dia + x.hora, x])).values()].sort((a, b) => (a.dia + a.hora).localeCompare(b.dia + b.hora));
       if (unicas.length) { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(f, JSON.stringify(unicas)); }
-      return unicas;
+      else (this._sinPrev = this._sinPrev || {})[fecha] = Date.now();
+      return unicas.length ? unicas : null;
     } catch (e) { this.log('velas previas: ' + e.message); return null; } finally { this._cargandoPrev = false; }
   }
 
@@ -319,7 +330,9 @@ class Hiro {
       if (!Object.keys(velas).length) (this._sinVelas = this._sinVelas || {})[fecha] = Date.now();
       // se guarda en caché solo con el día terminado (las velas del SPX llegan hasta las 16:15)
       const cerrado = fecha < cal.fechaET() || cal.minutosET() > cal.horaCierreMin() + 20;
-      if (Object.keys(velas).length && cerrado) { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(f, JSON.stringify(velas)); }
+      const cm = cal.horaCierreMin(new Date(fecha + 'T17:00:00Z')), ultima = Object.keys(velas).sort().pop() || '';
+      const m1 = cm - 1, completo = ultima >= `${String(Math.floor(m1 / 60)).padStart(2, '0')}:${String(m1 % 60).padStart(2, '0')}`;   // última vela de la sesión (15:59 o 12:59)
+      if (Object.keys(velas).length && cerrado && completo) { fs.mkdirSync(this.dir, { recursive: true }); fs.writeFileSync(f, JSON.stringify(velas)); }
       return velas;
     } catch (e) { this.log('velas: ' + e.message); return null; } finally { this._cargando = false; }
   }
@@ -341,7 +354,7 @@ class Hiro {
     const listaVelas = Object.keys(velas).sort().map((hm) => ({ hora: hm, ...velas[hm] }));
     return {
       fecha, filas, cierrePrevio, velas: listaVelas,
-      estado: { conectado: !!this.ws && fecha === this.fecha, desde: this.conectadoDesde, contratos: this.simbolos.size, trades: this.nTrades, patasExcluidas: this.nPatas || 0,
+      estado: { conectado: !!this.ws && fecha === this.fecha, desde: this.conectadoDesde, contratos: this.simbolos.size, trades: this.nTrades, patasExcluidas: this.nPatas || 0, anulados: this.nAnulados || 0,
                 ultimo: this.ultimoMs ? new Date(this.ultimoMs).toISOString() : null, error: this.error },
     };
   }

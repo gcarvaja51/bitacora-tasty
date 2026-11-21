@@ -16987,7 +16987,7 @@ app.get('/api/curve-tradier', async (req, res) => {
 const CAPAS_DIR = path.join(DATA_DIR, 'capas');
 const capasCache = { fecha: null, registros: [] };
 // fecha AAAA-MM-DD válida de verdad (auditoría 20-nov: la regex sola aceptaba 2026-02-30)
-const fechaValida = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f || '') && new Date(f + 'T12:00:00Z').toISOString().slice(0, 10) === f;
+const fechaValida = (f) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '')) return false; const d = new Date(f + 'T12:00:00Z'); return !isNaN(d) && d.toISOString().slice(0, 10) === f; };
 function capasDelDia(fecha) {
   if (capasCache.fecha === fecha) return capasCache.registros;
   let regs = [];
@@ -17042,11 +17042,14 @@ app.post('/api/capas/discord', (req, res) => {
       confluencia: lc.A_tendencia || lc.B_fade ? { A: deLista(lc.A_tendencia?.senal, SENAL), B: deLista(lc.B_fade?.senal, SENAL), motivoA: String(lc.A_tendencia?.motivo || '').replace(/[<>&"']/g, '').slice(0, 160),
         motivoB: String(lc.B_fade?.motivo || '').replace(/[<>&"']/g, '').slice(0, 160), neto: num(lc.neto_herramientas) } : null,
     };
-    const fecha = calendario.fechaET();
+    const fecha = fechaValida(reg.at.slice(0, 10)) ? reg.at.slice(0, 10) : calendario.fechaET();
+    const linea = JSON.stringify(reg);
+    if (linea.length > 400000) return res.status(413).json({ ok: false, error: 'registro demasiado grande' });
     const lista = capasDelDia(fecha);   // se carga ANTES de escribir: así el registro nuevo no queda dos veces
+    if (lista.length >= 800) return res.status(429).json({ ok: false, error: 'tope de registros del día' });
     fs.mkdirSync(CAPAS_DIR, { recursive: true });
-    fs.appendFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), JSON.stringify(reg) + '\n');
-    lista.push(reg);
+    fs.appendFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), linea + '\n');
+    if (fecha === calendario.fechaET()) lista.push(reg);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -17062,7 +17065,8 @@ app.post('/api/capas/limpiar', (req, res) => {
 });
 app.get('/api/capas', (req, res) => {
   const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaET();
-  res.json({ ok: true, fecha, registros: capasDelDia(fecha) });
+  const todos = capasDelDia(fecha), desde = String(req.query.desde || '');
+  res.json({ ok: true, fecha, total: todos.length, registros: desde ? todos.filter((r) => String(r.at) > desde) : todos });
 });
 
 // HIRO propio: serie acumulada del día (calls/puts/total en USD de cobertura) + estado del colector
@@ -17070,7 +17074,8 @@ app.get('/api/capas', (req, res) => {
 app.get('/api/hiro/previas', async (req, res) => {
   try {
     const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaET();
-    const v = await hiro.velasPrevias(fecha);
+    const reciente = fecha <= calendario.fechaET() && fecha >= new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const v = reciente && !MODO_PRUEBAS && process.env.HIRO_APAGADO !== '1' ? await hiro.velasPrevias(fecha) : [];
     res.json({ ok: !!v, fecha, velas: v || [] });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -17081,7 +17086,8 @@ app.get('/api/hiro', (req, res) => {
     const r = hiro.serie(fecha);
     // sin velas del día: se piden a dxLink en segundo plano (cargarVelas guarda 10 min un "no hay" para no reintentar en cada refresco)
     const antesDeAbrir = r.fecha === calendario.fechaET() && calendario.minutosET() < 9 * 60 + 30;
-    if (!r.velas.length && !hiro._cargando && !MODO_PRUEBAS && process.env.HIRO_APAGADO !== '1' && !antesDeAbrir && r.fecha <= calendario.fechaET()) hiro.cargarVelas(r.fecha).then((v) => { if (v && r.fecha === hiro.fecha) Object.assign(hiro.velas, v); }).catch(() => {});
+    const reciente = r.fecha <= calendario.fechaET() && r.fecha >= new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10) && calendario.esDiaDeMercado(new Date(r.fecha + 'T17:00:00Z'));
+    if (!r.velas.length && !hiro._cargando && !MODO_PRUEBAS && process.env.HIRO_APAGADO !== '1' && !antesDeAbrir && reciente) hiro.cargarVelas(r.fecha).then((v) => { if (v && r.fecha === hiro.fecha) Object.assign(hiro.velas, v); }).catch(() => {});
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });

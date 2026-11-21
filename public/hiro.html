@@ -274,7 +274,7 @@ const limpiarTextos = (o) => (typeof o === 'string' ? escHtml(o) : Array.isArray
 const ts = (f, hm) => Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10), +hm.slice(0, 2), +hm.slice(3, 5)) / 1000;
 const hmDe = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 const balde = (hm) => { const m = +hm.slice(0, 2) * 60 + +hm.slice(3, 5); return hmDe(570 + Math.floor((m - 570) / tf) * tf); };
-let fecha = null, filasHiro = [], velasDia = [], cierrePrevio = null, muros = null, capas = [];
+let fecha = null, filasHiro = [], velasDia = [], cierrePrevio = null, muros = null, capas = [], capasDe, capasFecha = null;
 
 function agrupar(filas) {
   const out = [];
@@ -371,6 +371,7 @@ function redibujar() {
     if (t && t.v.spx) {
       const k = t.v.spx / t.v.tradytics.spy;
       for (const [p, tit] of [[t.v.tradytics.spyRango[1], 'SPY range alto'], [t.v.tradytics.spyRango[0], 'SPY range bajo']]) {
+        if (typeof p !== 'number' || !isFinite(p)) continue;
         const v = Math.round(p * k * 100) / 100; nivelesCercanos.push(v);
         lineasNivel.push(sBase.createPriceLine({ price: v, color: 'rgba(56,132,255,.9)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${tit} $${p} (≈${v.toFixed(0)})` }));
       }
@@ -614,21 +615,29 @@ document.querySelectorAll('#tfs button').forEach((b) => b.onclick = () => { tf =
 let primera = true;
 async function cargar() {
   const q = new URLSearchParams(location.search).get('fecha'), qs = q ? '?fecha=' + q : '';
-  const [r, c] = await Promise.all([fetch('/api/hiro' + qs).then((x) => x.json()).catch(() => null), fetch('/api/capas' + qs).then((x) => x.json()).catch(() => null)]);
+  const ult = capasDe === q && capas.length ? capas[capas.length - 1].at : '';
+  const qc = (q ? '?fecha=' + q : '?') + (ult ? (q ? '&' : '') + 'desde=' + encodeURIComponent(ult) : '');
+  const [r, c] = await Promise.all([fetch('/api/hiro' + qs).then((x) => x.json()).catch(() => null), fetch('/api/capas' + qc).then((x) => x.json()).catch(() => null)]);
   if (!r || !r.ok) { $('estado').textContent = 'sin respuesta del servidor'; return; }
   fecha = r.fecha; filasHiro = r.filas.filter((x) => x.spx); velasDia = r.velas || []; cierrePrevio = r.cierrePrevio || cierrePrevio;
   if (previasDe !== fecha) {   // velas de los días anteriores, una vez por fecha, para calentar las medias
     previasDe = fecha;
     fetch('/api/hiro/previas?fecha=' + fecha).then((x) => x.json()).then((p) => { if (p && p.ok) { velasPrevias = p.velas; redibujar(); } else previasDe = null; }).catch(() => { previasDe = null; });
   }
-  capas = (c && c.ok ? limpiarTextos(c.registros) : []).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
+  if (c && c.ok) {
+    const nuevos = limpiarTextos(c.registros || []);
+    const base = ult && c.fecha === capasFecha ? capas : [];
+    capas = base.concat(nuevos).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
+    capasDe = q; capasFecha = c.fecha;
+    if (ult && c.total != null && base.length + nuevos.length !== c.total) capasDe = undefined;   // no cuadra: la próxima vez, completo
+  }
   $('fecha').textContent = new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const precios = velasDia.length ? velasDia.map((v) => ({ spx: v.c })) : filasHiro;
   if (precios.length) {
     const u = { ...(filasHiro[filasHiro.length - 1] || {}), spx: precios[precios.length - 1].spx };
     $('tSpx').textContent = u.spx.toFixed(2);
     if (cierrePrevio) { const ch = u.spx - cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / cierrePrevio * 100).toFixed(2)}%)</span>`; }
-    if (u.calls != null) { $('tC').textContent = fmtB(u.calls); $('tP').textContent = fmtB(u.puts); }
+    if (u.calls != null) { const sg = est.hiro.invertir ? -1 : 1; $('tC').textContent = fmtB(sg * u.calls); $('tP').textContent = fmtB(sg * u.puts); }
   }
   redibujar();
   if (primera) { gM.timeScale().fitContent(); primera = false; }
