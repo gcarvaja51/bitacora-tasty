@@ -117,7 +117,7 @@ const CAPAS = [
   { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing']] },
   { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
   { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['perfil', 'Options profile (puntos rojo/verde)'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
-  { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO real de SpotGamma (punteado)']] },
+  { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO real de SpotGamma (punteado)'], ['invertir', 'Invertir (× −1): misma pendiente que el precio']] },
   { id: 'bola8', nom: 'Bola 8', color: '#ffa500', opciones: [['curva', 'Curva Sonar'], ['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
   { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Tarjetas (sentimiento, rango, volatilidad)'], ['rango', 'Rango SPY convertido a SPX']] },
   { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['rec', 'Recuadro lecturas A/B']] },
@@ -134,7 +134,7 @@ const DEFECTO = {
   sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false },
   gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
   gbs: { on: false, hist: true, perfil: true, freno: true, acel: true },
-  hiro: { on: true, sel: 'pc', real: true },
+  hiro: { on: true, sel: 'pc', real: true, invertir: false },
   bola8: { on: false, curva: true, obj: true, rec: true },
   trad: { on: false, rec: true, rango: true },
   conf: { on: false, rec: true },
@@ -311,21 +311,22 @@ function redibujar() {
   sVelas.setData(conVacios(velasP.map((x) => ({ time: t(x), open: x.o, high: x.h, low: x.l, close: x.spx })), horas));
   sLinea.setData(conVacios(velasP.map((x) => ({ time: t(x), value: x.spx })), horas));
   pintarMedias();
-  sCalls.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.calls })), horas));
-  sPuts.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.puts })), horas));
-  sTotal.setData(conVacios(filas.map((x) => ({ time: t(x), value: x.total })), horas));
+  const sg = est.hiro.invertir ? -1 : 1;   // "Invertir": calls, puts y neto multiplicados por -1 (propio y real)
+  sCalls.setData(conVacios(filas.map((x) => ({ time: t(x), value: sg * x.calls })), horas));
+  sPuts.setData(conVacios(filas.map((x) => ({ time: t(x), value: sg * x.puts })), horas));
+  sTotal.setData(conVacios(filas.map((x) => ({ time: t(x), value: sg * x.total })), horas));
   sVelas.applyOptions({ visible: est.precio.on && est.precio.sel === 'velas' });
   sLinea.applyOptions({ visible: est.precio.on && est.precio.sel === 'linea' });
   $('zona').classList.toggle('sinHiro', !est.hiro.on);
   sCalls.applyOptions({ visible: est.hiro.sel === 'pc' }); sPuts.applyOptions({ visible: est.hiro.sel === 'pc' }); sTotal.applyOptions({ visible: est.hiro.sel === 'total' });
-  $('rotHiro').textContent = 'HEDGING IMPACT · ' + (est.hiro.sel === 'pc' ? 'PUT/CALL (azul calls · naranja puts)' : 'TOTAL');
+  $('rotHiro').textContent = 'HEDGING IMPACT · ' + (est.hiro.sel === 'pc' ? 'PUT/CALL (azul calls · naranja puts)' : 'TOTAL') + (est.hiro.invertir ? ' · INVERTIDO (× −1)' : '');
   // HIRO real: la curva COMPLETA de la última captura (la imagen trae todo el día); si no hay, los puntos de cada lectura
   const real = (campo) => {
     const idx = campo === 'calls' ? 1 : 2, m = new Map();
     const conCurva = ultimo((x) => (x.hiro?.curva?.length ? x.hiro : null));
     if (conCurva) for (const fila of conCurva.v.curva) { if (fila[idx] != null) m.set(ts(fecha, balde(fila[0])), fila[idx] * 1e9); }
     else for (const r of capas) { const v = r.hiro?.[campo]; if (v != null) m.set(ts(fecha, balde(r.at.slice(11, 16))), v * 1e9); }
-    return [...m].map(([time, value]) => ({ time, value }));
+    return [...m].map(([time, value]) => ({ time, value: est.hiro.invertir ? -value : value }));
   };
   const verReal = est.hiro.on && est.hiro.real && est.hiro.sel === 'pc';
   sCallsReal.setData(verReal ? real('calls') : []); sPutsReal.setData(verReal ? real('puts') : []);
