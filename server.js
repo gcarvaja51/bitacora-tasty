@@ -17020,7 +17020,16 @@ app.post('/api/capas/discord', (req, res) => {
       tradytics: tr.sentimiento ? { sentimiento: tr.sentimiento, exceso: tr.exceso_prima ? { monto: num(tr.exceso_prima.monto), unidad: String(tr.exceso_prima.unidad || '').slice(0, 2), lado: String(tr.exceso_prima.lado || '').slice(0, 6) } : null,
         spyRango: Array.isArray(tr.spy_rango) ? tr.spy_rango.slice(0, 2).map(num) : null, spy: num(tr.spy), vol: tr.vol ? String(tr.vol).slice(0, 40) : null,
         volDetalle: tr.vol_detalle ? { implicita: num(tr.vol_detalle.implicita), realizada: num(tr.vol_detalle.realizada), relacion: String(tr.vol_detalle.relacion || '').slice(0, 20) } : null } : null,
-      hiro: num(hr.hiro_bn) !== null || num(hr.puts_bn) !== null ? { bn: num(hr.hiro_bn), calls: num(hr.calls_bn ?? hr.hiro_bn), puts: num(hr.puts_bn) } : null,
+      // Quant Data (escenario "option flow"): resumen y órdenes [hora, strike, tipo, cantidad, precio, lado, prima, sentimiento]
+      option_flow: (b.option_flow && (b.option_flow.filas || []).length) ? {
+        resumen: { sentimiento: b.option_flow.resumen?.sentimiento || null, pcRatio: num(b.option_flow.resumen?.put_call_ratio),
+          primaPuts: num(b.option_flow.resumen?.prima_puts), primaCalls: num(b.option_flow.resumen?.prima_calls) },
+        filas: b.option_flow.filas.slice(0, 40).map((f) => ({ hora: String(f.hora || '').slice(0, 12), strike: num(f.strike), tipo: f.tipo === 'call' ? 'call' : f.tipo === 'put' ? 'put' : null,
+          cantidad: num(f.cantidad), precio: num(f.precio), lado: f.lado ? String(f.lado).slice(0, 2) : null, prima: num(f.prima),
+          sentimiento: f.sentimiento === 'bullish' || f.sentimiento === 'bearish' ? f.sentimiento : null })).filter((f) => f.hora && f.strike) } : null,
+      hiro: num(hr.hiro_bn) !== null || num(hr.puts_bn) !== null ? { bn: num(hr.hiro_bn), calls: num(hr.calls_bn ?? hr.hiro_bn), puts: num(hr.puts_bn),
+        // curva completa del día leída de la imagen: [hh:mm, calls, puts] (miles de millones)
+        curva: Array.isArray(hr.curva) ? hr.curva.slice(0, 420).map((x) => [String(x[0]).slice(0, 5), num(x[1]), num(x[2])]) : [] } : null,
       confluencia: lc.A_tendencia || lc.B_fade ? { A: lc.A_tendencia?.senal || null, B: lc.B_fade?.senal || null, motivoA: String(lc.A_tendencia?.motivo || '').slice(0, 160),
         motivoB: String(lc.B_fade?.motivo || '').slice(0, 160), neto: num(lc.neto_herramientas) } : null,
     };

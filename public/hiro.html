@@ -49,6 +49,15 @@
   #recuadros { position:absolute; left:10px; top:24px; z-index:4; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
   .rec { background:rgba(20,20,20,.85); border:1px solid #333; border-radius:6px; padding:5px 9px; font-size:11.5px; line-height:1.35; max-width:330px; }
   .rec b { color:#fff; }
+  /* Lista de órdenes de Quant Data (capa Option flow), con el estilo del original */
+  #flujo { position:absolute; right:92px; top:26px; z-index:5; width:min(560px, 70%); max-height:62%; overflow:auto; display:none;
+    background:#0b1530; border:1px solid #1e3a6e; border-radius:8px; font-size:11.5px; color:#dbe4ff; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  #flujo .cab { display:flex; gap:14px; padding:7px 10px; border-bottom:1px solid #1e3a6e; flex-wrap:wrap; position:sticky; top:0; background:#0b1530; }
+  #flujo .cab span { color:#8aa0d8; } #flujo .cab b { color:#fff; }
+  #flujo table { width:100%; border-collapse:collapse; }
+  #flujo th { text-align:left; color:#3fd17f; font-weight:600; padding:4px 6px; border-bottom:1px solid #1e3a6e; position:sticky; top:31px; background:#0b1530; }
+  #flujo td { padding:3px 6px; border-bottom:1px solid #14254a; white-space:nowrap; }
+  #flujo .p { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
   #divisor { flex:0 0 10px; cursor:row-resize; background:#181818; border-top:1px solid var(--borde); border-bottom:1px solid var(--borde); display:flex; align-items:center; justify-content:center; touch-action:none; }
   #divisor::before { content:''; width:46px; height:3px; border-radius:2px; background:#444; }
   .sinHiro #secHiro, .sinHiro #divisor { display:none; }
@@ -83,6 +92,7 @@
   <div class="seccion" id="secMain">
     <span class="rotulo" id="rotMain">SPX</span>
     <div id="recuadros"></div>
+    <div id="flujo"></div>
     <div id="gMain"></div>
     <canvas id="lienzo"></canvas>
   </div>
@@ -110,7 +120,7 @@ const CAPAS = [
   { id: 'bola8', nom: 'Bola 8', color: '#ffa500', opciones: [['curva', 'Curva Sonar'], ['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
   { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Tarjetas (sentimiento, rango, volatilidad)'], ['rango', 'Rango SPY convertido a SPX']] },
   { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['rec', 'Recuadro lecturas A/B']] },
-  { id: 'flow', nom: 'Option flow', color: '#22c55e', opciones: [], prox: true },
+  { id: 'flow', nom: 'Option flow', color: '#22c55e', opciones: [['tabla', 'Lista de órdenes (Quant Data)'], ['marcas', 'Marcas en el gráfico (▲ bullish · ▼ bearish)'], ['grandes', 'Solo órdenes ≥ $250K']] },
 ];
 const DEFECTO = {
   precio: { on: true, sel: 'velas' },
@@ -121,7 +131,7 @@ const DEFECTO = {
   bola8: { on: false, curva: true, obj: true, rec: true },
   trad: { on: false, rec: true, rango: true },
   conf: { on: false, rec: true },
-  flow: { on: false },
+  flow: { on: false, tabla: true, marcas: true, grandes: false },
 };
 const copia = (o) => JSON.parse(JSON.stringify(o));
 function cargarEstado() { const g = leer('hiroCapas', {}); const e = copia(DEFECTO); for (const k of Object.keys(e)) Object.assign(e[k], g[k] || {}); return e; }
@@ -166,8 +176,10 @@ const sPuts = gH.addLineSeries({ color: '#f07a2a', lineWidth: 2, priceFormat: fm
 const sTotal = gH.addLineSeries({ color: '#22c3b8', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 sCalls.createPriceLine({ price: 0, color: '#444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
 // HIRO real de SpotGamma (leído de Discord cada ~5 min): punteado, mismos colores, para comparar contra el propio
-const sCallsReal = gH.addLineSeries({ color: 'rgba(96,165,250,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: true, lastValueVisible: true, title: 'real' });
-const sPutsReal = gH.addLineSeries({ color: 'rgba(251,146,60,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: true, lastValueVisible: true, title: 'real' });
+const sCallsReal = gH.addLineSeries({ color: 'rgba(96,165,250,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: false, lastValueVisible: true, title: 'real' });
+const sPutsReal = gH.addLineSeries({ color: 'rgba(251,146,60,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: false, lastValueVisible: true, title: 'real' });
+// HIRO real NETO (calls + puts) para el modo Total
+const sTotalReal = gH.addLineSeries({ color: 'rgba(45,212,191,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: false, lastValueVisible: true, title: 'real' });
 
 // Tiempo y cursor sincronizados entre el gráfico principal y la franja HIRO
 let sincro = false;
@@ -271,10 +283,22 @@ function redibujar() {
   $('zona').classList.toggle('sinHiro', !est.hiro.on);
   sCalls.applyOptions({ visible: est.hiro.sel === 'pc' }); sPuts.applyOptions({ visible: est.hiro.sel === 'pc' }); sTotal.applyOptions({ visible: est.hiro.sel === 'total' });
   $('rotHiro').textContent = 'HEDGING IMPACT · ' + (est.hiro.sel === 'pc' ? 'PUT/CALL (azul calls · naranja puts)' : 'TOTAL');
-  const real = (campo) => { const m = new Map(); for (const r of capas) { const v = r.hiro?.[campo]; if (v != null) m.set(ts(fecha, balde(r.at.slice(11, 16))), v * 1e9); } return [...m].map(([time, value]) => ({ time, value })); };
+  // HIRO real: la curva COMPLETA de la última captura (la imagen trae todo el día); si no hay, los puntos de cada lectura
+  const real = (campo) => {
+    const idx = campo === 'calls' ? 1 : 2, m = new Map();
+    const conCurva = ultimo((x) => (x.hiro?.curva?.length ? x.hiro : null));
+    if (conCurva) for (const fila of conCurva.v.curva) { if (fila[idx] != null) m.set(ts(fecha, balde(fila[0])), fila[idx] * 1e9); }
+    else for (const r of capas) { const v = r.hiro?.[campo]; if (v != null) m.set(ts(fecha, balde(r.at.slice(11, 16))), v * 1e9); }
+    return [...m].map(([time, value]) => ({ time, value }));
+  };
   const verReal = est.hiro.on && est.hiro.real && est.hiro.sel === 'pc';
   sCallsReal.setData(verReal ? real('calls') : []); sPutsReal.setData(verReal ? real('puts') : []);
   sCallsReal.applyOptions({ visible: verReal }); sPutsReal.applyOptions({ visible: verReal });
+  // modo Total: el neto real = calls + puts en cada minuto en que estén los dos
+  const verRealT = est.hiro.on && est.hiro.real && est.hiro.sel === 'total';
+  if (verRealT) { const p = new Map(real('puts').map((x) => [x.time, x.value])); sTotalReal.setData(real('calls').filter((x) => p.has(x.time)).map((x) => ({ time: x.time, value: x.value + p.get(x.time) }))); }
+  else sTotalReal.setData([]);
+  sTotalReal.applyOptions({ visible: verRealT });
   const pon = (serie, visible, campo) => { serie.setData(visible ? conVacios(escalon(campo, horas), horas) : []); serie.applyOptions({ visible }); };
   pon(L.gbFlip, est.gbc.on && est.gbc.flip, (r) => r.gexbot_classic?.flip);
   pon(L.gbPos, est.gbc.on && est.gbc.imanes, (r) => r.gexbot_classic?.imanPos);
@@ -315,6 +339,7 @@ function redibujar() {
   }
   for (const s of Object.values(L)) { const d = s.data(); const u = d.length && d[d.length - 1].value; if (u) nivelesCercanos.push(u); }
   recuadros();
+  pintarFlujo();
   pedirLienzo();
   $('rotMain').textContent = 'SPX' + (est.precio.on ? ' · ' + (tf === 60 ? '1h' : tf + 'm') : ' (precio oculto)');
   requestAnimationFrame(medir);
@@ -340,6 +365,39 @@ function recuadros() {
   const cf = ultimo((x) => x.confluencia);
   if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia</b> · ${cf.at.slice(11, 16)}<br>A (tendencia): <b>${cf.v.A || '—'}</b> · B (fade): <b>${cf.v.B || '—'}</b><br><span style="color:#888">${cf.v.motivoA || ''}</span></div>`);
   $('recuadros').innerHTML = r.join('');
+}
+
+// ── Option flow (Quant Data, escenario "option flow" de Discord) ────────────────────────────────────────────────
+// Junta las órdenes de todas las lecturas del día sin repetir (misma hora, strike, tipo, cantidad y precio)
+const aHm = (h) => { const m = /(\d{1,2}):(\d{2}):(\d{2})\s*([AP])M/.exec(h || ''); if (!m) return null; let hh = +m[1] % 12; if (m[4] === 'P') hh += 12; return String(hh).padStart(2, '0') + ':' + m[2]; };
+function ordenesFlujo() {
+  const vistas = new Map();
+  for (const r of capas) for (const f of (r.option_flow?.filas || [])) {
+    const hm = aHm(f.hora); if (!hm) continue;
+    if (est.flow.grandes && (f.prima || 0) < 250000) continue;
+    const k = [f.hora, f.strike, f.tipo, f.cantidad, f.precio].join('|');
+    if (!vistas.has(k)) vistas.set(k, { ...f, hm });
+  }
+  return [...vistas.values()].sort((a, b) => (b.hora > a.hora ? 1 : -1));
+}
+const fmtUsd = (v) => (v == null ? '—' : v >= 1e9 ? '$' + (v / 1e9).toFixed(2) + ' B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + ' M' : '$' + (v / 1e3).toFixed(2) + ' K');
+function pintarFlujo() {
+  const caja = $('flujo');
+  const ver = est.flow.on && est.flow.tabla;
+  caja.style.display = ver ? 'block' : 'none';
+  if (!ver) return;
+  const u = ultimo((x) => (x.option_flow?.filas?.length ? x.option_flow : null));
+  const rs = u?.v.resumen || {}, ords = ordenesFlujo().slice(0, 60);
+  const sent = rs.sentimiento === 'bullish' ? ['Bullish', '#22c55e'] : rs.sentimiento === 'bearish' ? ['Bearish', '#ef4444'] : ['—', '#aaa'];
+  caja.innerHTML = `<div class="cab"><span>Quant Data · Consolidated Order Flow${u ? ' · ' + u.at.slice(11, 16) : ''}</span>`
+    + `<span>Sentiment <b style="color:${sent[1]}">${sent[0]}</b></span><span>Put/Call Ratio <b>${rs.pcRatio != null ? rs.pcRatio + '%' : '—'}</b></span>`
+    + `<span>Put/Call Premium <b>${fmtUsd(rs.primaPuts)} / ${fmtUsd(rs.primaCalls)}</b></span></div>`
+    + `<table><tr><th>Time</th><th>Contract</th><th>Qty</th><th>Price</th><th></th><th>Premium</th><th>Sentiment</th></tr>`
+    + (ords.length ? ords.map((o) => { const c = o.sentimiento === 'bullish' ? '#22c55e' : '#ef4444';
+        return `<tr><td>${o.hora}</td><td>SPX $${(o.strike || 0).toLocaleString('en-US')} ${o.tipo === 'call' ? 'Call' : 'Put'}</td><td>${o.cantidad ?? '—'}</td>`
+          + `<td>$${o.precio ?? '—'}</td><td style="color:#7f8db3">${o.lado || ''}</td><td><span class="p" style="background:${c}"></span>${fmtUsd(o.prima)}</td>`
+          + `<td><span class="p" style="background:${c}"></span>${o.sentimiento === 'bullish' ? 'Bullish' : 'Bearish'}</td></tr>`; }).join('')
+      : '<tr><td colspan="7" style="color:#8aa0d8">Sin órdenes leídas todavía</td></tr>') + '</table>';
 }
 
 // ── Histograma de GexBot Classic: barras horizontales en su strike exacto (eje del SPX), estilo GexBot ─────────────────
@@ -392,6 +450,17 @@ function lienzo() {
       const anchoC = (ancho0 - cero0) * 0.9; ctx.strokeStyle = 'rgba(128,128,255,0.95)'; ctx.lineWidth = 1.2; ctx.beginPath(); let primero = true;
       for (const [k, v] of b8.v.curva) { const y = sBase.priceToCoordinate(k); if (y == null) continue; const x = cero0 + v * anchoC; if (primero) { ctx.moveTo(x, y); primero = false; } else ctx.lineTo(x, y); }
       ctx.stroke(); ctx.lineWidth = 1; ctx.fillStyle = 'rgba(128,128,255,.9)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('Bola 8 Sonar ' + b8.at.slice(11, 16), cero0 + 6, 30);
+    }
+  }
+  // Option flow (Quant Data): cada orden en su hora y su strike; ▲ verde = bullish, ▼ rojo = bearish, tamaño según la prima
+  if (est.flow.on && est.flow.marcas) {
+    for (const o of ordenesFlujo()) {
+      const x = gM.timeScale().timeToCoordinate(ts(fecha, balde(o.hm))), y = sBase.priceToCoordinate(o.strike);
+      if (x == null || y == null || y < 0 || y > H - altoT0) continue;
+      const r = Math.max(4, Math.min(11, 3 + Math.sqrt((o.prima || 0) / 1e5) * 2.2)), alc = o.sentimiento === 'bullish';
+      ctx.fillStyle = alc ? 'rgba(34,197,94,.9)' : 'rgba(239,68,68,.9)'; ctx.beginPath();
+      if (alc) { ctx.moveTo(x, y - r); ctx.lineTo(x - r, y + r * .8); ctx.lineTo(x + r, y + r * .8); } else { ctx.moveTo(x, y + r); ctx.lineTo(x - r, y - r * .8); ctx.lineTo(x + r, y - r * .8); }
+      ctx.closePath(); ctx.fill();
     }
   }
   if (!(est.gbc.on && est.gbc.hist)) return;
