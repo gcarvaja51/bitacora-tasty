@@ -324,7 +324,10 @@ function recuadros() {
   const r = [];
   const nom = (s) => (s === 'bearish' ? ['Bajista', 'neg'] : s === 'bullish' ? ['Alcista', 'pos'] : ['Neutral', '']);
   const b8 = ultimo((x) => x.bola8);
-  if (est.bola8.on && est.bola8.rec && b8) { const [n, c] = nom(b8.v.sesgo); r.push(`<div class="rec"><b style="color:#ffd54f">Bola 8</b> · ${b8.at.slice(11, 16)} · <span class="${c}">${n}</span> fuerza <b>${b8.v.fuerza ?? '—'}</b> · objetivos ${b8.v.objetivo1 ?? '—'} / ${b8.v.objetivo2 ?? '—'}</div>`); }
+  if (est.bola8.on && est.bola8.rec && b8) {   // como la leyenda de la Sonar original: Bias / Strength / Target 1 / Target 2
+    const [, c] = nom(b8.v.sesgo), bias = { bearish: 'Bearish', bullish: 'Bullish' }[b8.v.sesgo] || 'Neutral';
+    r.push(`<div class="rec"><b style="color:#ffa500">Bola 8</b> · ${b8.at.slice(11, 16)} · Bias: <span class="${c}"><b>${bias}</b></span> · Strength: <b>${b8.v.fuerza ?? '—'}</b> · Target 1: <b style="color:rgb(255,165,0)">${b8.v.objetivo1 ?? '—'}</b> · Target 2: <b style="color:rgb(255,209,127)">${b8.v.objetivo2 ?? '—'}</b></div>`);
+  }
   const tr = ultimo((x) => x.tradytics);
   if (est.trad.on && est.trad.rec && tr) {   // las tres tarjetas de la página "Options market" de Tradytics
     const [n, c] = nom(tr.v.sentimiento), x = tr.v.exceso, rg = tr.v.spyRango, vd = tr.v.volDetalle;
