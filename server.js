@@ -17074,7 +17074,7 @@ app.post('/api/capas/limpiar', (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 app.get('/api/capas', (req, res) => {
-  const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaET();
+  const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaHojaHiro();   // misma fecha por defecto que /api/hiro
   const todos = capasDelDia(fecha), desde = String(req.query.desde || '');
   res.json({ ok: true, fecha, total: todos.length, registros: desde ? todos.filter((r) => String(r.at) > desde) : todos });
 });
@@ -17091,8 +17091,8 @@ app.get('/api/hiro/previas', async (req, res) => {
 });
 app.get('/api/hiro', (req, res) => {
   try {
-    // sin fecha: la de hoy en NY (no la del arranque del servidor, por si el colector está apagado)
-    const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaET();
+    // sin fecha: hoy en NY si ya abrió el mercado; si no (fin de semana, feriado, antes de 9:30) el último día de mercado
+    const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaHojaHiro();
     const r = hiro.serie(fecha);
     // sin velas del día: se piden a dxLink en segundo plano (cargarVelas guarda 10 min un "no hay" para no reintentar en cada refresco)
     const antesDeAbrir = r.fecha === calendario.fechaET() && calendario.minutosET() < 9 * 60 + 30;

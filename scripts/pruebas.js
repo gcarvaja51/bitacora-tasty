@@ -1324,6 +1324,13 @@ chequear('el martes siguiente si es dia de mercado', cal.esDiaDeMercado('2026-09
 // Lo que necesita el 1DTE: el viernes previo a Labor Day apunta al MARTES.
 // Con el salto de solo-fin-de-semana apuntaba al lunes, una expiracion que no
 // existe en la cadena, y findStrikesByDelta caia al fallback.
+{
+  const en = (iso) => cal.fechaHojaHiro(new Date(iso));
+  chequear('fechaHojaHiro: sábado → viernes anterior', en('2026-11-21T20:00:00-05:00') === '2026-11-20', en('2026-11-21T20:00:00-05:00'));
+  chequear('fechaHojaHiro: lunes 9:00 (antes de abrir) → viernes', en('2026-11-23T09:00:00-05:00') === '2026-11-20', en('2026-11-23T09:00:00-05:00'));
+  chequear('fechaHojaHiro: lunes 9:30 → lunes', en('2026-11-23T09:30:00-05:00') === '2026-11-23', en('2026-11-23T09:30:00-05:00'));
+  chequear('fechaHojaHiro: feriado (Thanksgiving 26-nov) → miércoles 25', en('2026-11-26T12:00:00-05:00') === '2026-11-25', en('2026-11-26T12:00:00-05:00'));
+}
 chequear('siguienteDiaDeMercado salta fin de semana Y feriado',
          cal.siguienteDiaDeMercado('2026-09-04') === '2026-09-08',
          `dio ${cal.siguienteDiaDeMercado('2026-09-04')}`);

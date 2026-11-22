@@ -168,6 +168,18 @@ function siguienteDiaDeMercado(desde = new Date()) {
   throw new Error('[MERCADO] No se encontro dia de mercado en los 14 dias siguientes a ' + normalizarFecha(desde));
 }
 
+// Fecha que muestra la hoja Hiro cuando no se le pide una (2026-11-21): hoy si es dia de mercado y ya abrio;
+// si no (fin de semana, feriado o antes de las 9:30), el ultimo dia de mercado. Antes mostraba un sabado vacio.
+function fechaHojaHiro(ahora = new Date()) {
+  let fecha = fechaET(ahora);
+  if (esDiaDeMercado(fecha) && minutosET(ahora) >= APERTURA_MIN) return fecha;
+  for (let i = 0; i < 14; i++) {
+    fecha = sumarDias(fecha, -1);
+    if (esDiaDeMercado(fecha)) return fecha;
+  }
+  return fechaET(ahora);
+}
+
 // Para health checks y para la Torre: en que estado esta el calendario.
 function estado(ahora = new Date()) {
   const fecha = normalizarFecha(ahora);
@@ -189,7 +201,7 @@ function estado(ahora = new Date()) {
 module.exports = {
   // consultas
   esDiaDeMercado, enHorarioDeMercado, enVentanaET, motivoCierre,
-  esFinDeSemana, esFeriado, esMedioDia, siguienteDiaDeMercado, estado,
+  esFinDeSemana, esFeriado, esMedioDia, siguienteDiaDeMercado, fechaHojaHiro, estado,
   // utilidades de hora ET
   fechaET, minutosET, horaCierreMin,
   // datos crudos (para pruebas y para quien necesite recorrerlos)
