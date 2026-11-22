@@ -134,17 +134,19 @@ const DEFECTO = {
   sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false },
   gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
   gbs: { on: false, hist: true, perfil: true, freno: true, acel: true },
-  hiro: { on: true, sel: 'pc', real: true, invertir: false },
+  hiro: { on: true, sel: 'pc', real: true, invertir: true },   // 21-nov: invertido por defecto (pedido de Guillermo: que se mueva con el precio)
   bola8: { on: false, curva: true, obj: true, rec: true },
   trad: { on: false, rec: true, rango: true },
   conf: { on: false, rec: true },
   flow: { on: false, tabla: true, marcas: true, grandes: false },
+  ver: 2,   // versión de los valores por defecto: si lo guardado es más viejo, se aplican los cambios de defecto (HIRO invertido)
 };
 const copia = (o) => JSON.parse(JSON.stringify(o));
 function cargarEstado() {
   let g = leer('hiroCapas', {}); if (!g || typeof g !== 'object') g = {};
   const e = copia(DEFECTO);
   for (const k of Object.keys(e)) if (g[k] && typeof g[k] === 'object') Object.assign(e[k], g[k]);
+  if (g.ver !== DEFECTO.ver) e.hiro.invertir = true;   // lo guardado antes del 21-nov tenía invertir:false por defecto
   if (!Array.isArray(e.kgs.medias) || e.kgs.medias.length !== DEFECTO.kgs.medias.length) e.kgs.medias = copia(DEFECTO.kgs.medias);
   return e;
 }
