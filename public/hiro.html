@@ -110,7 +110,7 @@
   <button id="rAdelante" title="Una vela adelante (→)">▶|</button>
   <span id="reproHora">09:30</span>
   <input type="range" id="reproSlider" min="570" max="960" step="1" value="570">
-  <select id="reproVel" title="Velocidad"><option value="2000">lenta</option><option value="1000" selected>normal</option><option value="400">rápida</option><option value="120">muy rápida</option></select>
+  <select id="reproVel" title="Velocidad, como en TradingView: 1x = 1 vela por segundo"><option value="10000">0.1x</option><option value="3333">0.3x</option><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="333">3x</option><option value="200">5x</option><option value="143">7x</option><option value="100">10x</option></select>
   <span class="ayuda">clic en el gráfico = empezar desde esa hora</span>
   <button id="rSalir" title="Volver a ver el día completo">✕ Salir</button>
 </div>
@@ -727,7 +727,8 @@ $('rInicio').onclick = () => { pausar(); irA(570); };
 $('rAtras').onclick = () => { pausar(); irA(corte - tf); };
 $('rAdelante').onclick = () => { pausar(); irA(corte + tf); };
 $('rPlay').onclick = () => (reproTimer ? pausar() : reproducir());
-$('reproVel').onchange = () => { if (reproTimer) { pausar(); reproducir(); } };
+{ const v = String(leer('hiroReproVel', 1000)); if ([...$('reproVel').options].some((o) => o.value === v)) $('reproVel').value = v; }
+$('reproVel').onchange = () => { guardar('hiroReproVel', +$('reproVel').value); if (reproTimer) { pausar(); reproducir(); } };
 $('reproSlider').oninput = (ev) => { pausar(); irA(+ev.target.value); };
 gM.subscribeClick((p) => { if (corte == null || !p || p.time == null) return; pausar(); irA((p.time % 86400) / 60); });
 document.addEventListener('keydown', (ev) => {
