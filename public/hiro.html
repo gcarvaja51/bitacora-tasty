@@ -439,7 +439,9 @@ function redibujar() {
   if (est.bola8.on && est.bola8.obj) {
     const b = ultimo((x) => (x.bola8?.objetivo1 != null ? x.bola8 : null));
     if (b) {
-      const lin = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 3, lineStyle: 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` })); };
+      // 21-nov: una lectura de más de 20 min (la misma regla del motor de confluencia) se pinta tenue y punteada, con su hora
+      const vieja = edadMin(b.at) > 20, h = b.at.slice(11, 16);
+      const lin = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); lineasNivel.push(sBase.createPriceLine({ price: +p, color: vieja ? color.replace('rgb(', 'rgba(').replace(')', ',.35)') : color, lineWidth: vieja ? 1 : 3, lineStyle: vieja ? 2 : 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` + (vieja ? ` (de las ${h})` : '') })); };
       lin(b.v.objetivo1, 'Target 1', 'rgb(255,165,0)'); lin(b.v.objetivo2, 'Target 2', 'rgb(255,209,127)');
     }
   }
@@ -451,13 +453,16 @@ function redibujar() {
   requestAnimationFrame(medir);
 }
 
+// minutos entre una lectura (sello ISO con hora de NY) y el momento que se está viendo (corte de la reproducción o ahora)
+const edadMin = (at) => { const ref = (ahoraT() % 86400) / 60, m = +at.slice(11, 13) * 60 + +at.slice(14, 16); return ref - m; };
+const avisoEdad = (at) => { const e = Math.round(edadMin(at)); return e > 20 ? ` <span class="neg" title="Lectura vieja: no se capturó una más nueva">⚠ hace ${e >= 60 ? Math.floor(e / 60) + ' h ' + (e % 60) + ' min' : e + ' min'}</span>` : ''; };
 function recuadros() {
   const r = [];
   const nom = (s) => (s === 'bearish' ? ['Bajista', 'neg'] : s === 'bullish' ? ['Alcista', 'pos'] : ['Neutral', '']);
   const b8 = ultimo((x) => x.bola8);
   if (est.bola8.on && est.bola8.rec && b8) {   // como la leyenda de la Sonar original: Bias / Strength / Target 1 / Target 2
     const [, c] = nom(b8.v.sesgo), bias = { bearish: 'Bearish', bullish: 'Bullish' }[b8.v.sesgo] || 'Neutral';
-    r.push(`<div class="rec"><b style="color:#ffa500">Bola 8</b> · ${b8.at.slice(11, 16)} · Bias: <span class="${c}"><b>${bias}</b></span> · Strength: <b>${b8.v.fuerza ?? '—'}</b> · Target 1: <b style="color:rgb(255,165,0)">${b8.v.objetivo1 ?? '—'}</b> · Target 2: <b style="color:rgb(255,209,127)">${b8.v.objetivo2 ?? '—'}</b></div>`);
+    r.push(`<div class="rec"><b style="color:#ffa500">Bola 8</b> · ${b8.at.slice(11, 16)}${avisoEdad(b8.at)} · Bias: <span class="${c}"><b>${bias}</b></span> · Strength: <b>${b8.v.fuerza ?? '—'}</b> · Target 1: <b style="color:rgb(255,165,0)">${b8.v.objetivo1 ?? '—'}</b> · Target 2: <b style="color:rgb(255,209,127)">${b8.v.objetivo2 ?? '—'}</b></div>`);
   }
   const tr = ultimo((x) => x.tradytics);
   if (est.trad.on && est.trad.rec && tr) {   // las tres tarjetas de la página "Options market" de Tradytics
