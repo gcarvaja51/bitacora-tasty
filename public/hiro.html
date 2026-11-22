@@ -38,6 +38,17 @@
   .menu label:hover { background:#262626; }
   .menu .t { padding:4px 12px; font-size:11px; color:#777; text-transform:uppercase; letter-spacing:.5px; }
   .restablecer { background:transparent; border:1px solid #3a3a3a; color:#888; border-radius:5px; padding:6px 9px; font-size:12px; cursor:pointer; }
+  /* Reproducción tipo video (21-nov) */
+  .bRepro { background:transparent; border:1px solid #3a3a3a; color:#bbb; border-radius:5px; padding:6px 10px; font-size:12.5px; cursor:pointer; white-space:nowrap; }
+  .bRepro.on { background:#2962ff; border-color:#2962ff; color:#fff; }
+  #repro { display:none; align-items:center; gap:8px; padding:6px 16px; border-bottom:1px solid #1f1f1f; background:#101418; flex-wrap:wrap; }
+  #repro.on { display:flex; }
+  #repro button { background:#1c1f26; color:#ddd; border:1px solid #333; border-radius:5px; padding:4px 10px; font-size:13px; cursor:pointer; min-width:34px; }
+  #repro button:hover { background:#262b35; }
+  #repro select { background:#1c1f26; color:#ddd; border:1px solid #333; border-radius:5px; padding:4px 6px; font-size:12px; }
+  #reproSlider { flex:1; min-width:160px; accent-color:#2962ff; }
+  #reproHora { font:600 15px ui-monospace,Consolas,monospace; color:#fff; min-width:52px; text-align:center; }
+  #repro .ayuda { font-size:11px; color:#777; }
   #zona { flex:1; display:flex; flex-direction:column; min-height:440px; }
   .seccion { position:relative; min-height:0; }
   #secMain { flex:1 1 auto; }
@@ -89,7 +100,19 @@
     <button data-tf="10">10m</button><button data-tf="15">15m</button><button data-tf="30">30m</button><button data-tf="60">1h</button>
   </div>
   <div class="capas" id="capas"></div>
+  <button class="bRepro" id="bRepro" title="Reproducir el día como un video: todas las capas avanzan juntas minuto a minuto">⏯ Reproducir</button>
   <button class="restablecer" id="bReset" title="Volver al esquema inicial">↺ Esquema inicial</button>
+</div>
+<div id="repro">
+  <button id="rInicio" title="Ir a la apertura (9:30)">⏮</button>
+  <button id="rAtras" title="Una vela atrás (←)">◀</button>
+  <button id="rPlay" title="Reproducir / pausar (espacio)">▶</button>
+  <button id="rAdelante" title="Una vela adelante (→)">▶|</button>
+  <span id="reproHora">09:30</span>
+  <input type="range" id="reproSlider" min="570" max="960" step="1" value="570">
+  <select id="reproVel" title="Velocidad"><option value="2000">lenta</option><option value="1000" selected>normal</option><option value="400">rápida</option><option value="120">muy rápida</option></select>
+  <span class="ayuda">clic en el gráfico = empezar desde esa hora</span>
+  <button id="rSalir" title="Volver a ver el día completo">✕ Salir</button>
 </div>
 <div id="zona">
   <div class="seccion" id="secMain">
@@ -284,6 +307,8 @@ const ts = (f, hm) => Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 1
 const hmDe = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 const balde = (hm) => { const m = +hm.slice(0, 2) * 60 + +hm.slice(3, 5); return hmDe(570 + Math.floor((m - 570) / tf) * tf); };
 let fecha = null, filasHiro = [], velasDia = [], cierrePrevio = null, muros = null, capas = [], capasDe, capasFecha = null;
+// Reproducción (21-nov): lo cargado completo vive en *Todo; filasHiro / velasDia / capas son la VISTA (recortada a `corte`)
+let filasTodo = [], velasTodo = [], capasTodo = [], corte = null;   // corte = minuto del día (570 = 9:30) o null = día completo
 
 function agrupar(filas) {
   const out = [];
@@ -308,7 +333,8 @@ function escalon(campo, horas) {
 }
 let ultimaVela = 0;
 // hasta dónde se extiende el último valor de un nivel: la última vela, la última lectura o la hora actual (si es hoy)
-const ahoraT = () => { let t = ultimaVela; const u = capas[capas.length - 1]; if (u) t = Math.max(t, ts(fecha, balde(u.at.slice(11, 16))));
+const ahoraT = () => { if (corte != null) return ts(fecha, balde(hmDe(corte)));   // reproduciendo: nada se extiende más allá del corte
+  let t = ultimaVela; const u = capas[capas.length - 1]; if (u) t = Math.max(t, ts(fecha, balde(u.at.slice(11, 16))));
   const ny = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York', hour12: false }); if (ny.slice(0, 10) === fecha) { const hm = ny.slice(12, 17); if (hm >= '09:30' && hm <= '16:00') t = Math.max(t, ts(fecha, balde(hm))); }
   return t; };
 const ultimo = (f) => { for (let i = capas.length - 1; i >= 0; i--) { const v = f(capas[i]); if (v != null) return { v, at: capas[i].at }; } return null; };
@@ -625,38 +651,91 @@ document.querySelectorAll('#tfs button').forEach((b) => b.onclick = () => { tf =
 let primera = true;
 async function cargar() {
   const q = new URLSearchParams(location.search).get('fecha'), qs = q ? '?fecha=' + q : '';
-  const ult = capasDe === q && capas.length ? capas[capas.length - 1].at : '';
+  const ult = capasDe === q && capasTodo.length ? capasTodo[capasTodo.length - 1].at : '';
   const qc = (q ? '?fecha=' + q : '?') + (ult ? (q ? '&' : '') + 'desde=' + encodeURIComponent(ult) : '');
   const [r, c] = await Promise.all([fetch('/api/hiro' + qs).then((x) => x.json()).catch(() => null), fetch('/api/capas' + qc).then((x) => x.json()).catch(() => null)]);
   if (!r || !r.ok) { $('estado').textContent = 'sin respuesta del servidor'; return; }
-  fecha = r.fecha; filasHiro = r.filas.filter((x) => x.spx); velasDia = r.velas || []; cierrePrevio = r.cierrePrevio || cierrePrevio;
+  fecha = r.fecha; filasTodo = r.filas.filter((x) => x.spx); velasTodo = r.velas || []; cierrePrevio = r.cierrePrevio || cierrePrevio;
   if (previasDe !== fecha) {   // velas de los días anteriores, una vez por fecha, para calentar las medias
     previasDe = fecha;
     fetch('/api/hiro/previas?fecha=' + fecha).then((x) => x.json()).then((p) => { if (p && p.ok) { velasPrevias = p.velas; redibujar(); } else previasDe = null; }).catch(() => { previasDe = null; });
   }
   if (c && c.ok) {
     const nuevos = limpiarTextos(c.registros || []);
-    const base = ult && c.fecha === capasFecha ? capas : [];
-    capas = base.concat(nuevos).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
+    const base = ult && c.fecha === capasFecha ? capasTodo : [];
+    capasTodo = base.concat(nuevos).filter((x) => x.at && x.at.slice(0, 10) === fecha).sort((a, b) => a.at.localeCompare(b.at));
     capasDe = q; capasFecha = c.fecha;
     if (ult && c.total != null && base.length + nuevos.length !== c.total) capasDe = undefined;   // no cuadra: la próxima vez, completo
   }
   $('fecha').textContent = new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  aplicarCorte();
+  if (primera) { gM.timeScale().fitContent(); primera = false; }
+  const e = r.estado || {};
+  $('punto').classList.toggle('vivo', !!e.conectado);
+  $('estado').textContent = e.conectado ? `HIRO en vivo · ${e.contratos} contratos 0DTE · ${Number(e.trades || 0).toLocaleString('es')} operaciones` : 'HIRO: colector detenido (fuera de horario o reconectando)';
+}
+// Recorta los datos a la hora de reproducción (o los deja completos) y repinta todo
+function aplicarCorte() {
+  if (!fecha) return;
+  if (corte == null) { filasHiro = filasTodo; velasDia = velasTodo; capas = capasTodo; }
+  else {
+    const hm = hmDe(corte);
+    filasHiro = filasTodo.filter((x) => String(x.hora).slice(0, 5) <= hm);
+    velasDia = velasTodo.filter((v) => String(v.hora).slice(0, 5) <= hm);
+    capas = capasTodo.filter((x) => x.at.slice(11, 16) <= hm);
+  }
   const precios = velasDia.length ? velasDia.map((v) => ({ spx: v.c })) : filasHiro;
   if (precios.length) {
     const u = { ...(filasHiro[filasHiro.length - 1] || {}), spx: precios[precios.length - 1].spx };
     $('tSpx').textContent = u.spx.toFixed(2);
     if (cierrePrevio) { const ch = u.spx - cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / cierrePrevio * 100).toFixed(2)}%)</span>`; }
     if (u.calls != null) { const sg = est.hiro.invertir ? -1 : 1; $('tC').textContent = fmtB(sg * u.calls); $('tP').textContent = fmtB(sg * u.puts); }
+    else { $('tC').textContent = '—'; $('tP').textContent = '—'; }   // reproduciendo antes de que hubiera HIRO propio
   }
   redibujar();
-  if (primera) { gM.timeScale().fitContent(); primera = false; }
-  const e = r.estado || {};
-  $('punto').classList.toggle('vivo', !!e.conectado);
-  $('estado').textContent = e.conectado ? `HIRO en vivo · ${e.contratos} contratos 0DTE · ${Number(e.trades || 0).toLocaleString('es')} operaciones` : 'HIRO: colector detenido (fuera de horario o reconectando)';
   const uc = capas[capas.length - 1];
-  $('estadoCapas').textContent = uc ? `Discord: última lectura ${uc.at.slice(11, 16)} ET (${capas.length} en el día)` : 'Discord: sin lecturas hoy';
+  $('estadoCapas').textContent = (corte != null ? `REPRODUCIENDO ${hmDe(corte)} ET · ` : '') + (uc ? `Discord: última lectura ${uc.at.slice(11, 16)} ET (${capas.length} en el día)` : 'Discord: sin lecturas hoy');
 }
+
+// ── Reproducción tipo video (21-nov, pedido de Guillermo: estudiar qué hacía cada capa mientras el precio subía o bajaba) ──
+let reproTimer = null;
+const finDia = () => { const u = velasTodo[velasTodo.length - 1] || filasTodo[filasTodo.length - 1]; return u ? Math.min(960, +String(u.hora).slice(0, 2) * 60 + +String(u.hora).slice(3, 5)) : 960; };
+function irA(m) {
+  corte = Math.max(570, Math.min(finDia(), Math.round(m)));
+  $('reproSlider').value = corte; $('reproHora').textContent = hmDe(corte);
+  const vr = gM.timeScale().getVisibleRange();   // el encuadre (zoom) se mantiene en horas mientras los datos crecen
+  aplicarCorte();
+  if (vr) gM.timeScale().setVisibleRange(vr);
+}
+const encuadrarDia = () => gM.timeScale().setVisibleRange({ from: ts(fecha, '09:30'), to: ts(fecha, '16:00') });
+function pausar() { if (reproTimer) { clearInterval(reproTimer); reproTimer = null; } $('rPlay').textContent = '▶'; }
+function reproducir() {
+  if (corte == null || corte >= finDia()) irA(570);
+  $('rPlay').textContent = '⏸';
+  reproTimer = setInterval(() => { if (corte >= finDia()) return pausar(); irA(corte + tf); }, +$('reproVel').value);
+}
+function modoRepro(on) {
+  pausar();
+  $('repro').classList.toggle('on', on); $('bRepro').classList.toggle('on', on);
+  $('reproSlider').max = finDia();
+  if (on) { irA(570); encuadrarDia(); } else { corte = null; aplicarCorte(); gM.timeScale().fitContent(); }
+  medir();
+}
+$('bRepro').onclick = () => modoRepro(corte == null);
+$('rSalir').onclick = () => modoRepro(false);
+$('rInicio').onclick = () => { pausar(); irA(570); };
+$('rAtras').onclick = () => { pausar(); irA(corte - tf); };
+$('rAdelante').onclick = () => { pausar(); irA(corte + tf); };
+$('rPlay').onclick = () => (reproTimer ? pausar() : reproducir());
+$('reproVel').onchange = () => { if (reproTimer) { pausar(); reproducir(); } };
+$('reproSlider').oninput = (ev) => { pausar(); irA(+ev.target.value); };
+gM.subscribeClick((p) => { if (corte == null || !p || p.time == null) return; pausar(); irA((p.time % 86400) / 60); });
+document.addEventListener('keydown', (ev) => {
+  if (corte == null || /INPUT|SELECT|TEXTAREA/.test(ev.target.tagName)) return;
+  if (ev.key === 'ArrowRight') { ev.preventDefault(); pausar(); irA(corte + tf); }
+  else if (ev.key === 'ArrowLeft') { ev.preventDefault(); pausar(); irA(corte - tf); }
+  else if (ev.key === ' ') { ev.preventDefault(); reproTimer ? pausar() : reproducir(); }
+});
 async function cargarMuros() { const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null); if (n && n.ok) { muros = n; redibujar(); } }
 
 armarBarra();
