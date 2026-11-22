@@ -210,6 +210,8 @@ const L = {
   freno: esc('#00bcd4', RAYA, 2), acel: esc('#b04cff', RAYA, 2),
   // Bola 8 igual que la Sonar original: objetivo 1 naranja, objetivo 2 naranja claro, sólidas y gruesas
   obj1: esc('rgb(255,165,0)', 0, 3), obj2: esc('rgb(255,209,127)', 0, 3),
+  // Muros Sigma con su historial del día (21-nov): escalón sólido, como se fueron moviendo (cada ~2 min)
+  sgCall: esc('#2e8b57', 0, 2), sgPut: esc('#b5651d', 0, 2), sgFlip: esc('#c9a227', 0, 2), sgMvs: esc('#7fb2e5', 0, 1), sgMp: esc('#9e9e9e', 0, 1),
 };
 // Series de las medias móviles (8 casillas configurables)
 const sMA = Array.from({ length: 8 }, () => gM.addLineSeries({ color: '#fff', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false }));
@@ -308,7 +310,8 @@ const hmDe = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m
 const balde = (hm) => { const m = +hm.slice(0, 2) * 60 + +hm.slice(3, 5); return hmDe(570 + Math.floor((m - 570) / tf) * tf); };
 let fecha = null, filasHiro = [], velasDia = [], cierrePrevio = null, muros = null, capas = [], capasDe, capasFecha = null;
 // Reproducción (21-nov): lo cargado completo vive en *Todo; filasHiro / velasDia / capas son la VISTA (recortada a `corte`)
-let filasTodo = [], velasTodo = [], capasTodo = [], corte = null;   // corte = minuto del día (570 = 9:30) o null = día completo
+let filasTodo = [], velasTodo = [], capasTodo = [], corte = null;
+let murosTodo = [], murosHist = [], murosDe = null;   // historial de Muros Sigma del día [{hm, callWall, putWall, gammaFlip, mvs, maxPain}]   // corte = minuto del día (570 = 9:30) o null = día completo
 
 function agrupar(filas) {
   const out = [];
@@ -329,6 +332,13 @@ function escalon(campo, horas) {
   const out = []; let i = 0, actual = null;
   const fin = lect[lect.length - 1][0];
   for (const t of horas) { while (i < lect.length && lect[i][0] <= t) actual = lect[i++][1]; if (actual != null && t <= Math.max(fin, ahoraT())) out.push({ time: t, value: actual }); }
+  return out;
+}
+function escalonLista(lista, campo, horas) {
+  const lect = lista.filter((r) => r[campo] != null && isFinite(+r[campo])).map((r) => [ts(fecha, balde(r.hm)), +r[campo]]);
+  if (!lect.length) return [];
+  const out = []; let i = 0, actual = null; const fin = Math.max(lect[lect.length - 1][0], ahoraT());
+  for (const t of horas) { while (i < lect.length && lect[i][0] <= t) actual = lect[i++][1]; if (actual != null && t <= fin) out.push({ time: t, value: actual }); }
   return out;
 }
 let ultimaVela = 0;
@@ -394,7 +404,20 @@ function redibujar() {
   lineasNivel.forEach((l) => { try { sBase.removePriceLine(l); } catch {} }); lineasNivel = [];
   nivelesCercanos = [];
   const add = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` })); };
-  if (est.sigma.on && muros) {
+  // Muros Sigma: con historial del día → escalones que respetan la reproducción; sin historial (días viejos) → la
+  // lectura actual como línea horizontal, solo si es hoy y no se está reproduciendo
+  const muroSerie = (serie, on, campo, tit) => {
+    const datos = on && murosHist.length ? escalonLista(murosHist, campo, horas) : [];
+    serie.setData(conVacios(datos, horas)); serie.applyOptions({ visible: datos.length > 0, title: tit });
+    if (datos.length) nivelesCercanos.push(datos[datos.length - 1].value);
+  };
+  muroSerie(L.sgCall, est.sigma.on && est.sigma.callWall, 'callWall', 'Call Wall');
+  muroSerie(L.sgPut, est.sigma.on && est.sigma.putWall, 'putWall', 'Put Wall');
+  muroSerie(L.sgFlip, est.sigma.on && est.sigma.gammaFlip, 'gammaFlip', 'Gamma Flip');
+  muroSerie(L.sgMvs, est.sigma.on && est.sigma.mvs, 'mvs', 'Key Gamma');
+  muroSerie(L.sgMp, est.sigma.on && est.sigma.maxPain, 'maxPain', 'Max Pain');
+  const hoyNY = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+  if (est.sigma.on && muros && !murosTodo.length && corte == null && fecha === hoyNY) {
     if (est.sigma.callWall) add(muros.callWall, 'Call Wall', '#2e8b57');
     if (est.sigma.putWall) add(muros.putWall, 'Put Wall', '#b5651d');
     if (est.sigma.gammaFlip) add(muros.gammaFlip, 'Gamma Flip', '#c9a227');
@@ -684,6 +707,7 @@ function aplicarCorte() {
     velasDia = velasTodo.filter((v) => String(v.hora).slice(0, 5) <= hm);
     capas = capasTodo.filter((x) => x.at.slice(11, 16) <= hm);
   }
+  murosHist = corte == null ? murosTodo : murosTodo.filter((x) => x.hm <= hmDe(corte));
   const precios = velasDia.length ? velasDia.map((v) => ({ spx: v.c })) : filasHiro;
   if (precios.length) {
     const u = { ...(filasHiro[filasHiro.length - 1] || {}), spx: precios[precios.length - 1].spx };
@@ -737,7 +761,23 @@ document.addEventListener('keydown', (ev) => {
   else if (ev.key === 'ArrowLeft') { ev.preventDefault(); pausar(); irA(corte - tf); }
   else if (ev.key === ' ') { ev.preventDefault(); reproTimer ? pausar() : reproducir(); }
 });
-async function cargarMuros() { const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null); if (n && n.ok) { muros = n; redibujar(); } }
+const hmNY = (iso) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'America/New_York', hour12: false }).slice(0, 5);
+async function cargarMuros() {
+  const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null);
+  if (n && n.ok) muros = n;
+  // historial del día: una vez por fecha, y cada 2 min si es hoy (el daemon lo actualiza cada ~2 min)
+  const hoyNY = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
+  if (fecha && (murosDe !== fecha || fecha === hoyNY)) {
+    const h = await fetch('/api/spx/sigma-levels?history=true&date=' + fecha).then((x) => x.json()).catch(() => null);
+    if (h && h.ok) {
+      murosDe = fecha;
+      murosTodo = (h.entries || []).filter((e) => e.updatedAt && e.callWall != null)
+        .map((e) => ({ hm: hmNY(e.updatedAt), callWall: e.callWall, putWall: e.putWall, gammaFlip: e.gammaFlip, mvs: e.mvs, maxPain: e.maxPain }))
+        .filter((e) => e.hm >= '09:30' && e.hm <= '16:15').sort((a, b) => a.hm.localeCompare(b.hm));
+    }
+  }
+  aplicarCorte();
+}
 
 armarBarra();
 aplicarTf();
