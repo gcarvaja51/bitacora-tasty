@@ -140,7 +140,7 @@ const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } 
 const CAPAS = [
   { id: 'precio', nom: 'Precio', color: '#e8e8e8', opciones: [['velas', 'Velas'], ['linea', 'Línea']], radio: true },
   { id: 'kgs', nom: 'Medias (KGS)', color: '#FFEB3B', opciones: [], config: true },
-  { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing']] },
+  { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing'], ['suave', 'Suavizar (mediana de las últimas 5 lecturas ≈ 3 min)']] },
   { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
   { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['perfil', 'Options profile (puntos rojo/verde)'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
   { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO real de SpotGamma (punteado)'], ['invertir', 'Invertir (× −1): misma pendiente que el precio']] },
@@ -157,7 +157,7 @@ const DEFECTO = {
     { on: true, tipo: 'EMA', p: 50, color: '#9C27B0', w: 2 }, { on: true, tipo: 'EMA', p: 100, color: '#2962FF', w: 2 },
     { on: true, tipo: 'EMA', p: 200, color: '#FFFFFF', w: 2 }, { on: false, tipo: 'EMA', p: 8, color: '#00BCD4', w: 1 },
     { on: false, tipo: 'SMA', p: 20, color: '#FF9800', w: 1 }, { on: false, tipo: 'SMA', p: 200, color: '#9E9E9E', w: 2 }] },
-  sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false },
+  sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false, suave: true },
   gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
   gbs: { on: false, hist: true, perfil: true, freno: true, acel: true },
   hiro: { on: true, sel: 'pc', real: true, invertir: true },   // 21-nov: invertido por defecto (pedido de Guillermo: que se mueva con el precio)
@@ -311,7 +311,7 @@ const balde = (hm) => { const m = +hm.slice(0, 2) * 60 + +hm.slice(3, 5); return
 let fecha = null, filasHiro = [], velasDia = [], cierrePrevio = null, muros = null, capas = [], capasDe, capasFecha = null;
 // Reproducción (21-nov): lo cargado completo vive en *Todo; filasHiro / velasDia / capas son la VISTA (recortada a `corte`)
 let filasTodo = [], velasTodo = [], capasTodo = [], corte = null;
-let murosTodo = [], murosHist = [], murosDe = null;   // historial de Muros Sigma del día [{hm, callWall, putWall, gammaFlip, mvs, maxPain}]   // corte = minuto del día (570 = 9:30) o null = día completo
+let murosTodo = [], murosHist = [], murosSuaves = [], murosDe = null;   // historial de Muros Sigma del día [{hm, callWall, putWall, gammaFlip, mvs, maxPain}]   // corte = minuto del día (570 = 9:30) o null = día completo
 
 function agrupar(filas) {
   const out = [];
@@ -334,12 +334,23 @@ function escalon(campo, horas) {
   for (const t of horas) { while (i < lect.length && lect[i][0] <= t) actual = lect[i++][1]; if (actual != null && t <= Math.max(fin, ahoraT())) out.push({ time: t, value: actual }); }
   return out;
 }
-function escalonLista(lista, campo, horas) {
-  const lect = lista.filter((r) => r[campo] != null && isFinite(+r[campo])).map((r) => [ts(fecha, balde(r.hm)), +r[campo]]);
+// hueco = más de `hueco` min sin lecturas: la línea se corta (antes el último valor tapaba el hueco como si fuera dato)
+function escalonLista(lista, campo, horas, hueco = 12) {
+  const lect = lista.filter((r) => r[campo] != null && isFinite(+r[campo])).map((r) => [ts(fecha, r.hm), +r[campo]]);
   if (!lect.length) return [];
-  const out = []; let i = 0, actual = null; const fin = Math.max(lect[lect.length - 1][0], ahoraT());
-  for (const t of horas) { while (i < lect.length && lect[i][0] <= t) actual = lect[i++][1]; if (actual != null && t <= fin) out.push({ time: t, value: actual }); }
+  const out = []; let i = 0, actual = null, tLect = 0; const fin = Math.min(Math.max(lect[lect.length - 1][0], ahoraT()), lect[lect.length - 1][0] + hueco * 60);
+  for (const t of horas) {
+    while (i < lect.length && lect[i][0] <= t + (tf * 60 - 1)) { actual = lect[i][1]; tLect = lect[i][0]; i++; }
+    // en un hueco el punto va transparente (esta versión de la librería une la línea por encima de los espacios vacíos)
+    if (actual != null && t <= fin) out.push(t - tLect <= hueco * 60 ? { time: t, value: actual } : { time: t, value: actual, color: 'rgba(0,0,0,0)' });
+  }
   return out;
+}
+// mediana móvil de las últimas n lecturas (solo hacia atrás: en la reproducción no mira el futuro)
+function suavizarMuros(lista, n = 5) {
+  const med = (a) => { const b = a.filter((v) => v != null && isFinite(+v)).map(Number).sort((x, y) => x - y); return b.length ? b[Math.floor((b.length - 1) / 2)] : null; };
+  return lista.map((r, i) => { const v = lista.slice(Math.max(0, i - n + 1), i + 1); const o = { hm: r.hm };
+    for (const k of ['callWall', 'putWall', 'gammaFlip', 'mvs', 'maxPain']) o[k] = med(v.map((x) => x[k])); return o; });
 }
 let ultimaVela = 0;
 // hasta dónde se extiende el último valor de un nivel: la última vela, la última lectura o la hora actual (si es hoy)
@@ -407,7 +418,7 @@ function redibujar() {
   // Muros Sigma: con historial del día → escalones que respetan la reproducción; sin historial (días viejos) → la
   // lectura actual como línea horizontal, solo si es hoy y no se está reproduciendo
   const muroSerie = (serie, on, campo, tit) => {
-    const datos = on && murosHist.length ? escalonLista(murosHist, campo, horas) : [];
+    const datos = on && murosHist.length ? escalonLista(est.sigma.suave ? murosSuaves : murosHist, campo, horas) : [];
     serie.setData(conVacios(datos, horas)); serie.applyOptions({ visible: datos.length > 0, title: tit });
     if (datos.length) nivelesCercanos.push(datos[datos.length - 1].value);
   };
@@ -713,6 +724,7 @@ function aplicarCorte() {
     capas = capasTodo.filter((x) => x.at.slice(11, 16) <= hm);
   }
   murosHist = corte == null ? murosTodo : murosTodo.filter((x) => x.hm <= hmDe(corte));
+  murosSuaves = suavizarMuros(murosHist);
   const precios = velasDia.length ? velasDia.map((v) => ({ spx: v.c })) : filasHiro;
   if (precios.length) {
     const u = { ...(filasHiro[filasHiro.length - 1] || {}), spx: precios[precios.length - 1].spx };
@@ -766,7 +778,7 @@ document.addEventListener('keydown', (ev) => {
   else if (ev.key === 'ArrowLeft') { ev.preventDefault(); pausar(); irA(corte - tf); }
   else if (ev.key === ' ') { ev.preventDefault(); reproTimer ? pausar() : reproducir(); }
 });
-const hmNY = (iso) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'America/New_York', hour12: false }).slice(0, 5);
+const hmNY = (iso) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'America/New_York', hour12: false }).slice(0, 5);   // hh:mm
 async function cargarMuros() {
   const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null);
   if (n && n.ok) muros = n;
