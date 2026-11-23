@@ -502,7 +502,7 @@ function recuadros() {
     .replace(/gatillo 2m/g, 'gatillo en 2 min').replace(/estirado (alcista|bajista) en 2m/g, 'estirado $1 en 2 min')
     .replace(/herramientas ([+-]?\d+)/g, (x, n) => `herramientas ${n} (${+n > 0 ? 'a favor de subir' : +n < 0 ? 'a favor de bajar' : 'neutras'})`);
   // 23-nov: simple (pedido de Guillermo): solo Bullish/Bearish/Sin señal, sin el motivo
-  if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia</b> · ${cf.at.slice(11, 16)}<br>A (tendencia): ${dirConf(cf.v.A)} · B (fade): ${dirConf(cf.v.B)}</div>`);
+  if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia</b> · ${cf.at.slice(11, 16)}<br>A (tendencia): ${dirConf(cf.v.A)} · B contratendencia (fade): ${dirConf(cf.v.B)}</div>`);
   $('recuadros').innerHTML = r.join('');
 }
 
