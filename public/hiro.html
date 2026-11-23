@@ -148,7 +148,7 @@ const CAPAS = [
   { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing'], ['suave', 'Suavizar (mediana de las últimas 3 lecturas ≈ 1,5 min)']] },
   { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['oi', 'Barra oscura = gamma por OI'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
   { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['perfil', 'Options profile (puntos rojo/verde)'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
-  { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO real de SpotGamma (punteado)'], ['invertir', 'Invertir (× −1): misma pendiente que el precio']] },
+  { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO de SpotGamma (Discord Iron Balls)'], ['propio', 'HIRO propio (réplica 0DTE, en sombra)'], ['invertir', 'Invertir (× −1): misma pendiente que el precio']] },
   { id: 'bola8', nom: 'Bola 8', color: '#ffa500', opciones: [['curva', 'Curva Sonar'], ['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
   { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Tarjetas (sentimiento, rango, volatilidad)'], ['rango', 'Rango SPY convertido a SPX']] },
   { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['rec', 'Recuadro lecturas A/B']] },
@@ -165,7 +165,8 @@ const DEFECTO = {
   sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false, suave: true },
   gbc: { on: true, hist: true, solido: true, puntos: true, oi: true, flip: true, imanes: false, imanesOi: false },
   gbs: { on: false, hist: true, perfil: true, freno: true, acel: true },
-  hiro: { on: true, sel: 'pc', real: true, invertir: true },   // 21-nov: invertido por defecto (pedido de Guillermo: que se mueva con el precio)
+  // 23-nov (Guillermo): manda el HIRO de SpotGamma del Discord; el propio se sigue calculando pero queda en sombra (oculto)
+  hiro: { on: true, sel: 'pc', real: true, propio: false, invertir: true },   // 21-nov: invertido por defecto (pedido de Guillermo: que se mueva con el precio)
   bola8: { on: false, curva: true, obj: true, rec: true },
   trad: { on: false, rec: true, rango: true },
   conf: { on: false, rec: true },
@@ -225,18 +226,20 @@ const sCalls = gH.addLineSeries({ color: '#3b82f6', lineWidth: 2, priceFormat: f
 const sPuts = gH.addLineSeries({ color: '#f07a2a', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 const sTotal = gH.addLineSeries({ color: '#22c3b8', lineWidth: 2, priceFormat: fmtSerie, priceLineVisible: false });
 sCalls.createPriceLine({ price: 0, color: '#444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+// (la línea de cero también va en el HIRO de SpotGamma: con el propio en sombra, la de sCalls no se ve)
 // HIRO real de SpotGamma (leído de Discord cada ~5 min): punteado, mismos colores, para comparar contra el propio
 const sCallsReal = gH.addLineSeries({ color: 'rgba(96,165,250,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: false, lastValueVisible: true, title: 'real' });
 const sPutsReal = gH.addLineSeries({ color: 'rgba(251,146,60,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: false, lastValueVisible: true, title: 'real' });
 // HIRO real NETO (calls + puts) para el modo Total
 const sTotalReal = gH.addLineSeries({ color: 'rgba(45,212,191,.9)', lineWidth: 1, lineStyle: 2, priceFormat: fmtSerie, priceLineVisible: false, pointMarkersVisible: false, lastValueVisible: true, title: 'real' });
+sCallsReal.createPriceLine({ price: 0, color: '#444', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
 
 // Tiempo y cursor sincronizados entre el gráfico principal y la franja HIRO
 let sincro = false;
 const espejo = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (sincro || !r) return; sincro = true; b.timeScale().setVisibleLogicalRange(r); sincro = false; });
 espejo(gM, gH); espejo(gH, gM);
 const valor = (d) => (d ? (d.close ?? d.value) : undefined);
-const serieHiro = () => (est.hiro.sel === 'total' ? sTotal : sCalls);
+const serieHiro = () => (est.hiro.propio ? (est.hiro.sel === 'total' ? sTotal : sCalls) : (est.hiro.sel === 'total' ? sTotalReal : sCallsReal));
 let cruzando = false;
 function cursorEspejo(a, b, sb) {
   a.subscribeCrosshairMove((p) => {
@@ -389,7 +392,11 @@ function redibujar() {
   sVelas.applyOptions({ visible: est.precio.on && est.precio.sel === 'velas' });
   sLinea.applyOptions({ visible: est.precio.on && est.precio.sel === 'linea' });
   $('zona').classList.toggle('sinHiro', !est.hiro.on);
-  sCalls.applyOptions({ visible: est.hiro.sel === 'pc' }); sPuts.applyOptions({ visible: est.hiro.sel === 'pc' }); sTotal.applyOptions({ visible: est.hiro.sel === 'total' });
+  const verPropio = !!est.hiro.propio;
+  sCalls.applyOptions({ visible: verPropio && est.hiro.sel === 'pc' }); sPuts.applyOptions({ visible: verPropio && est.hiro.sel === 'pc' }); sTotal.applyOptions({ visible: verPropio && est.hiro.sel === 'total' });
+  // SpotGamma: sólido y grueso cuando es el único; punteado y fino cuando se compara con el propio
+  for (const [srt, col] of [[sCallsReal, verPropio ? 'rgba(96,165,250,.9)' : '#3b82f6'], [sPutsReal, verPropio ? 'rgba(251,146,60,.9)' : '#f07a2a'], [sTotalReal, verPropio ? 'rgba(45,212,191,.9)' : '#22c3b8']])
+    srt.applyOptions({ color: col, lineWidth: verPropio ? 1 : 2, lineStyle: verPropio ? 2 : 0, title: verPropio ? 'real' : '' });
   $('bHiroNormal').classList.toggle('on', !est.hiro.invertir); $('bHiroInv').classList.toggle('on', !!est.hiro.invertir);
   $('rotHiro').textContent = 'HEDGING IMPACT · ' + (est.hiro.sel === 'pc' ? 'PUT/CALL (azul calls · naranja puts)' : 'TOTAL') + (est.hiro.invertir ? ' · INVERTIDO (× −1)' : '');
   // HIRO real: la curva COMPLETA de la última captura (la imagen trae todo el día); si no hay, los puntos de cada lectura
@@ -398,7 +405,10 @@ function redibujar() {
     const conCurva = ultimo((x) => (x.hiro?.curva?.length ? x.hiro : null));
     if (conCurva) for (const fila of conCurva.v.curva) { if (fila[idx] != null && /^\d{2}:\d{2}$/.test(fila[0]) && fila[0] >= '09:30' && fila[0] <= '16:15') m.set(ts(fecha, balde(fila[0])), fila[idx] * 1e9); }
     else for (const r of capas) { const v = r.hiro?.[campo]; if (v != null) m.set(ts(fecha, balde(r.at.slice(11, 16))), v * 1e9); }
-    return [...m].filter(([time]) => Number.isFinite(time)).sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value: est.hiro.invertir ? -value : value }));
+    // 23-nov: mediana de 5 puntos: las líneas verticales "HIRO Flow" de la pantalla original dejan picos falsos en la curva leída
+    const pts = [...m].filter(([time]) => Number.isFinite(time)).sort((a, b) => a[0] - b[0]);
+    const med = (i) => { const v = pts.slice(Math.max(0, i - 2), i + 3).map((p) => p[1]).sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+    return pts.map(([time], i) => ({ time, value: (est.hiro.invertir ? -1 : 1) * med(i) }));
   };
   const verReal = est.hiro.on && est.hiro.real && est.hiro.sel === 'pc';
   sCallsReal.setData(verReal ? real('calls') : []); sPutsReal.setData(verReal ? real('puts') : []);
@@ -409,7 +419,7 @@ function redibujar() {
   else sTotalReal.setData([]);
   sTotalReal.applyOptions({ visible: verRealT });
   // 23-nov: la lectura de GexBot previa a la apertura (9:25) trae los niveles en 0 y aplastaba la escala hasta 0: se ignoran
-  const pon = (serie, visible, campo) => { const ok = (r) => { const v = campo(r); return v > 1000 ? v : null; }; serie.setData(visible ? conVacios(escalon(ok, horas), horas) : []); serie.applyOptions({ visible }); };
+  const pon = (serie, visible, campo) => { const ok = (r) => { const v = campo(r); return v > 1000 && !(r.spx && Math.abs(v - r.spx) > 400) ? v : null; /* y fuera los niveles a >400 pts del SPX (OCR malo: 7246 leído 4246) */ }; serie.setData(visible ? conVacios(escalon(ok, horas), horas) : []); serie.applyOptions({ visible }); };
   pon(L.gbFlip, est.gbc.on && est.gbc.flip, (r) => r.gexbot_classic?.flip);
   pon(L.gbPos, est.gbc.on && est.gbc.imanes, (r) => r.gexbot_classic?.imanPos);
   pon(L.gbNeg, est.gbc.on && est.gbc.imanes, (r) => r.gexbot_classic?.imanNeg);
@@ -785,12 +795,12 @@ gM.subscribeCrosshairMove((p) => {
   mostrarAyuda(ls.length ? ls.slice(0, 2).join(SEP_AY) : null, p, 'gMain');
 });
 const AY_HIRO = [
-  [sCalls, 'HIRO · calls (azul)', '#3b82f6', 'Impacto acumulado de hoy de las órdenes de <b>calls</b> en la cobertura de los creadores de mercado (lado agresor × delta). La pendiente dice hacia dónde empuja ese flujo.'],
-  [sPuts, 'HIRO · puts (naranja)', '#f07a2a', 'Impacto acumulado de hoy de las órdenes de <b>puts</b> en la cobertura de los creadores de mercado (lado agresor × delta).'],
-  [sTotal, 'HIRO · total', '#22c3b8', 'Calls + puts: impacto neto del flujo de opciones de hoy sobre la cobertura.'],
-  [sCallsReal, 'HIRO real de SpotGamma · calls (punteado)', 'rgba(96,165,250,.9)', 'El HIRO original leído de Discord cada ~5 min, para comparar con el nuestro.'],
-  [sPutsReal, 'HIRO real de SpotGamma · puts (punteado)', 'rgba(251,146,60,.9)', 'El HIRO original leído de Discord cada ~5 min, para comparar con el nuestro.'],
-  [sTotalReal, 'HIRO real de SpotGamma · total (punteado)', 'rgba(45,212,191,.9)', 'El neto real (calls + puts) leído de Discord.'],
+  [sCalls, 'HIRO propio · calls (réplica 0DTE, en sombra)', '#3b82f6', 'Impacto acumulado de hoy de las órdenes de <b>calls</b> en la cobertura de los creadores de mercado (lado agresor × delta). La pendiente dice hacia dónde empuja ese flujo.'],
+  [sPuts, 'HIRO propio · puts (réplica 0DTE, en sombra)', '#f07a2a', 'Impacto acumulado de hoy de las órdenes de <b>puts</b> en la cobertura de los creadores de mercado (lado agresor × delta).'],
+  [sTotal, 'HIRO propio · total (en sombra)', '#22c3b8', 'Calls + puts: impacto neto del flujo de opciones de hoy sobre la cobertura.'],
+  [sCallsReal, 'HIRO de SpotGamma · calls (Discord)', '#3b82f6', 'El HIRO original del Discord de Iron Balls (leído cada ~5 min). Calls más negativas = venden calls: presión bajista; más positivas = compran calls: combustible alcista. Importa la pendiente.'],
+  [sPutsReal, 'HIRO de SpotGamma · puts (Discord)', '#f07a2a', 'El HIRO original del Discord de Iron Balls. Puts más negativas = compran puts (cobertura o apuesta bajista): presión bajista; más positivas = venden puts: soporte. Importa la pendiente.'],
+  [sTotalReal, 'HIRO de SpotGamma · total (Discord)', 'rgba(45,212,191,.9)', 'El neto real (calls + puts) leído de Discord.'],
 ];
 gH.subscribeCrosshairMove((p) => {
   if (!p || !p.point || p.time === undefined) return mostrarAyuda(null);
@@ -870,8 +880,10 @@ function aplicarCorte() {
     const u = { ...(filasHiro[filasHiro.length - 1] || {}), spx: precios[precios.length - 1].spx };
     $('tSpx').textContent = u.spx.toFixed(2);
     if (cierrePrevio) { const ch = u.spx - cierrePrevio; $('tSpxCh').innerHTML = `<span class="${ch < 0 ? 'neg' : 'pos'}">${ch < 0 ? '↓' : '↑'} ${ch.toFixed(2)} (${(ch / cierrePrevio * 100).toFixed(2)}%)</span>`; }
-    if (u.calls != null) { const sg = est.hiro.invertir ? -1 : 1; $('tC').textContent = fmtB(sg * u.calls); $('tP').textContent = fmtB(sg * u.puts); }
-    else { $('tC').textContent = '—'; $('tP').textContent = '—'; }   // reproduciendo antes de que hubiera HIRO propio
+    const sg = est.hiro.invertir ? -1 : 1, hs = est.hiro.propio ? null : ultimo((x) => (x.hiro?.calls != null ? x.hiro : null));
+    if (hs) { $('tC').textContent = fmtB(sg * hs.v.calls * 1e9); $('tP').textContent = hs.v.puts != null ? fmtB(sg * hs.v.puts * 1e9) : '—'; }   // SpotGamma (Discord)
+    else if (est.hiro.propio && u.calls != null) { $('tC').textContent = fmtB(sg * u.calls); $('tP').textContent = fmtB(sg * u.puts); }
+    else { $('tC').textContent = '—'; $('tP').textContent = '—'; }   // reproduciendo antes de la primera lectura
   }
   redibujar();
   const uc = capas[capas.length - 1];
