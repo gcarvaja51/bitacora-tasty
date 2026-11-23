@@ -962,6 +962,14 @@ Diseño aprobado: documento "Diseño Bitácora Demo Tasty" (claude.ai/artifact/T
 - **El lector de la línea USA corre en el PC** (Vultr solo puede la línea Colombia: grupo Operaciones). Si el PC no
   corre el lector, el Canal Oficial, el Chat VIP y el canal de Sigma no se leen.
 - Barrido de Iron Balls: cada 2 min de 9:45 a 16:00 ET (antes cada 10 s de 9:00 a 16:15).
+- **Iron Balls amplía los spreads de 5 pts a 10** (23-nov-2026, decisión de Guillermo, aplicada un lunes como excepción
+  autorizada a la norma 2): en la demo de Pipe y en la de Alejandro, un spread de **crédito** más angosto que
+  `anchoObjetivo` (10, env `IRONBALLS_ANCHO_PTS`; 0 = copiar al profe) se abre con la corta del profe y la larga corrida
+  (7340/7345 → 7340/7350). El stop escala solo con el ancho (−$150 → **−$300**) y el TP sigue en **50% del crédito**
+  (~$155 con el crédito típico de ~$3,10): **stop ≈ 2× TP**, la opción (b) que eligió. Antes, con 5 pts: TP ~$109 contra
+  stop $150 (1,4 a 1). El registro guarda `ampliado`, `largoSenal`, `anchoSenal` y la `clave` del profe (su CLOSED la
+  sigue encontrando); `diferenciaVsPipe` queda en `null` porque ya no es el mismo trade. Débitos y la ejecución de Pipe
+  en Tradier no cambian. Los 9 trades anteriores (todos de 5 pts) no se promedian con los nuevos.
 - Registro en Excel (fuera del repo): `senales-sigma/exportar_excel.py` → `Registro_Senales_Sigma.xlsx` y
   `01_Sigma/Pipe/IRON BALLS - señales/Registro_Iron_Balls_Demo.xlsx`.
 

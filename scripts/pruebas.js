@@ -1283,6 +1283,10 @@ seccion('IRONBALLS: demo propia en TastyTrade (src/ironballs_demo.js, TastyTrade
   chequear('IRONBALLS demo: un segundo CLOSED no encuentra nada', d.segundoCierre === 'SIN_DEMO');
   chequear('IRONBALLS demo: el saldo arranca en $2.000 y suma el neto', d.saldo === 2106.56, JSON.stringify(d));
   chequear('IRONBALLS demo: ntfy al abrir y al cerrar (2 avisos)', d.avisos === 2, JSON.stringify(d));
+  chequear('IRONBALLS demo: un spread de 5 pts se amplía a 10 corriendo la larga (call hacia arriba, put hacia abajo)', d.ampliaCall === true && d.ampliaPut === true, JSON.stringify(d));
+  chequear('IRONBALLS demo: ampliado a 10 pts el stop pasa a $300 y el riesgo sale del ancho nuevo ($785)', d.anchoStop === 300 && d.anchoRiesgo === 785, JSON.stringify(d));
+  chequear('IRONBALLS demo: ampliado, no se compara la prima contra el profe pero se guarda la suya', d.anchoSinComparar === true, JSON.stringify(d));
+  chequear('IRONBALLS demo: ampliado, el CLOSED del profe (con sus strikes de 5 pts) la sigue cerrando', d.anchoCierraConClaveDelProfe === true, JSON.stringify(d));
 }
 const fuente = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
 chequear('IRONBALLS: el servidor cierra la demo con el CLOSED y la abre antes del kill-switch de Tradier',

@@ -37,7 +37,36 @@ const ib = require('../src/ironballs');
   const c = await demo.cerrar({ clave: alerta.clave, pipe: { pct: 56.36, resultadoDolares: 124 } });
   const otra = await demo.cerrar({ clave: alerta.clave });
   const r = demo.resumen();
+
+  // 2026-11-23: ampliación 5 → 10 pts (anchoObjetivo). Bear call 7635/7640 del profe → 7635/7645; bull put 7600/7595 → 7600/7590.
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ibdemo-ancho-'));
+  precios = { 'SPXW  261102C07635000': [4.6, 4.8], 'SPXW  261102C07640000': [3.4, 3.6], 'SPXW  261102C07645000': [2.4, 2.6],
+              'SPXW  261102P07600000': [3.9, 4.1], 'SPXW  261102P07595000': [2.9, 3.1], 'SPXW  261102P07590000': [2.0, 2.2] };
+  const ancha = crearIronBallsDemo({ tt, dataDir: dir2, horaETmin: () => 600, stopUsd: 150, tpPct: 0.5, anchoObjetivo: 10 });
+  const al5 = ib.parsearAlerta(`🔔 *Options Alert — Sigma Trade*
+📌 *SPX — Bear Call Spread*
+🔴 Sell 1× Call 7635 (Nov 2, 2026) @ $4.70
+🟢 Buy 1× Call 7640 (Nov 2, 2026) @ $3.50
+💰 *Net Credit:* $120.00
+⏳ *DTE:* 0`);
+  const put5 = ib.parsearAlerta(`🔔 *Options Alert — Sigma Trade*
+📌 *SPX — Bull Put Spread*
+🔴 Sell 1× Put 7600 (Nov 2, 2026) @ $4.00
+🟢 Buy 1× Put 7595 (Nov 2, 2026) @ $3.00
+💰 *Net Credit:* $100.00
+⏳ *DTE:* 0`);
+  const w = (await ancha.abrir(al5, { alertId: 'w1' })).registro || {};
+  const wp = (await ancha.abrir(put5, { alertId: 'w2' })).registro || {};
+  const wc = await ancha.cerrar({ clave: al5.clave });   // el CLOSED del profe trae SUS strikes: tiene que encontrarla
+  fs.rmSync(dir2, { recursive: true, force: true });
+
   console.log(JSON.stringify({
+    ampliaCall: w.largo === 7645 && w.ancho === 10 && w.largoSenal === 7640 && w.legs?.[1]?.sym === 'SPXW  261102C07645000',
+    ampliaPut: wp.largo === 7590 && wp.ancho === 10 && wp.legs?.[1]?.sym === 'SPXW  261102P07590000',
+    anchoStop: w.stopUsd,                               // 150 × 10/5 = 300
+    anchoRiesgo: w.riesgoMaxUsd,                        // medio 2.20 - 0.05 = 2.15 → (10 - 2.15) × 100 = 785
+    anchoSinComparar: w.diferenciaVsPipe === null && w.primaPipe === 1.2,
+    anchoCierraConClaveDelProfe: wc.estado === 'DEMO_CERRADA',
     abrio: a.ok && a.estado === 'DEMO_ABIERTA',
     precioEntrada: a.registro?.precioEntrada,          // medio 2.20 - 0.05 = 2.15 (natural 2.00)
     riesgo: a.registro?.riesgoMaxUsd,                  // (10 - 2.15) * 100 = 785

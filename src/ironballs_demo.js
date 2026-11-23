@@ -31,7 +31,10 @@ const bicho = (d) => (d === 'BULLISH' ? '🐂' : d === 'BEARISH' ? '🐻' : '');
 // spreads de 10 puntos duplicamos el stop"): 5 pts → $150, 10 pts → $300.
 function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital = 2000, maxAbiertas = 3,
                               archivo = 'ironballs_demo.json', fuente = 'Pipe', stopUsd = null, tpPct = null,
-                              disponibleLibro = null }) {
+                              disponibleLibro = null, anchoObjetivo = null }) {
+  // anchoObjetivo (Guillermo 2026-11-23, "si es de 5 puntos, ampliala a 10"): un spread de CRÉDITO más angosto que esto se
+  // abre con la corta del profe y la larga corrida hasta este ancho (7340/7345 → 7340/7350). El stop escala solo con el
+  // ancho (−$150 → −$300) y el TP sigue en % del crédito (50%): stop ≈ 2× TP. Los débitos no se tocan.
   // disponibleLibro (2026-11-16): Pipe y Alejandro comparten el libro Iron Balls de $10.000 de la Demo Tasty; si se pasa,
   // el control de saldo usa lo disponible en el LIBRO, no el de esta instancia sola.
   const ARCHIVO = path.join(dataDir, archivo);
@@ -100,7 +103,11 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
       if (l0.filter((x) => enCurso(x) && !x.prueba).length >= maxAbiertas && !meta.prueba) {
         return { ok: false, estado: 'CUPO_LLENO', motivo: `${maxAbiertas} demos abiertas` };
       }
-      const legs = [{ sym: occ(v.expiry, v.tipo, v.shortStrike), lado: -1 }, { sym: occ(v.expiry, v.tipo, v.longStrike), lado: 1 }];
+      // ampliación del ancho (solo crédito): la larga se aleja de la corta en el mismo sentido en que la puso el profe
+      const amplia = credito && anchoObjetivo > 0 && v.ancho < anchoObjetivo;
+      const largo = amplia ? v.shortStrike + Math.sign(v.longStrike - v.shortStrike) * anchoObjetivo : v.longStrike;
+      const ancho = Math.abs(largo - v.shortStrike);
+      const legs = [{ sym: occ(v.expiry, v.tipo, v.shortStrike), lado: -1 }, { sym: occ(v.expiry, v.tipo, largo), lado: 1 }];
       const rec = { credito, contratos: 1, legs };
       const q = await cotizar(legs);
       // llenado simulado: medio + 0.05 en contra, sin pasar del natural (igual que la demo del Clic)
@@ -108,7 +115,7 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
       const nat = credito ? r05(-q.compraNat, false) : r05(q.compraNat, true);
       const precio = credito ? Math.max(nat, +(medio - TICK).toFixed(2)) : Math.min(nat, +(medio + TICK).toFixed(2));
       if (!(precio > 0)) return { ok: false, estado: 'SIN_PRECIO', motivo: `precio de entrada inválido (medio ${medio}, natural ${nat})` };
-      const riesgoMaxUsd = Math.round((credito ? v.ancho - precio : precio) * 100);
+      const riesgoMaxUsd = Math.round((credito ? ancho - precio : precio) * 100);
       const disp = typeof disponibleLibro === 'function' ? disponibleLibro() : saldoDemo().disponible;
       if (!meta.prueba && riesgoMaxUsd > disp) {
         return { ok: false, estado: 'SIN_SALDO', motivo: `riesgo $${riesgoMaxUsd} > disponible $${disp}` };
@@ -120,26 +127,31 @@ function crearIronBallsDemo({ tt, dataDir, horaETmin, avisar = () => {}, capital
       const r = {
         id: 'ibd-' + Date.now(), prueba: !!meta.prueba, fecha: fechaET(), estado: 'abierta', simulado: true,
         clave: p.clave, estrategia: v.strategy, nombre, direccion: v.direction, credito, contratos: 1, legs,
-        vence: v.expiry, corto: v.shortStrike, largo: v.longStrike, ancho: v.ancho,
-        fuenteSenal: fuente, enviadoPor: meta.autor || fuente, stopUsd: stopUsd ? Math.round(stopUsd * v.ancho / 5) : null, tpPct: tpPct || null,
+        vence: v.expiry, corto: v.shortStrike, largo, ancho,
+        ...(amplia ? { ampliado: true, largoSenal: v.longStrike, anchoSenal: v.ancho } : {}),
+        fuenteSenal: fuente, enviadoPor: meta.autor || fuente, stopUsd: stopUsd ? Math.round(stopUsd * ancho / 5) : null, tpPct: tpPct || null,
         precioEntrada: precio, medioEntrada: medio, naturalEntrada: nat, primaPipe: p.prima ?? null,
-        diferenciaVsPipe: p.prima != null ? +((credito ? precio - p.prima : p.prima - precio)).toFixed(2) : null,   // + = mejor que la senal
-        riesgoMaxUsd, gananciaMaxUsd: Math.round((credito ? precio : v.ancho - precio) * 100),
+        // + = mejor que la señal. Con el ancho ampliado ya no es el mismo trade del profe: no se compara
+        diferenciaVsPipe: p.prima != null && !amplia ? +((credito ? precio - p.prima : p.prima - precio)).toFixed(2) : null,
+        riesgoMaxUsd, gananciaMaxUsd: Math.round((credito ? precio : ancho - precio) * 100),
         feesApertura: dr.fees, avisosDryRun: dr.avisos, spxEntrada: spx, spxPipe: p.spot ?? null,
         alertId: meta.alertId || null, mensajeAt: meta.mensajeAt || null, edadMin: meta.edadMin ?? null,
         abiertaEn: new Date().toISOString(),
       };
       const l = cargar(); l.unshift(r); guardar(l);
       const pr = r.prueba ? '[PRUEBA] ' : '';
-      avisar(`${nombre} ${v.shortStrike}/${v.longStrike} · vence ${v.expiry} · señal de ${r.enviadoPor}\n`
+      avisar(`${nombre} ${v.shortStrike}/${largo} · vence ${v.expiry} · señal de ${r.enviadoPor}\n`
+           + (amplia ? `Ampliado a ${ancho} pts (${fuente}: ${v.shortStrike}/${v.longStrike}, ${v.ancho} pts)\n` : '')
            + `${credito ? 'Crédito' : 'Débito'} demo $${precio.toFixed(2)}`
-           + (p.prima != null ? ` (${fuente} $${p.prima.toFixed(2)} · ${usd(r.diferenciaVsPipe * 100)} vs ${fuente})\n` : '\n')
+           + (p.prima == null ? '\n' : r.diferenciaVsPipe != null
+               ? ` (${fuente} $${p.prima.toFixed(2)} · ${usd(r.diferenciaVsPipe * 100)} vs ${fuente})\n`
+               : ` (${fuente} $${p.prima.toFixed(2)} en ${v.ancho} pts)\n`)
            + `Riesgo máx $${riesgoMaxUsd} · Ganancia máx $${r.gananciaMaxUsd} · comisión apertura $${dr.fees.toFixed(2)}\n`
            + (tpPct ? `TP: +$${Math.round(precio * 100 * tpPct)} (${Math.round(tpPct * 100)}% del ${credito ? 'crédito' : 'débito'})${stopUsd ? ' · ' : '\n'}` : '')
-           + (stopUsd ? `Stop: -$${r.stopUsd} por contrato (spread de ${v.ancho} pts)\n` : '')
+           + (stopUsd ? `Stop: -$${r.stopUsd} por contrato (spread de ${ancho} pts)\n` : '')
            + `SPX ${spx ?? '?'} · señal con ${meta.edadMin ?? '?'} min · DEMO TastyTrade (dry-run)`,
-             `${pr}💣 ${bicho(v.direction)} ${fuente} abrió: ${nombre} ${v.shortStrike}/${v.longStrike} (demo)`, 'bell');
-      return { ok: true, estado: 'DEMO_ABIERTA', motivo: `${nombre} ${v.shortStrike}/${v.longStrike} a ${precio} (${fuente} ${p.prima ?? '?'})`, registro: r };
+             `${pr}💣 ${bicho(v.direction)} ${fuente} abrió: ${nombre} ${v.shortStrike}/${largo} (demo)`, 'bell');
+      return { ok: true, estado: 'DEMO_ABIERTA', motivo: `${nombre} ${v.shortStrike}/${largo}${amplia ? ` (ampliado de ${v.ancho} a ${ancho} pts)` : ''} a ${precio} (${fuente} ${p.prima ?? '?'})`, registro: r };
     });
   }
 

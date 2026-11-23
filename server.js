@@ -8671,6 +8671,9 @@ const ironBallsDemo = crearIronBallsDemo({
   // su CLOSED solo cierra si vamos en positivo (si no, sigue a TP/stop/15:30), seguro 15:30 ET.
   stopUsd: Number(process.env.IRONBALLS_PIPE_STOP_USD) || 150,
   tpPct: Number(process.env.IRONBALLS_PIPE_TP_PCT) || 0.5,
+  // 2026-11-23 Guillermo: los spreads de crédito de 5 pts se amplían a 10 (stop −$300, TP 50%: stop ≈ 2× TP).
+  // IRONBALLS_ANCHO_PTS=0 vuelve a copiar el ancho del profe.
+  anchoObjetivo: process.env.IRONBALLS_ANCHO_PTS != null ? Number(process.env.IRONBALLS_ANCHO_PTS) : 10,
   avisar: (texto, titulo, tag = 'bell') => fetch('https://ntfy.sh/', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ topic: 'bitacora_gcarvaja51', title: titulo, message: texto, priority: 4, tags: [tag] }),
@@ -8883,6 +8886,7 @@ const ironBallsAleDemo = crearIronBallsDemo({
   disponibleLibro: () => libroIronBalls().disponible,
   stopUsd: Number(process.env.IRONBALLS_ALE_STOP_USD) || 150, maxAbiertas: 2,
   tpPct: Number(process.env.IRONBALLS_ALE_TP_PCT) || 0.5,   // 2026-11-10 Guillermo: TP 50% del crédito apenas abre
+  anchoObjetivo: process.env.IRONBALLS_ANCHO_PTS != null ? Number(process.env.IRONBALLS_ANCHO_PTS) : 10,   // 2026-11-23: 5 → 10 pts
   avisar: (texto, titulo, tag = 'bell') => fetch('https://ntfy.sh/', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ topic: 'bitacora_gcarvaja51', title: titulo, message: texto, priority: 4, tags: [tag] }),
