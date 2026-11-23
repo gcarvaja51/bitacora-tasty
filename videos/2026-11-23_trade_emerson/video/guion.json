@@ -1,0 +1,62 @@
+[
+ {
+  "id": "intro",
+  "kicker": "TRADE EN VIVO · LUNES 23-NOV.",
+  "titular": "UN BEAR CALL CONTRA\nEL PICO DEL DÍA",
+  "voz": "Así se armó el trade de Emerson de hoy, minuto a minuto, con las herramientas del Discord de Iron Balls."
+ },
+ {
+  "id": "apertura",
+  "kicker": "ANTES DE ABRIR",
+  "titular": "LA LECTURA DE\nLAS 9:31",
+  "voz": "El S&P abrió con un salto de más de trescientos puntos. A las nueve y treinta y uno, GexBot ya marcaba el cambio de gamma en siete mil doscientos cuarenta y cuatro, y el imán positivo en siete mil doscientos cincuenta y cinco."
+ },
+ {
+  "id": "manana",
+  "kicker": "LA MAÑANA",
+  "titular": "ENCIMA DEL CAMBIO\nDE GAMMA: SE FRENA",
+  "voz": "Hasta las once, el precio se quedó entre siete mil doscientos cuarenta y cinco y siete mil doscientos setenta, siempre por encima del cambio de gamma de GexBot. Gamma positiva: el mercado se frena y tiende a volver hacia su imán."
+ },
+ {
+  "id": "hiro",
+  "kicker": "LA SEÑAL OCULTA",
+  "titular": "EL DINERO NO\nACOMPAÑABA",
+  "voz": "Y la pista clave estaba en el HIRO de SpotGamma. Mientras el precio aguantaba arriba, el flujo de calls se desplomaba, de menos uno coma uno a menos dos coma ocho mil millones de dólares, y el de puts también giró a la baja. La subida no tenía respaldo."
+ },
+ {
+  "id": "bola8",
+  "kicker": "LA BOLA 8",
+  "titular": "CIERRE CERCA\nDE 7.250",
+  "voz": "La Bola 8 lo venía avisando desde las diez: cada quince minutos repetía cierre cerca de siete mil doscientos cincuenta, y su panel de gamma marcaba el imán justo ahí. A las once y ocho, con el precio en siete mil doscientos sesenta y uno, insistía: el imán estaba abajo."
+ },
+ {
+  "id": "decision",
+  "kicker": "LA DECISIÓN · 11:16 APROX.",
+  "titular": "BEAR CALL\n7260 / 7265",
+  "voz": "A las once y doce, el SPX tocó siete mil doscientos setenta, veinte puntos por encima del imán de la Bola 8, y lo rechazó. Esa es la lectura en contratendencia: Emerson vende un Bear Call siete mil doscientos sesenta, siete mil doscientos sesenta y cinco, por unos dos dólares con ochenta."
+ },
+ {
+  "id": "espera",
+  "kicker": "LA ESPERA",
+  "titular": "NOS HIZO SUDAR",
+  "voz": "Luego vino la espera. A las once y veinte el precio volvió a siete mil doscientos sesenta y siete, por encima del punto de equilibrio. Muchos sudaron. Pero la gamma positiva y el flujo bajista seguían ahí."
+ },
+ {
+  "id": "cierre",
+  "kicker": "EL CIERRE · 11:36 APROX.",
+  "titular": "TAKE PROFIT\n+55 USD",
+  "voz": "A las once y treinta y seis, el SPX rompió siete mil doscientos cuarenta y cinco, y el objetivo de cincuenta y cinco dólares por contrato se cumplió. Minutos después, siguió cayendo hasta siete mil doscientos ocho."
+ },
+ {
+  "id": "resultados",
+  "kicker": "LA COMUNIDAD",
+  "titular": "25 ALUMNOS\nREPORTARON",
+  "voz": "Veinticinco alumnos reportaron su resultado: mil trescientos veinticuatro dólares en total, cincuenta y tres de promedio por persona."
+ },
+ {
+  "id": "leccion",
+  "kicker": "LA LECCIÓN",
+  "titular": "CONFLUENCIA\nANTES QUE INTUICIÓN",
+  "voz": "GexBot, HIRO y Bola 8 apuntando al mismo lado, un nivel claro y un plan de salida. Contenido educativo, no es consejo de inversión."
+ }
+]

@@ -1,0 +1,1026 @@
+[
+ {
+  "id": "chat-messages-1249695905133887561-1574436563549560927",
+  "hora": "2026-11-23T14:48:48.367Z",
+  "texto": "iron ball\nAPP\n — \n9:48 AM\nMonday, November 23, 2026 at 9:48 AM\nPrediction for SPX - 11-23-2026 09:46:33 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7196.81 Down trend, closing near $7160.0, but will range from $7160 to $7250.\n\nNote: Not financial advice\nPrice: 7196.81\nTrend: Down\nPredicted Close: 7200.95  - Experimental\nStrength: 0.29\nShort term: 7138.82\nShort term bias: Bullish\nLong term: 7179.16\nLong term bias: Bullish\nCalls: 7160.0\nPuts: 7100.0\nCenter: 7130.0\nRange: 90.0\nTarget 1: 7160.0\nTarget 2: 7250.0\nDelta: 7176.36\nGamma: 7138.82\nInterest: 7142.98\nSonar: 7139.15\nVolume: 7077.2\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7215/7165/7115 CALL @8.2 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7370/7375/7000/6995 CALL/PUT @0.5 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7330/7335/7055/7050 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7290/7295 CALL @0.95 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 09:48:48"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574436565822873671",
+  "hora": "2026-11-23T14:48:48.909Z",
+  "texto": "[\n9:48 AM\n]\nMonday, November 23, 2026 at 9:48 AM",
+  "archivos": [
+   "bola8_0948_0.png"
+  ],
+  "hora_ny": "2026-11-23 09:48:48"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574436570994577408",
+  "hora": "2026-11-23T14:48:50.142Z",
+  "texto": "[\n9:48 AM\n]\nMonday, November 23, 2026 at 9:48 AM",
+  "archivos": [
+   "bola8_0948_1.png"
+  ],
+  "hora_ny": "2026-11-23 09:48:50"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574436573502771262",
+  "hora": "2026-11-23T14:48:50.740Z",
+  "texto": "[\n9:48 AM\n]\nMonday, November 23, 2026 at 9:48 AM",
+  "archivos": [
+   "bola8_0948_2.png"
+  ],
+  "hora_ny": "2026-11-23 09:48:50"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574437587358318623",
+  "hora": "2026-11-23T14:52:52.462Z",
+  "texto": "[\n9:52 AM\n]\nMonday, November 23, 2026 at 9:52 AM\nPrediction for SPX - 11-23-2026 09:51:32 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7200.85 Up trend, closing near $7160.0, but will range from $7160 to $7250.\n\nNote: Not financial advice\nPrice: 7200.85\nTrend: Up\nPredicted Close: 7200.95  - Experimental\nStrength: 0.29\nShort term: 7138.72\nShort term bias: Bullish\nLong term: 7176.69\nLong term bias: Bullish\nCalls: 7160.0\nPuts: 7100.0\nCenter: 7130.0\nRange: 90.0\nTarget 1: 7160.0\nTarget 2: 7250.0\nDelta: 7188.84\nGamma: 7138.72\nInterest: 7144.26\nSonar: 7139.13\nVolume: 7084.91\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7215/7165/7115 CALL @7.85 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7370/7375/6995/6990 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7330/7335/7070/7065 CALL/PUT @0.95 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7110/7105 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 09:52:52"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574437589471985795",
+  "hora": "2026-11-23T14:52:52.966Z",
+  "texto": "iron ball\nAPP\n — \n9:52 AM\nMonday, November 23, 2026 at 9:52 AM",
+  "archivos": [
+   "bola8_0952_3.png"
+  ],
+  "hora_ny": "2026-11-23 09:52:52"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574437591145652265",
+  "hora": "2026-11-23T14:52:53.365Z",
+  "texto": "[\n9:52 AM\n]\nMonday, November 23, 2026 at 9:52 AM",
+  "archivos": [
+   "bola8_0952_4.png"
+  ],
+  "hora_ny": "2026-11-23 09:52:53"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574437594173800630",
+  "hora": "2026-11-23T14:52:54.087Z",
+  "texto": "[\n9:52 AM\n]\nMonday, November 23, 2026 at 9:52 AM",
+  "archivos": [
+   "bola8_0952_5.png"
+  ],
+  "hora_ny": "2026-11-23 09:52:54"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574440962799960207",
+  "hora": "2026-11-23T15:06:17.230Z",
+  "texto": "iron ball\nAPP\n — \n10:06 AM\nMonday, November 23, 2026 at 10:06 AM\nPrediction for SPX - 11-23-2026 10:04:49 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7230.86 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7230.86\nTrend: Up\nPredicted Close: 7213.45  - Experimental\nStrength: 0.36\nShort term: 7202.35\nShort term bias: Bullish\nLong term: 7204.51\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7100.0\nCenter: 7175.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7200.0\nGamma: 7202.35\nInterest: 7143.94\nSonar: 7203.88\nVolume: 7130.18\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7245/7195 PUT @11.65 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7375/7380/7070/7065 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7340/7345/7120/7115 CALL/PUT @1.05 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7155/7150 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 10:06:17"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574440965052170301",
+  "hora": "2026-11-23T15:06:17.767Z",
+  "texto": "[\n10:06 AM\n]\nMonday, November 23, 2026 at 10:06 AM",
+  "archivos": [
+   "bola8_1006_6.png"
+  ],
+  "hora_ny": "2026-11-23 10:06:17"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574440966968836177",
+  "hora": "2026-11-23T15:06:18.224Z",
+  "texto": "[\n10:06 AM\n]\nMonday, November 23, 2026 at 10:06 AM",
+  "archivos": [
+   "bola8_1006_7.png"
+  ],
+  "hora_ny": "2026-11-23 10:06:18"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574440969468903434",
+  "hora": "2026-11-23T15:06:18.820Z",
+  "texto": "[\n10:06 AM\n]\nMonday, November 23, 2026 at 10:06 AM",
+  "archivos": [
+   "bola8_1006_8.png"
+  ],
+  "hora_ny": "2026-11-23 10:06:18"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574441387955454028",
+  "hora": "2026-11-23T15:07:58.595Z",
+  "texto": "[\n10:07 AM\n]\nMonday, November 23, 2026 at 10:07 AM\nPrediction for SPX - 11-23-2026 10:06:37 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7231.13 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7231.13\nTrend: Up\nPredicted Close: 7213.7  - Experimental\nStrength: 0.36\nShort term: 7202.12\nShort term bias: Bullish\nLong term: 7205.35\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7100.0\nCenter: 7175.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7200.0\nGamma: 7202.12\nInterest: 7166.45\nSonar: 7203.65\nVolume: 7130.27\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7245/7195 PUT @11.7 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7385/7390/7075/7070 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7335/7340/7120/7115 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7160/7155 PUT @0.95 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 10:07:58"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574441390585155706",
+  "hora": "2026-11-23T15:07:59.222Z",
+  "texto": "[\n10:07 AM\n]\nMonday, November 23, 2026 at 10:07 AM",
+  "archivos": [
+   "bola8_1007_9.png"
+  ],
+  "hora_ny": "2026-11-23 10:07:59"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574441393420636220",
+  "hora": "2026-11-23T15:07:59.898Z",
+  "texto": "[\n10:07 AM\n]\nMonday, November 23, 2026 at 10:07 AM",
+  "archivos": [
+   "bola8_1007_10.png"
+  ],
+  "hora_ny": "2026-11-23 10:07:59"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574441396331610163",
+  "hora": "2026-11-23T15:08:00.592Z",
+  "texto": "[\n10:08 AM\n]\nMonday, November 23, 2026 at 10:08 AM",
+  "archivos": [
+   "bola8_1008_11.png"
+  ],
+  "hora_ny": "2026-11-23 10:08:00"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574444739758006293",
+  "hora": "2026-11-23T15:21:17.727Z",
+  "texto": "iron ball\nAPP\n — \n10:21 AM\nMonday, November 23, 2026 at 10:21 AM\nPrediction for SPX - 11-23-2026 10:19:53 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7256.39 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7256.39\nTrend: Up\nPredicted Close: 7226.25  - Experimental\nStrength: 0.41\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7206.02\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7200.0\nGamma: 7250.0\nInterest: 7167.14\nSonar: 7250.0\nVolume: 7123.0\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7245/7195 PUT @12.75 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7380/7385/7115/7110 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7350/7355/7160/7155 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7195/7190 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 10:21:17"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574444741154701366",
+  "hora": "2026-11-23T15:21:18.060Z",
+  "texto": "[\n10:21 AM\n]\nMonday, November 23, 2026 at 10:21 AM",
+  "archivos": [
+   "bola8_1021_12.png"
+  ],
+  "hora_ny": "2026-11-23 10:21:18"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574444744044585010",
+  "hora": "2026-11-23T15:21:18.749Z",
+  "texto": "[\n10:21 AM\n]\nMonday, November 23, 2026 at 10:21 AM",
+  "archivos": [
+   "bola8_1021_13.png"
+  ],
+  "hora_ny": "2026-11-23 10:21:18"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574444746909294634",
+  "hora": "2026-11-23T15:21:19.432Z",
+  "texto": "[\n10:21 AM\n]\nMonday, November 23, 2026 at 10:21 AM",
+  "archivos": [
+   "bola8_1021_14.png"
+  ],
+  "hora_ny": "2026-11-23 10:21:19"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574445187583709239",
+  "hora": "2026-11-23T15:23:04.497Z",
+  "texto": "[\n10:23 AM\n]\nMonday, November 23, 2026 at 10:23 AM\nPrediction for SPX - 11-23-2026 10:21:40 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7279.28 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7279.28\nTrend: Up\nPredicted Close: 7248.38  - Experimental\nStrength: 0.4\nShort term: 7285.01\nShort term bias: Bullish\nLong term: 7205.92\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7300.0\nCenter: 7275.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7200.0\nGamma: 7285.01\nInterest: 7168.33\nSonar: 7286.04\nVolume: 7126.53\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7305/7255/7205 PUT @11.85 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7415/7420/7140/7135 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7375/7380/7180/7175 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7210/7205 PUT @0.85 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 10:23:04"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574445189614018721",
+  "hora": "2026-11-23T15:23:04.981Z",
+  "texto": "[\n10:23 AM\n]\nMonday, November 23, 2026 at 10:23 AM",
+  "archivos": [
+   "bola8_1023_15.png"
+  ],
+  "hora_ny": "2026-11-23 10:23:04"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574445192721858691",
+  "hora": "2026-11-23T15:23:05.722Z",
+  "texto": "[\n10:23 AM\n]\nMonday, November 23, 2026 at 10:23 AM",
+  "archivos": [
+   "bola8_1023_16.png"
+  ],
+  "hora_ny": "2026-11-23 10:23:05"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574445194420424816",
+  "hora": "2026-11-23T15:23:06.127Z",
+  "texto": "[\n10:23 AM\n]\nMonday, November 23, 2026 at 10:23 AM",
+  "archivos": [
+   "bola8_1023_17.png"
+  ],
+  "hora_ny": "2026-11-23 10:23:06"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574448528158228491",
+  "hora": "2026-11-23T15:36:20.952Z",
+  "texto": "iron ball\nAPP\n — \n10:36 AM\nMonday, November 23, 2026 at 10:36 AM\nPrediction for SPX - 11-23-2026 10:34:56 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7277.84 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7277.84\nTrend: Up\nPredicted Close: 7248.38  - Experimental\nStrength: 0.4\nShort term: 7285.07\nShort term bias: Bullish\nLong term: 7205.25\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7300.0\nCenter: 7275.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7200.0\nGamma: 7285.07\nInterest: 7243.06\nSonar: 7285.99\nVolume: 7136.4\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7305/7255/7205 PUT @12.15 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7410/7415/7135/7130 CALL/PUT @0.42 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7370/7375/7185/7180 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7215/7210 PUT @0.85 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 10:36:20"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574448530263900201",
+  "hora": "2026-11-23T15:36:21.454Z",
+  "texto": "[\n10:36 AM\n]\nMonday, November 23, 2026 at 10:36 AM",
+  "archivos": [
+   "bola8_1036_18.png"
+  ],
+  "hora_ny": "2026-11-23 10:36:21"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574448532696473720",
+  "hora": "2026-11-23T15:36:22.034Z",
+  "texto": "[\n10:36 AM\n]\nMonday, November 23, 2026 at 10:36 AM",
+  "archivos": [
+   "bola8_1036_19.png"
+  ],
+  "hora_ny": "2026-11-23 10:36:22"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574448534881828874",
+  "hora": "2026-11-23T15:36:22.555Z",
+  "texto": "[\n10:36 AM\n]\nMonday, November 23, 2026 at 10:36 AM",
+  "archivos": [
+   "bola8_1036_20.png"
+  ],
+  "hora_ny": "2026-11-23 10:36:22"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574448969885556769",
+  "hora": "2026-11-23T15:38:06.268Z",
+  "texto": "[\n10:38 AM\n]\nMonday, November 23, 2026 at 10:38 AM\nPrediction for SPX - 11-23-2026 10:36:45 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7282.39 Up trend, closing near $7250.0, but will range from $7250 to $7350.\n\nNote: Not financial advice\nPrice: 7282.39\nTrend: Up\nPredicted Close: 7262.5  - Experimental\nStrength: 0.4\nShort term: 7334.9\nShort term bias: Bullish\nLong term: 7205.11\nLong term bias: Bullish\nCalls: 7350.0\nPuts: 7300.0\nCenter: 7325.0\nRange: 100.0\nTarget 1: 7250.0\nTarget 2: 7350.0\nDelta: 7200.0\nGamma: 7334.9\nInterest: 7242.57\nSonar: 7335.89\nVolume: 7135.54\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7305/7255/7205 PUT @11.6 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7415/7420/7135/7130 CALL/PUT @0.4 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7375/7380/7185/7180 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7220/7215 PUT @0.85 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 10:38:06"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574448972335022211",
+  "hora": "2026-11-23T15:38:06.852Z",
+  "texto": "[\n10:38 AM\n]\nMonday, November 23, 2026 at 10:38 AM",
+  "archivos": [
+   "bola8_1038_21.png"
+  ],
+  "hora_ny": "2026-11-23 10:38:06"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574448974905999382",
+  "hora": "2026-11-23T15:38:07.465Z",
+  "texto": "[\n10:38 AM\n]\nMonday, November 23, 2026 at 10:38 AM",
+  "archivos": [
+   "bola8_1038_22.png"
+  ],
+  "hora_ny": "2026-11-23 10:38:07"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574448978198532287",
+  "hora": "2026-11-23T15:38:08.250Z",
+  "texto": "[\n10:38 AM\n]\nMonday, November 23, 2026 at 10:38 AM",
+  "archivos": [
+   "bola8_1038_23.png"
+  ],
+  "hora_ny": "2026-11-23 10:38:08"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574452352700784753",
+  "hora": "2026-11-23T15:51:32.794Z",
+  "texto": "iron ball\nAPP\n — \n10:51 AM\nMonday, November 23, 2026 at 10:51 AM\nPrediction for SPX - 11-23-2026 10:50:01 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7253.31 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7253.31\nTrend: Up\nPredicted Close: 7227.12  - Experimental\nStrength: 0.39\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7215.12\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7200.0\nGamma: 7250.0\nInterest: 7238.27\nSonar: 7250.0\nVolume: 7128.27\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7245/7195 PUT @12.5 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7385/7390/7115/7110 CALL/PUT @0.47 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7345/7350/7155/7150 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7190/7185 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 10:51:32"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574452354294620222",
+  "hora": "2026-11-23T15:51:33.174Z",
+  "texto": "[\n10:51 AM\n]\nMonday, November 23, 2026 at 10:51 AM",
+  "archivos": [
+   "bola8_1051_24.png",
+   "bola8_1051_25.png"
+  ],
+  "hora_ny": "2026-11-23 10:51:33"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574452356589027389",
+  "hora": "2026-11-23T15:51:33.721Z",
+  "texto": "[\n10:51 AM\n]\nMonday, November 23, 2026 at 10:51 AM",
+  "archivos": [
+   "bola8_1051_26.png",
+   "bola8_1051_27.png"
+  ],
+  "hora_ny": "2026-11-23 10:51:33"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574452358283264185",
+  "hora": "2026-11-23T15:51:34.125Z",
+  "texto": "iron ball\nAPP\n — \n10:51 AM\nMonday, November 23, 2026 at 10:51 AM",
+  "archivos": [
+   "bola8_1051_28.png"
+  ],
+  "hora_ny": "2026-11-23 10:51:34"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574452877638901871",
+  "hora": "2026-11-23T15:53:37.949Z",
+  "texto": "[\n10:53 AM\n]\nMonday, November 23, 2026 at 10:53 AM\nPrediction for SPX - 11-23-2026 10:52:07 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7257.81 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7257.81\nTrend: Up\nPredicted Close: 7245.75  - Experimental\nStrength: 0.39\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7214.01\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7200.0\nGamma: 7250.0\nInterest: 7236.89\nSonar: 7250.0\nVolume: 7127.04\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7305/7255/7205 PUT @13.0 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7385/7390/7120/7115 CALL/PUT @0.48 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7355/7360/7160/7155 CALL/PUT @0.95 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7195/7190 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 10:53:37"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574452882273472553",
+  "hora": "2026-11-23T15:53:39.054Z",
+  "texto": "[\n10:53 AM\n]\nMonday, November 23, 2026 at 10:53 AM",
+  "archivos": [
+   "bola8_1053_29.png"
+  ],
+  "hora_ny": "2026-11-23 10:53:39"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574452884861358190",
+  "hora": "2026-11-23T15:53:39.671Z",
+  "texto": "[\n10:53 AM\n]\nMonday, November 23, 2026 at 10:53 AM",
+  "archivos": [
+   "bola8_1053_30.png"
+  ],
+  "hora_ny": "2026-11-23 10:53:39"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574452886371442739",
+  "hora": "2026-11-23T15:53:40.031Z",
+  "texto": "[\n10:53 AM\n]\nMonday, November 23, 2026 at 10:53 AM",
+  "archivos": [
+   "bola8_1053_31.png"
+  ],
+  "hora_ny": "2026-11-23 10:53:40"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574456140119674951",
+  "hora": "2026-11-23T16:06:35.785Z",
+  "texto": "iron ball\nAPP\n — \n11:06 AM\nMonday, November 23, 2026 at 11:06 AM\nPrediction for SPX - 11-23-2026 11:05:06 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7244.52 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7244.52\nTrend: Up\nPredicted Close: 7221.27  - Experimental\nStrength: 0.39\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7209.93\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7200.0\nGamma: 7250.0\nInterest: 7210.99\nSonar: 7250.0\nVolume: 7240.34\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @8.7 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7365/7370/7105/7100 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7335/7340/7155/7150 CALL/PUT @1.05 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7185/7180 PUT @0.95 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 11:06:35"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574456143323865178",
+  "hora": "2026-11-23T16:06:36.549Z",
+  "texto": "[\n11:06 AM\n]\nMonday, November 23, 2026 at 11:06 AM",
+  "archivos": [
+   "bola8_1106_32.png"
+  ],
+  "hora_ny": "2026-11-23 11:06:36"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574456146217935018",
+  "hora": "2026-11-23T16:06:37.239Z",
+  "texto": "[\n11:06 AM\n]\nMonday, November 23, 2026 at 11:06 AM",
+  "archivos": [
+   "bola8_1106_33.png"
+  ],
+  "hora_ny": "2026-11-23 11:06:37"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574456154027720855",
+  "hora": "2026-11-23T16:06:39.101Z",
+  "texto": "[\n11:06 AM\n]\nMonday, November 23, 2026 at 11:06 AM",
+  "archivos": [
+   "bola8_1106_34.png"
+  ],
+  "hora_ny": "2026-11-23 11:06:39"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574456598615818292",
+  "hora": "2026-11-23T16:08:25.099Z",
+  "texto": "[\n11:08 AM\n]\nMonday, November 23, 2026 at 11:08 AM\nPrediction for SPX - 11-23-2026 11:06:54 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7261.36 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7261.36\nTrend: Up\nPredicted Close: 7246.88  - Experimental\nStrength: 0.4\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7209.33\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7200.0\nGamma: 7250.0\nInterest: 7212.29\nSonar: 7250.0\nVolume: 7240.86\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7255/7215 PUT @8.75 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7380/7385/7130/7125 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7345/7350/7170/7165 CALL/PUT @1.05 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7200/7195 PUT @0.85 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 11:08:25"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574456600616247407",
+  "hora": "2026-11-23T16:08:25.576Z",
+  "texto": "[\n11:08 AM\n]\nMonday, November 23, 2026 at 11:08 AM",
+  "archivos": [
+   "bola8_1108_35.png"
+  ],
+  "hora_ny": "2026-11-23 11:08:25"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574456603250266283",
+  "hora": "2026-11-23T16:08:26.204Z",
+  "texto": "[\n11:08 AM\n]\nMonday, November 23, 2026 at 11:08 AM",
+  "archivos": [
+   "bola8_1108_36.png"
+  ],
+  "hora_ny": "2026-11-23 11:08:26"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574456605603397642",
+  "hora": "2026-11-23T16:08:26.765Z",
+  "texto": "[\n11:08 AM\n]\nMonday, November 23, 2026 at 11:08 AM",
+  "archivos": [
+   "bola8_1108_37.png"
+  ],
+  "hora_ny": "2026-11-23 11:08:26"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574459902578139267",
+  "hora": "2026-11-23T16:21:32.825Z",
+  "texto": "iron ball\nAPP\n — \n11:21 AM\nMonday, November 23, 2026 at 11:21 AM\nPrediction for SPX - 11-23-2026 11:20:11 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7263.57 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7263.57\nTrend: Up\nPredicted Close: 7247.88  - Experimental\nStrength: 0.41\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7217.92\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7213.18\nSonar: 7250.0\nVolume: 7240.91\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7255/7215 PUT @9.45 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7375/7380/7145/7140 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7345/7350/7180/7175 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7210/7205 PUT @0.85 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 11:21:32"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574459904608178288",
+  "hora": "2026-11-23T16:21:33.309Z",
+  "texto": "[\n11:21 AM\n]\nMonday, November 23, 2026 at 11:21 AM",
+  "archivos": [
+   "bola8_1121_38.png"
+  ],
+  "hora_ny": "2026-11-23 11:21:33"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574459906340429956",
+  "hora": "2026-11-23T16:21:33.722Z",
+  "texto": "[\n11:21 AM\n]\nMonday, November 23, 2026 at 11:21 AM",
+  "archivos": [
+   "bola8_1121_39.png"
+  ],
+  "hora_ny": "2026-11-23 11:21:33"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574459908240318586",
+  "hora": "2026-11-23T16:21:34.175Z",
+  "texto": "[\n11:21 AM\n]\nMonday, November 23, 2026 at 11:21 AM",
+  "archivos": [
+   "bola8_1121_40.png"
+  ],
+  "hora_ny": "2026-11-23 11:21:34"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574460392523178074",
+  "hora": "2026-11-23T16:23:29.637Z",
+  "texto": "[\n11:23 AM\n]\nMonday, November 23, 2026 at 11:23 AM\nPrediction for SPX - 11-23-2026 11:21:58 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7258.6 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7258.6\nTrend: Up\nPredicted Close: 7246.0  - Experimental\nStrength: 0.4\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7221.8\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7237.1\nGamma: 7250.0\nInterest: 7213.09\nSonar: 7250.0\nVolume: 7240.81\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7255/7215 PUT @9.5 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7375/7380/7135/7130 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7345/7350/7175/7170 CALL/PUT @0.9 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7210/7205 PUT @0.95 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 11:23:29"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574460394544828589",
+  "hora": "2026-11-23T16:23:30.119Z",
+  "texto": "[\n11:23 AM\n]\nMonday, November 23, 2026 at 11:23 AM",
+  "archivos": [
+   "bola8_1123_41.png"
+  ],
+  "hora_ny": "2026-11-23 11:23:30"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574460397707067557",
+  "hora": "2026-11-23T16:23:30.873Z",
+  "texto": "[\n11:23 AM\n]\nMonday, November 23, 2026 at 11:23 AM",
+  "archivos": [
+   "bola8_1123_42.png"
+  ],
+  "hora_ny": "2026-11-23 11:23:30"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574460400097959937",
+  "hora": "2026-11-23T16:23:31.443Z",
+  "texto": "[\n11:23 AM\n]\nMonday, November 23, 2026 at 11:23 AM",
+  "archivos": [
+   "bola8_1123_43.png"
+  ],
+  "hora_ny": "2026-11-23 11:23:31"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574463730723594322",
+  "hora": "2026-11-23T16:36:45.526Z",
+  "texto": "iron ball\nAPP\n — \n11:36 AM\nMonday, November 23, 2026 at 11:36 AM\nPrediction for SPX - 11-23-2026 11:35:15 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7253.09 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7253.09\nTrend: Up\nPredicted Close: 7246.12  - Experimental\nStrength: 0.41\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7230.07\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7236.8\nGamma: 7250.0\nInterest: 7214.03\nSonar: 7250.0\nVolume: 7241.01\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7255/7215 PUT @10.35 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7355/7360/7145/7140 CALL/PUT @0.45 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7325/7330/7180/7175 CALL/PUT @1.05 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7200/7195 PUT @0.8 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 11:36:45"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574463733215002624",
+  "hora": "2026-11-23T16:36:46.120Z",
+  "texto": "[\n11:36 AM\n]\nMonday, November 23, 2026 at 11:36 AM",
+  "archivos": [
+   "bola8_1136_44.png"
+  ],
+  "hora_ny": "2026-11-23 11:36:46"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574463735999758396",
+  "hora": "2026-11-23T16:36:46.784Z",
+  "texto": "[\n11:36 AM\n]\nMonday, November 23, 2026 at 11:36 AM",
+  "archivos": [
+   "bola8_1136_45.png"
+  ],
+  "hora_ny": "2026-11-23 11:36:46"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574463737727950949",
+  "hora": "2026-11-23T16:36:47.196Z",
+  "texto": "[\n11:36 AM\n]\nMonday, November 23, 2026 at 11:36 AM",
+  "archivos": [
+   "bola8_1136_46.png"
+  ],
+  "hora_ny": "2026-11-23 11:36:47"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574464177614098483",
+  "hora": "2026-11-23T16:38:32.073Z",
+  "texto": "[\n11:38 AM\n]\nMonday, November 23, 2026 at 11:38 AM\nPrediction for SPX - 11-23-2026 11:37:04 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7244.86 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7244.86\nTrend: Up\nPredicted Close: 7225.0  - Experimental\nStrength: 0.42\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7231.64\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7232.94\nGamma: 7250.0\nInterest: 7214.18\nSonar: 7250.0\nVolume: 7241.02\n\nForecasts:\n11-24-2026: Target: 7000.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @10.25 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7355/7360/7130/7125 CALL/PUT @0.38 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7325/7330/7170/7165 CALL/PUT @0.98 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7195/7190 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 11:38:32"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574464179346088026",
+  "hora": "2026-11-23T16:38:32.486Z",
+  "texto": "[\n11:38 AM\n]\nMonday, November 23, 2026 at 11:38 AM",
+  "archivos": [
+   "bola8_1138_47.png"
+  ],
+  "hora_ny": "2026-11-23 11:38:32"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574464180973600779",
+  "hora": "2026-11-23T16:38:32.874Z",
+  "texto": "[\n11:38 AM\n]\nMonday, November 23, 2026 at 11:38 AM",
+  "archivos": [
+   "bola8_1138_48.png"
+  ],
+  "hora_ny": "2026-11-23 11:38:32"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574464183532261436",
+  "hora": "2026-11-23T16:38:33.484Z",
+  "texto": "[\n11:38 AM\n]\nMonday, November 23, 2026 at 11:38 AM",
+  "archivos": [
+   "bola8_1138_49.png"
+  ],
+  "hora_ny": "2026-11-23 11:38:33"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574467537633280160",
+  "hora": "2026-11-23T16:51:53.164Z",
+  "texto": "iron ball\nAPP\n — \n11:51 AM\nMonday, November 23, 2026 at 11:51 AM\nPrediction for SPX - 11-23-2026 11:50:19 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7233.8 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7233.8\nTrend: Up\nPredicted Close: 7228.0  - Experimental\nStrength: 0.41\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7228.13\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7227.7\nGamma: 7250.0\nInterest: 7210.69\nSonar: 7250.0\nVolume: 7239.0\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @10.55 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7340/7345/7115/7110 CALL/PUT @0.4 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7315/7320/7155/7150 CALL/PUT @0.93 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7185/7180 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 11:51:53"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574467542104285199",
+  "hora": "2026-11-23T16:51:54.230Z",
+  "texto": "iron ball\nAPP\n — \n11:51 AM\nMonday, November 23, 2026 at 11:51 AM",
+  "archivos": [
+   "bola8_1151_50.png"
+  ],
+  "hora_ny": "2026-11-23 11:51:54"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574467545614786611",
+  "hora": "2026-11-23T16:51:55.067Z",
+  "texto": "[\n11:51 AM\n]\nMonday, November 23, 2026 at 11:51 AM",
+  "archivos": [
+   "bola8_1151_51.png"
+  ],
+  "hora_ny": "2026-11-23 11:51:55"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574467551256256522",
+  "hora": "2026-11-23T16:51:56.412Z",
+  "texto": "[\n11:51 AM\n]\nMonday, November 23, 2026 at 11:51 AM",
+  "archivos": [
+   "bola8_1151_52.png"
+  ],
+  "hora_ny": "2026-11-23 11:51:56"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574468083203178709",
+  "hora": "2026-11-23T16:54:03.238Z",
+  "texto": "[\n11:54 AM\n]\nMonday, November 23, 2026 at 11:54 AM\nPrediction for SPX - 11-23-2026 11:52:34 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7241.32 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7241.32\nTrend: Up\nPredicted Close: 7228.38  - Experimental\nStrength: 0.41\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7228.85\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7230.2\nGamma: 7250.0\nInterest: 7210.7\nSonar: 7250.0\nVolume: 7238.95\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @10.65 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7345/7350/7125/7120 CALL/PUT @0.38 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7320/7325/7165/7160 CALL/PUT @0.93 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7195/7190 PUT @0.95 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 11:54:03"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574468085090484279",
+  "hora": "2026-11-23T16:54:03.688Z",
+  "texto": "[\n11:54 AM\n]\nMonday, November 23, 2026 at 11:54 AM",
+  "archivos": [
+   "bola8_1154_53.png"
+  ],
+  "hora_ny": "2026-11-23 11:54:03"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574468087741161533",
+  "hora": "2026-11-23T16:54:04.320Z",
+  "texto": "[\n11:54 AM\n]\nMonday, November 23, 2026 at 11:54 AM",
+  "archivos": [
+   "bola8_1154_54.png"
+  ],
+  "hora_ny": "2026-11-23 11:54:04"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574468090685558975",
+  "hora": "2026-11-23T16:54:05.022Z",
+  "texto": "[\n11:54 AM\n]\nMonday, November 23, 2026 at 11:54 AM",
+  "archivos": [
+   "bola8_1154_55.png"
+  ],
+  "hora_ny": "2026-11-23 11:54:05"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574471329766309909",
+  "hora": "2026-11-23T17:06:57.279Z",
+  "texto": "iron ball\nAPP\n — \n12:06 PM\nMonday, November 23, 2026 at 12:06 PM\nPrediction for SPX - 11-23-2026 12:05:24 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7244.84 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7244.84\nTrend: Up\nPredicted Close: 7229.5  - Experimental\nStrength: 0.42\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7235.45\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7212.24\nSonar: 7250.0\nVolume: 7239.23\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @10.8 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7345/7350/7140/7135 CALL/PUT @0.38 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7315/7320/7175/7170 CALL/PUT @1.02 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7200/7195 PUT @0.95 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 12:06:57"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574471331620061334",
+  "hora": "2026-11-23T17:06:57.721Z",
+  "texto": "[\n12:06 PM\n]\nMonday, November 23, 2026 at 12:06 PM",
+  "archivos": [
+   "bola8_1206_56.png"
+  ],
+  "hora_ny": "2026-11-23 12:06:57"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574471334707335238",
+  "hora": "2026-11-23T17:06:58.457Z",
+  "texto": "[\n12:06 PM\n]\nMonday, November 23, 2026 at 12:06 PM",
+  "archivos": [
+   "bola8_1206_57.png"
+  ],
+  "hora_ny": "2026-11-23 12:06:58"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574471338318373047",
+  "hora": "2026-11-23T17:06:59.318Z",
+  "texto": "[\n12:06 PM\n]\nMonday, November 23, 2026 at 12:06 PM",
+  "archivos": [
+   "bola8_1206_58.png"
+  ],
+  "hora_ny": "2026-11-23 12:06:59"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574471809196359823",
+  "hora": "2026-11-23T17:08:51.584Z",
+  "texto": "[\n12:08 PM\n]\nMonday, November 23, 2026 at 12:08 PM\nPrediction for SPX - 11-23-2026 12:07:15 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7244.32 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7244.32\nTrend: Up\nPredicted Close: 7229.25  - Experimental\nStrength: 0.41\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7237.28\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7231.88\nGamma: 7250.0\nInterest: 7212.45\nSonar: 7250.0\nVolume: 7239.29\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @10.85 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7335/7340/7140/7135 CALL/PUT @0.47 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7315/7320/7170/7165 CALL/PUT @0.98 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7195/7190 PUT @0.85 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 12:08:51"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574471810798461019",
+  "hora": "2026-11-23T17:08:51.966Z",
+  "texto": "[\n12:08 PM\n]\nMonday, November 23, 2026 at 12:08 PM",
+  "archivos": [
+   "bola8_1208_59.png"
+  ],
+  "hora_ny": "2026-11-23 12:08:51"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574471813390541021",
+  "hora": "2026-11-23T17:08:52.584Z",
+  "texto": "[\n12:08 PM\n]\nMonday, November 23, 2026 at 12:08 PM",
+  "archivos": [
+   "bola8_1208_60.png"
+  ],
+  "hora_ny": "2026-11-23 12:08:52"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574471816326553610",
+  "hora": "2026-11-23T17:08:53.284Z",
+  "texto": "[\n12:08 PM\n]\nMonday, November 23, 2026 at 12:08 PM",
+  "archivos": [
+   "bola8_1208_61.png"
+  ],
+  "hora_ny": "2026-11-23 12:08:53"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574475097706602668",
+  "hora": "2026-11-23T17:21:55.626Z",
+  "texto": "iron ball\nAPP\n — \n12:21 PM\nMonday, November 23, 2026 at 12:21 PM\nPrediction for SPX - 11-23-2026 12:20:28 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7245.57 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7245.57\nTrend: Up\nPredicted Close: 7231.38  - Experimental\nStrength: 0.42\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7242.7\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7212.31\nSonar: 7250.0\nVolume: 7239.25\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @11.65 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7330/7335/7150/7145 CALL/PUT @0.43 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7315/7320/7180/7175 CALL/PUT @0.93 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7200/7195 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 12:21:55"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574475098885456059",
+  "hora": "2026-11-23T17:21:55.907Z",
+  "texto": "[\n12:21 PM\n]\nMonday, November 23, 2026 at 12:21 PM",
+  "archivos": [
+   "bola8_1221_62.png"
+  ],
+  "hora_ny": "2026-11-23 12:21:55"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574475101611495584",
+  "hora": "2026-11-23T17:21:56.557Z",
+  "texto": "[\n12:21 PM\n]\nMonday, November 23, 2026 at 12:21 PM",
+  "archivos": [
+   "bola8_1221_63.png"
+  ],
+  "hora_ny": "2026-11-23 12:21:56"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574475104530997259",
+  "hora": "2026-11-23T17:21:57.253Z",
+  "texto": "[\n12:21 PM\n]\nMonday, November 23, 2026 at 12:21 PM",
+  "archivos": [
+   "bola8_1221_64.png"
+  ],
+  "hora_ny": "2026-11-23 12:21:57"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574475534333644823",
+  "hora": "2026-11-23T17:23:39.726Z",
+  "texto": "[\n12:23 PM\n]\nMonday, November 23, 2026 at 12:23 PM\nPrediction for SPX - 11-23-2026 12:22:16 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7243.2 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7243.2\nTrend: Up\nPredicted Close: 7231.0  - Experimental\nStrength: 0.43\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7244.03\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7212.55\nSonar: 7250.0\nVolume: 7239.21\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @11.7 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7335/7340/7145/7140 CALL/PUT @0.4 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7315/7320/7175/7170 CALL/PUT @0.95 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7200/7195 PUT @0.95 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 12:23:39"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574475536443379794",
+  "hora": "2026-11-23T17:23:40.229Z",
+  "texto": "[\n12:23 PM\n]\nMonday, November 23, 2026 at 12:23 PM",
+  "archivos": [
+   "bola8_1223_65.png"
+  ],
+  "hora_ny": "2026-11-23 12:23:40"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574475538909765655",
+  "hora": "2026-11-23T17:23:40.817Z",
+  "texto": "[\n12:23 PM\n]\nMonday, November 23, 2026 at 12:23 PM",
+  "archivos": [
+   "bola8_1223_66.png"
+  ],
+  "hora_ny": "2026-11-23 12:23:40"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574475541501841480",
+  "hora": "2026-11-23T17:23:41.435Z",
+  "texto": "[\n12:23 PM\n]\nMonday, November 23, 2026 at 12:23 PM",
+  "archivos": [
+   "bola8_1223_67.png"
+  ],
+  "hora_ny": "2026-11-23 12:23:41"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574478909670428836",
+  "hora": "2026-11-23T17:37:04.469Z",
+  "texto": "iron ball\nAPP\n — \n12:37 PM\nMonday, November 23, 2026 at 12:37 PM\nPrediction for SPX - 11-23-2026 12:35:32 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7254.26 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7254.26\nTrend: Up\nPredicted Close: 7246.38  - Experimental\nStrength: 0.42\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7249.6\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7190.21\nSonar: 7250.0\nVolume: 7239.19\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7295/7255/7215 PUT @12.8 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7340/7345/7165/7160 CALL/PUT @0.35 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7315/7320/7195/7190 CALL/PUT @1.03 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7215/7210 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 12:37:04"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574478913512538234",
+  "hora": "2026-11-23T17:37:05.385Z",
+  "texto": "[\n12:37 PM\n]\nMonday, November 23, 2026 at 12:37 PM",
+  "archivos": [
+   "bola8_1237_68.png"
+  ],
+  "hora_ny": "2026-11-23 12:37:05"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574478916377382944",
+  "hora": "2026-11-23T17:37:06.068Z",
+  "texto": "[\n12:37 PM\n]\nMonday, November 23, 2026 at 12:37 PM",
+  "archivos": [
+   "bola8_1237_69.png"
+  ],
+  "hora_ny": "2026-11-23 12:37:06"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574478919191761006",
+  "hora": "2026-11-23T17:37:06.739Z",
+  "texto": "[\n12:37 PM\n]\nMonday, November 23, 2026 at 12:37 PM",
+  "archivos": [
+   "bola8_1237_70.png"
+  ],
+  "hora_ny": "2026-11-23 12:37:06"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574479352329150540",
+  "hora": "2026-11-23T17:38:50.007Z",
+  "texto": "[\n12:38 PM\n]\nMonday, November 23, 2026 at 12:38 PM\nPrediction for SPX - 11-23-2026 12:37:22 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7251.07 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7251.07\nTrend: Up\nPredicted Close: 7233.5  - Experimental\nStrength: 0.42\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7250.53\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7190.13\nSonar: 7250.0\nVolume: 7239.15\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @12.35 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7335/7340/7165/7160 CALL/PUT @0.42 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7310/7315/7190/7185 CALL/PUT @1.05 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7210/7205 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 12:38:50"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574479354711244850",
+  "hora": "2026-11-23T17:38:50.575Z",
+  "texto": "[\n12:38 PM\n]\nMonday, November 23, 2026 at 12:38 PM",
+  "archivos": [
+   "bola8_1238_71.png",
+   "bola8_1238_72.png"
+  ],
+  "hora_ny": "2026-11-23 12:38:50"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574479358137995304",
+  "hora": "2026-11-23T17:38:51.392Z",
+  "texto": "[\n12:38 PM\n]\nMonday, November 23, 2026 at 12:38 PM",
+  "archivos": [
+   "bola8_1238_73.png",
+   "bola8_1238_74.png"
+  ],
+  "hora_ny": "2026-11-23 12:38:51"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574479359908118582",
+  "hora": "2026-11-23T17:38:51.814Z",
+  "texto": "iron ball\nAPP\n — \n12:38 PM\nMonday, November 23, 2026 at 12:38 PM",
+  "archivos": [
+   "bola8_1238_75.png"
+  ],
+  "hora_ny": "2026-11-23 12:38:51"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574482686549037128",
+  "hora": "2026-11-23T17:52:04.947Z",
+  "texto": "iron ball\nAPP\n — \n12:52 PM\nMonday, November 23, 2026 at 12:52 PM\nPrediction for SPX - 11-23-2026 12:50:37 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7220.03 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7220.03\nTrend: Up\nPredicted Close: 7226.88  - Experimental\nStrength: 0.41\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7249.85\nLong term bias: Bearish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7217.86\nGamma: 7250.0\nInterest: 7189.54\nSonar: 7250.0\nVolume: 7238.59\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 CALL @11.55 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7310/7315/7125/7120 CALL/PUT @0.4 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7285/7290/7155/7150 CALL/PUT @1.05 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7175/7170 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 12:52:04"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574482692119068872",
+  "hora": "2026-11-23T17:52:06.275Z",
+  "texto": "[\n12:52 PM\n]\nMonday, November 23, 2026 at 12:52 PM",
+  "archivos": [
+   "bola8_1252_76.png"
+  ],
+  "hora_ny": "2026-11-23 12:52:06"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574482695851999313",
+  "hora": "2026-11-23T17:52:07.165Z",
+  "texto": "[\n12:52 PM\n]\nMonday, November 23, 2026 at 12:52 PM",
+  "archivos": [
+   "bola8_1252_77.png"
+  ],
+  "hora_ny": "2026-11-23 12:52:07"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574482699769356409",
+  "hora": "2026-11-23T17:52:08.099Z",
+  "texto": "[\n12:52 PM\n]\nMonday, November 23, 2026 at 12:52 PM",
+  "archivos": [
+   "bola8_1252_78.png"
+  ],
+  "hora_ny": "2026-11-23 12:52:08"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574483249827151874",
+  "hora": "2026-11-23T17:54:19.243Z",
+  "texto": "[\n12:54 PM\n]\nMonday, November 23, 2026 at 12:54 PM\nPrediction for SPX - 11-23-2026 12:52:44 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7229.18 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7229.18\nTrend: Up\nPredicted Close: 7229.12  - Experimental\nStrength: 0.43\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7248.96\nLong term bias: Bearish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7221.67\nGamma: 7250.0\nInterest: 7189.68\nSonar: 7250.0\nVolume: 7238.61\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7285/7245/7205 PUT @12.55 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7310/7315/7130/7125 CALL/PUT @0.4 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7290/7295/7170/7165 CALL/PUT @1.0 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7185/7180 PUT @0.8 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 12:54:19"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574483252217913396",
+  "hora": "2026-11-23T17:54:19.813Z",
+  "texto": "[\n12:54 PM\n]\nMonday, November 23, 2026 at 12:54 PM",
+  "archivos": [
+   "bola8_1254_79.png"
+  ],
+  "hora_ny": "2026-11-23 12:54:19"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574483254596206785",
+  "hora": "2026-11-23T17:54:20.380Z",
+  "texto": "[\n12:54 PM\n]\nMonday, November 23, 2026 at 12:54 PM",
+  "archivos": [
+   "bola8_1254_80.png"
+  ],
+  "hora_ny": "2026-11-23 12:54:20"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574483256743559269",
+  "hora": "2026-11-23T17:54:20.892Z",
+  "texto": "[\n12:54 PM\n]\nMonday, November 23, 2026 at 12:54 PM",
+  "archivos": [
+   "bola8_1254_81.png"
+  ],
+  "hora_ny": "2026-11-23 12:54:20"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574486537868148874",
+  "hora": "2026-11-23T18:07:23.173Z",
+  "texto": "iron ball\nAPP\n — \n1:07 PM\nMonday, November 23, 2026 at 1:07 PM\nPrediction for SPX - 11-23-2026 13:05:42 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7240.82 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7240.82\nTrend: Up\nPredicted Close: 7231.75  - Experimental\nStrength: 0.44\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7251.37\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7190.92\nSonar: 7250.0\nVolume: 7239.06\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7280/7245/7210 PUT @10.9 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7315/7320/7155/7150 CALL/PUT @0.4 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7295/7300/7185/7180 CALL/PUT @1.02 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7205/7200 PUT @0.8 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 13:07:23"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574486540460097578",
+  "hora": "2026-11-23T18:07:23.791Z",
+  "texto": "[\n1:07 PM\n]\nMonday, November 23, 2026 at 1:07 PM",
+  "archivos": [
+   "bola8_1307_82.png"
+  ],
+  "hora_ny": "2026-11-23 13:07:23"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574486542750191847",
+  "hora": "2026-11-23T18:07:24.337Z",
+  "texto": "[\n1:07 PM\n]\nMonday, November 23, 2026 at 1:07 PM",
+  "archivos": [
+   "bola8_1307_83.png"
+  ],
+  "hora_ny": "2026-11-23 13:07:24"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574486545220640928",
+  "hora": "2026-11-23T18:07:24.926Z",
+  "texto": "[\n1:07 PM\n]\nMonday, November 23, 2026 at 1:07 PM",
+  "archivos": [
+   "bola8_1307_84.png"
+  ],
+  "hora_ny": "2026-11-23 13:07:24"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574486996989255875",
+  "hora": "2026-11-23T18:09:12.636Z",
+  "texto": "[\n1:09 PM\n]\nMonday, November 23, 2026 at 1:09 PM\nPrediction for SPX - 11-23-2026 13:07:40 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7245.52 Up trend, closing near $7250.0, but will range from $7200 to $7250.\n\nNote: Not financial advice\nPrice: 7245.52\nTrend: Up\nPredicted Close: 7234.25  - Experimental\nStrength: 0.45\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7252.05\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7200.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7190.99\nSonar: 7250.0\nVolume: 7239.08\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7280/7245/7210 PUT @10.8 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7320/7325/7160/7155 CALL/PUT @0.4 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7300/7305/7190/7185 CALL/PUT @0.9 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7210/7205 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 13:09:12"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574486999983853755",
+  "hora": "2026-11-23T18:09:13.350Z",
+  "texto": "[\n1:09 PM\n]\nMonday, November 23, 2026 at 1:09 PM",
+  "archivos": [
+   "bola8_1309_85.png"
+  ],
+  "hora_ny": "2026-11-23 13:09:13"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574487004006322297",
+  "hora": "2026-11-23T18:09:14.309Z",
+  "texto": "[\n1:09 PM\n]\nMonday, November 23, 2026 at 1:09 PM",
+  "archivos": [
+   "bola8_1309_86.png"
+  ],
+  "hora_ny": "2026-11-23 13:09:14"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574487007898505347",
+  "hora": "2026-11-23T18:09:15.237Z",
+  "texto": "[\n1:09 PM\n]\nMonday, November 23, 2026 at 1:09 PM",
+  "archivos": [
+   "bola8_1309_87.png"
+  ],
+  "hora_ny": "2026-11-23 13:09:15"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574490299483295866",
+  "hora": "2026-11-23T18:22:20.012Z",
+  "texto": "iron ball\nAPP\n — \n1:22 PM\nMonday, November 23, 2026 at 1:22 PM\nPrediction for SPX - 11-23-2026 13:20:47 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7257.72 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7257.72\nTrend: Up\nPredicted Close: 7248.38  - Experimental\nStrength: 0.43\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7254.95\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7191.54\nSonar: 7250.0\nVolume: 7239.45\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7290/7255/7220 PUT @11.35 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7325/7330/7180/7175 CALL/PUT @0.42 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7310/7315/7210/7205 CALL/PUT @0.97 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7225/7220 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 13:22:20"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574490301240840345",
+  "hora": "2026-11-23T18:22:20.431Z",
+  "texto": "[\n1:22 PM\n]\nMonday, November 23, 2026 at 1:22 PM",
+  "archivos": [
+   "bola8_1322_88.png"
+  ],
+  "hora_ny": "2026-11-23 13:22:20"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574490303795044525",
+  "hora": "2026-11-23T18:22:21.040Z",
+  "texto": "[\n1:22 PM\n]\nMonday, November 23, 2026 at 1:22 PM",
+  "archivos": [
+   "bola8_1322_89.png"
+  ],
+  "hora_ny": "2026-11-23 13:22:21"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574490306647425075",
+  "hora": "2026-11-23T18:22:21.720Z",
+  "texto": "[\n1:22 PM\n]\nMonday, November 23, 2026 at 1:22 PM",
+  "archivos": [
+   "bola8_1322_90.png"
+  ],
+  "hora_ny": "2026-11-23 13:22:21"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574490754833711175",
+  "hora": "2026-11-23T18:24:08.576Z",
+  "texto": "[\n1:24 PM\n]\nMonday, November 23, 2026 at 1:24 PM\nPrediction for SPX - 11-23-2026 13:22:40 - Version: 1.0.37 Build 8\n\n\nSPX current price of $7261.88 Up trend, closing near $7250.0, but will range from $7250 to $7300.\n\nNote: Not financial advice\nPrice: 7261.88\nTrend: Up\nPredicted Close: 7248.75  - Experimental\nStrength: 0.43\nShort term: 7250.0\nShort term bias: Bullish\nLong term: 7255.45\nLong term bias: Bullish\nCalls: 7250.0\nPuts: 7250.0\nCenter: 7250.0\nRange: 50.0\nTarget 1: 7250.0\nTarget 2: 7300.0\nDelta: 7250.0\nGamma: 7250.0\nInterest: 7191.58\nSonar: 7250.0\nVolume: 7239.5\n\nForecasts:\n11-24-2026: Target: 7200.0 Direction: Down\n11-25-2026: Target: 7310.0 Direction: Up\n\nExample Trades:\nButterfly: Neutral bias with a center strike\nBUY +1 Butterfly SPX 100 23 Nov 26 7290/7255/7220 PUT @11.2 LMT\n\nIron Condor: Neutral bias with a wide range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7335/7340/7190/7185 CALL/PUT @0.37 LMT\n\nSonar: Neutral bias with a small range\nSELL -1 Iron Condor SPX 100 23 Nov 26 7315/7320/7210/7205 CALL/PUT @0.87 LMT\n\nVertical: Credit spread with directional bias\nSELL -1 Vertical SPX 100 23 Nov 26 7230/7225 PUT @0.9 LMT\n\nOfficial discord: https://discord.gg/WuVBNknMVa\nMagic 8-Ball\nMagic 8-Ball\nCommunity Server\nPeople with an invite link can join.\nLevel 1\n3 Boosts\n215 Online\n741 Members\nEst. Dec 2022\nMagic 8 ball\nJoin",
+  "archivos": [],
+  "hora_ny": "2026-11-23 13:24:08"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574490756255588373",
+  "hora": "2026-11-23T18:24:08.915Z",
+  "texto": "[\n1:24 PM\n]\nMonday, November 23, 2026 at 1:24 PM",
+  "archivos": [
+   "bola8_1324_91.png"
+  ],
+  "hora_ny": "2026-11-23 13:24:08"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574490760563265536",
+  "hora": "2026-11-23T18:24:09.942Z",
+  "texto": "[\n1:24 PM\n]\nMonday, November 23, 2026 at 1:24 PM",
+  "archivos": [
+   "bola8_1324_92.png"
+  ],
+  "hora_ny": "2026-11-23 13:24:09"
+ },
+ {
+  "id": "chat-messages-1249695905133887561-1574490763079975044",
+  "hora": "2026-11-23T18:24:10.542Z",
+  "texto": "[\n1:24 PM\n]\nMonday, November 23, 2026 at 1:24 PM",
+  "archivos": [
+   "bola8_1324_93.png"
+  ],
+  "hora_ny": "2026-11-23 13:24:10"
+ }
+]
