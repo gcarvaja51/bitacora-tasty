@@ -491,7 +491,20 @@ function recuadros() {
       + (tr.v.vol || vd ? `<br>Volatility pricing: <b style="color:#f59e0b">${(tr.v.vol || '').replace(/^iv/i, 'IV')}</b>${vd ? ` · implícita ${vd.implicita}% vs realizada ${vd.realizada}%` : ''}` : '') + '</div>');
   }
   const cf = ultimo((x) => x.confluencia);
-  if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia</b> · ${cf.at.slice(11, 16)}<br>A (tendencia): <b>${cf.v.A || '—'}</b> · B (fade): <b>${cf.v.B || '—'}</b><br><span style="color:#888">${cf.v.motivoA || ''}</span></div>`);
+  // 23-nov (Guillermo: "pongamos bullish o bearish, no sé qué muestra"): dirección en palabras + por qué, en vez del nombre del spread
+  const dirConf = (sp) => (sp === 'BULL PUT' ? '<b class="pos">Bullish ▲</b> <span style="color:#888">(Bull Put)</span>' : sp === 'BEAR CALL' ? '<b class="neg">Bearish ▼</b> <span style="color:#888">(Bear Call)</span>' : '<b style="color:#aaa">Sin señal</b>');
+  const fases = { 1: 'fase 1 · sin tendencia', 2: 'fase 2 · alcista', 3: 'fase 3 · techo', 4: 'fase 4 · bajista' };
+  const enPalabras = (m) => (m || '')
+    .replace(/5m sin tendencia \(fase 1\)/g, 'la tendencia de 5 min no está definida (fase 1)')
+    .replace(/fase 2m (\d)/g, (x, n) => 'fase en 2 min: ' + (fases[n] || n))
+    .replace(/5m fase (\d)/g, (x, n) => 'tendencia 5 min: ' + (fases[n] || n))
+    .replace(/gatillo 2m/g, 'gatillo en 2 min').replace(/estirado (alcista|bajista) en 2m/g, 'estirado $1 en 2 min')
+    .replace(/herramientas ([+-]?\d+)/g, (x, n) => `herramientas ${n} (${+n > 0 ? 'a favor de subir' : +n < 0 ? 'a favor de bajar' : 'neutras'})`);
+  if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia</b> · ${cf.at.slice(11, 16)}${avisoEdad(cf.at)}`
+    + `<br>Siguiendo la tendencia (A): ${dirConf(cf.v.A)}<br><span style="color:#888">${enPalabras(cf.v.motivoA)}</span>`
+    + `<br>Contra el estiramiento, estilo Emerson (B): ${dirConf(cf.v.B)}<br><span style="color:#888">${enPalabras(cf.v.motivoB)}</span>`
+    + (cf.v.neto != null ? `<br>Votos de herramientas: <b class="${cf.v.neto > 0 ? 'pos' : cf.v.neto < 0 ? 'neg' : ''}">${cf.v.neto > 0 ? '+' : ''}${cf.v.neto}</b> <span style="color:#888">(+ = bullish, − = bearish; Bola 8, Tradytics, GexBot)</span>` : '')
+    + `<br><span style="color:#666">En sombra: no opera.</span></div>`);
   $('recuadros').innerHTML = r.join('');
 }
 
