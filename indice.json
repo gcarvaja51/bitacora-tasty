@@ -3,7 +3,7 @@
   "ciclos_confluencia": 1,
   "capas": 0,
   "hiro_minutos": 0,
-  "velas_spx": 0,
+  "velas_spx": 406,
   "gexbot_propio": 2
  },
  "2026-11-20": {
@@ -11,6 +11,20 @@
   "capas": 46,
   "hiro_minutos": 94,
   "velas_spx": 391,
+  "gexbot_propio": 41
+ },
+ "2026-11-22": {
+  "ciclos_confluencia": 0,
+  "capas": 0,
+  "hiro_minutos": 0,
+  "velas_spx": 0,
+  "gexbot_propio": 0
+ },
+ "2026-11-23": {
+  "ciclos_confluencia": 42,
+  "capas": 42,
+  "hiro_minutos": 393,
+  "velas_spx": 393,
   "gexbot_propio": 41
  }
 }
