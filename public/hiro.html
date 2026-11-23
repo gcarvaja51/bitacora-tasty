@@ -61,6 +61,10 @@
   .modoHiro button.on { background:#3b82f6; color:#fff; }
   .rotulo { position:absolute; left:10px; top:6px; z-index:3; font-size:11px; color:var(--suave); letter-spacing:.4px; pointer-events:none; }
   #recuadros { position:absolute; left:10px; top:24px; z-index:4; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+  #ayuda { position:fixed; z-index:50; pointer-events:none; display:none; max-width:340px; background:rgba(12,12,16,.96); border:1px solid #444; border-radius:7px; padding:7px 10px; font-size:12px; line-height:1.4; color:#ddd; box-shadow:0 4px 14px rgba(0,0,0,.5); }
+  #ayuda b.t { display:block; font-size:12.5px; margin-bottom:2px; }
+  #ayuda .v { color:#fff; font-weight:600; }
+  #ayuda .g { color:#999; font-size:11px; }
   .rec { background:rgba(20,20,20,.85); border:1px solid #333; border-radius:6px; padding:5px 9px; font-size:11.5px; line-height:1.35; max-width:330px; }
   .rec b { color:#fff; }
   /* Lista de órdenes de Quant Data (capa Option flow), con el estilo del original */
@@ -121,6 +125,7 @@
     <div id="flujo"></div>
     <div id="gMain"></div>
     <canvas id="lienzo"></canvas>
+    <div id="ayuda"></div>
   </div>
   <div id="divisor" title="Arrastra para cambiar el alto de la franja HIRO (doble clic: tamaño normal)"></div>
   <div class="seccion" id="secHiro"><span class="rotulo" id="rotHiro">HEDGING IMPACT</span><div class="modoHiro" title="HIRO normal o invertido (× −1, se mueve con el precio)"><button id="bHiroNormal">Normal</button><button id="bHiroInv">Invertido</button></div><div id="gHiro"></div></div>
@@ -360,7 +365,7 @@ const ahoraT = () => { if (corte != null) return ts(fecha, balde(hmDe(corte))); 
   return t; };
 const ultimo = (f) => { for (let i = capas.length - 1; i >= 0; i--) { const v = f(capas[i]); if (v != null) return { v, at: capas[i].at }; } return null; };
 
-let lineasNivel = [];
+let lineasNivel = [], ayudaNiveles = [];   // ayudaNiveles: [precio, título] de cada línea horizontal, para la ayuda memoria
 function redibujar() {
   if (!fecha) return;
   const horas = []; for (let m = 570; m <= 975; m += tf) horas.push(ts(fecha, hmDe(m)));
@@ -402,7 +407,8 @@ function redibujar() {
   if (verRealT) { const p = new Map(real('puts').map((x) => [x.time, x.value])); sTotalReal.setData(real('calls').filter((x) => p.has(x.time)).map((x) => ({ time: x.time, value: x.value + p.get(x.time) }))); }
   else sTotalReal.setData([]);
   sTotalReal.applyOptions({ visible: verRealT });
-  const pon = (serie, visible, campo) => { serie.setData(visible ? conVacios(escalon(campo, horas), horas) : []); serie.applyOptions({ visible }); };
+  // 23-nov: la lectura de GexBot previa a la apertura (9:25) trae los niveles en 0 y aplastaba la escala hasta 0: se ignoran
+  const pon = (serie, visible, campo) => { const ok = (r) => { const v = campo(r); return v > 1000 ? v : null; }; serie.setData(visible ? conVacios(escalon(ok, horas), horas) : []); serie.applyOptions({ visible }); };
   pon(L.gbFlip, est.gbc.on && est.gbc.flip, (r) => r.gexbot_classic?.flip);
   pon(L.gbPos, est.gbc.on && est.gbc.imanes, (r) => r.gexbot_classic?.imanPos);
   pon(L.gbNeg, est.gbc.on && est.gbc.imanes, (r) => r.gexbot_classic?.imanNeg);
@@ -412,9 +418,9 @@ function redibujar() {
   pon(L.acel, est.gbs.on && est.gbs.acel, (r) => r.gexbot_state?.acelerador);
   // Bola 8: como en la Sonar original, los objetivos son líneas horizontales completas (de la última lectura)
   pon(L.obj1, false, () => null); pon(L.obj2, false, () => null);
-  lineasNivel.forEach((l) => { try { sBase.removePriceLine(l); } catch {} }); lineasNivel = [];
+  lineasNivel.forEach((l) => { try { sBase.removePriceLine(l); } catch {} }); lineasNivel = []; ayudaNiveles = [];
   nivelesCercanos = [];
-  const add = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` })); };
+  const add = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); ayudaNiveles.push([+p, tit]); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` })); };
   // Muros Sigma: con historial del día → escalones que respetan la reproducción; sin historial (días viejos) → la
   // lectura actual como línea horizontal, solo si es hoy y no se está reproduciendo
   const muroSerie = (serie, on, campo, tit) => {
@@ -442,7 +448,7 @@ function redibujar() {
       const k = t.v.spx / t.v.tradytics.spy;
       for (const [p, tit] of [[t.v.tradytics.spyRango[1], 'SPY range alto'], [t.v.tradytics.spyRango[0], 'SPY range bajo']]) {
         if (typeof p !== 'number' || !isFinite(p)) continue;
-        const v = Math.round(p * k * 100) / 100; nivelesCercanos.push(v);
+        const v = Math.round(p * k * 100) / 100; nivelesCercanos.push(v); ayudaNiveles.push([v, tit + ' $' + p]);
         lineasNivel.push(sBase.createPriceLine({ price: v, color: 'rgba(56,132,255,.9)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${tit} $${p} (≈${v.toFixed(0)})` }));
       }
     }
@@ -452,7 +458,7 @@ function redibujar() {
     if (b) {
       // 21-nov: una lectura de más de 20 min (la misma regla del motor de confluencia) se pinta tenue y punteada, con su hora
       const vieja = edadMin(b.at) > 20, h = b.at.slice(11, 16);
-      const lin = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); lineasNivel.push(sBase.createPriceLine({ price: +p, color: vieja ? color.replace('rgb(', 'rgba(').replace(')', ',.35)') : color, lineWidth: vieja ? 1 : 3, lineStyle: vieja ? 2 : 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` + (vieja ? ` (de las ${h})` : '') })); };
+      const lin = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); ayudaNiveles.push([+p, tit]); lineasNivel.push(sBase.createPriceLine({ price: +p, color: vieja ? color.replace('rgb(', 'rgba(').replace(')', ',.35)') : color, lineWidth: vieja ? 1 : 3, lineStyle: vieja ? 2 : 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` + (vieja ? ` (de las ${h})` : '') })); };
       lin(b.v.objetivo1, 'Target 1', 'rgb(255,165,0)'); lin(b.v.objetivo2, 'Target 2', 'rgb(255,209,127)');
     }
   }
@@ -554,12 +560,15 @@ function pintarFlujo() {
 
 // ── Histograma de GexBot Classic: barras horizontales en su strike exacto (eje del SPX), estilo GexBot ─────────────────
 let pendiente = false;
+// Ayuda memoria (23-nov): cada barra/punto/triángulo dibujado deja su zona; al pasar el mouse se explica qué es.
+let zonas = [];
+const zona = (x, y, w, h, html) => { if (w < 0) { x += w; w = -w; } zonas.push({ x: x - 2, y: y - 2, w: w + 4, h: Math.max(h, 3) + 4, html }); };
 function pedirLienzo() { if (!pendiente) { pendiente = true; requestAnimationFrame(() => { pendiente = false; lienzo(); }); } }
 function lienzo() {
   // tamaño tomado del contenedor (no del lienzo: si no, el lienzo se agranda solo en cada redibujo)
   const cv = $('lienzo'), dpr = window.devicePixelRatio || 1, W = $('gMain').clientWidth, H = $('gMain').clientHeight;
   if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
-  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H); zonas = [];
   const ancho0 = W - gM.priceScale('right').width(), altoT0 = 28, cero0 = Math.round(ancho0 * 0.45);
   // Histograma de GexBot State (control de calidad 20-nov): cian = long gamma a la derecha, violeta = short gamma a la izquierda
   if (est.gbs.on && est.gbs.hist) {
@@ -573,14 +582,14 @@ function lienzo() {
         const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
         if (yc == null || y5 == null || yc < 0 || yc > H - altoT0) continue;
         const u = Math.max(4, yc - y5), h = Math.max(2, u * 0.2);
-        if (c) { const l = esc(c); ctx.fillStyle = 'rgb(14,255,251)'; ctx.fillRect(cero0, yc - h / 2, l, h); }
-        if (v) { const l = esc(v); ctx.fillStyle = 'rgb(174,79,220)'; ctx.fillRect(cero0 - l, yc - h / 2, l, h); }
+        if (c) { const l = esc(c); ctx.fillStyle = 'rgb(14,255,251)'; ctx.fillRect(cero0, yc - h / 2, l, h); zona(cero0, yc - h / 2, l, h, AY.gbsC(k, s.at)); }
+        if (v) { const l = esc(v); ctx.fillStyle = 'rgb(174,79,220)'; ctx.fillRect(cero0 - l, yc - h / 2, l, h); zona(cero0 - l, yc - h / 2, l, h, AY.gbsV(k, s.at)); }
       }
       for (const [k, lista] of (s.v.puntos || [])) {   // puntos de cambio con su color original
         const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
         if (yc == null || y5 == null || yc < 0 || yc > H - altoT0) continue;
         const u = Math.max(4, yc - y5), rad = Math.max(1.5, Math.min(3.5, u * 0.1));
-        for (const [dx, c] of lista) { ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.arc(cero0 + (dx < 0 ? -esc(dx) : esc(dx)), yc, rad, 0, Math.PI * 2); ctx.fill(); }
+        for (const [dx, c] of lista) { const xx = cero0 + (dx < 0 ? -esc(dx) : esc(dx)); ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.arc(xx, yc, rad, 0, Math.PI * 2); ctx.fill(); zona(xx - rad, yc - rad, rad * 2, rad * 2, AY.punto('GexBot State', k)); }
       }
       if (est.gbs.perfil) {   // columnas del options profile, a la derecha del gráfico, con los mismos desplazamientos
         const col = ancho0 - 70;
@@ -588,8 +597,8 @@ function lienzo() {
           const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
           if (yc == null || yc < 0 || yc > H - altoT0) continue;
           const rad = Math.max(1.5, Math.min(3, Math.abs(yc - (y5 ?? yc - 10)) * 0.12));
-          if (dr != null) { ctx.fillStyle = 'rgb(245,6,24)'; ctx.beginPath(); ctx.arc(col + dr, yc, rad, 0, Math.PI * 2); ctx.fill(); }
-          if (dg != null) { ctx.fillStyle = 'rgb(111,248,25)'; ctx.beginPath(); ctx.arc(col + dg, yc, rad, 0, Math.PI * 2); ctx.fill(); }
+          if (dr != null) { ctx.fillStyle = 'rgb(245,6,24)'; ctx.beginPath(); ctx.arc(col + dr, yc, rad, 0, Math.PI * 2); ctx.fill(); zona(col + dr - rad, yc - rad, rad * 2, rad * 2, AY.perfil(k)); }
+          if (dg != null) { ctx.fillStyle = 'rgb(111,248,25)'; ctx.beginPath(); ctx.arc(col + dg, yc, rad, 0, Math.PI * 2); ctx.fill(); zona(col + dg - rad, yc - rad, rad * 2, rad * 2, AY.perfil(k)); }
         }
       }
       ctx.fillStyle = 'rgba(0,188,212,.85)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('GexBot State ' + s.at.slice(11, 16), cero0 + 6, 16);
@@ -600,7 +609,7 @@ function lienzo() {
     const b8 = ultimo((x) => (x.bola8?.curva?.length ? x.bola8 : null));
     if (b8) {
       const anchoC = (ancho0 - cero0) * 0.9; ctx.strokeStyle = 'rgba(128,128,255,0.95)'; ctx.lineWidth = 1.2; ctx.beginPath(); let primero = true;
-      for (const [k, v] of b8.v.curva) { const y = sBase.priceToCoordinate(k); if (y == null) continue; const x = cero0 + v * anchoC; if (primero) { ctx.moveTo(x, y); primero = false; } else ctx.lineTo(x, y); }
+      for (const [k, v] of b8.v.curva) { const y = sBase.priceToCoordinate(k); if (y == null) continue; const x = cero0 + v * anchoC; if (primero) { ctx.moveTo(x, y); primero = false; } else ctx.lineTo(x, y); zona(x - 5, y - 4, 10, 8, AY.sonar(k, v, b8.at)); }
       ctx.stroke(); ctx.lineWidth = 1; ctx.fillStyle = 'rgba(128,128,255,.9)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('Bola 8 Sonar ' + b8.at.slice(11, 16), cero0 + 6, 30);
     }
   }
@@ -626,7 +635,7 @@ function lienzo() {
       const r = Math.max(4, Math.min(11, 3 + Math.sqrt((o.prima || 0) / 1e5) * 2.2)), alc = o.sentimiento === 'bullish';
       ctx.fillStyle = alc ? 'rgba(34,197,94,.9)' : 'rgba(239,68,68,.9)'; ctx.beginPath();
       if (alc) { ctx.moveTo(x, y - r); ctx.lineTo(x - r, y + r * .8); ctx.lineTo(x + r, y + r * .8); } else { ctx.moveTo(x, y + r); ctx.lineTo(x - r, y - r * .8); ctx.lineTo(x + r, y - r * .8); }
-      ctx.closePath(); ctx.fill();
+      ctx.closePath(); ctx.fill(); zona(x - r, y - r, r * 2, r * 2, AY.orden(o));
     }
   }
   if (!(est.gbc.on && est.gbc.hist)) return;
@@ -650,23 +659,141 @@ function lienzo() {
     if (yc == null || y5 == null || yc < 0 || yc > H - altoT) continue;
     const u = Math.max(4, yc - y5), neg = largo < 0;
     const hB = Math.max(2, u * 0.2), L2 = Math.max(2, escala(largo));
-    ctx.fillStyle = neg ? COL.r : COL.v; redondo(neg ? cero - L2 : cero, yc - hB / 2, L2, hB);
+    ctx.fillStyle = neg ? COL.r : COL.v; redondo(neg ? cero - L2 : cero, yc - hB / 2, L2, hB); zona(neg ? cero - L2 : cero, yc - hB / 2, L2, hB, AY.gbcVol(k, neg, g.at));
     // 23-nov: la barra oscura es la gamma por OPEN INTEREST (posicionamiento acumulado); va de SU lado y con SU color,
     // que puede ser el contrario de la barra clara (volumen = flujo del día): eso marca flujo contra posicionamiento.
     const sb = sombras.get(k);
-    if (sb && est.gbc.oi !== false) { const Ls = Math.max(2, escala(sb)), nS = sb < 0; ctx.fillStyle = nS ? COL.rS : COL.vS; ctx.fillRect(nS ? cero - Ls : cero, yc + u * 0.11, Ls, Math.max(2, u * 0.27)); }
+    if (sb && est.gbc.oi !== false) { const Ls = Math.max(2, escala(sb)), nS = sb < 0; ctx.fillStyle = nS ? COL.rS : COL.vS; ctx.fillRect(nS ? cero - Ls : cero, yc + u * 0.11, Ls, Math.max(2, u * 0.27)); zona(nS ? cero - Ls : cero, yc + u * 0.11, Ls, Math.max(2, u * 0.27), AY.gbcOi(k, nS, neg, g.at)); }
   }
   if (est.gbc.puntos) for (const [k, lista] of puntos) {
     const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
     if (yc == null || y5 == null || yc < 0 || yc > H - altoT) continue;
     const u = Math.max(4, yc - y5), rad = Math.max(1.5, Math.min(4, u * 0.11));
-    for (const [dx, c] of lista) { ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${solido ? 1 : 0.6})`; ctx.beginPath(); ctx.arc(cero + (dx < 0 ? -escala(dx) : escala(dx)), yc + u * 0.06, rad, 0, Math.PI * 2); ctx.fill(); }
+    for (const [dx, c] of lista) { const xx = cero + (dx < 0 ? -escala(dx) : escala(dx)); ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${solido ? 1 : 0.6})`; ctx.beginPath(); ctx.arc(xx, yc + u * 0.06, rad, 0, Math.PI * 2); ctx.fill(); zona(xx - rad, yc + u * 0.06 - rad, rad * 2, rad * 2, AY.punto('GexBot Classic', k)); }
   }
   ctx.strokeStyle = 'rgba(200,200,200,0.22)'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(cero + .5, 0); ctx.lineTo(cero + .5, H - altoT); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(255,152,0,.8)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('GexBot Classic ' + g.at.slice(11, 16) + (est.gbc.oi !== false && sombras.size ? '  ·  clara = volumen · oscura = OI' : ''), cero + 6, H - altoT - 6);
 }
 gM.timeScale().subscribeVisibleLogicalRangeChange(pedirLienzo);
 (function vigilar() { pedirLienzo(); setTimeout(vigilar, 250); })();   // también al arrastrar el eje de precio
+
+// ── Ayuda memoria (23-nov-2026, pedido de Guillermo): al pasar el mouse por una barra, punto, triángulo o línea se
+// explica qué es, su valor y cómo leerlo. Las barras/puntos dejan su zona al dibujarse (zona()); las líneas se
+// reconocen por su precio en la hora del cursor.
+const fP = (p) => (+p).toLocaleString('en-US', { maximumFractionDigits: 2 });
+const hh = (at) => (at ? String(at).slice(11, 16) : '');
+const caja = (titulo, color, cuerpo, pie) => `<b class="t" style="color:${color}">${titulo}</b>${cuerpo}${pie ? `<br><span class="g">${pie}</span>` : ''}`;
+const AY = {
+  gbcVol: (k, neg, at) => caja('GexBot Classic · gamma por volumen', neg ? '#ef494d' : '#38d678',
+    `Strike <span class="v">${fP(k)}</span> · gamma <b>${neg ? 'negativa' : 'positiva'}</b><br>` + (neg
+      ? 'Los creadores de mercado <b>aceleran</b> el movimiento aquí (venden si baja, compran si sube).'
+      : 'Los creadores de mercado <b>frenan</b> el precio aquí (venden si sube, compran si baja): zona de rango o imán.'),
+    `Barra clara = flujo del día (volumen). Lectura de las ${hh(at)}. El color no es alcista ni bajista.`),
+  gbcOi: (k, nS, negVol, at) => caja('GexBot Classic · gamma por open interest (OI)', nS ? '#c0392b' : '#1e8449',
+    `Strike <span class="v">${fP(k)}</span> · gamma <b>${nS ? 'negativa' : 'positiva'}</b> por contratos abiertos<br>` + (nS !== negVol
+      ? '⚠ Va al lado <b>contrario</b> de la barra de volumen: el flujo de hoy va contra lo acumulado; el nivel puede ceder.'
+      : 'Mismo lado que la barra de volumen: el flujo de hoy <b>refuerza</b> lo acumulado.'),
+    `Barra oscura = posicionamiento acumulado (OI de ayer). Lectura de las ${hh(at)}.`),
+  punto: (fuente, k) => caja('Punto de cambio de gamma · ' + fuente, '#60a5fa',
+    `Strike <span class="v">${fP(k)}</span><br>Dónde más cambió la gamma en los últimos minutos (1, 5, 10, 15 y 30 min, un color por ventana). Muestra hacia dónde se mueve el flujo <b>ahora</b>.`),
+  gbsC: (k, at) => caja('GexBot State · long gamma (cian)', 'rgb(14,255,251)',
+    `Strike <span class="v">${fP(k)}</span><br>Los creadores de mercado están <b>largos</b> de gamma: tienden a <b>frenar</b> el precio. El cian más largo es el <b>Freno gamma</b>.`, `Lectura de las ${hh(at)}.`),
+  gbsV: (k, at) => caja('GexBot State · short gamma (violeta)', 'rgb(190,110,235)',
+    `Strike <span class="v">${fP(k)}</span><br>Los creadores de mercado están <b>cortos</b> de gamma: tienden a <b>acelerar</b> el movimiento. El violeta más largo es el <b>Acelerador gamma</b>.`, `Lectura de las ${hh(at)}.`),
+  perfil: (k) => caja('GexBot State · options profile', '#f5f5f5',
+    `Strike <span class="v">${fP(k)}</span><br>Columnas de puntos rojo y verde del perfil de opciones de GexBot, copiadas del original.`, 'Solo referencia visual: no entra en la confluencia.'),
+  sonar: (k, v, at) => caja('Bola 8 · curva Sonar', 'rgb(128,128,255)',
+    `Strike <span class="v">${fP(k)}</span> · intensidad <span class="v">${(+v).toFixed(2)}</span> (de 0 a 1)<br>Más a la derecha = más peso que el modelo de la Bola 8 le da a ese precio como destino.`, `Lectura de las ${hh(at)}.`),
+  orden: (o) => caja('Option flow · orden (Quant Data)', o.sentimiento === 'bullish' ? '#22c55e' : '#ef4444',
+    `${o.hora || ''} · SPX <span class="v">${fP(o.strike || 0)} ${o.tipo === 'call' ? 'Call' : 'Put'}</span><br>${o.cantidad ?? '—'} contratos a $${o.precio ?? '—'} · prima <span class="v">${fmtUsd(o.prima)}</span>${o.lado ? ' · ' + o.lado : ''}<br><b>${o.sentimiento === 'bullish' ? '▲ Alcista' : '▼ Bajista'}</b>`,
+    'Orden grande del flujo de opciones. El tamaño del triángulo va según la prima.'),
+};
+// Líneas: qué es cada una (series escalonadas y líneas horizontales por título)
+const AY_LINEA = {
+  gbFlip: ['Gamma Flip GB', '#ff9800', 'Precio donde la gamma total de GexBot (por volumen) cambia de signo. <b>Encima</b>: gamma positiva, el precio tiende a frenarse (rango). <b>Debajo</b>: negativa, tiende a acelerar (tendencia).'],
+  gbPos: ['Imán + GB', '#5eead4', 'Strike con más gamma neta positiva por volumen (GexBot): atrae y frena el precio.'],
+  gbNeg: ['Imán − GB', '#ff6b6b', 'Strike con más gamma neta negativa por volumen (GexBot): acelera; si se rompe, el movimiento se estira.'],
+  gbPosOi: ['Imán + GB (OI)', '#5eead4', 'Como el Imán + GB, pero con contratos abiertos (posicionamiento acumulado).'],
+  gbNegOi: ['Imán − GB (OI)', '#ff6b6b', 'Como el Imán − GB, pero con contratos abiertos (posicionamiento acumulado).'],
+  freno: ['Freno gamma (GexBot State)', '#00bcd4', 'Strike donde los creadores de mercado están más largos de gamma: tienden a frenar el precio.'],
+  acel: ['Acelerador gamma (GexBot State)', '#b04cff', 'Strike donde están más cortos de gamma: tienden a acelerar el movimiento.'],
+  sgCall: ['Call Wall (Sigma, cálculo propio)', '#2e8b57', 'Strike igual o sobre el precio con más gamma de calls: techo o resistencia del día.'],
+  sgPut: ['Put Wall (Sigma, cálculo propio)', '#b5651d', 'Strike igual o bajo el precio con más gamma de puts: piso o soporte del día.'],
+  sgFlip: ['Gamma Flip (Sigma, cálculo propio)', '#c9a227', 'Precio donde la gamma total (contratos abiertos) cambia de signo: encima frena, debajo acelera.'],
+  sgMvs: ['Key Gamma · MVS (Sigma)', '#7fb2e5', 'Strike con más gamma absoluta (calls + puts): el gran imán del día.'],
+  sgMp: ['Max Pain', '#9e9e9e', 'Precio al que más opciones vencerían sin valor.'],
+};
+const AY_TITULO = [
+  [/^Call Wall/, 'sgCall'], [/^Put Wall/, 'sgPut'], [/^Gamma Flip/, 'sgFlip'], [/^Key Gamma/, 'sgMvs'], [/^Max Pain/, 'sgMp'],
+  [/^Last Closing/, ['Last Closing', '#8a8a8a', 'Cierre de ayer del SPX: referencia de gap y de recuperación.']],
+  [/^Target 1/, ['Bola 8 · Target 1', 'rgb(255,165,0)', 'Primer objetivo de precio de la Bola 8 (última lectura; tenue y punteado si tiene más de 20 min).']],
+  [/^Target 2/, ['Bola 8 · Target 2', 'rgb(255,209,127)', 'Segundo objetivo de precio de la Bola 8.']],
+  [/^SPY range/, ['Tradytics · rango SPY', 'rgba(56,132,255,.9)', 'Rango esperado de SPY según Tradytics, convertido a SPX con la relación SPX/SPY del momento.']],
+];
+const SEP_AY = '<hr style="border:0;border-top:1px solid #333;margin:5px 0">';
+const enSerie = (serie, time) => { let v; for (const x of serie.data()) { if (x.time > time) break; if (x.value != null) v = x.value; } return v; };
+function lineasEnCursor(p) {
+  const out = [], y = p.point.y;
+  const cerca = (v) => { if (v == null) return false; const yy = sBase.priceToCoordinate(v); return yy != null && Math.abs(yy - y) <= 5; };
+  for (const [clave, serie] of Object.entries(L)) {
+    if (!serie.options().visible) continue;
+    const v = enSerie(serie, p.time);
+    if (cerca(v) && AY_LINEA[clave]) { const [t, c, txt] = AY_LINEA[clave]; out.push(caja(t, c, `Nivel <span class="v">${fP(v)}</span><br>${txt}`)); }
+  }
+  for (const [v, tit] of ayudaNiveles) {
+    if (!cerca(v)) continue;
+    const m = AY_TITULO.find(([re]) => re.test(tit)); if (!m) continue;
+    const def = typeof m[1] === 'string' ? AY_LINEA[m[1]] : m[1];
+    out.push(caja(def[0], def[1], `Nivel <span class="v">${fP(v)}</span><br>${def[2]}`));
+  }
+  est.kgs.medias.forEach((x, i) => {
+    if (!(est.kgs.on && x.on)) return; const v = enSerie(sMA[i], p.time);
+    if (cerca(v)) out.push(caja(`${x.tipo} ${x.p} (Medias KGS)`, x.color, `Valor <span class="v">${fP(v)}</span><br>Media ${x.tipo === 'EMA' ? 'exponencial' : 'simple'} de ${x.p} velas de ${tf === 60 ? '1 hora' : tf + ' min'}. Precio encima = tendencia a favor; los cruces entre medias marcan cambios de fase.`));
+  });
+  return out;
+}
+function mostrarAyuda(html, p, cont) {
+  const d = $('ayuda');
+  if (!html) { d.style.display = 'none'; return; }
+  const r = $(cont).getBoundingClientRect();
+  d.innerHTML = html; d.style.display = 'block';
+  let x = r.left + p.point.x + 16, y = r.top + p.point.y + 14;
+  const w = d.offsetWidth, h = d.offsetHeight;
+  if (x + w > window.innerWidth - 8) x = r.left + p.point.x - w - 16;
+  if (y + h > window.innerHeight - 8) y = r.top + p.point.y - h - 14;
+  d.style.left = Math.max(4, x) + 'px'; d.style.top = Math.max(4, y) + 'px';
+}
+gM.subscribeCrosshairMove((p) => {
+  if (!p || !p.point) return mostrarAyuda(null);
+  const { x, y } = p.point;
+  // primero lo dibujado encima (gana la zona más chica: un punto sobre una barra)
+  const z = zonas.filter((q) => x >= q.x && x <= q.x + q.w && y >= q.y && y <= q.y + q.h).sort((a, b) => a.w * a.h - b.w * b.h)[0];
+  if (z) return mostrarAyuda(z.html, p, 'gMain');
+  if (p.time === undefined) return mostrarAyuda(null);
+  const ls = lineasEnCursor(p);
+  mostrarAyuda(ls.length ? ls.slice(0, 2).join(SEP_AY) : null, p, 'gMain');
+});
+const AY_HIRO = [
+  [sCalls, 'HIRO · calls (azul)', '#3b82f6', 'Impacto acumulado de hoy de las órdenes de <b>calls</b> en la cobertura de los creadores de mercado (lado agresor × delta). La pendiente dice hacia dónde empuja ese flujo.'],
+  [sPuts, 'HIRO · puts (naranja)', '#f07a2a', 'Impacto acumulado de hoy de las órdenes de <b>puts</b> en la cobertura de los creadores de mercado (lado agresor × delta).'],
+  [sTotal, 'HIRO · total', '#22c3b8', 'Calls + puts: impacto neto del flujo de opciones de hoy sobre la cobertura.'],
+  [sCallsReal, 'HIRO real de SpotGamma · calls (punteado)', 'rgba(96,165,250,.9)', 'El HIRO original leído de Discord cada ~5 min, para comparar con el nuestro.'],
+  [sPutsReal, 'HIRO real de SpotGamma · puts (punteado)', 'rgba(251,146,60,.9)', 'El HIRO original leído de Discord cada ~5 min, para comparar con el nuestro.'],
+  [sTotalReal, 'HIRO real de SpotGamma · total (punteado)', 'rgba(45,212,191,.9)', 'El neto real (calls + puts) leído de Discord.'],
+];
+gH.subscribeCrosshairMove((p) => {
+  if (!p || !p.point || p.time === undefined) return mostrarAyuda(null);
+  const out = [];
+  for (const [s, t, c, txt] of AY_HIRO) {
+    if (!s.options().visible) continue;
+    const v = enSerie(s, p.time); if (v == null) continue;
+    const yy = s.priceToCoordinate(v);
+    if (yy != null && Math.abs(yy - p.point.y) <= 5) out.push(caja(t, c, `Valor <span class="v">${fmtB(v)}</span>${est.hiro.invertir ? ' (invertido × −1)' : ''}<br>${txt}`));
+  }
+  mostrarAyuda(out.length ? out.slice(0, 2).join(SEP_AY) : null, p, 'gHiro');
+});
+$('gMain').addEventListener('mouseleave', () => mostrarAyuda(null));
+$('gHiro').addEventListener('mouseleave', () => mostrarAyuda(null));
 
 // ── Tamaños: franja HIRO redimensionable ─────────────────────────────────────────────────────────────────────────
 function medir() {
