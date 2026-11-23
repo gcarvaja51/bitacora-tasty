@@ -141,7 +141,7 @@ const CAPAS = [
   { id: 'precio', nom: 'Precio', color: '#e8e8e8', opciones: [['velas', 'Velas'], ['linea', 'Línea']], radio: true },
   { id: 'kgs', nom: 'Medias (KGS)', color: '#FFEB3B', opciones: [], config: true },
   { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing'], ['suave', 'Suavizar (mediana de las últimas 5 lecturas ≈ 3 min)']] },
-  { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
+  { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['oi', 'Barra oscura = gamma por OI'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
   { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['perfil', 'Options profile (puntos rojo/verde)'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
   { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO real de SpotGamma (punteado)'], ['invertir', 'Invertir (× −1): misma pendiente que el precio']] },
   { id: 'bola8', nom: 'Bola 8', color: '#ffa500', opciones: [['curva', 'Curva Sonar'], ['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
@@ -158,7 +158,7 @@ const DEFECTO = {
     { on: true, tipo: 'EMA', p: 200, color: '#FFFFFF', w: 2 }, { on: false, tipo: 'EMA', p: 8, color: '#00BCD4', w: 1 },
     { on: false, tipo: 'SMA', p: 20, color: '#FF9800', w: 1 }, { on: false, tipo: 'SMA', p: 200, color: '#9E9E9E', w: 2 }] },
   sigma: { on: true, callWall: true, putWall: true, gammaFlip: true, mvs: false, maxPain: false, last: false, suave: true },
-  gbc: { on: true, hist: true, solido: true, puntos: true, flip: true, imanes: false, imanesOi: false },
+  gbc: { on: true, hist: true, solido: true, puntos: true, oi: true, flip: true, imanes: false, imanesOi: false },
   gbs: { on: false, hist: true, perfil: true, freno: true, acel: true },
   hiro: { on: true, sel: 'pc', real: true, invertir: true },   // 21-nov: invertido por defecto (pedido de Guillermo: que se mueva con el precio)
   bola8: { on: false, curva: true, obj: true, rec: true },
@@ -651,8 +651,10 @@ function lienzo() {
     const u = Math.max(4, yc - y5), neg = largo < 0;
     const hB = Math.max(2, u * 0.2), L2 = Math.max(2, escala(largo));
     ctx.fillStyle = neg ? COL.r : COL.v; redondo(neg ? cero - L2 : cero, yc - hB / 2, L2, hB);
+    // 23-nov: la barra oscura es la gamma por OPEN INTEREST (posicionamiento acumulado); va de SU lado y con SU color,
+    // que puede ser el contrario de la barra clara (volumen = flujo del día): eso marca flujo contra posicionamiento.
     const sb = sombras.get(k);
-    if (sb) { const Ls = Math.max(2, escala(sb)); ctx.fillStyle = neg ? COL.rS : COL.vS; ctx.fillRect(neg ? cero - Ls : cero, yc + u * 0.11, Ls, Math.max(2, u * 0.27)); }
+    if (sb && est.gbc.oi !== false) { const Ls = Math.max(2, escala(sb)), nS = sb < 0; ctx.fillStyle = nS ? COL.rS : COL.vS; ctx.fillRect(nS ? cero - Ls : cero, yc + u * 0.11, Ls, Math.max(2, u * 0.27)); }
   }
   if (est.gbc.puntos) for (const [k, lista] of puntos) {
     const yc = sBase.priceToCoordinate(k), y5 = sBase.priceToCoordinate(k + 5);
@@ -661,7 +663,7 @@ function lienzo() {
     for (const [dx, c] of lista) { ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${solido ? 1 : 0.6})`; ctx.beginPath(); ctx.arc(cero + (dx < 0 ? -escala(dx) : escala(dx)), yc + u * 0.06, rad, 0, Math.PI * 2); ctx.fill(); }
   }
   ctx.strokeStyle = 'rgba(200,200,200,0.22)'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(cero + .5, 0); ctx.lineTo(cero + .5, H - altoT); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(255,152,0,.8)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('GexBot Classic ' + g.at.slice(11, 16), cero + 6, H - altoT - 6);
+  ctx.fillStyle = 'rgba(255,152,0,.8)'; ctx.font = '11px Inter, system-ui'; ctx.fillText('GexBot Classic ' + g.at.slice(11, 16) + (est.gbc.oi !== false && sombras.size ? '  ·  clara = volumen · oscura = OI' : ''), cero + 6, H - altoT - 6);
 }
 gM.timeScale().subscribeVisibleLogicalRangeChange(pedirLienzo);
 (function vigilar() { pedirLienzo(); setTimeout(vigilar, 250); })();   // también al arrastrar el eje de precio
