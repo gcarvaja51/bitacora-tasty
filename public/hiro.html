@@ -145,7 +145,7 @@ const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } 
 const CAPAS = [
   { id: 'precio', nom: 'Precio', color: '#e8e8e8', opciones: [['velas', 'Velas'], ['linea', 'Línea']], radio: true },
   { id: 'kgs', nom: 'Medias (KGS)', color: '#FFEB3B', opciones: [], config: true },
-  { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing'], ['suave', 'Suavizar (mediana de las últimas 5 lecturas ≈ 3 min)']] },
+  { id: 'sigma', nom: 'Muros Sigma', color: '#c9a227', opciones: [['callWall', 'Call Wall'], ['putWall', 'Put Wall'], ['gammaFlip', 'Gamma Flip'], ['mvs', 'Key Gamma (MVS)'], ['maxPain', 'Max Pain'], ['last', 'Last Closing'], ['suave', 'Suavizar (mediana de las últimas 3 lecturas ≈ 1,5 min)']] },
   { id: 'gbc', nom: 'GexBot Classic', color: '#ff9800', opciones: [['hist', 'Histograma'], ['solido', 'Colores GexBot (sólido)'], ['puntos', 'Puntos de cambio (azules)'], ['oi', 'Barra oscura = gamma por OI'], ['flip', 'Gamma Flip GB'], ['imanes', 'Imán + / − GB'], ['imanesOi', 'Imanes OI']] },
   { id: 'gbs', nom: 'GexBot State', color: '#00bcd4', opciones: [['hist', 'Histograma State'], ['perfil', 'Options profile (puntos rojo/verde)'], ['freno', 'Freno gamma'], ['acel', 'Acelerador gamma']] },
   { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Put/Call'], ['total', 'Total']], radio: true, extra: [['real', 'HIRO real de SpotGamma (punteado)'], ['invertir', 'Invertir (× −1): misma pendiente que el precio']] },
@@ -352,7 +352,8 @@ function escalonLista(lista, campo, horas, hueco = 12) {
   return out;
 }
 // mediana móvil de las últimas n lecturas (solo hacia atrás: en la reproducción no mira el futuro)
-function suavizarMuros(lista, n = 5) {
+// 23-nov: n = 3 (antes 5): con 5 lecturas (~3 min) un muro nuevo tardaba demasiado en verse ("los muros están retrasados")
+function suavizarMuros(lista, n = 3) {
   const med = (a) => { const b = a.filter((v) => v != null && isFinite(+v)).map(Number).sort((x, y) => x - y); return b.length ? b[Math.floor((b.length - 1) / 2)] : null; };
   return lista.map((r, i) => { const v = lista.slice(Math.max(0, i - n + 1), i + 1); const o = { hm: r.hm };
     for (const k of ['callWall', 'putWall', 'gammaFlip', 'mvs', 'maxPain']) o[k] = med(v.map((x) => x[k])); return o; });
@@ -924,7 +925,7 @@ const hmNY = (iso) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'Ame
 async function cargarMuros() {
   const n = await fetch('/api/spx/sigma-levels').then((x) => x.json()).catch(() => null);
   if (n && n.ok) muros = n;
-  // historial del día: una vez por fecha, y cada 2 min si es hoy (el daemon lo actualiza cada ~2 min)
+  // historial del día: una vez por fecha, y cada 30 s si es hoy (el daemon lo actualiza cada ~40 s)
   const hoyNY = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).slice(0, 10);
   if (fecha && (murosDe !== fecha || fecha === hoyNY)) {
     const h = await fetch('/api/spx/sigma-levels?history=true&date=' + fecha).then((x) => x.json()).catch(() => null);
@@ -942,7 +943,7 @@ armarBarra();
 aplicarTf();
 cargar().then(cargarMuros);
 setInterval(cargar, 15000);
-setInterval(cargarMuros, 120000);
+setInterval(cargarMuros, 30000);   // 23-nov: cada 30 s (antes 2 min); el daemon escribe cada ~40 s
 </script>
 </body>
 </html>
