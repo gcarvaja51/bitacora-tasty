@@ -26,5 +26,12 @@
   "hiro_minutos": 393,
   "velas_spx": 393,
   "gexbot_propio": 41
+ },
+ "2026-11-24": {
+  "ciclos_confluencia": 57,
+  "capas": 64,
+  "hiro_minutos": 393,
+  "velas_spx": 393,
+  "gexbot_propio": 56
  }
 }

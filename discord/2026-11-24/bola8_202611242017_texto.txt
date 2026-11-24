@@ -1,0 +1,50 @@
+iron ball
+APP
+ — 
+3:17 PM
+Tuesday, November 24, 2026 at 3:17 PM
+Prediction for SPX - 11-24-2026 15:16:12 - Version: 1.0.37 Build 8
+
+
+SPX current price of $7188.65 Up trend, closing near $7200.0, but will range from $7175 to $7200.
+
+Note: Not financial advice
+Price: 7188.65
+Trend: Up
+Predicted Close: 7195.26  - Experimental
+Strength: 0.66
+Short term: 7200.0
+Short term bias: Bearish
+Long term: 7203.12
+Long term bias: Bearish
+Calls: 7200.0
+Puts: 7200.0
+Center: 7200.0
+Range: 25.0
+Target 1: 7200.0
+Target 2: 7175.0
+Delta: 7200.0
+Gamma: 7200.0
+Interest: 7195.06
+Sonar: 7200.0
+Volume: 7174.26
+
+Forecasts:
+11-25-2026: Target: 7300.0 Direction: Up
+11-27-2026: Target: 7200.0 Direction: Up
+
+Example Trades:
+Butterfly: Neutral bias with a center strike
+BUY +1 Butterfly SPX 100 24 Nov 26 7215/7195/7175 CALL @7.67 LMT
+
+Iron Condor: Neutral bias with a wide range
+SELL -1 Iron Condor SPX 100 24 Nov 26 7220/7225/7155/7150 CALL/PUT @0.37 LMT
+
+Sonar: Neutral bias with a small range
+SELL -1 Iron Condor SPX 100 24 Nov 26 7210/7215/7165/7160 CALL/PUT @0.95 LMT
+
+Vertical: Credit spread with directional bias
+SELL -1 Vertical SPX 100 24 Nov 26 7170/7165 PUT @0.7 LMT
+
+Official discord: https://discord.gg/WuVBNknMVa
+Resolving Invite

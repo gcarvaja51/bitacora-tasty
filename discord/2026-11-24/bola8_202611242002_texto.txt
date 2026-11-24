@@ -1,0 +1,60 @@
+iron ball
+APP
+ — 
+3:02 PM
+Tuesday, November 24, 2026 at 3:02 PM
+Prediction for SPX - 11-24-2026 15:01:09 - Version: 1.0.37 Build 8
+
+
+SPX current price of $7175.62 Up trend, closing near $7200.0, but will range from $7150 to $7200.
+
+Note: Not financial advice
+Price: 7175.62
+Trend: Up
+Predicted Close: 7186.65  - Experimental
+Strength: 0.7
+Short term: 7157.48
+Short term bias: Bearish
+Long term: 7202.28
+Long term bias: Bearish
+Calls: 7200.0
+Puts: 7150.0
+Center: 7175.0
+Range: 50.0
+Target 1: 7200.0
+Target 2: 7150.0
+Delta: 7200.0
+Gamma: 7157.48
+Interest: 7196.27
+Sonar: 7200.0
+Volume: 7174.43
+
+Forecasts:
+11-25-2026: Target: 7300.0 Direction: Up
+11-27-2026: Target: 7200.0 Direction: Up
+
+Example Trades:
+Butterfly: Neutral bias with a center strike
+BUY +1 Butterfly SPX 100 24 Nov 26 7215/7195/7175 CALL @5.17 LMT
+
+Iron Condor: Neutral bias with a wide range
+SELL -1 Iron Condor SPX 100 24 Nov 26 7215/7220/7135/7130 CALL/PUT @0.32 LMT
+
+Sonar: Neutral bias with a small range
+SELL -1 Iron Condor SPX 100 24 Nov 26 7205/7210/7150/7145 CALL/PUT @0.93 LMT
+
+Vertical: Credit spread with directional bias
+SELL -1 Vertical SPX 100 24 Nov 26 7155/7150 PUT @0.75 LMT
+
+Official discord: https://discord.gg/WuVBNknMVa
+Magic 8-Ball
+Magic 8-Ball
+Community Server
+People with an invite link can join.
+Level 1
+3 Boosts
+258 Online
+742 Members
+Est. Dec 2022
+Magic 8 ball
+Join
