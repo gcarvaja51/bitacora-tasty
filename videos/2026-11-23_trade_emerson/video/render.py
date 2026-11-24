@@ -55,6 +55,8 @@ for e in G:
     d = float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f], capture_output=True, text=True).stdout)
     dur[e['id']] = d + 0.45
 
+dur['repro'] = dur.get('repro', 0) + 1.5   # 23-nov: la voz ya es ~9 s más larga; +1,5 s para ver el cierre
+
 # ---------- lienzo ----------
 def lienzo():
     fig = plt.figure(figsize=(W / 100, H / 100), dpi=100)
@@ -229,7 +231,40 @@ def bola8(fig, ax, p):
         ax.text(720, 900, 'Panel de gamma\n10:50', color=NAVY, fontsize=22, fontweight='bold', va='center')
         ax.text(720, 800, 'calls y puts\nconcentrados\nen 7.250', color=GRIS, fontsize=19, va='center')
 
-ESC = dict(intro=intro, apertura=apertura, manana=manana, hiro=hiro, bola8=bola8, decision=decision, espera=espera, cierre=cierre, resultados=resultados, leccion=leccion)
+
+# 23-nov: reproducción real de la hoja Hiro (cuadros de grabar_repro.mjs --vertical: 11:14 a 11:42, 1 vela por cuadro).
+# Pedido de Guillermo: "esta parte es fundamental": +10 s, velas más lentas y zoom que sigue a la última vela.
+import glob as _glob
+REPRO = [np.asarray(_Img.open(f).convert('RGB').crop((0, 400, 1079, 1300))) for f in sorted(_glob.glob(os.path.join(S, 'clips', 'cuadros_v', '*.png')))]
+def _ultima_vela(img):
+    """(x, y) de la vela más a la derecha del panel de precio (rojo #ef5350 / verde #26a69a), en píxeles del recorte."""
+    zona = img[0:590, 0:930].astype(int); R, G, B = zona[..., 0], zona[..., 1], zona[..., 2]
+    vela = ((R > 200) & (G < 110) & (B < 110)) | ((G > 140) & (R < 70) & (B > 120) & (B < 180))
+    cols = np.where(vela.sum(axis=0) >= 4)[0]
+    if not len(cols): return (540, 300)
+    x1 = cols.max(); xs = cols[cols >= x1 - 12]; ys = np.where(vela[:, xs].any(axis=1))[0]
+    return (float(xs.mean()), float(ys.mean()))
+CENTROS = [_ultima_vela(im) for im in REPRO]
+EXTRA_REPRO = 10.0   # segundos extra de la escena (las velas van más despacio)
+def repro(fig, ax, p):
+    ax.add_patch(FancyBboxPatch((32, 596), 1016, 888, boxstyle='round,pad=0,rounding_size=14', fc='#141414', ec='#c3ccd8', lw=2))
+    if not REPRO: return
+    T = dur['repro']; t = p * T; fin_velas = T - 4.5          # las 15 velas en T-4,5 s; luego se queda la última
+    kf = min(len(REPRO) - 1, t / fin_velas * (len(REPRO) - 1)); k = int(kf)
+    img = REPRO[k]; H0, W0 = img.shape[:2]
+    # zoom: completo → acercarse siguiendo la vela (desde el 25 % de la escena) → abrir al final para ver el HIRO
+    z = 1.0
+    if p > .25: z = 1 + 0.7 * ease((p - .25) / .40)
+    if p > .86: z = 1 + 0.7 * (1 - ease((p - .86) / .12))
+    c0, c1 = CENTROS[k], CENTROS[min(k + 1, len(REPRO) - 1)]; fr = kf - k
+    cx = c0[0] + (c1[0] - c0[0]) * fr; cy = c0[1] + (c1[1] - c0[1]) * fr
+    w, h = W0 / z, H0 / z
+    x0 = min(max(0, cx - w * 0.68), W0 - w); y0 = min(max(0, cy - h * 0.45), H0 - h)   # la vela queda a la derecha del centro
+    sub = img[int(y0):int(y0 + h), int(x0):int(x0 + w)]
+    a = fig.add_axes([40 / W, 604 / H, 1000 / W, 872 / H]); a.imshow(sub, interpolation='bilinear', aspect='auto'); a.axis('off')
+    ax.text(W / 2, 555, 'Reproducción de la hoja Hiro · velas de 2 min' + (' · zoom al precio' if z > 1.05 else ''), color=GRIS, fontsize=17, ha='center')
+
+ESC = dict(intro=intro, apertura=apertura, manana=manana, hiro=hiro, bola8=bola8, decision=decision, repro=repro, espera=espera, cierre=cierre, resultados=resultados, leccion=leccion)
 COLOR_TIT = dict(cierre=VERDE, decision=ROJO)
 
 if os.environ.get('PRUEBA'):
