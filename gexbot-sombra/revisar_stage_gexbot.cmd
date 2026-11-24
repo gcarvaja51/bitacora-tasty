@@ -1,0 +1,8 @@
+@echo off
+REM Revision_Stage_GexBot_23nov - lunes 23-nov-2026 9:35 a. m. (Colombia = ET)
+REM Guillermo pidio solo AVISO: ver si las 2 transmisiones de GexBot quedaron juntas en el stage gexbot. NO tocar el barrido.
+cd /d "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01. Pipe\gexbot-sombra"
+set "LOG=%~dp0revisar_stage_gexbot.log"
+echo [%DATE% %TIME%] Inicio >> "%LOG%"
+call claude --permission-mode acceptEdits --allowedTools "Bash" "Read" "Glob" "ToolSearch" "mcp__whatsapp__whatsapp_enviar" -p "Carpeta gexbot-sombra. Emerson (Iron Balls) anuncio que pondria las 2 transmisiones de GexBot (Classic y State) juntas en el stage gexbot del Discord. 1) Corre: node revisar_stage_gexbot.mjs . (solo lectura, no entra al stage) e interpreta la barra lateral: cuantos transmisores tiene el stage gexbot (antes: solo 0gexbot) y si gexbot state sigue con gextbox2. Mira tambien las fotos capturas/sondeos/stage_*.png mas recientes. 2) Revisa barrido.log y capturas/2026-11-23/ desde las 9:25: si hay capturas gexbot_classic y gexbot_state de hoy, miralas con Read y di si cada una muestra la pantalla correcta (Classic = zero gamma / major positive / major negative; State = major long/short gamma) o si salieron cambiadas o SIN_VIDEO. 3) Envia SOLO a Guillermo por WhatsApp (cuenta colombia, 573186252537@s.whatsapp.net) un aviso corto: si quedaron juntas o no, y si el barrido esta capturando bien. Si quedaron juntas y el barrido falla, dile que se puede ajustar el barrido para guardar cada video y pregunta si lo hago. NO modifiques ningun archivo del barrido ni nada mas, NO escribas en Discord, NO envies a nadie mas." >> "%LOG%" 2>&1
+echo [%DATE% %TIME%] Fin (codigo %ERRORLEVEL%) >> "%LOG%"
