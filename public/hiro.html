@@ -76,6 +76,20 @@
   #flujo th { text-align:left; color:#3fd17f; font-weight:600; padding:4px 6px; border-bottom:1px solid #1e3a6e; position:sticky; top:31px; background:#0b1530; }
   #flujo td { padding:3px 6px; border-bottom:1px solid #14254a; white-space:nowrap; }
   #flujo .p { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+  /* TTD de plataformas (capa Confluencia, 24-nov): como el Traders Trend Dashboard de TradingView, abajo a la izquierda */
+  #ttd { position:absolute; left:10px; bottom:34px; z-index:5; display:none; background:rgba(14,14,18,.94); border:1px solid #3a3a3a;
+    border-radius:7px; font-size:11.5px; box-shadow:0 6px 18px rgba(0,0,0,.5); max-width:calc(100% - 110px); }
+  #ttd table { border-collapse:collapse; }
+  #ttd th { text-align:left; color:#a78bfa; font-weight:600; padding:5px 8px; border-bottom:1px solid #333; white-space:nowrap; }
+  #ttd td { padding:3px 8px; border-bottom:1px solid #232323; white-space:nowrap; }
+  #ttd td.pl { color:#ddd; font-weight:600; }
+  #ttd td.ed { color:#9a9a9a; font-variant-numeric:tabular-nums; }
+  #ttd td.ob { color:#bbb; white-space:normal; min-width:180px; max-width:300px; }
+  #ttd tr.tenue td { opacity:.6; } #ttd tr.vieja td { opacity:.38; }
+  #ttd .pt { display:inline-block; width:12px; height:12px; border-radius:50%; vertical-align:middle; }
+  #ttd .V { background:#22c55e; box-shadow:0 0 5px #22c55e; } #ttd .R { background:#ef4444; box-shadow:0 0 5px #ef4444; }
+  #ttd .B { background:#e5e5e5; } #ttd .N { background:transparent; border:1px dashed #666; }
+  #ttd tr.tot td { border-top:1px solid #444; border-bottom:0; padding:6px 8px; font-weight:700; color:#fff; }
   #divisor { flex:0 0 10px; cursor:row-resize; background:#181818; border-top:1px solid var(--borde); border-bottom:1px solid var(--borde); display:flex; align-items:center; justify-content:center; touch-action:none; }
   #divisor::before { content:''; width:46px; height:3px; border-radius:2px; background:#444; }
   .sinHiro #secHiro, .sinHiro #divisor { display:none; }
@@ -123,6 +137,7 @@
     <span class="rotulo" id="rotMain">SPX</span>
     <div id="recuadros"></div>
     <div id="flujo"></div>
+    <div id="ttd"></div>
     <div id="gMain"></div>
     <canvas id="lienzo"></canvas>
     <div id="ayuda"></div>
@@ -151,7 +166,10 @@ const CAPAS = [
   { id: 'hiro', nom: 'HIRO', color: '#3b82f6', opciones: [['pc', 'Calls / Puts'], ['total', 'Neto (calls + puts)'], ['ambos', 'Calls / Puts + Neto']], radio: true, extra: [['real', 'HIRO de SpotGamma (Discord Iron Balls)'], ['propio', 'HIRO propio (réplica 0DTE, en sombra)'], ['invertir', 'Invertir (× −1): misma pendiente que el precio']] },
   { id: 'bola8', nom: 'Bola 8', color: '#ffa500', opciones: [['curva', 'Curva Sonar'], ['obj', 'Objetivos 1 y 2'], ['rec', 'Recuadro sesgo/fuerza']] },
   { id: 'trad', nom: 'Tradytics', color: '#ef4444', opciones: [['rec', 'Tarjetas (sentimiento, rango, volatilidad)'], ['rango', 'Rango SPY convertido a SPX']] },
-  { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['rec', 'Recuadro lecturas A/B']] },
+  // 24-nov (Guillermo): la capa Confluencia muestra el "TTD de plataformas" (tabla tipo Traders Trend Dashboard: una fila
+  // por plataforma, 🟢 alcista / 🔴 bajista / ⚪ lateral, antigüedad del dato y una observación corta). Las lecturas A/B
+  // quedan en sombra (se siguen guardando; el recuadro solo se ve si se marca a mano).
+  { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['ttd', 'TTD de plataformas'], ['rec', 'Lecturas A/B (en sombra)']] },
   { id: 'flow', nom: 'Option flow', color: '#22c55e', opciones: [['tabla', 'Lista de órdenes (Quant Data)'], ['marcas', 'Marcas en el gráfico (▲ bullish · ▼ bearish)'], ['grandes', 'Solo órdenes ≥ $250K']] },
 ];
 const DEFECTO = {
@@ -169,16 +187,17 @@ const DEFECTO = {
   hiro: { on: true, sel: 'pc', real: true, propio: false, invertir: false },   // 23-nov: NORMAL por defecto (Guillermo: "analicemos el modo normal", igual que SpotGamma en el Discord)
   bola8: { on: false, curva: true, obj: true, rec: true },
   trad: { on: false, rec: true, rango: true },
-  conf: { on: false, rec: true },
+  conf: { on: false, ttd: true, rec: false },
   flow: { on: false, tabla: true, marcas: true, grandes: false },
-  ver: 3,   // versión de los valores por defecto: si lo guardado es más viejo, se aplican los cambios de defecto (HIRO normal)
+  ver: 4,   // versión de los valores por defecto: si lo guardado es más viejo, se aplican los cambios de defecto (HIRO normal)
 };
 const copia = (o) => JSON.parse(JSON.stringify(o));
 function cargarEstado() {
   let g = leer('hiroCapas', {}); if (!g || typeof g !== 'object') g = {};
   const e = copia(DEFECTO);
   for (const k of Object.keys(e)) if (g[k] && typeof g[k] === 'object') Object.assign(e[k], g[k]);
-  if (g.ver !== DEFECTO.ver) e.hiro.invertir = false;   // 23-nov: todo lo guardado antes vuelve a NORMAL una vez (luego se respeta lo que elija)
+  if ((g.ver || 0) < 3) e.hiro.invertir = false;   // 23-nov: todo lo guardado antes vuelve a NORMAL una vez (luego se respeta lo que elija)
+  if ((g.ver || 0) < 4) { e.conf.ttd = true; e.conf.rec = false; }   // 24-nov: A/B pasa a sombra; la capa abre el TTD
   if (!Array.isArray(e.kgs.medias) || e.kgs.medias.length !== DEFECTO.kgs.medias.length) e.kgs.medias = copia(DEFECTO.kgs.medias);
   return e;
 }
@@ -514,8 +533,116 @@ function recuadros() {
     .replace(/gatillo 2m/g, 'gatillo en 2 min').replace(/estirado (alcista|bajista) en 2m/g, 'estirado $1 en 2 min')
     .replace(/herramientas ([+-]?\d+)/g, (x, n) => `herramientas ${n} (${+n > 0 ? 'a favor de subir' : +n < 0 ? 'a favor de bajar' : 'neutras'})`);
   // 23-nov: simple (pedido de Guillermo): solo Bullish/Bearish/Sin señal, sin el motivo
-  if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia</b> · ${cf.at.slice(11, 16)}<br>A (tendencia): ${dirConf(cf.v.A)} · B contratendencia (fade): ${dirConf(cf.v.B)}</div>`);
+  if (est.conf.on && est.conf.rec && cf) r.push(`<div class="rec"><b style="color:#a78bfa">Confluencia (sombra)</b> · ${cf.at.slice(11, 16)}<br>A (tendencia): ${dirConf(cf.v.A)} · B contratendencia (fade): ${dirConf(cf.v.B)}</div>`);
   $('recuadros').innerHTML = r.join('');
+  pintarTTD();
+}
+
+// ── TTD de plataformas (24-nov-2026, pedido de Guillermo) ─────────────────────────────────────────────────────────
+// Una fila por plataforma: 🟢 alcista · 🔴 bajista · ⚪ lateral, con la antigüedad del dato y una observación corta.
+// Todo se calcula con lo que había hasta el momento que se está viendo (respeta la reproducción).
+// Antigüedad: ≤ 6 min normal · 6–15 min tenue · > 15 min vieja (gris, no vota). Reglas probadas en sombra con el 24-nov.
+const TTD_TENUE = 6, TTD_VIEJA = 15;
+const f0 = (v) => Math.round(v).toLocaleString('en-US'), fSig = (v) => (v > 0 ? '+' : '') + Math.round(v);
+function spxActual() {
+  if (velasDia.length) return velasDia[velasDia.length - 1].c;
+  const u = ultimo((x) => x.spx); return u ? u.v : null;
+}
+function filasTTD() {
+  const spx = spxActual(), F = [];
+  const fila = (pl, at, c, ob) => F.push({ pl, at, c, ob });
+  const nomFase = { 1: 'fase 1 · sin tendencia', 2: 'fase 2 · alcista', 3: 'fase 3 · techo', 4: 'fase 4 · bajista' };
+  const colFase = (f) => (f === 2 ? 'V' : f === 4 ? 'R' : f ? 'B' : null);
+  for (const [k, pl] of [['fase5m', 'Fase 5 min'], ['fase2m', 'Fase 2 min']]) {
+    const u = ultimo((x) => x[k]); fila(pl, u?.at, u ? colFase(u.v) : null, u ? nomFase[u.v] || '' : 'sin dato');
+  }
+  // Sigma: precio contra su Gamma Flip y sus muros
+  const m = murosHist[murosHist.length - 1];
+  if (m && spx && m.gammaFlip) {
+    const d = spx - m.gammaFlip, cw = m.callWall, pw = m.putWall;
+    let c, ob;
+    if (cw && spx > cw) { c = 'V'; ob = `rompió el Call Wall ${f0(cw)}`; }
+    else if (pw && spx < pw) { c = 'R'; ob = `perdió el Put Wall ${f0(pw)}`; }
+    else if (d < 0) { c = 'R'; ob = `gamma − · bajo el flip ${f0(m.gammaFlip)} (${fSig(d)})`; }
+    else { c = 'B'; ob = `gamma + (frena) · entre muros ${pw ? f0(pw) : '—'}–${cw ? f0(cw) : '—'}`; }
+    fila('Sigma', fecha + 'T' + m.hm, c, ob);
+  } else fila('Sigma', null, null, 'sin dato');
+  // GexBot Classic: hacia dónde tira el imán (la barra de gamma más grande cerca del precio) y régimen respecto del flip
+  const g = ultimo((x) => (x.gexbot_classic?.barras?.length || x.gexbot_classic?.flip ? x.gexbot_classic : null));
+  if (g && spx) {
+    const flip = g.v.flip && Math.abs(g.v.flip - spx) < 300 ? g.v.flip : null;
+    const cerca = (g.v.barras || []).filter((b) => Math.abs(b[0] - spx) <= 100);
+    const im = cerca.reduce((a, b) => (Math.abs(b[1]) > Math.abs(a?.[1] ?? 0) ? b : a), null);
+    const reg = flip ? (spx >= flip ? `gamma + (sobre flip ${f0(flip)})` : `gamma − (bajo flip ${f0(flip)})`) : 'flip sin leer';
+    let c = 'B', ob = reg;
+    if (im) { const dd = im[0] - spx; c = Math.abs(dd) <= 5 ? 'B' : dd > 0 ? 'V' : 'R'; ob = `imán ${f0(im[0])} (${fSig(dd)}) · ${reg}`; }
+    fila('GexBot', g.at, c, ob);
+  } else fila('GexBot', null, null, 'sin dato');
+  // HIRO (SpotGamma): pendiente del neto (calls + puts) en los últimos 10 min de la curva
+  const h = ultimo((x) => (x.hiro?.curva?.length ? x.hiro : null));
+  if (h) {
+    const cu = h.v.curva.filter((p) => p[1] != null && p[2] != null), u = cu[cu.length - 1];
+    const mm = (s) => +s.slice(0, 2) * 60 + +s.slice(3, 5);
+    const a = u && [...cu].reverse().find((p) => mm(u[0]) - mm(p[0]) >= 10);
+    if (u && a) {
+      const dN = (u[1] + u[2]) - (a[1] + a[2]);
+      const c = dN > 0.1 ? 'V' : dN < -0.1 ? 'R' : 'B';
+      fila('HIRO', h.at, c, `neto ${fSig(dN * 1000)}M en 10 min · calls ${fmtB(u[1] * 1e9)} / puts ${fmtB(u[2] * 1e9)}`);
+    } else fila('HIRO', h.at, null, 'curva muy corta');
+  } else fila('HIRO', null, null, 'sin dato');
+  // Bola 8: sesgo solo si la fuerza llega a 0,6
+  const b = ultimo((x) => x.bola8);
+  if (b) {
+    const fz = b.v.fuerza, c = fz == null || fz < 0.6 ? 'B' : b.v.sesgo === 'bullish' ? 'V' : b.v.sesgo === 'bearish' ? 'R' : 'B';
+    const bias = { bearish: 'Bearish', bullish: 'Bullish' }[b.v.sesgo] || 'Neutral';
+    fila('Bola 8', b.at, c, `${bias} ${fz != null ? fz.toFixed(2).replace('.', ',') : '—'}${fz != null && fz < 0.6 ? ' (débil)' : ''} · T1 ${b.v.objetivo1 ? f0(b.v.objetivo1) : '—'} / T2 ${b.v.objetivo2 ? f0(b.v.objetivo2) : '—'}`);
+  } else fila('Bola 8', null, null, 'sin dato');
+  // Tradytics: sentimiento del flujo 0DTE (acumulado del día)
+  const t = ultimo((x) => x.tradytics);
+  if (t) {
+    const s = t.v.sentimiento, x = t.v.exceso;
+    fila('Tradytics', t.at, s === 'bullish' ? 'V' : s === 'bearish' ? 'R' : 'B', (x ? `$${x.monto}${(x.unidad || '').toUpperCase()} más en ${x.lado}` : s || '') + ' · acumulado del día');
+  } else fila('Tradytics', null, null, 'sin dato');
+  // Option flow (Quant Data): qué parte de la prima de las órdenes en pantalla es alcista
+  const o = ultimo((x) => (x.option_flow?.filas?.length ? x.option_flow : null));
+  if (o) {
+    const al = o.v.filas.reduce((s, f) => s + (f.sentimiento === 'bullish' ? f.prima || 0 : 0), 0);
+    const ba = o.v.filas.reduce((s, f) => s + (f.sentimiento === 'bearish' ? f.prima || 0 : 0), 0);
+    if (al + ba > 0) { const p = al / (al + ba); fila('Option flow', o.at, p > 0.65 ? 'V' : p < 0.35 ? 'R' : 'B', `${Math.round(p * 100)} % de la prima alcista · ${o.v.filas.length} órdenes`); }
+    else fila('Option flow', o.at, null, 'órdenes sin prima');
+  } else fila('Option flow', null, null, 'sin dato');
+  for (const f of F) { f.edad = f.at ? edadMin(f.at) : null; if (f.edad != null && f.edad > TTD_VIEJA) f.vota = false; else f.vota = f.c != null; }
+  return { F, spx, gpos: (() => { const gm = g && g.v.flip && spx && Math.abs(g.v.flip - spx) < 300; return (gm && spx >= g.v.flip) || (m && m.gammaFlip && spx >= m.gammaFlip); })(), b8: b && b.v };
+}
+function pintarTTD() {
+  const caja = $('ttd'), ver = est.conf.on && est.conf.ttd && fecha;
+  caja.style.display = ver ? 'block' : 'none';
+  if (!ver) return;
+  const { F, spx, gpos, b8 } = filasTTD();
+  const txtEdad = (e) => (e == null ? '—' : e < 1 ? 'ahora' : e >= 60 ? `hace ${Math.floor(e / 60)} h ${Math.round(e % 60)} min` : `hace ${Math.round(e)} min`);
+  const votos = F.filter((f) => f.vota), V = votos.filter((f) => f.c === 'V').length, R = votos.filter((f) => f.c === 'R').length, B = votos.filter((f) => f.c === 'B').length;
+  const f5 = F[0].vota ? F[0].c : null;
+  let veredicto, color, sug;
+  if (R - V >= 3 && f5 === 'R') { veredicto = 'BAJISTA'; color = '#ef4444'; sug = 'Bear Call sobre el flip / imán de arriba'; }
+  else if (V - R >= 3 && f5 === 'V') { veredicto = 'ALCISTA'; color = '#22c55e'; sug = 'Bull Put bajo el flip / imán de abajo'; }
+  else if ((Math.abs(V - R) <= 1 || B > Math.max(V, R)) && gpos) {
+    veredicto = 'NEUTRAL'; color = '#e5e5e5';
+    sug = b8?.objetivo1 && spx && Math.abs(b8.objetivo1 - spx) <= 10 ? `Mariposa en ${f0(b8.objetivo1)} (T1 Bola 8) o Iron Condor fuera de los imanes` : 'Iron Condor fuera de los imanes';
+  } else { veredicto = 'ESPERAR'; color = '#9a9a9a'; sug = votos.length < 4 ? 'pocos datos frescos' : 'plataformas divididas'; }
+  const mini = !!est.conf.mini;   // clic en el título: versión chica (solo plataforma y punto), para no tapar el gráfico
+  const filas = F.map((f) => {
+    const cls = f.edad != null && f.edad > TTD_VIEJA ? 'vieja' : f.edad != null && f.edad > TTD_TENUE ? 'tenue' : '';
+    return `<tr class="${cls}" title="${f.ob}"><td class="pl">${f.pl}</td><td><span class="pt ${f.c || 'N'}"></span></td>`
+      + (mini ? '' : `<td class="ed">${txtEdad(f.edad)}${cls === 'vieja' ? ' · no vota' : ''}</td><td class="ob">${f.ob}</td>`) + '</tr>';
+  }).join('');
+  const hora = hmDe(Math.round((ahoraT() % 86400) / 60));   // la hora que se está viendo (reproducción, ahora o última lectura)
+  caja.innerHTML = `<table><tr><th colspan="2" id="ttdTit" style="cursor:pointer" title="Clic: ${mini ? 'ver la tabla completa' : 'achicar la tabla'}">TTD plataformas ${mini ? '▸' : '▾'}</th>`
+    + (mini ? '' : `<th>dato</th><th>${hora} ET${spx ? ' · SPX ' + spx.toFixed(2) : ''}</th>`) + `</tr>${filas}`
+    + (mini ? `<tr class="tot"><td colspan="2"><span style="color:${color}">${veredicto}</span></td></tr></table>`
+      : `<tr class="tot"><td>Total</td><td colspan="2"><span style="color:#22c55e">${V}🟢</span> <span style="color:#ef4444">${R}🔴</span> <span>${B}⚪</span></td>`
+      + `<td><span style="color:${color}">${veredicto}</span> <span style="font-weight:400;color:#aaa">· ${sug}</span></td></tr></table>`
+      + `<div style="padding:4px 8px 6px;font-size:10px;color:#777">En sombra: no es una señal. Dato de más de ${TTD_VIEJA} min = gris, no vota.</div>`);
+  $('ttdTit').onclick = () => { est.conf.mini = !mini; guardar('hiroCapas', est); pintarTTD(); };
 }
 
 // ── Medias móviles (como "SMA by KGS"): sobre las velas de la temporalidad elegida, calentadas con los días previos ──
