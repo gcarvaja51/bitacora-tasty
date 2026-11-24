@@ -166,19 +166,19 @@ const DEFECTO = {
   gbc: { on: true, hist: true, solido: true, puntos: true, oi: true, flip: true, imanes: false, imanesOi: false },
   gbs: { on: false, hist: true, perfil: true, freno: true, acel: true },
   // 23-nov (Guillermo): manda el HIRO de SpotGamma del Discord; el propio se sigue calculando pero queda en sombra (oculto)
-  hiro: { on: true, sel: 'pc', real: true, propio: false, invertir: true },   // 21-nov: invertido por defecto (pedido de Guillermo: que se mueva con el precio)
+  hiro: { on: true, sel: 'pc', real: true, propio: false, invertir: false },   // 23-nov: NORMAL por defecto (Guillermo: "analicemos el modo normal", igual que SpotGamma en el Discord)
   bola8: { on: false, curva: true, obj: true, rec: true },
   trad: { on: false, rec: true, rango: true },
   conf: { on: false, rec: true },
   flow: { on: false, tabla: true, marcas: true, grandes: false },
-  ver: 2,   // versión de los valores por defecto: si lo guardado es más viejo, se aplican los cambios de defecto (HIRO invertido)
+  ver: 3,   // versión de los valores por defecto: si lo guardado es más viejo, se aplican los cambios de defecto (HIRO normal)
 };
 const copia = (o) => JSON.parse(JSON.stringify(o));
 function cargarEstado() {
   let g = leer('hiroCapas', {}); if (!g || typeof g !== 'object') g = {};
   const e = copia(DEFECTO);
   for (const k of Object.keys(e)) if (g[k] && typeof g[k] === 'object') Object.assign(e[k], g[k]);
-  if (g.ver !== DEFECTO.ver) e.hiro.invertir = true;   // lo guardado antes del 21-nov tenía invertir:false por defecto
+  if (g.ver !== DEFECTO.ver) e.hiro.invertir = false;   // 23-nov: todo lo guardado antes vuelve a NORMAL una vez (luego se respeta lo que elija)
   if (!Array.isArray(e.kgs.medias) || e.kgs.medias.length !== DEFECTO.kgs.medias.length) e.kgs.medias = copia(DEFECTO.kgs.medias);
   return e;
 }
