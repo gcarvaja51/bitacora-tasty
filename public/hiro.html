@@ -633,15 +633,16 @@ function pintarTTD() {
   const filas = F.map((f) => {
     const cls = f.edad != null && f.edad > TTD_VIEJA ? 'vieja' : f.edad != null && f.edad > TTD_TENUE ? 'tenue' : '';
     return `<tr class="${cls}" title="${f.ob}"><td class="pl">${f.pl}</td><td><span class="pt ${f.c || 'N'}"></span></td>`
-      + (mini ? '' : `<td class="ed">${txtEdad(f.edad)}${cls === 'vieja' ? ' · no vota' : ''}</td><td class="ob">${f.ob}</td>`) + '</tr>';
+      // 24-nov (Guillermo, viendo la tabla): sin la columna de observaciones; la nota queda al pasar el cursor por la fila
+      + (mini ? '' : `<td class="ed">${txtEdad(f.edad)}${cls === 'vieja' ? ' · no vota' : ''}</td>`) + '</tr>';
   }).join('');
   const hora = hmDe(Math.round((ahoraT() % 86400) / 60));   // la hora que se está viendo (reproducción, ahora o última lectura)
   caja.innerHTML = `<table><tr><th colspan="2" id="ttdTit" style="cursor:pointer" title="Clic: ${mini ? 'ver la tabla completa' : 'achicar la tabla'}">TTD plataformas ${mini ? '▸' : '▾'}</th>`
-    + (mini ? '' : `<th>dato</th><th>${hora} ET${spx ? ' · SPX ' + spx.toFixed(2) : ''}</th>`) + `</tr>${filas}`
+    + (mini ? '' : `<th>${hora} ET</th>`) + `</tr>${filas}`
     + (mini ? `<tr class="tot"><td colspan="2"><span style="color:${color}">${veredicto}</span></td></tr></table>`
-      : `<tr class="tot"><td>Total</td><td colspan="2"><span style="color:#22c55e">${V}🟢</span> <span style="color:#ef4444">${R}🔴</span> <span>${B}⚪</span></td>`
-      + `<td><span style="color:${color}">${veredicto}</span> <span style="font-weight:400;color:#aaa">· ${sug}</span></td></tr></table>`
-      + `<div style="padding:4px 8px 6px;font-size:10px;color:#777">En sombra: no es una señal. Dato de más de ${TTD_VIEJA} min = gris, no vota.</div>`);
+      : `<tr class="tot"><td colspan="2"><span style="color:${color}">${veredicto}</span></td>`
+      + `<td><span style="color:#22c55e">${V}🟢</span> <span style="color:#ef4444">${R}🔴</span> <span>${B}⚪</span></td></tr></table>`
+      + `<div style="padding:3px 8px 6px;font-size:10px;color:#777" title="Dato de más de ${TTD_VIEJA} min = gris, no vota">${spx ? 'SPX ' + spx.toFixed(2) + ' · ' : ''}cursor sobre la fila = detalle</div>`);
   $('ttdTit').onclick = () => { est.conf.mini = !mini; guardar('hiroCapas', est); pintarTTD(); };
 }
 
