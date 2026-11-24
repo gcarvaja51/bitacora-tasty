@@ -1,0 +1,76 @@
+[
+ {
+  "id": "intro",
+  "kicker": "TRADE EN VIVO · MARTES 24-NOV.",
+  "titular": "UN BEAR CALL EN\nEL REBOTE DEL DÍA",
+  "voz": "Así se armó el trade de Emerson del martes veinticuatro de noviembre, minuto a minuto, con todas las herramientas del Discord de Iron Balls, y con su propia voz en vivo."
+ },
+ {
+  "id": "apertura",
+  "kicker": "LA APERTURA",
+  "titular": "HUECO BAJISTA Y\nGAMMA NEGATIVA",
+  "voz": "El S&P abrió con un hueco de sesenta y cinco puntos a la baja y tocó siete mil ciento treinta y nueve en el primer minuto. GexBot marcaba el cambio de gamma en siete mil ciento cincuenta y siete, el imán positivo en siete mil trescientos, y el negativo en siete mil cien. Con gamma negativa, los movimientos se aceleran."
+ },
+ {
+  "id": "manana",
+  "kicker": "LA MAÑANA",
+  "titular": "REBOTE A 7.224\nY VUELTA A CAER",
+  "voz": "Primero, un rebote fuerte: a las diez, el precio llegó a siete mil doscientos veinticuatro. Pero no se sostuvo. El cambio de gamma subió hasta siete mil ciento noventa y cinco, el precio volvió a quedar por debajo, y a las once tocó siete mil ciento cuarenta."
+ },
+ {
+  "id": "hiro",
+  "kicker": "LA SEÑAL DEL DINERO",
+  "titular": "EL HIRO SE\nDIO VUELTA",
+  "voz": "El HIRO de SpotGamma lo mostró claro. En el rebote, el flujo de calls subió hasta casi novecientos millones de dólares. Desde las diez y cuarto se fue desinflando hasta cero, y el de puts cayó a menos seiscientos millones. El dinero se pasó al lado bajista."
+ },
+ {
+  "id": "herramientas",
+  "kicker": "10:30 · TODAS DE ACUERDO",
+  "titular": "LAS HERRAMIENTAS\nAPUNTAN ABAJO",
+  "voz": "A las diez y media, todas las herramientas coincidían. La Bola 8: sesgo bajista, con fuerza cero coma seis, y objetivos en siete mil doscientos y siete mil ciento cincuenta. Tradytics: más dinero en puts que en calls. Y en el flujo de órdenes, la prima en puts triplicaba a la de calls."
+ },
+ {
+  "id": "decision",
+  "kicker": "LA DECISIÓN · 11:25",
+  "titular": "BEAR CALL\n7160 / 7165",
+  "voz": "A las once y veinticinco, el SPX rebotó hasta siete mil ciento setenta y ocho, justo debajo del cambio de gamma, y se frenó. Emerson subió sus strikes al siete mil ciento sesenta y siete mil ciento sesenta y cinco, y esperó la ruptura de siete mil ciento sesenta y siete. Escuchémoslo."
+ },
+ {
+  "id": "clip_entrada",
+  "kicker": "EN VIVO · 11:27",
+  "titular": "«LE VOY A ENTRAR\nSI ROMPE LOS 67»",
+  "clip": "entrada",
+  "cita": "«…aquí en los 67 le voy a entrar, si me rompe los 67»"
+ },
+ {
+  "id": "espera",
+  "kicker": "DENTRO DEL TRADE · 11:27 – 11:42",
+  "titular": "15 MINUTOS\nDE PACIENCIA",
+  "voz": "Entró con un crédito de dos cincuenta y cinco; la mayoría de los alumnos consiguió entre dos setenta y dos ochenta. A las once y treinta y cuatro el precio volvió a siete mil ciento sesenta y nueve, por encima del punto de equilibrio. Emerson no se movió: le dio espacio al trade."
+ },
+ {
+  "id": "cierre",
+  "kicker": "EL CIERRE · 11:42",
+  "titular": "TAKE PROFIT\n+55 USD",
+  "voz": "Y llegó la caída: siete mil ciento cincuenta, el imán negativo de GexBot y el objetivo de la Bola 8. A las once y cuarenta y dos, con el SPX en siete mil ciento cuarenta y seis, se llenó su orden de salida."
+ },
+ {
+  "id": "clip_tp",
+  "kicker": "EN VIVO · 11:42",
+  "titular": "«CERRADO CON\n55 DÓLARES»",
+  "clip": "tp",
+  "cita": "«Ahí está, cerrado con 55 dólares… ahí me los tomó con 55 dólares»"
+ },
+ {
+  "id": "resultados",
+  "kicker": "LA COMUNIDAD",
+  "titular": "51 ALUMNOS\nREPORTARON",
+  "voz": "Cincuenta y un alumnos reportaron su resultado en el chat de Zoom y en el chat VIP: dos mil novecientos cinco dólares en total, cincuenta y siete de promedio por persona."
+ },
+ {
+  "id": "leccion",
+  "kicker": "LA LECCIÓN",
+  "titular": "CONFLUENCIA\nY PACIENCIA",
+  "voz": "Gamma negativa, HIRO bajista, Bola 8 y flujo de órdenes del mismo lado; un nivel claro para entrar, y paciencia para esperar el objetivo. Contenido educativo, no es consejo de inversión."
+ }
+]
