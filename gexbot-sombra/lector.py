@@ -412,8 +412,19 @@ def histograma_state(im, acel=None):
     return {"barras": [[k, cv[0], -cv[1]] for k, cv in sorted(barras.items())], "puntos": sorted(puntos.items()), "perfil": perfil_l}
 
 
+def _rel_panel(im, x0, y0, x1, y1):
+    """24-nov: recorte del PANEL DERECHO de State. Cuando la ventana es más alta que 16:9 (1772x1042) el panel no se
+    estira: le sale una fila extra arriba ("next (11/25)") y todo baja la diferencia de alto. Las coordenadas son las
+    del cuadro de 1280x716 a la altura 'normal' (W*716/1280) más ese corrimiento."""
+    W, H = im.size
+    hb = W * 716 / 1280
+    dy = max(0, H - hb)
+    return im.crop((int(x0 * W / 1280), int(y0 * hb / 716 + dy), int(x1 * W / 1280), int(y1 * hb / 716 + dy)))
+
+
 def gexbot_state(ruta):
     im = Image.open(ruta).convert("RGB")
+    _rel = _rel_panel   # en State todos los recortes de esta función son del panel derecho
     crudo = ocr(_prep(_rel(im, 1005, 320, 1270, 480))).lower()
     t = crudo.replace(" ", "")
     d = {}
