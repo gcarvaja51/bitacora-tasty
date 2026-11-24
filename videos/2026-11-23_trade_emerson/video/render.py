@@ -5,6 +5,7 @@
 import json, subprocess, sys, os, shutil, datetime as dt
 from zoneinfo import ZoneInfo
 import numpy as np, matplotlib
+from PIL import Image as _Img0
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, Rectangle, Polygon
@@ -58,13 +59,15 @@ for e in G:
 dur['repro'] = dur.get('repro', 0) + 1.5   # 23-nov: la voz ya es ~9 s más larga; +1,5 s para ver el cierre
 
 # ---------- lienzo ----------
+LOGO_IB = np.asarray(_Img0.open(r'C:/Users/gcarv/Documents/CARPETA PERSONAL/01. guillermo carvajal/01. Trading/01. Pipe/IRON BALLS - informes/informes emerson/scripts/marca/ironballs-traders-logo-web.png').convert('RGBA'))
 def lienzo():
     fig = plt.figure(figsize=(W / 100, H / 100), dpi=100)
     ax = fig.add_axes([0, 0, 1, 1]); ax.set_xlim(0, W); ax.set_ylim(0, H); ax.axis('off')
     fig.patch.set_facecolor(BG)
     ax.add_patch(Rectangle((0, H - 130), W, 130, color=NAVY))
     ax.text(60, H - 65, 'BITÁCORA SPX', color='white', fontsize=26, fontweight='bold', va='center')
-    ax.text(W - 60, H - 65, 'TRADE · 23 NOV.', color='#9fb3d1', fontsize=24, va='center', ha='right')
+    ax.text(W - 195, H - 65, 'TRADE · 23 NOV.', color='#9fb3d1', fontsize=24, va='center', ha='right')
+    lg = fig.add_axes([(W - 172) / W, (H - 124) / H, 132 / W, 118 / H]); lg.imshow(LOGO_IB); lg.axis('off')   # logo Iron Balls
     ax.text(W / 2, 92, 'Contenido educativo, no consejo de inversión.', color=GRIS, fontsize=18, ha='center')
     ax.text(W / 2, 58, 'Horas de entrada y salida aproximadas · datos: GexBot, HIRO y Bola 8 (Discord Iron Balls)', color=GRIS, fontsize=14, ha='center')
     return fig, ax
@@ -263,6 +266,25 @@ def repro(fig, ax, p):
     sub = img[int(y0):int(y0 + h), int(x0):int(x0 + w)]
     a = fig.add_axes([40 / W, 604 / H, 1000 / W, 872 / H]); a.imshow(sub, interpolation='bilinear', aspect='auto'); a.axis('off')
     ax.text(W / 2, 555, 'Reproducción de la hoja Hiro · velas de 2 min' + (' · zoom al precio' if z > 1.05 else ''), color=GRIS, fontsize=17, ha='center')
+    # 23-nov (Guillermo: "marcar con un círculo el movimiento del precio y lo relevante")
+    aa = top(fig)
+    def a_fig(ix, iy): return 40 + (ix - x0) / w * 1000, 604 + 872 - (iy - y0) / h * 872
+    vx, vy = a_fig(cx, cy); hora = 14 + 2 * k   # minutos después de las 11:00
+    def etiqueta_hoja(txt, col, x, y):
+        an = max(460, len(txt) * 12 + 50); x = min(max(x, an / 2 + 20), W - an / 2 - 20); y = min(max(y, 640), 1440)
+        aa.add_patch(FancyBboxPatch((x - an / 2, y - 26), an, 52, boxstyle='round,pad=0,rounding_size=10', fc=col, ec='white', lw=1.5, alpha=.95))
+        aa.text(x, y, txt, color='white', fontsize=19, fontweight='bold', ha='center', va='center')
+    if p <= .86:
+        r = 46 if z < 1.2 else 60
+        col = ROJO if (18 <= hora <= 22 or hora >= 36) else ORO
+        aa.add_patch(plt.Circle((vx, vy), r, fill=False, ec=col, lw=4.5)); aa.add_patch(plt.Circle((vx, vy), r + 9, fill=False, ec='white', lw=1.5, alpha=.7))
+        if 18 <= hora <= 22: etiqueta_hoja('11:20 · rebote sobre el breakeven', ROJO, vx - 120, vy + 105)
+        elif hora >= 36: etiqueta_hoja('Caída hacia el Target 2 (7.200)', ROJO, vx - 170, vy - 110)
+        elif hora >= 26: etiqueta_hoja('El precio pierde fuerza', ORO, vx - 150, vy + 100)
+    else:   # al abrir el zoom: el HIRO
+        hx0, hy0 = a_fig(0, 900); hx1, hy1 = a_fig(965, 628)
+        aa.add_patch(Rectangle((hx0 + 6, hy0 + 6), hx1 - hx0 - 12, hy1 - hy0 - 12, fill=False, ec=ROJO, lw=4))
+        etiqueta_hoja('HIRO: calls, puts y neto bajan con el precio', ROJO, W / 2, hy1 - 40)
 
 ESC = dict(intro=intro, apertura=apertura, manana=manana, hiro=hiro, bola8=bola8, decision=decision, repro=repro, espera=espera, cierre=cierre, resultados=resultados, leccion=leccion)
 COLOR_TIT = dict(cierre=VERDE, decision=ROJO)
