@@ -12,7 +12,8 @@ Qué guarda, por día (AAAA-MM-DD):
   gexbot_propio/historial_<día>.jsonl nuestro cálculo estilo GexBot desde la cadena de opciones
   produccion/capas/<día>.jsonl        lo que recibió la bitácora (hoja Hiro por capas)
   produccion/hiro/<día>.json          HIRO propio minuto a minuto (calls/puts/total acumulados) + velas de 1 min del SPX
-Las capturas PNG (≈30 MB por día) NO van al repo: quedan en gexbot-sombra/capturas.
+Las capturas PNG (≈1 GB por día desde la captura continua del 25-nov) NO van al repo: quedan 5 días en
+gexbot-sombra/capturas y después archivar_mega.py las sube completas (con todos sus .jsonl) a MEGA:/Bitacora/gexbot-capturas.
 
 Uso: python guardar_historicos.py          todos los días que haya
      python guardar_historicos.py --sin-push
@@ -80,7 +81,8 @@ def main():
     cambios = 0
     for dia in dias:
         cap = BASE / "capturas" / dia
-        for nombre in ("confluencia.jsonl", "barridos.jsonl"):
+        # 24-nov: capturas.jsonl = registro de cada foto de la captura continua (qué, cuándo, archivo)
+        for nombre in ("confluencia.jsonl", "barridos.jsonl", "capturas.jsonl"):
             if (cap / nombre).exists():
                 cambios += copiar(cap / nombre, REPO / "discord" / dia / nombre)
         for f in cap.glob("bola8_*_texto.txt") if cap.exists() else []:

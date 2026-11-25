@@ -9,7 +9,12 @@
 //   node barrido_discord.mjs --login        abre la ventana para que Guillermo inicie sesión UNA vez (Claude no toca la clave)
 //   node barrido_discord.mjs --barrido      un barrido completo y sale
 //   node barrido_discord.mjs --loop 180     barre cada 180 s de 9:30 a 16:00 ET en días hábiles
+//   node barrido_discord.mjs --continuo     (24-nov) navegador abierto TODO el día, sin recargar Discord: Bola 8 cada
+//                                           60 s y escenarios en rotación continua (el más viejo primero). 9:25 → cierre+2 min
+//   node barrido_discord.mjs --continuo --prueba   una vuelta por los 5 escenarios + Bola 8 ignorando el horario, y sale
+//   node barrido_discord.mjs --continuo --sin-horario 3   el bucle real (rotación, mínimo 60 s) durante 3 min, fuera de horario
 import { createRequire } from 'module';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -97,7 +102,9 @@ const h2 = (h) => `${h.hhmm.slice(0, 2)}:${h.hhmm.slice(2)}`;
 
 async function guardarDataURL(dataURL, archivo) {
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
-  fs.writeFileSync(archivo, Buffer.from(dataURL.split(',')[1], 'base64'));
+  // 24-nov: escritura atómica (.tmp + rename): confluencia --continuo vigila la carpeta cada 10 s y no debe leer un PNG a medias
+  fs.writeFileSync(archivo + '.tmp', Buffer.from(dataURL.split(',')[1], 'base64'));
+  fs.renameSync(archivo + '.tmp', archivo);
 }
 
 async function clicPorTexto(page, textos) {
@@ -184,16 +191,20 @@ async function colgar(page) {
   await esperar(2000);
 }
 
-async function capturarBola8(page, carpeta) {
-  await page.goto(`https://discord.com/channels/${GUILD}/${BOLA8}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+async function capturarBola8(page, carpeta, rapido = false) {
+  // rapido (modo --continuo, 24-nov): se llega al canal sin recargar (irCanal) y solo se miran los mensajes DE ESTE
+  // canal (id chat-messages-<canal>-<mensaje>): el chat del escenario anterior podría seguir en el DOM un instante.
+  const sel = rapido ? `[id^="chat-messages-${BOLA8}"]` : '[id^="chat-messages"]';
+  if (rapido) await irCanal(page, BOLA8);
+  else await page.goto(`https://discord.com/channels/${GUILD}/${BOLA8}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   // 20-nov: Discord carga lento: esperar hasta 20 s a que aparezca el último informe (texto o imagen)
-  await page.waitForFunction(() => [...document.querySelectorAll('[id^="chat-messages"]')].some((l) => /Prediction for SPX/.test(l.innerText || '') || l.querySelector('img[src*="attachments"]')), { timeout: 20000 }).catch(() => {});
-  await esperar(1500);
-  const r = await page.evaluate(async () => {
-    const sc = [...document.querySelectorAll('[class*="scroller"]')].find((e) => e.querySelector('[id^="chat-messages"]'));
+  await page.waitForFunction((sel) => [...document.querySelectorAll(sel)].some((l) => /Prediction for SPX/.test(l.innerText || '') || l.querySelector('img[src*="attachments"]')), { timeout: 20000, polling: 250 }, sel).catch(() => {});
+  if (!rapido) await esperar(1500);
+  const r = await page.evaluate(async (sel, rapido) => {
+    const sc = [...document.querySelectorAll('[class*="scroller"]')].find((e) => e.querySelector(sel));
     if (sc) sc.scrollTop = sc.scrollHeight;
-    await new Promise((ok) => setTimeout(ok, 2000));
-    const li = [...document.querySelectorAll('[id^="chat-messages"]')];
+    await new Promise((ok) => setTimeout(ok, rapido ? 700 : 2000));
+    const li = [...document.querySelectorAll(sel)];
     const conImg = li.filter((l) => [...l.querySelectorAll('img')].some((i) => i.naturalWidth > 300));
     // 20-nov: la Bola 8 (v1.0.37) a veces publica TEXTO ("Prediction for SPX ..."). Se toma el informe MÁS NUEVO en el
     // orden del chat, sea texto o imagen (auditoría: antes, si quedaban imágenes viejas cargadas, el texto nuevo se perdía)
@@ -217,13 +228,13 @@ async function capturarBola8(page, carpeta) {
       }
     }
     return { cuando, imgs: out };
-  });
+  }, sel, rapido);
   if (r && !r.cuando) { log('bola8: informe sin hora, no se guarda'); return []; }
   if (r && !r.imgs.length && r.texto) {
     const marca = (r.cuando || '').replace(/[-:T]/g, '').slice(0, 12);
     const archivo = path.join(carpeta, `bola8_${marca}_texto.txt`);
     const nuevo = !fs.existsSync(archivo);
-    if (nuevo) fs.writeFileSync(archivo, r.texto, 'utf8');
+    if (nuevo) { fs.writeFileSync(archivo + '.tmp', r.texto, 'utf8'); fs.renameSync(archivo + '.tmp', archivo); }
     log(`bola8: texto ${r.cuando} (${nuevo ? 1 : 0} nuevo)`);
     return nuevo ? [archivo] : [];
   }
@@ -256,18 +267,300 @@ async function barrido(browser) {
   }
   // 23-nov: rotación. Con Discord lento Tradytics (última) se saltaba en TODOS los ciclos. Lo que se saltó en el ciclo
   // anterior va primero en este, justo después de Classic (que sigue adelante: alimenta el histograma de TV).
-  const fSalt = path.join(BASE, 'saltados.json');
-  let prev = []; try { prev = JSON.parse(fs.readFileSync(fSalt, 'utf8')); } catch {}
-  const orden = [ESCENARIOS[0], ...ESCENARIOS.slice(1).filter((e) => prev.includes(e.clave)), ...ESCENARIOS.slice(1).filter((e) => !prev.includes(e.clave))];
-  const saltados = [];
+  // 24-nov: la rotación por "saltados del ciclo anterior" fallaba cuando se saltaban TODOS (volvía al orden fijo y
+  // option_flow, 4.º, no se capturó desde las 13:18 ET). Ahora el orden es por ÚLTIMA CAPTURA BUENA: el que lleva más
+  // tiempo sin foto va primero (después de Classic). Se guarda en ultimas_capturas.json {clave: epoch ms}.
+  const fUlt = path.join(BASE, 'ultimas_capturas.json');
+  let ult = {}; try { ult = JSON.parse(fs.readFileSync(fUlt, 'utf8')) || {}; } catch {}
+  const orden = [ESCENARIOS[0], ...ESCENARIOS.slice(1).sort((a, b) => (ult[a.clave] || 0) - (ult[b.clave] || 0))];
   for (const esc of orden) {
-    if (transcurrido() > 200000) { log(`${esc.clave}: se salta (barrido sin tiempo)`); saltados.push(esc.clave); continue; }
+    if (transcurrido() > 200000) { log(`${esc.clave}: se salta (barrido sin tiempo)`); continue; }
     try { res.archivos[esc.clave] = await capturarEscenario(page, esc, carpeta, h); } catch (e) { log(`${esc.clave} error: ${e.message}`); }
+    // un intento fallido también cuenta como turno (si no, un escenario caído acapararía el primer puesto)
+    ult[esc.clave] = res.archivos[esc.clave] ? Date.now() : Date.now() - 60000;
   }
-  try { fs.writeFileSync(fSalt, JSON.stringify(saltados)); } catch {}
+  try { fs.writeFileSync(fUlt, JSON.stringify(ult)); } catch {}
   fs.mkdirSync(carpeta, { recursive: true });
   fs.appendFileSync(path.join(carpeta, 'barridos.jsonl'), JSON.stringify(res) + '\n');
   return res;
+}
+
+// ══ MODO CONTINUO (24-nov-2026, pedido de Guillermo: "0 DTE y scalping, cada minuto cuenta") ══════════════════════
+// Antes cada ciclo abría un Chromium nuevo y cada escenario recargaba Discord entero (60-150 s): huecos de 8-28 min
+// por escenario (máximos de 65-96). Ahora el navegador se abre UNA vez, se cambia de canal con la navegación interna
+// de Discord (history.pushState + popstate, sin recargar) y las esperas fijas pasan a ser esperas a condiciones.
+const ULTIMAS = path.join(BASE, 'ultimas_capturas.json');
+const LATIDO = path.join(BASE, 'latido_captura.txt');
+const TOPE_ESCENARIO = 75000;   // por escenario; si se pasa, se recarga la página para recuperar
+// cada escenario se vuelve a capturar como mucho cada 60 s (con Discord ya abierto una vuelta de los 5 tarda ~35 s)
+const MIN_ENTRE_CAPTURAS = 90000;   // 24-nov: Guillermo eligió 90 s (equilibrio frescura / riesgo de la cuenta de Discord); bajar a 60000 si Discord no protesta
+// Promise.race con tope que limpia su temporizador (un rechazo suelto tumbaría node con "unhandled rejection")
+function conTope(promesa, ms, msg, alCortar) {
+  let t;
+  const tope = new Promise((_, ko) => { t = setTimeout(() => { if (alCortar) alCortar(); ko(new Error(msg)); }, ms); });
+  promesa.catch(() => {});   // si pierde la carrera y luego falla, que no quede un rechazo sin atender
+  return Promise.race([promesa, tope]).finally(() => clearTimeout(t));
+}
+const seg = (t0) => ((Date.now() - t0) / 1000).toFixed(1);
+
+// Calendario NYSE (única fuente, en la bitácora), igual que tv_dibujar.mjs / confluencia.py. Minuto NY del cierre o null.
+function cierreDelDia(fecha, dia) {
+  if (['Sat', 'Sun'].includes(dia)) return null;
+  let cal = null;
+  try { cal = JSON.parse(fs.readFileSync(path.join(BASE, '..', '..', 'Bitacoras', 'bitacora-tasty', 'src', 'calendario_nyse.json'), 'utf8')); }
+  catch { log('[aviso] sin calendario NYSE: se asume día hábil normal'); return 16 * 60; }
+  if ((cal.feriados || []).includes(fecha)) return null;
+  return (cal.mediosDias || []).includes(fecha) ? 13 * 60 : 16 * 60;
+}
+
+// REGLA CRÍTICA: nunca dos procesos con discord_profile a la vez (Discord revoca la sesión)
+function otroUsandoPerfil() {
+  const ps = "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*discord_profile*') -or " +
+    `($_.Name -eq 'node.exe' -and $_.CommandLine -like '*barrido_discord.mjs*' -and $_.ProcessId -ne ${process.pid}) } | ` +
+    "ForEach-Object { [string]$_.ProcessId + ' ' + $_.Name }";
+  try {
+    return execFileSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8', timeout: 45000, windowsHide: true })
+      .split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  } catch (e) { log('continuo: no se pudo revisar los procesos (' + e.message + '); se sigue'); return []; }
+}
+
+// Cambio de canal SIN recargar. Devuelve el método usado ('ya' | 'push' | 'clic' | 'goto').
+async function irCanal(page, canal) {
+  const ruta = `/channels/${GUILD}/${canal}`;
+  try { if (new URL(page.url()).pathname === ruta) return 'ya'; } catch {}
+  if (/discord\.com\/channels\//.test(page.url())) {
+    // Para el canal de TEXTO (Bola 8) sirve el enlace de la barra lateral; en los escenarios NO (un clic en un canal de
+    // voz/escenario puede conectarse solo): ahí va pushState + popstate, que mueve el enrutador de Discord.
+    const vista = () => (document.querySelector('main, [class*="chat_"], [class*="chatContent"]') || document.body).innerText.slice(0, 300);
+    const antes = await page.evaluate(vista).catch(() => '');
+    const metodo = await page.evaluate((r, texto) => {
+      const a = texto ? document.querySelector(`a[href="${r}"]`) : null;
+      if (a) { a.click(); return 'clic'; }
+      history.pushState(history.state, '', r);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+      return 'push';
+    }, ruta, canal === BOLA8).catch(() => null);
+    // la URL cambió y el enrutador de Discord pintó el canal nuevo (su vista ya no es la del canal anterior); tope 10 s.
+    // (Que de verdad cargó lo confirma después la espera a "Join Stage"/video o a los mensajes de la Bola 8.)
+    const ok = metodo && await page.waitForFunction((r, antes) => location.pathname === r
+      && (document.querySelector('main, [class*="chat_"], [class*="chatContent"]') || document.body).innerText.slice(0, 300) !== antes,
+    { timeout: 10000, polling: 100 }, ruta, antes).then(() => true).catch(() => false);
+    if (ok) return metodo;
+    log(`irCanal: la navegación interna no cambió el canal ${canal} en 10 s; se recarga`);
+  }
+  await page.goto('https://discord.com' + ruta, { waitUntil: 'domcontentloaded', timeout: 90000 });
+  return 'goto';
+}
+
+const hayVideoPrincipal = () => [...document.querySelectorAll('video')].some((v) => v.videoWidth > 0 && v.getBoundingClientRect().left > 380);
+
+// Igual que capturarEscenario (Join Stage nunca "Listen In", "You sure?" → Confirm, video del área principal left > 380,
+// colgar al final, foto SIN_VIDEO), pero sin recargar y con esperas a condiciones. `corte.ya` = se pasó el tope: no guarda.
+async function capturarEscenarioRapido(page, esc, carpeta, corte) {
+  const t0 = Date.now();
+  const metodo = await irCanal(page, esc.canal);
+  const tCanal = seg(t0);
+  // en vez de 4 s fijos: hasta 10 s a que aparezca "Join Stage"/"Unirse al escenario" o el video
+  await page.waitForFunction(() => {
+    const els = [...document.querySelectorAll('button, [role="button"]')].filter((e) => e.offsetParent);
+    return els.some((e) => /^(join stage|unirse al escenario)$/i.test((e.innerText || '').trim()))
+      || [...document.querySelectorAll('video')].some((v) => v.videoWidth > 0 && v.getBoundingClientRect().left > 380);
+  }, { timeout: 10000, polling: 200 }).catch(() => {});
+  const tListo = seg(t0);
+  let llego = false;
+  for (let i = 0; i < 2 && !llego && !corte.ya; i++) {
+    const conectadoAqui = await page.evaluate((canal) => {
+      const panel = document.querySelector('[class*="rtcConnectionStatus"], [class*="connection_"]')?.closest('section, div[class*="panels"]');
+      const a = panel ? panel.querySelector(`a[href*="${canal}"]`) : null;
+      return !!a && [...document.querySelectorAll('video')].some((v) => v.videoWidth > 0);
+    }, esc.canal);
+    if (conectadoAqui) { llego = await page.evaluate(hayVideoPrincipal); if (llego) break; }
+    const c = await clicPorTexto(page, ['Join Stage', 'Unirse al escenario']);   // NUNCA "Listen In"
+    if (c) {
+      // solo el diálogo "You sure?" de cambiar de escenario, nunca otro Confirm (hasta 2 s a que aparezca)
+      for (let k = 0; k < 8; k++) {
+        await esperar(250);
+        const hecho = await page.evaluate(() => {
+          const dlg = [...document.querySelectorAll('[role="dialog"]')].find((d) => /you sure|are you sure|seguro/i.test(d.innerText || ''));
+          const b = dlg && [...dlg.querySelectorAll('button')].find((e) => /^(confirm|confirmar)$/i.test((e.innerText || '').trim()));
+          if (b) { b.click(); return true; }
+          return false;
+        });
+        if (hecho || await page.evaluate(hayVideoPrincipal)) break;
+      }
+      // el RTC a veces tarda ("RTC Connecting"): hasta 25 s a que llegue el video
+      llego = await page.waitForFunction(hayVideoPrincipal, { timeout: 25000, polling: 250 }).then(() => true).catch(() => false);
+    } else {
+      // sin botón: si la transmisión se ve como miniatura, un clic en el recuadro LIVE la agranda; si no hay ni eso,
+      // el escenario no está en vivo y no tiene sentido esperar 25 s
+      const tile = await page.evaluate(() => { const t = [...document.querySelectorAll('[class*="tile"], [class*="Tile"]')].find((e) => /LIVE/.test(e.innerText || '')); if (t) { t.click(); return true; } return false; });
+      if (!tile) break;
+      llego = await page.waitForFunction(hayVideoPrincipal, { timeout: 8000, polling: 250 }).then(() => true).catch(() => false);
+    }
+  }
+  if (llego) await esperar(2500);   // igual que antes: deja asentar el cuadro antes de copiarlo
+  if (corte.ya) return null;
+  const h = horaNY();
+  const r = llego ? await page.evaluate(() => {
+    const vs = [...document.querySelectorAll('video')]
+      .filter((v) => v.videoWidth > 0 && v.getBoundingClientRect().left > 380)
+      .sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight);
+    if (!vs.length) return null;
+    const v = vs[0];
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    return { w: v.videoWidth, h: v.videoHeight, data: c.toDataURL('image/png') };
+  }) : null;
+  if (corte.ya) return null;
+  if (!r) {
+    await page.screenshot({ path: path.join(carpeta, `${h.hhmmss}_${esc.clave}_SIN_VIDEO_pagina.png`) }).catch(() => {});
+    await colgarRapido(page);
+    log(`${esc.clave}: sin video (¿no está en vivo?) — canal ${tCanal}s (${metodo}), listo ${tListo}s, total ${seg(t0)}s`);
+    return null;
+  }
+  const archivo = path.join(carpeta, `${h.hhmmss}_${esc.clave}.png`);
+  await guardarDataURL(r.data, archivo);
+  const tFoto = seg(t0);
+  await colgarRapido(page);
+  log(`${esc.clave}: ${r.w}x${r.h} -> ${path.basename(archivo)} — canal ${tCanal}s (${metodo}), listo ${tListo}s, foto ${tFoto}s, total ${seg(t0)}s`);
+  return archivo;
+}
+
+async function colgarRapido(page) {
+  const hubo = await page.evaluate(() => {
+    const b = document.querySelector('button[aria-label="Disconnect"], button[aria-label="Desconectar"], [aria-label="Disconnect"]');
+    if (b) { b.click(); return true; }
+    return false;
+  }).catch(() => false);
+  // en vez de 2 s fijos: hasta 3 s a que se vaya el video principal
+  if (hubo) await page.waitForFunction(() => ![...document.querySelectorAll('video')].some((v) => v.videoWidth > 0 && v.getBoundingClientRect().left > 380),
+    { timeout: 3000, polling: 200 }).catch(() => {});
+}
+
+function anotarCaptura(carpeta, clave, archivo) {
+  try { fs.appendFileSync(path.join(carpeta, 'capturas.jsonl'), JSON.stringify({ at: new Date().toISOString(), clave, archivo: path.basename(archivo) }) + '\n'); } catch {}
+}
+
+async function continuo(prueba, sinHorarioMin = 0) {
+  const finSinHorario = sinHorarioMin ? Date.now() + sinHorarioMin * 60000 : 0;   // prueba del bucle real fuera de horario
+  // un error suelto de puppeteer no puede tumbar la captura de todo el día
+  process.on('unhandledRejection', (e) => log('continuo: rechazo sin atender (se sigue): ' + (e?.message || e)));
+  // (el --chequeo de las 8:15 acaba de cerrar su Chromium: se dan hasta 2 min a que desaparezca antes de rendirse)
+  const perfilLibre = async () => {
+    for (let i = 0; i < 12; i++) {
+      const otros = otroUsandoPerfil();
+      if (!otros.length) return true;
+      if (i === 11) log(`continuo: NO arranca — ya hay otro proceso con discord_profile/barrido (${otros.join(', ')}); dos a la vez revocan la sesión`);
+      else await esperar(10000);
+    }
+    return false;
+  };
+  if (!await perfilLibre()) { process.exitCode = 4; return; }
+  // espera a la ventana 9:25 → cierre (+2 min); fuera de ella no abre el navegador
+  if (!prueba && !finSinHorario) {
+    for (;;) {
+      const h = horaNY(), cierre = cierreDelDia(h.fecha, h.dia);
+      if (cierre === null) { log('continuo: hoy no hay mercado (fin de semana o feriado NYSE): termina'); return; }
+      if (h.min > cierre + 2) { log('continuo: la sesión ya cerró: termina'); return; }
+      if (h.min >= 9 * 60 + 25) break;
+      try { fs.writeFileSync(LATIDO, String(Date.now())); } catch {}
+      await esperar(20000);
+    }
+  }
+  if (!prueba && !await perfilLibre()) { process.exitCode = 4; return; }   // de nuevo justo antes de abrir (9:25)
+  log(`continuo: arranca${prueba ? ' (PRUEBA: una vuelta, sin horario)' : ''}`);
+  let b = null, page = null;
+  const abrirTodo = async () => {
+    const t0 = Date.now();
+    try { if (b) await b.close(); } catch {}
+    b = await abrir(true);
+    page = (await b.pages())[0] || await b.newPage();
+    await page.goto(`https://discord.com/channels/${GUILD}/${BOLA8}`, { waitUntil: 'domcontentloaded', timeout: 90000 }).catch((e) => log('continuo: carga inicial lenta (' + e.message + ')'));
+    log(`continuo: navegador y Discord cargados en ${seg(t0)}s`);
+  };
+  const recuperable = (e) => /Target closed|Session closed|disconnected|Protocol error|detached|crashed|Execution context was destroyed/i.test(e?.message || '');
+  const recargar = () => page.goto(`https://discord.com/channels/${GUILD}/${BOLA8}`, { waitUntil: 'domcontentloaded', timeout: 90000 }).catch(() => {});
+  await abrirTodo();
+  let ult = {}; try { ult = JSON.parse(fs.readFileSync(ULTIMAS, 'utf8')) || {}; } catch {}
+  let ultBola8 = 0, vuelta = 0;
+  const pendientesPrueba = [...ESCENARIOS];
+  try {
+    for (;;) {
+      const h = horaNY();
+      if (finSinHorario) {
+        if (Date.now() > finSinHorario) { log('continuo: fin de la prueba sin horario'); break; }
+      } else if (!prueba) {
+        const cierre = cierreDelDia(h.fecha, h.dia);
+        if (cierre === null || h.min > cierre + 2) { log('continuo: cierre de la sesión (+2 min): se cierra el navegador y termina'); break; }
+      } else if (!pendientesPrueba.length && ultBola8) break;
+      vuelta++;
+      try { fs.writeFileSync(LATIDO, String(Date.now())); } catch {}
+      const carpeta = path.join(CAPTURAS, h.fecha);
+      fs.mkdirSync(carpeta, { recursive: true });
+      try {
+        // ── Bola 8: cada ≥ 60 s (solo leer el canal)
+        if (Date.now() - ultBola8 >= 60000) {
+          const t0 = Date.now();
+          let hechos = [];
+          try {
+            hechos = await conTope(capturarBola8(page, carpeta, true), 45000, 'pasó de 45 s');
+          } catch (e) {
+            log('bola8 error: ' + e.message);
+            if (recuperable(e)) throw e;
+            await recargar();
+          }
+          ultBola8 = Date.now();
+          for (const f of hechos || []) anotarCaptura(carpeta, 'bola8', f);
+          log(`bola8: revisada en ${seg(t0)}s (${(hechos || []).length} archivos nuevos)`);
+          if (await sesionCaida(page)) {
+            log('continuo: la sesión de Discord está CERRADA (pantalla de login); aviso y reintento en 2 min');
+            await avisarSesion('captura continua');
+            if (prueba) break;
+            await esperar(120000);
+            await recargar();
+            ultBola8 = 0;
+            continue;
+          }
+        }
+        // ── Escenario: el que lleva MÁS tiempo sin captura buena (en prueba, los 5 en orden). Si hasta el más viejo tiene
+        // menos de MIN_ENTRE_CAPTURAS, se espera (sin esto entraba y salía de los escenarios cada ~35 s todo el día).
+        let esc = prueba ? pendientesPrueba.shift()
+          : [...ESCENARIOS].sort((a, c) => (ult[a.clave] || 0) - (ult[c.clave] || 0))[0];
+        if (!prueba && esc && Date.now() - (ult[esc.clave] || 0) < MIN_ENTRE_CAPTURAS) {
+          const falta = Math.min(MIN_ENTRE_CAPTURAS - (Date.now() - (ult[esc.clave] || 0)), 60000 - (Date.now() - ultBola8));
+          await esperar(Math.max(500, Math.min(falta, 5000)));
+          esc = null;
+        }
+        if (esc) {
+          const t0 = Date.now(), corte = { ya: false };
+          let archivo = null;
+          try {
+            archivo = await conTope(capturarEscenarioRapido(page, esc, carpeta, corte), TOPE_ESCENARIO,
+              `pasó el tope de ${TOPE_ESCENARIO / 1000} s`, () => { corte.ya = true; });
+          } catch (e) {
+            corte.ya = true;
+            log(`${esc.clave} error: ${e.message} (${seg(t0)}s); se recarga la página para recuperar`);
+            if (recuperable(e)) throw e;
+            await colgarRapido(page);
+            await recargar();
+          }
+          // un intento fallido también cuenta como turno, con penalización de 60 s
+          ult[esc.clave] = archivo ? Date.now() : Date.now() - 60000;
+          try { fs.writeFileSync(ULTIMAS, JSON.stringify(ult)); } catch {}
+          if (archivo) anotarCaptura(carpeta, esc.clave, archivo);
+        }
+      } catch (e) {
+        if (!recuperable(e)) { log('continuo: error en la vuelta ' + vuelta + ': ' + e.message); await esperar(5000); continue; }
+        log('continuo: el navegador se cayó (' + e.message + '): se vuelve a abrir');
+        try { await abrirTodo(); } catch (e2) { log('continuo: no se pudo reabrir (' + e2.message + '); reintento en 30 s'); await esperar(30000); }
+      }
+    }
+  } finally {
+    try { await colgarRapido(page); } catch {}
+    try { await b.close(); } catch {}
+    log('continuo: navegador cerrado');
+  }
 }
 
 const args = process.argv.slice(2);
@@ -287,6 +580,9 @@ if (args.includes('--login')) {
     if (await sesionCaida(p)) { log('chequeo: sesión de Discord CERRADA'); await avisarSesion('chequeo de las 8:15'); process.exitCode = 3; }
     else log('chequeo: sesión de Discord OK');
   } finally { await b.close(); }
+} else if (args.includes('--continuo')) {
+  await continuo(args.includes('--prueba'), args.includes('--sin-horario') ? +args[args.indexOf('--sin-horario') + 1] || 3 : 0);
+  process.exit(process.exitCode || 0);
 } else if (args.includes('--barrido')) {
   // Tope global (auditoría 20-nov): un barrido nunca pasa de 6 min. Sale con código 2 y confluencia.py cierra el
   // navegador del bot (antes solo lo cortaba Python a los 7 min, con el ciclo ya perdido).
