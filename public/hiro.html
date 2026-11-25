@@ -477,6 +477,16 @@ function redibujar() {
     if (est.sigma.mvs) add(muros.mvs, 'Key Gamma', '#7fb2e5');
     if (est.sigma.maxPain) add(muros.maxPain, 'Max Pain', '#9e9e9e');
   }
+  // 25-nov (Guillermo: "si desactivo, desaparecen las lineas sobre el grafico pero me quedan los niveles en el eje
+  // vertical"): con la capa Muros Sigma apagada no se dibuja ninguna línea, pero el valor vigente de cada muro queda
+  // marcado junto al eje (respeta la reproducción: murosHist ya viene cortado a la hora que se está viendo).
+  if (!est.sigma.on) {
+    const u = murosHist.length ? murosHist[murosHist.length - 1] : (muros && corte == null && fecha === hoyNY ? muros : null);
+    if (u) for (const [campo, tit, color] of [['callWall', 'Call Wall', '#2e8b57'], ['putWall', 'Put Wall', '#b5651d'],
+      ['gammaFlip', 'Gamma Flip', '#c9a227'], ['mvs', 'Key Gamma', '#7fb2e5'], ['maxPain', 'Max Pain', '#9e9e9e']]) {
+      if (u[campo] > 1000) etiquetas.push({ p: +u[campo], txt: tit, color });
+    }
+  }
   if (est.sigma.on && est.sigma.last) add(cierrePrevio, 'Last Closing', '#8a8a8a');
   if (est.trad.on && est.trad.rango) {   // rango de SPY de Tradytics convertido a SPX con la relación SPX/SPY del momento
     const t = ultimo((x) => (x.tradytics?.spyRango?.[0] && x.tradytics?.spy ? x : null));
