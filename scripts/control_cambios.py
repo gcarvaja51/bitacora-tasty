@@ -34,7 +34,7 @@ from datetime import datetime
 
 REPO = r"C:\Users\gcarv\bitacora-tasty"
 MENTORIA = (r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal"
-            r"\01_Sigma\mentoria alejandro")
+            r"\01. Trading\01_Sigma\mentoria alejandro")
 BASE = os.path.join(MENTORIA, "estrategias automatizadas")
 
 # Las carpetas se renumeraron (01_..05_) despues de la primera version de este

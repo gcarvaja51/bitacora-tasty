@@ -37,7 +37,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const BASE = path.join('C:', 'Users', 'gcarv', 'Documents', 'CARPETA PERSONAL',
-  '01. guillermo carvajal', '01_Sigma', 'mentoria alejandro',
+  '01. guillermo carvajal', '01. Trading', '01_Sigma', 'mentoria alejandro',
   'premercados alejandro', 'control premercado');
 const DIR_CADENAS = path.join(BASE, 'neutrales', 'cadenas');
 const HIST = path.join(BASE, 'neutrales', 'gex_perfil_historico.jsonl');

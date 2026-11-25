@@ -143,6 +143,15 @@ def chequear(frenos=False):
             if (e.get("strategyFamily") in ("REVERSION", "MEDIODIA", "CLIC_TV", "IRONBALLS")
                     or e.get("expType") == "1DTE"):
                 continue
+            # Una posicion 'filled' SIN closeReason y con livePnl es un trade abierto que
+            # el monitor esta valuando, no una apertura atascada. Con la salida v2
+            # (TP75/SL75, 2026-11-09) un direccional dura mas de 25 min por diseno.
+            # Falso positivo del 2026-11-23 11:30 y 12:30 ET (tasty_demo abiertos).
+            # Lo que SI sigue cazando: 'submitted' que no resuelve, y 'filled' con
+            # closeReason puesto que la reconciliacion no termina de cerrar.
+            if (e.get("status") == "filled" and not e.get("closeReason")
+                    and e.get("livePnl") is not None):
+                continue
             edad = edad_min(e.get("timestamp") or e.get("filledAt"))
             if edad is not None and edad > APERTURA_ATASCADA_MIN:
                 colgadas.append({"id": e.get("id"), "status": e.get("status"),

@@ -6,7 +6,7 @@ REM  Lo lanza aviso_ironballs.ps1 (como mucho un intento cada 30 min).
 REM  Mismas curas que ejecutar-semanal.cmd: `call` delante de claude, `< nul`,
 REM  y que -p espere a que conecte el conector de Google Calendar.
 REM ===================================================================
-set "DATOS=C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\calendario semanal\ironballs"
+set "DATOS=C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\calendario semanal\ironballs"
 set "LOG=%DATOS%\calendario.log"
 set "MCP_CONNECTION_NONBLOCKING=0"
 set "MCP_CONNECT_TIMEOUT_MS=60000"

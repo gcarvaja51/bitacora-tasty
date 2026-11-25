@@ -37,7 +37,7 @@ const path = require('path');
 const { TradierClient } = require('../src/tradier.js');
 
 const BASE = path.join('C:', 'Users', 'gcarv', 'Documents', 'CARPETA PERSONAL',
-  '01. guillermo carvajal', '01_Sigma', 'mentoria alejandro',
+  '01. guillermo carvajal', '01. Trading', '01_Sigma', 'mentoria alejandro',
   'premercados alejandro', 'control premercado');
 const REGISTRO = path.join(BASE, 'estrategia_premercado_papel.json');
 const RAIZ = path.join(__dirname, '..');

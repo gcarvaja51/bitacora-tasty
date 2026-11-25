@@ -32,7 +32,7 @@ PROD = "https://web-production-23473.up.railway.app"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SALIDA = os.path.join(REPO, "deriva")
 MENTORIA = (r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal"
-            r"\01_Sigma\mentoria alejandro")
+            r"\01. Trading\01_Sigma\mentoria alejandro")
 CANARIO = os.path.join(MENTORIA, "estrategias automatizadas", "chequeo_salud_estrategias.py")
 MANUAL = os.path.join(REPO, "CLAUDE.md")
 

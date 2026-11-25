@@ -87,7 +87,7 @@ sin memoria (0,7 GB libres de 15,7 el 17-nov de madrugada; ese día se liberaron
 `01. guillermo carvajal/01. Pipe`, sin nada propio (comparadas archivo por archivo).
 
 **Qué se hizo (3:53 a 3:55, mercado cerrado).** Bot detenido con el archivo `STOP`; la copia vieja a la papelera; la viva
-movida a **`C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Pipe`**; tarea programada
+movida a **`C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01. Pipe`**; tarea programada
 "Polymarket Bot" apuntando a la ruta nueva (respaldo `_backup_tareas_20260831/Polymarket_Bot_antes_20261117.xml`);
 `senales-sigma/exportar_excel.py` escribe ahora el Excel de Iron Balls en `01. Pipe/IRON BALLS - señales/`
 (respaldo `.bak_20261117`). El código del bot no se tocó: todas sus rutas son relativas. Bot y vigilante arriba de nuevo.

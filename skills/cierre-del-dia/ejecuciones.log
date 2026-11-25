@@ -722,3 +722,155 @@ Generé el informe **Cierre del día del lunes 16-nov** a las 16:08 ET. Es la co
 No envié nada a nadie y no toqué TradingView. Cerré la pestaña de Investing que había abierto.
 [Mon 11/16/2026 16:08:29.51] Finalizado (codigo 0) 
  
+[Tue 11/17/2026 16:15:02.40] Iniciando cierre del dia de 2026-11-17 
+Warning: this sign-in ends between 2026-11-20 and 2026-11-23 (in 3 days at the earliest). Renewing it does not move those dates. Run claude auth login before then, or use claude setup-token for unattended jobs.
+El informe del cierre del 17-nov quedó hecho a las 16:25 ET. Fue la corrida normal del día, no una recuperación. Antes de empezar, `calendario_nyse.esDiaDeMercado('2026-11-17')` dio `true` y no había ningún cierre del día anterior con esa fecha.
+
+**Lo generado:**
+- `documentos premercado\11172026_cierre del dia.docx`, solo en Word, con el formato del molde del 16-nov.
+- En `premercado_hipotesis_log.json`, la entrada del 17-nov tiene ahora `resultado` y `llamada_siguiente`, con `para_fecha` 2026-11-18 sacado de `siguienteDiaDeMercado`. Antes guardé el backup `.bak_20261117_cierre`.
+- En `control_premercado.xlsx`, añadí "CIERRE DEL DÍA" al Detalle de la fila 104. También hay backup.
+- El script es `control premercado\cierre_11172026.py`, con las rutas armadas con `os.path.join`.
+
+**Datos que usó:**
+- **Sigma:** el `lastLevels` de las 16:05 ET (21:05:35Z), régimen NEGATIVO con GEX −20,5 B. El informe aclara que esa cadena ya venció.
+- **Investing, pestaña Hoy:** solo están las ventas minoristas de las 08:30. No apareció ningún 3 estrellas a las 10:15 o después, así que hoy no es D19 y el día suma a la asertividad.
+- **Investing, pestaña Mañana:** hay dos eventos de 3 estrellas, los inventarios de crudo a las 10:30 y las actas del FOMC a las 14:00. Por eso **mañana es D19**, día sin trade.
+- **ES fuera de hora:** 7.355,5 a las 16:15 ET, que con la base de 20,0 da una apertura implícita provisoria de 7.336.
+
+**Cosas que conviene que sepas:**
+- **Objetivos de la llamada de mañana:** `memoria_niveles` no encontró memoria de 15m por debajo de 7.290, porque su ventana empieza el 25-ago y el precio no estuvo ahí. Los objetivos 7.265 y 7.240 salen de los mínimos diarios de junio, y así lo dice el informe.
+- **Convicción 51 %:** la llamada para mañana es BAJISTA, pero casi una moneda al aire. En contra pesan sobre todo el cruce EMA10/20 de 15m, en −11 y cerrándose rápido, y el doble piso en 7.288 y 7.298. Igual no es para operar, porque mañana es D19.
+- **Neutral marginal:** el neutral quedó fuera por 0,66 puntos con el colchón de 3 (el primer cierre fue 7.396,34 contra el límite de 7.397).
+- **Símbolo de pantalla:** el skill pide el equivalente en VANTAGE:SP500, pero `base_sp500_vs_spx.json` mide TRADENATION:US500, igual que el informe de ayer, y usé ese. La base es −0,02, así que los números en pantalla son los mismos.
+- **Llamada del 16-nov:** se activó y cumplió T1 y T2. Lo dice el informe, pero no llené su campo `resultado` en el log, igual que en los cierres anteriores.
+
+No se envió nada a nadie y no toqué TradingView.
+[Tue 11/17/2026 16:26:39.61] Finalizado (codigo 0) 
+ 
+[Wed 11/18/2026 16:15:01.85] Iniciando cierre del dia de 2026-11-18 
+Warning: this sign-in ends between 2026-11-20 and 2026-11-23 (in 2 days at the earliest). Renewing it does not move those dates. Run claude auth login before then, or use claude setup-token for unattended jobs.
+Ya está el cierre del día del 18-nov-2026. Fue la corrida normal de hoy, no una recuperación: el calendario NYSE confirmó que hubo mercado y no existía un informe previo con esa fecha.
+
+**Archivo:** `documentos premercado\11182026_cierre del dia.docx`, solo en Word, a las 16:22 ET.
+
+**Cómo salió la corrida:**
+- **Sigma:** usé el `lastLevels` de las **16:05 ET** (el más reciente de `status.json`). En el informe aclaro que esa cadena 0DTE ya venció y que sirve solo para el tono.
+- **Investing, pestaña Hoy:** solo aparecen el crudo de las 10:30 y las actas del FOMC de las 14:00, los dos que ya tenía el premercado. No salió ningún 3 estrellas nuevo. Hoy fue D19, así que el día no suma a la asertividad.
+- **Investing, pestaña Mañana (jueves 19):** Fed de Filadelfia y subsidios por desempleo, los dos a las 08:30. **Mañana no es D19.**
+- **Escenarios:** el favorito era el bajista (44 %) y se cumplió con T1 y T2. La 3ª vela también salió bajista y acertada. La llamada de ayer para hoy **no se activó**.
+- **Llamada para el 19-nov:** BAJISTA con 52 % de convicción. Se activa con un cierre de 15m bajo 7.285 y se invalida con uno sobre 7.360. T1 7.265 y T2 7.240. El cruce EMA10/EMA20 de 15m está plano (−2): se dio vuelta a alcista a las 13:30 y se devolvió a las 14:30, así que no hay confirmación de dirección.
+- **Registro:**
+  - En `premercado_hipotesis_log.json` quedaron cargados `resultado` y `llamada_siguiente`, con fecha objetivo 2026-11-19 sacada del calendario NYSE.
+  - En `control_premercado.xlsx`, la fila 105 tiene el "CIERRE DEL DÍA".
+  - Antes de tocar los dos archivos dejé backups con sufijo `_20261118_cierre`.
+- **Script:** quedó guardado como `control premercado\cierre_11182026.py`.
+
+No envié nada a nadie, no generé PDF y no toqué TradingView. Abrí una pestaña de Chrome para leer Investing y ya la cerré.
+[Wed 11/18/2026 16:22:48.56] Finalizado (codigo 0) 
+ 
+[Thu 11/19/2026 16:15:03.11] Iniciando cierre del dia de 2026-11-19 
+Ignoring 190 permissions.allow entries from .claude/settings.local.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["C:/Users/gcarv/Documents/CARPETA PERSONAL/01. guillermo carvajal/01. Trading/01_Sigma/mentoria alejandro/premercados alejandro"].hasTrustDialogAccepted: true in C:\Users\gcarv\.claude.json.
+Warning: this sign-in ends between 2026-11-20 and 2026-11-23 (in 1 day at the earliest). Renewing it does not move those dates. Run claude auth login before then, or use claude setup-token for unattended jobs.
+Listo el cierre del día del jueves 19-nov-2026. Es la corrida normal de hoy, no una recuperación: el calendario NYSE confirmó que hubo mercado y no había un informe previo con esa fecha.
+
+**Archivo:** `documentos premercado\11192026_cierre del dia.docx`, solo en Word, generado a las 16:48 ET.
+
+**El día:** abrió en 7.389 (gap de +66) y cerró en 7.176, −148 puntos (−2,02 %). El mínimo fue 7.174, a 2 puntos del cierre, y el rango, de 242 puntos. Se rompió el piso de 7.285-7.290 que había aguantado tres días. El VIX pasó de 22,1 a 28,4.
+
+**Escenarios:**
+- El favorito era el **neutral (35 %)**, y quedó fuera con el cierre de la tercera vela (7.361). **¿Acertamos? NO.** Hoy no fue D19, así que el NO **sí suma** a la asertividad.
+- Se cumplió el **bajista (33 %)**: se activó a las 10:00 y cumplió T1 y T2 en la vela de las 10:15.
+- El alcista nunca se activó: solo pasó 7.405 en mecha.
+- La llamada de ayer para hoy quedó **invalidada por el gap** antes de activarse. Más tarde el precio hizo el recorrido que anticipaba, pero no cuenta.
+
+**Sigma:** usé el `lastLevels` de las **16:05 ET**, el más reciente de `status.json`. Gamma negativo fuerte (−20,9 B), DEX de −52,5 B y el precio 184 puntos bajo el Flip. En el informe aclaro que esa cadena 0DTE ya venció y sirve solo para el tono.
+
+**Investing:**
+- **Pestaña Hoy:** solo están Filadelfia y subsidios de las 08:30, los dos que ya tenía el premercado. No apareció ningún 3 estrellas a las 10:15 o después.
+- **Pestaña Mañana (viernes 20):** "No hay eventos programados". **Mañana no es D19**, pero es el vencimiento mensual de opciones.
+
+**Llamada para el 20-nov:** BAJISTA con 50 % de convicción.
+- Se activa con un cierre de 15m bajo 7.170 y se invalida con uno sobre 7.235.
+- T1 7.140 y T2 7.110, sacados de cierres y mínimos diarios de abril: no hay memoria de 15m tan abajo.
+- El cruce EMA10/EMA20 de 15m está bajista y abierto (−26) desde las 10:45, sin cerrarse.
+- En contra pesan −386 puntos en cuatro días con el RSI diario en 31, el vencimiento mensual y que la activación está a solo 6 puntos del cierre.
+- El ES de las 16:38 ET da una apertura implícita provisoria de unos 7.157, un gap de −19.
+
+**Qué validé y qué no:** las EMAs diarias son una aproximación (≈), hecha a partir de los valores de TradingView del premercado más el cierre de hoy. Las de 30m y 15m salen de las velas de Yahoo.
+
+**Registro:**
+- `premercado_hipotesis_log.json`: quedaron cargados `resultado` y `llamada_siguiente`, con `para_fecha` 2026-11-20 sacada del calendario NYSE.
+- `control_premercado.xlsx`: la fila 106 tiene el "CIERRE DEL DÍA".
+- Antes de tocar los dos archivos dejé backups con sufijo `_20261119_cierre`.
+- El script quedó en `control premercado\cierre_11192026.py`.
+
+No envié nada a nadie, no generé PDF y no toqué TradingView. Abrí una pestaña de Chrome para leer Investing y ya la cerré.
+[Thu 11/19/2026 16:48:41.89] Finalizado (codigo 9009) 
+ 
+[Fri 11/20/2026 16:15:01.79] Iniciando cierre del dia de 2026-11-20 
+Warning: this sign-in can end at any time from now until 2026-11-23. Renewing it does not move that date. Run claude auth login now, or use claude setup-token for unattended jobs.
+Listo: el informe del viernes 20-nov ya está generado. Era sesión de mercado según `calendario_nyse` y es la corrida normal del día, no una recuperación.
+
+- **Documento:** `documentos premercado\11202026_cierre del dia.docx`, en Word y sin PDF. Lo armé a las 16:21 ET.
+- **Sigma:** usé la lectura de las **15:50 ET**, la más reciente de `status.json`. La de ~16:05 no existe: el daemon se reinició a las 16:06 ET y desde entonces marca fuera de horario. Lo explico en el informe.
+- **Investing, pestaña Hoy:** sin eventos de 3★. No apareció ninguno a las 10:15 ET o después, así que el día no es D19 y suma a la asertividad.
+- **Investing, próxima sesión (lunes 23):** la pestaña «Mañana» es el sábado, así que leí «Próxima semana». Hay dos PMI de 3★ a las 09:45 ET, antes de las 10:15, así que el lunes tampoco es D19.
+- **Investing cambió la página:** las estrellas ya no se dibujan con `svg`, sino con `span.icon-star-filled`. El método del skill («3 `svg` = 3 estrellas») ya no funciona. Lo leí con el marcado nuevo y lo dejé anotado en el log, pero el skill sigue diciendo lo viejo.
+- **Registro:** antes de tocar nada dejé backups con sufijo `_20261120_cierre`.
+  - En `premercado_hipotesis_log.json` quedaron cargados `resultado` y `llamada_siguiente`, con `para_fecha` 2026-11-23 sacada del calendario NYSE.
+  - En `control_premercado.xlsx`, la fila 107 tiene el «CIERRE DEL DÍA».
+- **Script:** quedó en `control premercado\cierre_11202026.py`, con las rutas armadas con `os.path.join`.
+
+**Qué validé y qué no:**
+- Las velas y el cierre salen de Yahoo.
+- La EMA100 y la EMA200 diarias (≈) son una aproximación: el histórico de Yahoo no alcanza para calcularlas, así que partí de los valores de TradingView del premercado y les sumé el movimiento de hoy.
+- La apertura implícita es provisoria: el ES de las 16:11 ET da un gap de unos +21, y hay un fin de semana por medio.
+
+No envié nada a nadie y no toqué TradingView. Abrí una pestaña de Chrome para leer Investing y ya la cerré.
+[Fri 11/20/2026 16:21:40.38] Finalizado (codigo 0) 
+ 
+[Mon 11/23/2026 16:15:01.58] Iniciando cierre del dia de 2026-11-23 
+El informe del cierre del día 23-nov-2026 está listo: `documentos premercado\11232026_cierre del dia.docx`, generado a las 16:24 ET. Es la corrida normal del día, no una recuperación.
+
+**Comprobaciones previas**
+- `esDiaDeMercado('2026-11-23')` dio `true`, así que hubo mercado. El próximo día de mercado es el 2026-11-24.
+- No había un cierre del día con esa fecha, así que no se sobrescribió nada.
+- La lectura de Sigma es la de las **16:05 ET** (`lastLevels`, 21:05:54Z), así que sí hubo lectura del cierre.
+
+**Investing (D19)**
+- La pestaña Hoy, revisada al cierre, solo tiene los dos PMI de las 09:45. No apareció ningún evento de 3 estrellas a las 10:15 o después, así que el día no es D19 y suma a la asertividad.
+- Para mañana sale la confianza del consumidor de Conference Board a las 10:00 ET (3 estrellas). Es antes de las 10:15, así que tampoco es D19.
+
+**Qué hay que saber al leerlo**
+- Califiqué los escenarios de la **adenda de las 09:20** (la de NVIDIA), no los originales de las 08:41, que la propia adenda dejó sin efecto.
+- Los objetivos de la adenda se ajustaron a las 10:10, ya con las tres primeras velas hechas. Lo digo en el informe porque el T1 bajista "acertado" se fijó cuando ese mínimo ya había ocurrido.
+- El favorito estaba empatado entre neutral y bajista (35 % cada uno). Por eso el resultado registrado es un **NO**.
+- La llamada del viernes quedó invalidada sin llegar a activarse.
+
+**Registro**
+- En `premercado_hipotesis_log.json` quedaron cargados `resultado` y `llamada_siguiente` (para el 2026-11-24). Antes guardé una copia en `.bak_20261123_cierre`.
+- En `control_premercado.xlsx` agregué el "CIERRE DEL DÍA" a la fila 108, con copia previa en `_bak_20261123_cierre.xlsx`.
+- El script con el que lo generé es `control premercado\cierre_11232026.py`, y quedó también `datos_11232026.py`.
+
+Solo se generó el Word, sin PDF. No envié nada a nadie, no toqué el premercado ni TradingView, y cerré la pestaña de Chrome que abrí.
+[Mon 11/23/2026 16:25:17.61] Finalizado (codigo 0) 
+ 
+[Tue 11/24/2026 16:15:01.76] Iniciando cierre del dia de 2026-11-24 
+El informe del cierre del 24-nov quedó generado a las 16:19 ET. Es la corrida normal del día, no una recuperación.
+
+- **Archivo:** `documentos premercado\11242026_cierre del dia.docx`, solo en Word. No había uno anterior, así que no se sobrescribió nada.
+- **Calendario:** `esDiaDeMercado('2026-11-24')` respondió que sí hubo mercado, y `siguienteDiaDeMercado` da el miércoles 25-nov.
+- **Sigma:** se usó el `lastLevels` de status.json de las **16:05 ET**, que es la lectura del cierre.
+- **Investing, pestaña Hoy:** solo aparece la Conference Board de las 10:00. No salió ningún 3 estrellas a las 10:15 o después, así que hoy no es D19 y suma a la asertividad.
+- **Investing, pestaña Mañana:** hay un 3 estrellas a las **10:30 ET** (inventarios de crudo de la EIA). Por eso el **miércoles es D19**: no se tradea. La llamada quedó registrada con `d19: true`.
+- **Registro:**
+  - En `premercado_hipotesis_log.json` se llenaron `resultado` y `llamada_siguiente` en la entrada del 24-nov. Antes se sacó el backup `.bak_20261124_cierre`.
+  - En `control_premercado.xlsx` se añadió el "CIERRE DEL DÍA" al Detalle de la fila 109, también con backup previo.
+- **Script:** `control premercado\cierre_11242026.py`, armado sobre el del 23-nov, con las rutas por `os.path.join`. Los datos salieron de `datos_11242026.py`.
+
+Algo que tienes que saber: Yahoo trae un máximo de 7.237,17 a las 13:03. Es un solo minuto con el valor exacto del cierre del lunes, y la vela diaria de Yahoo marca máximo 7.224. Lo descarté como error. Si hubiera contado, el T2 alcista (7.225) habría salido cumplido; sin ese tick queda en "no, por 1 punto". La memoria de 15m también registra un giro del 24-nov en 7.235/7.240 que viene de ese tick. Lo anoté en el log.
+
+No se envió nada a nadie, no se generó PDF y no se tocó TradingView. Abrí una pestaña propia en Chrome para Investing y ya la cerré.
+[Tue 11/24/2026 16:20:23.86] Finalizado (codigo 0) 
+ 

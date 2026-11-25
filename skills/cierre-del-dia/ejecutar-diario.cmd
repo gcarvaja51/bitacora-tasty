@@ -27,7 +27,7 @@ for /f %%f in ('python -c "from datetime import datetime,timedelta;from zoneinfo
 if "%FECHA%"=="" exit /b 0
 if "%FECHA%"=="NO" exit /b 0
 
-cd /d "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01_Sigma\mentoria alejandro\premercados alejandro"
+cd /d "C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal\01. Trading\01_Sigma\mentoria alejandro\premercados alejandro"
 
 set "LOG=%~dp0ejecuciones.log"
 

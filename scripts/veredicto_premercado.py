@@ -40,7 +40,7 @@ SALIDA = os.path.join(REPO, "veredictos")
 
 LOG_DEFECTO = os.path.join(
     os.path.expanduser("~"), "Documents", "CARPETA PERSONAL",
-    "01. guillermo carvajal", "01_Sigma", "mentoria alejandro",
+    "01. guillermo carvajal", "01. Trading", "01_Sigma", "mentoria alejandro",
     "premercados alejandro", "control premercado",
     "premercado_hipotesis_log.json")
 

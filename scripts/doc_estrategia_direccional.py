@@ -6,7 +6,7 @@ from docx.shared import Pt, RGBColor, Inches
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 DEST = (r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal"
-        r"\01_Sigma\mentoria alejandro\estrategias automatizadas"
+        r"\01. Trading\01_Sigma\mentoria alejandro\estrategias automatizadas"
         r"\estrategia direccional\mejoras al algoritmo direccional")
 ARCHIVO = "Estrategia Direccional SPX - Antes y Ahora.docx"
 

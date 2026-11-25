@@ -38,7 +38,7 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 # Los datos van FUERA de .claude: Claude en modo -p no puede escribir dentro de
 # .claude (carpeta protegida) y no podia dejar su _cargada.json (2026-09-28).
 DATOS = (r"C:\Users\gcarv\Documents\CARPETA PERSONAL\01. guillermo carvajal"
-         r"\01_Sigma\calendario semanal\semanas")
+         r"\01. Trading\01_Sigma\calendario semanal\semanas")
 LOG = os.path.join(AQUI, "ejecuciones.log")
 GRUPO = "120363403656198230@g.us"   # 📣 Notificaciones 🟤 5 de Opción Sigma, cuenta usa
 

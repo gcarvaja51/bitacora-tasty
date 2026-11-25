@@ -7,7 +7,7 @@ from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
-BASE = os.path.join(r"C:\Users\gcarv\Documents\CARPETA PERSONAL", "01. guillermo carvajal", "01_Sigma",
+BASE = os.path.join(r"C:\Users\gcarv\Documents\CARPETA PERSONAL", "01. guillermo carvajal", "01. Trading", "01_Sigma",
                     "mentoria alejandro", "premercados alejandro")
 DOC = os.path.join(BASE, "documentos premercado", "09282026_cierre del dia.docx")
 LOG = os.path.join(BASE, "control premercado", "premercado_hipotesis_log.json")

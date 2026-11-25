@@ -36,7 +36,7 @@ const senalesH = require('../src/senales_horizontal.js');
 const { TradierClient } = require('../src/tradier.js');
 
 const BASE = path.join('C:', 'Users', 'gcarv', 'Documents', 'CARPETA PERSONAL',
-  '01. guillermo carvajal', '01_Sigma', 'mentoria alejandro',
+  '01. guillermo carvajal', '01. Trading', '01_Sigma', 'mentoria alejandro',
   'premercados alejandro', 'control premercado');
 const HIST_GEX = path.join(BASE, 'neutrales', 'gex_perfil_historico.jsonl');
 const DIR_CADENAS = path.join(BASE, 'neutrales', 'cadenas');

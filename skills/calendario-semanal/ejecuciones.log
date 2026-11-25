@@ -263,3 +263,64 @@ No mandé nada por WhatsApp; el parte lo envía la fase 3.
 [2026-11-16 11:02:31] parte a Guillermo: enviado
 [Mon 11/16/2026 11:02:31.30] Finalizado (codigo 0) 
  
+[Tue 11/17/2026 11:00:02.10] Iniciando calendario semanal 
+[2026-11-17 11:00:05] semana del 2026-11-16 ya cargada: nada que hacer
+[Tue 11/17/2026 11:00:05.87] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Wed 11/18/2026 11:00:18.23] Iniciando calendario semanal 
+[2026-11-18 11:02:02] semana del 2026-11-16 ya cargada: nada que hacer
+[Wed 11/18/2026 11:02:04.28] Fase 1 termino con codigo 1 - NO se arranca Claude 
+ 
+[Mon 11/23/2026 11:00:01.33] Iniciando calendario semanal 
+[2026-11-23 11:02:07] no se pudo leer el grupo (intento 1): HTTPConnectionPool(host='127.0.0.1', port=3001): Read timed out. (read timeout=120)
+[2026-11-23 11:08:01] agenda encontrada (publicada 2026-11-23T11:13:22Z): 7 sesiones; avisos: 2026-11-26 sin hora: 🇺🇸 Día de Acción de Gracias (Thanksgiving) | 2026-11-26 sin hora: Mercado cerrado – No habrá sesiones en vivo | 2026-11-27 sin hora: 🛍️🔥 BLACK FRIDAY – OPCIÓN SIGMA | 2026-11-27 sin hora: No habrá sesiones en vivo. | 2026-11-27 sin hora: 👀 ¡Todos atentos al Black Friday de Opción Sigma!
+[Mon 11/23/2026 11:08:02.10] Fase 2, intento 1 de 3 
+Warning: this sign-in may have ended between 2026-11-20 and 2026-11-23. If requests are refused, run claude auth login, or use claude setup-token for unattended jobs.
+No cargué nada: la agenda de esta semana no está en disco. No existe `semanas\2026-11-23_agenda.json` ni el `.txt`; el archivo más reciente es el de la semana del 16-nov, que ya estaba cargada. Como me pediste no leer WhatsApp, no escribí el `_cargada.json`, así que la tarea volverá a intentarlo sola. Las herramientas de Google Calendar sí cargaron, así que el fallo no viene del conector. O la fase 1 no llegó a bajar la agenda, o la guardó en otra ruta.
+[Mon 11/23/2026 11:08:56.57] Claude no dejo el _cargada.json - reintento en 2 min 
+[Mon 11/23/2026 11:10:58.27] Fase 2, intento 2 de 3 
+Warning: this sign-in may have ended between 2026-11-20 and 2026-11-23. If requests are refused, run claude auth login, or use claude setup-token for unattended jobs.
+No hice nada: la agenda de esta semana no está en `semanas\`. No existe `2026-11-23_agenda.json` ni `2026-11-23_agenda.txt`. El último archivo es `2026-11-16`, que corresponde a la semana del 16 al 22 de noviembre y ya está cargada.
+
+No creé eventos en Google Calendar ni escribí `2026-11-23_cargada.json`, así que la fase 3 avisará del fallo. Las herramientas de Calendar sí cargaron.
+
+Para entender por qué la fase 1 me lanzó sin dejar el archivo, mira `ejecuciones.log`.
+
+Algo aparte: la semana del `2026-11-02` tiene su agenda pero no tiene `_cargada.json`, así que esa carga quedó sin terminar.
+[Mon 11/23/2026 11:11:37.84] Claude no dejo el _cargada.json - reintento en 2 min 
+[Mon 11/23/2026 11:13:39.28] Fase 2, intento 3 de 3 
+Warning: this sign-in may have ended between 2026-11-20 and 2026-11-23. If requests are refused, run claude auth login, or use claude setup-token for unattended jobs.
+No cargué nada en Google Calendar: no está el archivo `semanas\2026-11-23_agenda.json`, ni tampoco su `.txt`. El más reciente es `2026-11-16_agenda.json`, de la semana pasada, que ya figura como cargada. No escribí el `_cargada.json` de esta semana, así que la tarea volverá a intentarlo.
+
+Hay que revisar la fase 1, porque esta vez entregó el control sin dejar la agenda en disco.
+[Mon 11/23/2026 11:14:17.02] Fase 2 terminada tras 3 intento(s) 
+[2026-11-23 11:14:18] aviso a Guillermo: OK
+[2026-11-23 11:14:18] parte a Guillermo: enviado
+[Mon 11/23/2026 11:14:18.75] Finalizado (codigo 0) 
+ 
+[Tue 11/24/2026 11:00:01.70] Iniciando calendario semanal 
+[2026-11-24 11:00:09] agenda encontrada (publicada 2026-11-23T11:13:22Z): 7 sesiones; avisos: 2026-11-26 sin hora: 🇺🇸 Día de Acción de Gracias (Thanksgiving) | 2026-11-26 sin hora: Mercado cerrado – No habrá sesiones en vivo | 2026-11-27 sin hora: 🛍️🔥 BLACK FRIDAY – OPCIÓN SIGMA | 2026-11-27 sin hora: No habrá sesiones en vivo. | 2026-11-27 sin hora: 👀 ¡Todos atentos al Black Friday de Opción Sigma!
+[Tue 11/24/2026 11:00:10.23] Fase 2, intento 1 de 3 
+La semana del 23 de noviembre ya está en Google Calendar: creé las 7 sesiones y ninguna estaba antes. Antes de cargar comprobé que el JSON coincide con el texto original de la agenda.
+
+Todas van en dorado, con 1 hora de duración, `timeZone: America/New_York`, sin invitados y con `notificationLevel` NONE. En noviembre la hora de Nueva York es la misma que la de Colombia, así que las horas de abajo valen para las dos:
+
+| Día | Hora | Sesión |
+|---|---|---|
+| Lun 23 | 9:15am | Sesión en Vivo con Gonza |
+| Lun 23 | 12:00pm | Sesión en Vivo con Rocío |
+| Mar 24 | 9:15am | Sesión en Vivo con Facu |
+| Mar 24 | 11:00am | Sigma Live en YouTube con Luis |
+| Mié 25 | 9:15am | Sesión en Vivo con Tarri |
+| Mié 25 | 12:00pm | Sesión en Vivo con Cristian |
+| Dom 29 | 6:30pm | Planeación Semanal |
+
+- **Jueves 26 y viernes 27:** no hay sesiones. El jueves es Thanksgiving y el mercado cierra; el viernes es el Black Friday de Opción Sigma, también sin sesiones en vivo. Lo dejé anotado en el parte.
+- **Lunes 23:** sus dos sesiones se cargaron hoy martes, cuando ya habían pasado, porque la carga se hizo hoy y no ayer.
+
+Escribí `semanas\2026-11-23_cargada.json`, que marca la semana como hecha. No mandé nada por WhatsApp: el parte lo manda la fase 3.
+[Tue 11/24/2026 11:04:33.24] Fase 2 terminada tras 1 intento(s) 
+[2026-11-24 11:04:39] aviso a Guillermo: OK
+[2026-11-24 11:04:39] parte a Guillermo: enviado
+[Tue 11/24/2026 11:04:40.49] Finalizado (codigo 0) 
+ 

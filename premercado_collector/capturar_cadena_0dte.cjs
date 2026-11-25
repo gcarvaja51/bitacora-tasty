@@ -136,7 +136,7 @@ function selloET() {
   };
 
   const dir = path.join(__dirname, '..', '..',
-    'Documents', 'CARPETA PERSONAL', '01. guillermo carvajal', '01_Sigma',
+    'Documents', 'CARPETA PERSONAL', '01. guillermo carvajal', '01. Trading', '01_Sigma',
     'mentoria alejandro', 'premercados alejandro', 'control premercado',
     'neutrales', 'cadenas');
   fs.mkdirSync(dir, { recursive: true });

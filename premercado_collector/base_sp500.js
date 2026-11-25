@@ -49,7 +49,7 @@ const MAX_BARRAS = 500;
 
 const REGISTRO_POR_DEFECTO = path.join(
   'C:', 'Users', 'gcarv', 'Documents', 'CARPETA PERSONAL', '01. guillermo carvajal',
-  '01_Sigma', 'mentoria alejandro', 'premercados alejandro', 'control premercado',
+  '01. Trading', '01_Sigma', 'mentoria alejandro', 'premercados alejandro', 'control premercado',
   'base_sp500_vs_spx.json',
 );
 

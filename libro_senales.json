@@ -1,0 +1,16 @@
+{
+ "capital": 10000,
+ "creado": "2026-11-20T19:18:45.563Z",
+ "trades": [],
+ "alertas": [],
+ "margenDia": {
+  "fecha": "2026-11-24",
+  "at": "2026-11-24T15:05:38.430Z",
+  "usado": 0,
+  "valorCuenta": 10000,
+  "latente": 0,
+  "tope": 7500,
+  "llamada": false,
+  "cambios": 0
+ }
+}

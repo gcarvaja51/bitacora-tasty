@@ -30,7 +30,7 @@ const { seleccionarStrikes } = require('../src/premercado_strikes.js');
 const senalesH = require('../src/senales_horizontal.js');
 
 const BASE = path.join('C:', 'Users', 'gcarv', 'Documents', 'CARPETA PERSONAL',
-  '01. guillermo carvajal', '01_Sigma', 'mentoria alejandro',
+  '01. guillermo carvajal', '01. Trading', '01_Sigma', 'mentoria alejandro',
   'premercados alejandro', 'control premercado');
 const LOG_PREMERCADO = path.join(BASE, 'premercado_hipotesis_log.json');
 const DIR_CADENAS = path.join(BASE, 'neutrales', 'cadenas');
