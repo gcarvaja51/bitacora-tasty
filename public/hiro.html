@@ -800,7 +800,7 @@ function pintarFlujo() {
     + `<span>Put/Call Premium <b>${fmtUsd(pPut)} / ${fmtUsd(pCall)}</b></span></div>` + resumenPer
     + `<table><tr>${th('hora', 'Time')}${th('contrato', 'Strike')}${th('tipo', 'Type')}${th('qty', 'Qty')}${th('precio', 'Price')}${th('lado', '')}${th('prima', 'Premium')}${th('sent', 'Sentiment')}</tr>`
     + (ords.length ? ords.map((o) => { const c = o.sentimiento === 'bullish' ? '#22c55e' : o.sentimiento === 'bearish' ? '#ef4444' : '#6b7280';
-        return `<tr><td>${o.hora}</td><td>$${(o.strike || 0).toLocaleString('en-US')}</td><td style="color:${o.tipo === 'call' ? '#5eead4' : '#f0a35e'}">${o.tipo === 'call' ? 'Call' : 'Put'}</td><td>${o.cantidad ?? '—'}</td>`
+        return `<tr><td>${o.hora}</td><td>${(o.strike || 0).toLocaleString('en-US')}</td><td style="color:${o.tipo === 'call' ? '#5eead4' : '#f0a35e'}">${o.tipo === 'call' ? 'Call' : 'Put'}</td><td>${o.cantidad ?? '—'}</td>`
           + `<td>$${o.precio ?? '—'}</td><td style="color:#7f8db3">${o.lado || ''}</td><td><span class="p" style="background:${c}"></span>${fmtUsd(o.prima)}</td>`
           + `<td><span class="p" style="background:${c}"></span>${o.sentimiento === 'bullish' ? 'Bullish' : o.sentimiento === 'bearish' ? 'Bearish' : '—'}</td></tr>`; }).join('')
       : `<tr><td colspan="8" style="color:#8aa0d8">${periodoFlujo ? 'Sin órdenes en los últimos ' + periodoFlujo + ' min' : 'Sin órdenes leídas todavía'}</td></tr>`) + '</table>';
