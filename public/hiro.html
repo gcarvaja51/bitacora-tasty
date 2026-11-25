@@ -77,8 +77,9 @@
   #flujo td { padding:3px 6px; border-bottom:1px solid #14254a; white-space:nowrap; }
   #flujo .p { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
   /* TTD de plataformas (capa Confluencia, 24-nov): como el Traders Trend Dashboard de TradingView, abajo a la izquierda */
-  #ttd { position:absolute; left:10px; bottom:34px; z-index:5; display:none; background:rgba(14,14,18,.94); border:1px solid #3a3a3a;
-    border-radius:7px; font-size:11.5px; box-shadow:0 6px 18px rgba(0,0,0,.5); max-width:calc(100% - 110px); }
+  /* 24-nov (Guillermo): las dos tablas separadas, cada una en su propio recuadro y con espacio entre ellas */
+  #ttd { position:absolute; left:10px; bottom:34px; z-index:5; display:none; font-size:11.5px; max-width:calc(100% - 110px); }
+  #ttd > div { background:rgba(14,14,18,.94); border:1px solid #3a3a3a; border-radius:7px; box-shadow:0 6px 18px rgba(0,0,0,.5); }
   #ttd table { border-collapse:collapse; }
   #ttd th { text-align:left; color:#a78bfa; font-weight:600; padding:5px 8px; border-bottom:1px solid #333; white-space:nowrap; }
   #ttd td { padding:3px 8px; border-bottom:1px solid #232323; white-space:nowrap; }
@@ -631,7 +632,7 @@ function pintarTTD() {
   const caja = $('ttd'), ver = est.conf.on && (est.conf.ttd || est.conf.fases) && fecha;
   caja.style.display = ver ? 'flex' : 'none';
   if (!ver) return;
-  caja.style.gap = '4px'; caja.style.alignItems = 'flex-start';
+  caja.style.gap = '14px'; caja.style.alignItems = 'flex-end';
   pedirFases();
   const fasesHtml = est.conf.fases ? `<div>${htmlFases()}</div>` : '';
   if (!est.conf.ttd) { caja.innerHTML = fasesHtml; return; }
