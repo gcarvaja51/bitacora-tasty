@@ -754,6 +754,12 @@ const COLS_FLUJO = {
   prima: { v: (o) => +o.prima || 0 }, sent: { v: (o) => (o.sentimiento === 'bullish' ? 1 : 0) },
 };
 let ordenFlujo = leer('hiroOrdenFlujo', { col: null, dir: -1 });
+// 25-nov (Guillermo: "necesito validar que esta entrando en el ultimo periodo... todo el dia o los ultimos 30 minutos o la
+// ultima hora"): selector de período sobre la tabla + resumen de prima alcista/bajista del período. La ventana se cuenta
+// hacia atrás desde ahora (o desde la hora que se está viendo en Reproducir). Primas > $50 M se dejan fuera del resumen
+// (casi siempre son lecturas malas de la foto) y se avisa.
+const PERIODOS_FLUJO = [[0, 'Día'], [60, '1 h'], [30, '30 min'], [15, '15 min']];
+let periodoFlujo = leer('hiroPeriodoFlujo', 0);
 function pintarFlujo() {
   const caja = $('flujo');
   const ver = est.flow.on && est.flow.tabla;
@@ -764,20 +770,37 @@ function pintarFlujo() {
   // 25-nov (Guillermo: "organizar de mayor a menor o de menor a mayor con un click... en cada uno de los encabezados"):
   // clic en un encabezado = ordena por esa columna (1.º de mayor a menor, 2.º de menor a mayor). Se ordena TODO el día y
   // luego se muestran 60 filas: por Premium salen las 60 más grandes del día. Sin orden elegido: las más recientes primero.
-  const todas = ordenesFlujo(), cfg = COLS_FLUJO[ordenFlujo.col];
+  const refMin = (ahoraT() % 86400) / 60;
+  const todas = ordenesFlujo().filter((o) => { const m = segFlujo(o.hora) / 60; return m <= refMin + 1 && (!periodoFlujo || m > refMin - periodoFlujo); });
+  const cfg = COLS_FLUJO[ordenFlujo.col];
+  let pAl = 0, pBa = 0, nAl = 0, nBa = 0, nN = 0, dudosas = 0;
+  for (const o of todas) {
+    const pr = +o.prima || 0;
+    if (pr > 5e7) { dudosas++; continue; }
+    if (o.sentimiento === 'bullish') { pAl += pr; nAl++; } else if (o.sentimiento === 'bearish') { pBa += pr; nBa++; } else nN++;
+  }
+  const neto = pAl - pBa, colNeto = neto > 0 ? '#22c55e' : neto < 0 ? '#ef4444' : '#aaa';
+  const botones = PERIODOS_FLUJO.map(([m, t]) => `<button data-per="${m}" style="cursor:pointer;border:1px solid #1e3a6e;border-radius:4px;padding:1px 7px;font-size:11px;background:${periodoFlujo === m ? '#1e40af' : 'transparent'};color:${periodoFlujo === m ? '#fff' : '#8aa0d8'}">${t}</button>`).join(' ');
+  const resumenPer = `<div class="cab" style="position:static;align-items:center">${botones}`
+    + `<span>${todas.length} órdenes</span><span>Bullish <b style="color:#22c55e">${fmtUsd(pAl)}</b> (${nAl})</span>`
+    + `<span>Bearish <b style="color:#ef4444">${fmtUsd(pBa)}</b> (${nBa})</span>`
+    + `<span>Neto <b style="color:${colNeto}">${neto >= 0 ? '+' : '−'}${fmtUsd(Math.abs(neto))}</b></span>`
+    + (nN ? `<span title="Sin sentimiento en la tabla de Quant Data">sin dato ${nN}</span>` : '')
+    + (dudosas ? `<span title="Prima de más de $50 M: casi seguro una lectura mala de la foto; no suma al resumen">⚠ ${dudosas} dudosa${dudosas > 1 ? 's' : ''}</span>` : '') + `</div>`;
   if (cfg) todas.sort((a, b) => { const x = cfg.v(a), y = cfg.v(b); return (x < y ? -1 : x > y ? 1 : 0) * ordenFlujo.dir; });
   const ords = todas.slice(0, 60);
   const th = (k, txt) => `<th data-col="${k}" style="cursor:pointer;user-select:none" title="Clic: ordenar ${ordenFlujo.col === k && ordenFlujo.dir === -1 ? 'de menor a mayor' : 'de mayor a menor'}">${txt}${ordenFlujo.col === k ? (ordenFlujo.dir === -1 ? ' ▼' : ' ▲') : ''}</th>`;
   const sent = rs.sentimiento === 'bullish' ? ['Bullish', '#22c55e'] : rs.sentimiento === 'bearish' ? ['Bearish', '#ef4444'] : ['—', '#aaa'];
   caja.innerHTML = `<div class="cab"><span>Quant Data · Consolidated Order Flow${u ? ' · ' + u.at.slice(11, 16) : ''}</span>`
     + `<span>Sentiment <b style="color:${sent[1]}">${sent[0]}</b></span><span>Put/Call Ratio <b>${rs.pcRatio != null ? rs.pcRatio + '%' : '—'}</b></span>`
-    + `<span>Put/Call Premium <b>${fmtUsd(rs.primaPuts)} / ${fmtUsd(rs.primaCalls)}</b></span></div>`
+    + `<span>Put/Call Premium <b>${fmtUsd(rs.primaPuts)} / ${fmtUsd(rs.primaCalls)}</b></span></div>` + resumenPer
     + `<table><tr>${th('hora', 'Time')}${th('contrato', 'Contract')}${th('qty', 'Qty')}${th('precio', 'Price')}${th('lado', '')}${th('prima', 'Premium')}${th('sent', 'Sentiment')}</tr>`
-    + (ords.length ? ords.map((o) => { const c = o.sentimiento === 'bullish' ? '#22c55e' : '#ef4444';
+    + (ords.length ? ords.map((o) => { const c = o.sentimiento === 'bullish' ? '#22c55e' : o.sentimiento === 'bearish' ? '#ef4444' : '#6b7280';
         return `<tr><td>${o.hora}</td><td>SPX $${(o.strike || 0).toLocaleString('en-US')} ${o.tipo === 'call' ? 'Call' : 'Put'}</td><td>${o.cantidad ?? '—'}</td>`
           + `<td>$${o.precio ?? '—'}</td><td style="color:#7f8db3">${o.lado || ''}</td><td><span class="p" style="background:${c}"></span>${fmtUsd(o.prima)}</td>`
-          + `<td><span class="p" style="background:${c}"></span>${o.sentimiento === 'bullish' ? 'Bullish' : 'Bearish'}</td></tr>`; }).join('')
-      : '<tr><td colspan="7" style="color:#8aa0d8">Sin órdenes leídas todavía</td></tr>') + '</table>';
+          + `<td><span class="p" style="background:${c}"></span>${o.sentimiento === 'bullish' ? 'Bullish' : o.sentimiento === 'bearish' ? 'Bearish' : '—'}</td></tr>`; }).join('')
+      : `<tr><td colspan="7" style="color:#8aa0d8">${periodoFlujo ? 'Sin órdenes en los últimos ' + periodoFlujo + ' min' : 'Sin órdenes leídas todavía'}</td></tr>`) + '</table>';
+  caja.querySelectorAll('button[data-per]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); periodoFlujo = +b.dataset.per; guardar('hiroPeriodoFlujo', periodoFlujo); pintarFlujo(); });
   caja.querySelectorAll('th[data-col]').forEach((h) => h.onclick = (ev) => {
     ev.stopPropagation();
     const k = h.dataset.col;
