@@ -229,7 +229,7 @@ const sBase = gM.addLineSeries({ color: 'rgba(0,0,0,0)', lineWidth: 1, priceLine
 const sVelas = gM.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350', priceLineVisible: false, autoscaleInfoProvider: autoscale });
 const sLinea = gM.addLineSeries({ color: '#e8e8e8', lineWidth: 1, priceLineVisible: false, autoscaleInfoProvider: autoscale });
 // Niveles que cambian en el día (GexBot, Bola 8): líneas escalonadas en el tiempo, sobre el eje del SPX
-const esc = (color, estilo, ancho = 1) => gM.addLineSeries({ color, lineWidth: ancho, lineStyle: estilo, lineType: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, autoscaleInfoProvider: autoscale });
+const esc = (color, estilo, ancho = 1) => gM.addLineSeries({ color, lineWidth: ancho, lineStyle: estilo, lineType: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: autoscale });   // 25-nov: las etiquetas las dibuja etiquetasNivel() (una fila por strike)
 const RAYA = 3, PUNTEADA = 1;
 const L = {
   gbFlip: esc('#ff9800', RAYA, 2), gbPos: esc('#5eead4', RAYA), gbNeg: esc('#ff6b6b', RAYA),
@@ -240,6 +240,8 @@ const L = {
   // Muros Sigma con su historial del día (21-nov): escalón sólido, como se fueron moviendo (cada ~2 min)
   sgCall: esc('#2e8b57', 0, 2), sgPut: esc('#b5651d', 0, 2), sgFlip: esc('#c9a227', 0, 2), sgMvs: esc('#7fb2e5', 0, 1), sgMp: esc('#9e9e9e', 0, 1),
 };
+const ETQ = { gbFlip: 'Gamma Flip GB', gbPos: 'Imán + GB', gbNeg: 'Imán − GB', gbPosOi: 'Imán + GB OI', gbNegOi: 'Imán − GB OI',
+  freno: 'Freno gamma', acel: 'Acelerador gamma', sgCall: 'Call Wall', sgPut: 'Put Wall', sgFlip: 'Gamma Flip', sgMvs: 'Key Gamma', sgMp: 'Max Pain' };
 // Series de las medias móviles (8 casillas configurables)
 const sMA = Array.from({ length: 8 }, () => gM.addLineSeries({ color: '#fff', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false }));
 const fmtSerie = { type: 'custom', formatter: fmtB, minMove: 1 };
@@ -392,7 +394,7 @@ const ahoraT = () => { if (corte != null) return ts(fecha, balde(hmDe(corte))); 
   return t; };
 const ultimo = (f) => { for (let i = capas.length - 1; i >= 0; i--) { const v = f(capas[i]); if (v != null) return { v, at: capas[i].at }; } return null; };
 
-let lineasNivel = [], ayudaNiveles = [];   // ayudaNiveles: [precio, título] de cada línea horizontal, para la ayuda memoria
+let lineasNivel = [], ayudaNiveles = [], etiquetas = [];   // etiquetas: {p, txt, color} de cada nivel, agrupadas por strike en el lienzo   // ayudaNiveles: [precio, título] de cada línea horizontal, para la ayuda memoria
 function redibujar() {
   if (!fecha) return;
   const horas = []; for (let m = 570; m <= 975; m += tf) horas.push(ts(fecha, hmDe(m)));
@@ -452,14 +454,14 @@ function redibujar() {
   pon(L.acel, est.gbs.on && est.gbs.acel, (r) => r.gexbot_state?.acelerador);
   // Bola 8: como en la Sonar original, los objetivos son líneas horizontales completas (de la última lectura)
   pon(L.obj1, false, () => null); pon(L.obj2, false, () => null);
-  lineasNivel.forEach((l) => { try { sBase.removePriceLine(l); } catch {} }); lineasNivel = []; ayudaNiveles = [];
+  lineasNivel.forEach((l) => { try { sBase.removePriceLine(l); } catch {} }); lineasNivel = []; ayudaNiveles = []; etiquetas = [];
   nivelesCercanos = [];
-  const add = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); ayudaNiveles.push([+p, tit]); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` })); };
+  const add = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); ayudaNiveles.push([+p, tit]); etiquetas.push({ p: +p, txt: tit, color }); lineasNivel.push(sBase.createPriceLine({ price: +p, color, lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: '' })); };
   // Muros Sigma: con historial del día → escalones que respetan la reproducción; sin historial (días viejos) → la
   // lectura actual como línea horizontal, solo si es hoy y no se está reproduciendo
   const muroSerie = (serie, on, campo, tit) => {
     const datos = on && murosHist.length ? escalonLista(est.sigma.suave ? murosSuaves : murosHist, campo, horas) : [];
-    serie.setData(conVacios(datos, horas)); serie.applyOptions({ visible: datos.length > 0, title: tit });
+    serie.setData(conVacios(datos, horas)); serie.applyOptions({ visible: datos.length > 0, title: '' });
     if (datos.length) nivelesCercanos.push(datos[datos.length - 1].value);
   };
   muroSerie(L.sgCall, est.sigma.on && est.sigma.callWall, 'callWall', 'Call Wall');
@@ -482,8 +484,8 @@ function redibujar() {
       const k = t.v.spx / t.v.tradytics.spy;
       for (const [p, tit] of [[t.v.tradytics.spyRango[1], 'SPY range alto'], [t.v.tradytics.spyRango[0], 'SPY range bajo']]) {
         if (typeof p !== 'number' || !isFinite(p)) continue;
-        const v = Math.round(p * k * 100) / 100; nivelesCercanos.push(v); ayudaNiveles.push([v, tit + ' $' + p]);
-        lineasNivel.push(sBase.createPriceLine({ price: v, color: 'rgba(56,132,255,.9)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${tit} $${p} (≈${v.toFixed(0)})` }));
+        const v = Math.round(p * k * 100) / 100; nivelesCercanos.push(v); ayudaNiveles.push([v, tit + ' $' + p]); etiquetas.push({ p: v, txt: `${tit} $${p}`, color: 'rgba(56,132,255,.9)' });
+        lineasNivel.push(sBase.createPriceLine({ price: v, color: 'rgba(56,132,255,.9)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: '' }));
       }
     }
   }
@@ -492,11 +494,15 @@ function redibujar() {
     if (b) {
       // 21-nov: una lectura de más de 20 min (la misma regla del motor de confluencia) se pinta tenue y punteada, con su hora
       const vieja = edadMin(b.at) > 20, h = b.at.slice(11, 16);
-      const lin = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); ayudaNiveles.push([+p, tit]); lineasNivel.push(sBase.createPriceLine({ price: +p, color: vieja ? color.replace('rgb(', 'rgba(').replace(')', ',.35)') : color, lineWidth: vieja ? 1 : 3, lineStyle: vieja ? 2 : 0, axisLabelVisible: true, title: `${tit} ${(+p).toLocaleString('en-US')}` + (vieja ? ` (de las ${h})` : '') })); };
+      const lin = (p, tit, color) => { if (!p) return; nivelesCercanos.push(+p); ayudaNiveles.push([+p, tit]); etiquetas.push({ p: +p, txt: tit + (vieja ? ` (${h})` : ''), color, tenue: vieja }); lineasNivel.push(sBase.createPriceLine({ price: +p, color: vieja ? color.replace('rgb(', 'rgba(').replace(')', ',.35)') : color, lineWidth: vieja ? 1 : 3, lineStyle: vieja ? 2 : 0, axisLabelVisible: false, title: '' })); };
       lin(b.v.objetivo1, 'Target 1', 'rgb(255,165,0)'); lin(b.v.objetivo2, 'Target 2', 'rgb(255,209,127)');
     }
   }
-  for (const s of Object.values(L)) { const d = s.data(); const u = d.length && d[d.length - 1].value; if (u) nivelesCercanos.push(u); }
+  for (const [k, s] of Object.entries(L)) {
+    const d = s.data(); const u = d.length && d[d.length - 1].value; if (!u) continue;
+    nivelesCercanos.push(u);
+    if (s.options().visible && ETQ[k]) etiquetas.push({ p: u, txt: ETQ[k], color: s.options().color });
+  }
   recuadros();
   pintarFlujo();
   pedirLienzo();
@@ -753,8 +759,57 @@ let pendiente = false;
 // Ayuda memoria (23-nov): cada barra/punto/triángulo dibujado deja su zona; al pasar el mouse se explica qué es.
 let zonas = [];
 const zona = (x, y, w, h, html) => { if (w < 0) { x += w; w = -w; } zonas.push({ x: x - 2, y: y - 2, w: w + 4, h: Math.max(h, 3) + 4, html }); };
+// 25-nov (Guillermo: "cuando en un nivel, por ejemplo 7000, aparezcan varias plataformas marcando ese valor, pon el dato
+// en la misma fila"): los niveles del mismo strike (±0,5) van en UNA fila: una etiqueta por plataforma, alineadas a la
+// derecha, y el precio una sola vez sobre el eje. Grupos muy juntos se separan lo justo para no taparse.
+function etiquetasNivel() {
+  if (!etiquetas.length) return;
+  const cv = $('lienzo'), ctx = cv.getContext('2d'), W = $('gMain').clientWidth, H = $('gMain').clientHeight;
+  const anchoEje = gM.priceScale('right').width(), x0 = W - anchoEje, ALTO = 15;
+  const grupos = [];
+  for (const e of [...etiquetas].sort((a, b) => b.p - a.p)) {
+    const g = grupos.find((x) => Math.abs(x.p - e.p) <= 0.5);
+    if (g) { if (!g.items.some((i) => i.txt === e.txt)) g.items.push(e); } else grupos.push({ p: e.p, items: [e] });
+  }
+  let yPrev = -1e9;
+  ctx.save();
+  ctx.font = '11px Inter, system-ui'; ctx.textBaseline = 'middle';
+  for (const g of grupos) {
+    const yReal = sBase.priceToCoordinate(g.p);
+    if (yReal == null || yReal < 0 || yReal > H - 28) continue;
+    const y = Math.max(yReal, yPrev + ALTO + 1); yPrev = y;
+    // precio una sola vez, sobre el eje, con el color de la primera plataforma
+    const c0 = g.items[0].color;
+    ctx.globalAlpha = 1; ctx.fillStyle = c0; ctx.fillRect(x0 + 1, y - ALTO / 2, anchoEje - 2, ALTO);
+    ctx.fillStyle = luzColor(c0) > 150 ? '#111' : '#fff'; ctx.textAlign = 'left';
+    ctx.fillText(g.p.toLocaleString('en-US', { maximumFractionDigits: 2 }), x0 + 5, y + 0.5);
+    // etiquetas, de derecha a izquierda, pegadas al eje
+    let x = x0 - 4;
+    ctx.textAlign = 'right';
+    for (const it of g.items) {
+      const w = ctx.measureText(it.txt).width + 10;
+      ctx.globalAlpha = it.tenue ? 0.5 : 1;
+      ctx.fillStyle = 'rgba(14,14,18,.88)'; ctx.fillRect(x - w, y - ALTO / 2, w, ALTO);
+      ctx.strokeStyle = it.color; ctx.lineWidth = 1; ctx.strokeRect(x - w + 0.5, y - ALTO / 2 + 0.5, w - 1, ALTO - 1);
+      ctx.fillStyle = it.color; ctx.fillText(it.txt, x - 5, y + 0.5);
+      x -= w + 3;
+    }
+  }
+  ctx.restore();
+}
+// brillo aproximado de un color css (#rgb, #rrggbb, rgb(), rgba()) para elegir texto negro o blanco sobre el eje
+function luzColor(c) {
+  let r = 128, g = 128, b = 128, m;
+  if ((m = /^#([0-9a-f]{6})$/i.exec(c))) { const n = parseInt(m[1], 16); r = n >> 16; g = (n >> 8) & 255; b = n & 255; }
+  else if ((m = /^#([0-9a-f]{3})$/i.exec(c))) { r = parseInt(m[1][0] + m[1][0], 16); g = parseInt(m[1][1] + m[1][1], 16); b = parseInt(m[1][2] + m[1][2], 16); }
+  else if ((m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/.exec(c))) { r = +m[1]; g = +m[2]; b = +m[3]; }
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
 function pedirLienzo() { if (!pendiente) { pendiente = true; requestAnimationFrame(() => { pendiente = false; lienzo(); }); } }
 function lienzo() {
+  try { lienzoNiveles(); } finally { etiquetasNivel(); }
+}
+function lienzoNiveles() {
   // tamaño tomado del contenedor (no del lienzo: si no, el lienzo se agranda solo en cada redibujo)
   const cv = $('lienzo'), dpr = window.devicePixelRatio || 1, W = $('gMain').clientWidth, H = $('gMain').clientHeight;
   if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }

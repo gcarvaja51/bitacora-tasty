@@ -442,6 +442,8 @@ function anotarCaptura(carpeta, clave, archivo) {
   try { fs.appendFileSync(path.join(carpeta, 'capturas.jsonl'), JSON.stringify({ at: new Date().toISOString(), clave, archivo: path.basename(archivo) }) + '\n'); } catch {}
 }
 
+const REABRIR_CADA = 45 * 60000;   // 25-nov: el navegador se reabre cada 45 min para que no se coma la RAM del PC
+
 async function continuo(prueba, sinHorarioMin = 0) {
   const finSinHorario = sinHorarioMin ? Date.now() + sinHorarioMin * 60000 : 0;   // prueba del bucle real fuera de horario
   // un error suelto de puppeteer no puede tumbar la captura de todo el día
@@ -470,9 +472,10 @@ async function continuo(prueba, sinHorarioMin = 0) {
   }
   if (!prueba && !await perfilLibre()) { process.exitCode = 4; return; }   // de nuevo justo antes de abrir (9:25)
   log(`continuo: arranca${prueba ? ' (PRUEBA: una vuelta, sin horario)' : ''}`);
-  let b = null, page = null;
+  let b = null, page = null, abiertoEn = 0;
   const abrirTodo = async () => {
     const t0 = Date.now();
+    abiertoEn = t0;
     try { if (b) await b.close(); } catch {}
     b = await abrir(true);
     page = (await b.pages())[0] || await b.newPage();
@@ -496,6 +499,13 @@ async function continuo(prueba, sinHorarioMin = 0) {
       } else if (!pendientesPrueba.length && ultBola8) break;
       vuelta++;
       try { fs.writeFileSync(LATIDO, String(Date.now())); } catch {}
+      // 25-nov (Guillermo: "ok"): abierto todo el día, el Chromium de Discord llegó a 1,8 GB en 30 min y dejó al PC con
+      // 557 MB libres: el daemon de Sigma no pudo cargar y sus datos se congelaron 11 min. Se reabre cada 45 min (~10 s).
+      if (!prueba && Date.now() - abiertoEn > REABRIR_CADA) {
+        log(`continuo: ${Math.round((Date.now() - abiertoEn) / 60000)} min con el mismo navegador: se reabre para liberar memoria`);
+        try { await colgarRapido(page); } catch {}
+        try { await abrirTodo(); } catch (e) { log('continuo: no se pudo reabrir (' + e.message + '); reintento en 30 s'); await esperar(30000); continue; }
+      }
       const carpeta = path.join(CAPTURAS, h.fecha);
       fs.mkdirSync(carpeta, { recursive: true });
       try {
