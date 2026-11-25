@@ -550,11 +550,30 @@ function spxActual() {
   if (velasDia.length) return velasDia[velasDia.length - 1].c;
   const u = ultimo((x) => x.spx); return u ? u.v : null;
 }
+// EMA 10 y EMA 20 sobre las velas de la temporalidad elegida (calentadas con los días previos), como pintarMedias
+function accionPrecio() {
+  if (!fecha || !velasDia.length) return null;
+  const todas = [...velasPrevias, ...velasDia.map((v) => ({ ...v, dia: fecha }))], cierres = [];
+  for (const v of todas) {
+    const m = +v.hora.slice(0, 2) * 60 + +v.hora.slice(3, 5), k = 570 + Math.floor((m - 570) / tf) * tf, clave = v.dia + ' ' + hmDe(k);
+    const u = cierres[cierres.length - 1];
+    if (u && u.clave === clave) u.c = v.c; else cierres.push({ clave, c: v.c });
+  }
+  if (cierres.length < 21) return null;
+  let e10 = null, e20 = null; const a10 = 2 / 11, a20 = 2 / 21;
+  for (const x of cierres) { e10 = e10 == null ? x.c : a10 * x.c + (1 - a10) * e10; e20 = e20 == null ? x.c : a20 * x.c + (1 - a20) * e20; }
+  return { c: e10 > e20 ? 'V' : 'R', ob: `EMA10 ${e10.toFixed(2)} ${e10 > e20 ? '>' : '<'} EMA20 ${e20.toFixed(2)}` };
+}
 function filasTTD() {
   const spx = spxActual(), F = [];
   const fila = (pl, at, c, ob) => F.push({ pl, at, c, ob });
   // 24-nov (Guillermo): las fases y Sigma salen de esta tabla; solo quedan las plataformas de Discord.
   // Las fases van en el TTD de temporalidades (como el de TradingView).
+  // Acción del precio (24-nov, Guillermo): cruce EMA 10/20 en la temporalidad que se está viendo (1m, 2m, 5m...), con las
+  // mismas velas y el mismo cálculo que las medias dibujadas; cambia al elegir otra temporalidad. Va de primera.
+  const ap = accionPrecio();
+  if (ap) fila(`Acción precio ${tf === 60 ? '1h' : tf + 'm'}`, fecha + 'T' + hmDe(Math.round((ahoraT() % 86400) / 60)), ap.c, ap.ob);
+  else fila(`Acción precio ${tf === 60 ? '1h' : tf + 'm'}`, null, null, 'sin velas suficientes');
   // GexBot Classic: hacia dónde tira el imán (la barra de gamma más grande cerca del precio) y régimen respecto del flip
   const g = ultimo((x) => (x.gexbot_classic?.barras?.length || x.gexbot_classic?.flip ? x.gexbot_classic : null));
   if (g && spx) {
@@ -599,6 +618,7 @@ function filasTTD() {
     if (al + ba > 0) { const p = al / (al + ba); fila('Option flow', o.at, p > 0.65 ? 'V' : p < 0.35 ? 'R' : 'B', `${Math.round(p * 100)} % de la prima alcista · ${o.v.filas.length} órdenes`); }
     else fila('Option flow', o.at, null, 'órdenes sin prima');
   } else fila('Option flow', null, null, 'sin dato');
+  { const i = F.findIndex((f) => f.pl === 'Bola 8'); if (i >= 0) F.push(F.splice(i, 1)[0]); }   // 24-nov: Bola 8 en la última fila
   for (const f of F) { f.edad = f.at ? edadMin(f.at) : null; if (f.edad != null && f.edad > TTD_VIEJA) f.vota = false; else f.vota = f.c != null; }
   return { F, spx, gpos: !!(g && g.v.flip && spx && Math.abs(g.v.flip - spx) < 300 && spx >= g.v.flip), b8: b && b.v };
 }
