@@ -637,7 +637,8 @@ function pintarTTD() {
   const fasesHtml = est.conf.fases ? `<div>${htmlFases()}</div>` : '';
   if (!est.conf.ttd) { caja.innerHTML = fasesHtml; return; }
   const { F, spx, gpos, b8 } = filasTTD();
-  const txtEdad = (e) => (e == null ? '—' : e < 1 ? 'ahora' : e >= 60 ? `hace ${Math.floor(e / 60)} h ${Math.round(e % 60)} min` : `hace ${Math.round(e)} min`);
+  // 24-nov (Guillermo): columna "Reporte" con "ahora", "30 min", "2 h 40 min"... sin "hace" ni "no vota" (lo dice el color)
+  const txtEdad = (e) => (e == null ? '—' : e < 1 ? 'ahora' : e >= 60 ? `${Math.floor(e / 60)} h ${Math.round(e % 60)} min` : `${Math.round(e)} min`);
   const votos = F.filter((f) => f.vota), V = votos.filter((f) => f.c === 'V').length, R = votos.filter((f) => f.c === 'R').length, B = votos.filter((f) => f.c === 'B').length;
   let veredicto, color, sug;
   // sin fases: mayoría de las 5 plataformas (al menos 3 de un lado y 2 más que el otro)
@@ -652,11 +653,11 @@ function pintarTTD() {
     const cls = f.edad != null && f.edad > TTD_VIEJA ? 'vieja' : f.edad != null && f.edad > TTD_TENUE ? 'tenue' : '';
     return `<tr class="${cls}" title="${f.ob}"><td class="pl">${f.pl}</td><td><span class="pt ${f.c || 'N'}"></span></td>`
       // 24-nov (Guillermo, viendo la tabla): sin la columna de observaciones; la nota queda al pasar el cursor por la fila
-      + (mini ? '' : `<td class="ed">${txtEdad(f.edad)}${cls === 'vieja' ? ' · no vota' : ''}</td>`) + '</tr>';
+      + (mini ? '' : `<td class="ed">${txtEdad(f.edad)}</td>`) + '</tr>';
   }).join('');
   const hora = hmDe(Math.round((ahoraT() % 86400) / 60));   // la hora que se está viendo (reproducción, ahora o última lectura)
   caja.innerHTML = fasesHtml + `<div><table><tr><th colspan="2" id="ttdTit" style="cursor:pointer" title="Clic: ${mini ? 'ver la tabla completa' : 'achicar la tabla'}">TTD plataformas ${mini ? '▸' : '▾'}</th>`
-    + (mini ? '' : `<th>${hora} ET</th>`) + `</tr>${filas}`
+    + (mini ? '' : `<th title="${hora} ET">Reporte</th>`) + `</tr>${filas}`
     + (mini ? `<tr class="tot"><td colspan="2"><span style="color:${color}">${veredicto}</span></td></tr></table></div>`
       : `<tr class="tot"><td colspan="2"><span style="color:${color}">${veredicto}</span></td>`
       + `<td><span style="color:#22c55e">${V}🟢</span> <span style="color:#ef4444">${R}🔴</span> <span>${B}⚪</span></td></tr></table>`
