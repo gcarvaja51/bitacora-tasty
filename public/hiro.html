@@ -773,27 +773,31 @@ function pintarFlujo() {
   const refMin = (ahoraT() % 86400) / 60;
   const todas = ordenesFlujo().filter((o) => { const m = segFlujo(o.hora) / 60; return m <= refMin + 1 && (!periodoFlujo || m > refMin - periodoFlujo); });
   const cfg = COLS_FLUJO[ordenFlujo.col];
-  let pAl = 0, pBa = 0, nAl = 0, nBa = 0, nN = 0, dudosas = 0;
+  let pAl = 0, pBa = 0, nAl = 0, nBa = 0, nN = 0, dudosas = 0, pPut = 0, pCall = 0;
   for (const o of todas) {
     const pr = +o.prima || 0;
     if (pr > 5e7) { dudosas++; continue; }
+    if (o.tipo === 'put') pPut += pr; else if (o.tipo === 'call') pCall += pr;
     if (o.sentimiento === 'bullish') { pAl += pr; nAl++; } else if (o.sentimiento === 'bearish') { pBa += pr; nBa++; } else nN++;
   }
   const neto = pAl - pBa, colNeto = neto > 0 ? '#22c55e' : neto < 0 ? '#ef4444' : '#aaa';
   const botones = PERIODOS_FLUJO.map(([m, t]) => `<button data-per="${m}" style="cursor:pointer;border:1px solid #1e3a6e;border-radius:4px;padding:1px 7px;font-size:11px;background:${periodoFlujo === m ? '#1e40af' : 'transparent'};color:${periodoFlujo === m ? '#fff' : '#8aa0d8'}">${t}</button>`).join(' ');
   const resumenPer = `<div class="cab" style="position:static;align-items:center">${botones}`
-    + `<span>${todas.length} órdenes</span><span>Bullish <b style="color:#22c55e">${fmtUsd(pAl)}</b> (${nAl})</span>`
-    + `<span>Bearish <b style="color:#ef4444">${fmtUsd(pBa)}</b> (${nBa})</span>`
+    + `<span>${todas.length} órdenes</span>`
     + `<span>Neto <b style="color:${colNeto}">${neto >= 0 ? '+' : '−'}${fmtUsd(Math.abs(neto))}</b></span>`
     + (nN ? `<span title="Sin sentimiento en la tabla de Quant Data">sin dato ${nN}</span>` : '')
     + (dudosas ? `<span title="Prima de más de $50 M: casi seguro una lectura mala de la foto; no suma al resumen">⚠ ${dudosas} dudosa${dudosas > 1 ? 's' : ''}</span>` : '') + `</div>`;
   if (cfg) todas.sort((a, b) => { const x = cfg.v(a), y = cfg.v(b); return (x < y ? -1 : x > y ? 1 : 0) * ordenFlujo.dir; });
   const ords = todas.slice(0, 60);
   const th = (k, txt) => `<th data-col="${k}" style="cursor:pointer;user-select:none" title="Clic: ordenar ${ordenFlujo.col === k && ordenFlujo.dir === -1 ? 'de menor a mayor' : 'de mayor a menor'}">${txt}${ordenFlujo.col === k ? (ordenFlujo.dir === -1 ? ' ▼' : ' ▲') : ''}</th>`;
-  const sent = rs.sentimiento === 'bullish' ? ['Bullish', '#22c55e'] : rs.sentimiento === 'bearish' ? ['Bearish', '#ef4444'] : ['—', '#aaa'];
+  // 25-nov (Guillermo: "arriba dice bearish pero abajo dice bullish... que se ajuste de acuerdo con todo el dia, 1 hora, 30 min
+  // y 15 min"): Sentiment, Put/Call Ratio y Put/Call Premium se calculan con las órdenes del período elegido (antes era el
+  // resumen de Quant Data del día, que no coincidía con la tabla). Sentiment = signo del neto (prima alcista − bajista).
+  const sent = !todas.length ? ['—', '#aaa'] : neto > 0 ? ['Bullish', '#22c55e'] : neto < 0 ? ['Bearish', '#ef4444'] : ['Neutral', '#aaa'];
+  const pcr = pCall > 0 ? Math.round(pPut / pCall * 10000) / 100 : null;
   caja.innerHTML = `<div class="cab"><span>Quant Data · Consolidated Order Flow${u ? ' · ' + u.at.slice(11, 16) : ''}</span>`
-    + `<span>Sentiment <b style="color:${sent[1]}">${sent[0]}</b></span><span>Put/Call Ratio <b>${rs.pcRatio != null ? rs.pcRatio + '%' : '—'}</b></span>`
-    + `<span>Put/Call Premium <b>${fmtUsd(rs.primaPuts)} / ${fmtUsd(rs.primaCalls)}</b></span></div>` + resumenPer
+    + `<span>Sentiment <b style="color:${sent[1]}">${sent[0]}</b></span><span>Put/Call Ratio <b>${pcr != null ? pcr + '%' : '—'}</b></span>`
+    + `<span>Put/Call Premium <b>${fmtUsd(pPut)} / ${fmtUsd(pCall)}</b></span></div>` + resumenPer
     + `<table><tr>${th('hora', 'Time')}${th('contrato', 'Contract')}${th('qty', 'Qty')}${th('precio', 'Price')}${th('lado', '')}${th('prima', 'Premium')}${th('sent', 'Sentiment')}</tr>`
     + (ords.length ? ords.map((o) => { const c = o.sentimiento === 'bullish' ? '#22c55e' : o.sentimiento === 'bearish' ? '#ef4444' : '#6b7280';
         return `<tr><td>${o.hora}</td><td>$${(o.strike || 0).toLocaleString('en-US')} ${o.tipo === 'call' ? 'Call' : 'Put'}</td><td>${o.cantidad ?? '—'}</td>`
