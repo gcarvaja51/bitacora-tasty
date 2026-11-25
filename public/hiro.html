@@ -551,22 +551,8 @@ function spxActual() {
 function filasTTD() {
   const spx = spxActual(), F = [];
   const fila = (pl, at, c, ob) => F.push({ pl, at, c, ob });
-  const nomFase = { 1: 'fase 1 · sin tendencia', 2: 'fase 2 · alcista', 3: 'fase 3 · techo', 4: 'fase 4 · bajista' };
-  const colFase = (f) => (f === 2 ? 'V' : f === 4 ? 'R' : f ? 'B' : null);
-  for (const [k, pl] of [['fase5m', 'Fase 5 min'], ['fase2m', 'Fase 2 min']]) {
-    const u = ultimo((x) => x[k]); fila(pl, u?.at, u ? colFase(u.v) : null, u ? nomFase[u.v] || '' : 'sin dato');
-  }
-  // Sigma: precio contra su Gamma Flip y sus muros
-  const m = murosHist[murosHist.length - 1];
-  if (m && spx && m.gammaFlip) {
-    const d = spx - m.gammaFlip, cw = m.callWall, pw = m.putWall;
-    let c, ob;
-    if (cw && spx > cw) { c = 'V'; ob = `rompió el Call Wall ${f0(cw)}`; }
-    else if (pw && spx < pw) { c = 'R'; ob = `perdió el Put Wall ${f0(pw)}`; }
-    else if (d < 0) { c = 'R'; ob = `gamma − · bajo el flip ${f0(m.gammaFlip)} (${fSig(d)})`; }
-    else { c = 'B'; ob = `gamma + (frena) · entre muros ${pw ? f0(pw) : '—'}–${cw ? f0(cw) : '—'}`; }
-    fila('Sigma', fecha + 'T' + m.hm, c, ob);
-  } else fila('Sigma', null, null, 'sin dato');
+  // 24-nov (Guillermo): las fases y Sigma salen de esta tabla; solo quedan las plataformas de Discord.
+  // Las fases van en el TTD de temporalidades (como el de TradingView).
   // GexBot Classic: hacia dónde tira el imán (la barra de gamma más grande cerca del precio) y régimen respecto del flip
   const g = ultimo((x) => (x.gexbot_classic?.barras?.length || x.gexbot_classic?.flip ? x.gexbot_classic : null));
   if (g && spx) {
@@ -612,7 +598,7 @@ function filasTTD() {
     else fila('Option flow', o.at, null, 'órdenes sin prima');
   } else fila('Option flow', null, null, 'sin dato');
   for (const f of F) { f.edad = f.at ? edadMin(f.at) : null; if (f.edad != null && f.edad > TTD_VIEJA) f.vota = false; else f.vota = f.c != null; }
-  return { F, spx, gpos: (() => { const gm = g && g.v.flip && spx && Math.abs(g.v.flip - spx) < 300; return (gm && spx >= g.v.flip) || (m && m.gammaFlip && spx >= m.gammaFlip); })(), b8: b && b.v };
+  return { F, spx, gpos: !!(g && g.v.flip && spx && Math.abs(g.v.flip - spx) < 300 && spx >= g.v.flip), b8: b && b.v };
 }
 function pintarTTD() {
   const caja = $('ttd'), ver = est.conf.on && est.conf.ttd && fecha;
@@ -621,10 +607,10 @@ function pintarTTD() {
   const { F, spx, gpos, b8 } = filasTTD();
   const txtEdad = (e) => (e == null ? '—' : e < 1 ? 'ahora' : e >= 60 ? `hace ${Math.floor(e / 60)} h ${Math.round(e % 60)} min` : `hace ${Math.round(e)} min`);
   const votos = F.filter((f) => f.vota), V = votos.filter((f) => f.c === 'V').length, R = votos.filter((f) => f.c === 'R').length, B = votos.filter((f) => f.c === 'B').length;
-  const f5 = F[0].vota ? F[0].c : null;
   let veredicto, color, sug;
-  if (R - V >= 3 && f5 === 'R') { veredicto = 'BAJISTA'; color = '#ef4444'; sug = 'Bear Call sobre el flip / imán de arriba'; }
-  else if (V - R >= 3 && f5 === 'V') { veredicto = 'ALCISTA'; color = '#22c55e'; sug = 'Bull Put bajo el flip / imán de abajo'; }
+  // sin fases: mayoría de las 5 plataformas (al menos 3 de un lado y 2 más que el otro)
+  if (R >= 3 && R - V >= 2) { veredicto = 'BAJISTA'; color = '#ef4444'; sug = ''; }
+  else if (V >= 3 && V - R >= 2) { veredicto = 'ALCISTA'; color = '#22c55e'; sug = ''; }
   else if ((Math.abs(V - R) <= 1 || B > Math.max(V, R)) && gpos) {
     veredicto = 'NEUTRAL'; color = '#e5e5e5';
     sug = b8?.objetivo1 && spx && Math.abs(b8.objetivo1 - spx) <= 10 ? `Mariposa en ${f0(b8.objetivo1)} (T1 Bola 8) o Iron Condor fuera de los imanes` : 'Iron Condor fuera de los imanes';
