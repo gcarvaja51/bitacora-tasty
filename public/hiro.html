@@ -621,11 +621,11 @@ function pedirFases() {
 }
 function htmlFases() {
   if (!ttdFases) return '<table><tr><th>TTD fases</th></tr><tr><td class="ed">cargando…</td></tr></table>';
-  // 24-nov (Guillermo): "no le pongas nombre de fase... solamente los colores"
-  const col = { 2: 'V', 4: 'R', 1: 'B', 3: 'B' };
-  const filas = ttdFases.map((x) => `<tr title="${x.fase ? `cierre ${x.close} · EMA10 ${x.ema10} · EMA20 ${x.ema20}` : 'sin datos suficientes'}">`
-    + `<td class="pl">${x.tf}</td><td><span class="pt ${col[x.fase] || 'N'}"></span></td></tr>`).join('');
-  return `<table><tr><th colspan="2" title="Verde = EMA10 sobre EMA20 y precio arriba de ambas · Rojo = lo contrario · Blanco = transición">TTD · EMA 10/20</th></tr>${filas}</table>`;
+  // 24-nov (Guillermo): "no le pongas nombre a TTD, solamente colores" · "solo se establecen 2 colores: rojo o verde...
+  // alcista o bajista, nada más" → verde = EMA10 sobre EMA20 y precio arriba de ambas (fase 2); rojo = cualquier otro caso
+  const filas = ttdFases.map((x) => `<tr title="${x.fase ? `EMA10 ${x.ema10} · EMA20 ${x.ema20} · cierre ${x.close}` : 'sin datos suficientes'}">`
+    + `<td class="pl">${x.tf}</td><td><span class="pt ${x.fase ? (x.fase === 2 ? 'V' : 'R') : 'N'}"></span></td></tr>`).join('');
+  return `<table>${filas}</table>`;
 }
 function pintarTTD() {
   const caja = $('ttd'), ver = est.conf.on && (est.conf.ttd || est.conf.fases) && fecha;
