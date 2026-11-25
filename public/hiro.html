@@ -480,10 +480,12 @@ function redibujar() {
   // 25-nov (Guillermo: "si desactivo, desaparecen las lineas sobre el grafico pero me quedan los niveles en el eje
   // vertical"): con la capa Muros Sigma apagada no se dibuja ninguna línea, pero el valor vigente de cada muro queda
   // marcado junto al eje (respeta la reproducción: murosHist ya viene cortado a la hora que se está viendo).
-  if (!est.sigma.on) {
+  // (y también si se apaga un muro suelto en el menú ▾: su línea se va y su marca queda en el eje)
+  {
     const u = murosHist.length ? murosHist[murosHist.length - 1] : (muros && corte == null && fecha === hoyNY ? muros : null);
     if (u) for (const [campo, tit, color] of [['callWall', 'Call Wall', '#2e8b57'], ['putWall', 'Put Wall', '#b5651d'],
       ['gammaFlip', 'Gamma Flip', '#c9a227'], ['mvs', 'Key Gamma', '#7fb2e5'], ['maxPain', 'Max Pain', '#9e9e9e']]) {
+      if (est.sigma.on && est.sigma[campo]) continue;   // con línea: la etiqueta ya la pone la serie o add()
       if (u[campo] > 1000) etiquetas.push({ p: +u[campo], txt: tit, color });
     }
   }
