@@ -4,7 +4,9 @@
 // Sigma Trade). El precio se estira lejos de la SMA8 ("el imán técnico") y
 // se opera el regreso. Tres patrones de confirmación posibles — basta con
 // que UNO confirme, no hace falta que los tres coincidan a la vez.
-const { calcSMAArray } = require('./spx_indicators');
+const { calcEMAArray } = require('./spx_indicators');
+// 2026-11-24 (Guillermo): toda la reversión pasa de SMA 8/20 a EMA 10/20. Los nombres sma8/sma20 se conservan; ahora
+// guardan la EMA10 y la EMA20.
 const { calcATR } = require('./camino_a');
 
 // ── Vela García: SMA8 se aplana y "engancha" curvando hacia un cruce con
@@ -70,7 +72,7 @@ function detectVelaTiburon(bars, atrArr, sma8, sma20, direction) {
     const rompeSMA20 = sma20Actual != null &&
       (direction === 'BULLISH' ? bar.close > sma20Actual : bar.close < sma20Actual);
     return rompeSMA20
-      ? { ok: true, pattern: 'VELA_TIBURON_SMA20', frac: 0.88, reason: 'Vela Tiburón — rango amplio, cuerpo sólido y rompe SMA20 a favor (88%) ✅' }
+      ? { ok: true, pattern: 'VELA_TIBURON_SMA20', frac: 0.88, reason: 'Vela Tiburón — rango amplio, cuerpo sólido y rompe EMA20 a favor (88%) ✅' }
       : { ok: true, pattern: 'VELA_TIBURON', frac: 0.78, reason: 'Vela Tiburón — rango amplio con cuerpo sólido, rechazo a favor de la reversión (78%) ✅' };
   }
 
@@ -84,7 +86,7 @@ function detectVelaTiburon(bars, atrArr, sma8, sma20, direction) {
     const distSMA8 = Math.abs(bar.close - sma8[i]);
     const lejosSMA8 = distSMA8 > atr * 1.5;
     if (wickFavor && lejosSMA8) {
-      return { ok: true, pattern: 'VELA_TIBURON_MARTILLO', frac: 0.91, reason: 'Martillo alejado de la SMA8 — "Tiburón escondida" (91%) ✅' };
+      return { ok: true, pattern: 'VELA_TIBURON_MARTILLO', frac: 0.91, reason: 'Martillo alejado de la EMA10 — "Tiburón escondida" (91%) ✅' };
     }
   }
 
@@ -116,12 +118,12 @@ function evaluateReversionPattern(bars, direction) {
   if (!bars || bars.length < 25) return { ok: false, pattern: null, frac: 0, reason: 'Historial insuficiente para detectar patrón' };
 
   const closes = bars.map(b => b.close);
-  const sma8  = calcSMAArray(closes, 8);
-  const sma20 = calcSMAArray(closes, 20);
+  const sma8  = calcEMAArray(closes, 10);   // EMA10 (antes SMA8)
+  const sma20 = calcEMAArray(closes, 20);   // EMA20 (antes SMA20)
   const atr   = calcATR(bars, 14);
 
   if (detectVelaGarcia(sma8, sma20, direction)) {
-    return { ok: true, pattern: 'VELA_GARCIA', frac: 1.0, reason: 'Vela García — SMA8 aplanándose y enganchando hacia SMA20 ✅' };
+    return { ok: true, pattern: 'VELA_GARCIA', frac: 1.0, reason: 'Vela García — EMA10 aplanándose y enganchando hacia EMA20 ✅' };
   }
   const tiburon = detectVelaTiburon(bars, atr, sma8, sma20, direction);
   if (tiburon.ok) return tiburon;

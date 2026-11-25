@@ -4812,7 +4812,7 @@ app.post('/api/wheel-trading/adopt', async (req, res) => {
 // ── SPX Signal Center ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
 const { murosReglaSigma, VALIDACION_MUROS_SIGMA, calcGEX, calcMaxPain, selectStrategy, evaluateIronCondorGate, evaluateReversionGate, findStrikesByDelta, buildSignalSummary, getETHour, classifyWindow, clasificarFuerzaMuro, gexPorStrike, gexAbsPorStrike, dominanciaRejilla, medirMuro, bandaAlejandro, UMBRALES_MURO } = require('./src/spx');
-const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray, calcCompasMedias5m, calcPOC } = require('./src/spx_indicators');
+const { calcPlaybookScore, calcReversionScore, calcRelativeVolume, priceExtension, calcSMAArray, calcEMAArray, calcCompasMedias5m, calcPOC } = require('./src/spx_indicators');
 // Nota: calcRSI ya existe como funcion local en este archivo (linea ~1243, usada por el
 // screener de acciones) — se reusa esa misma funcion para Alejamiento de SMA en vez de
 // importar la copia de src/spx_indicators.js, para no chocar el nombre.
@@ -10300,7 +10300,7 @@ app.get('/api/spx/ib-atm-sombra', (req, res) => {
 });
 
 // Velas del SPX real (I:SPX de Polygon via Sigma) que empuja el gamma daemon, para el aviso SPX SEMI del bot de
-// Polymarket (2026-10-18): fases EMA 8/20 en 15/5/2 min sobre el SPX de verdad, sin la sesion de Sigma ni el feed
+// Polymarket (2026-10-18; EMA 10/20 desde 2026-11-24): fases en 15/5/2 min sobre el SPX de verdad, sin la sesion de Sigma ni el feed
 // atrasado de TradingView. Solo lectura de lo ya guardado. ?m=2|5|15
 app.get('/api/spx/sigma-velas', (req, res) => {
   const f = { 2: SIGMA_VELAS2M_FILE, 5: SIGMA_VELAS_FILE, 15: SIGMA_VELAS15M_FILE }[Number(req.query.m)];
@@ -13591,7 +13591,7 @@ async function checkAlejamientoSMA() {
     const maxEdadSerie = cfg.maxEdadVela5Seg ?? 420;
     const serieSigma = serie5mDesdeSigma({ minVelas: 40, maxEdadSeg: maxEdadSerie })
                     || serie5mDesdeSigma({ minVelas: 25, maxEdadSeg: maxEdadSerie })
-                    || serie5mDesdeSigma({ minVelas: 9,  maxEdadSeg: maxEdadSerie });
+                    || serie5mDesdeSigma({ minVelas: 11, maxEdadSeg: maxEdadSerie });   // 24-nov: la EMA10 pide 10 + la actual (antes 9 para la SMA8)
     if (serieSigma) {
       closes5 = serieSigma.closes;
       edadVela5Seg = serieSigma.edadSeg;
@@ -13657,10 +13657,13 @@ async function checkAlejamientoSMA() {
       return;
     }
 
-    const sma8Arr5m = calcSMAArray(closes5, 8);
-    const sma8 = sma8Arr5m[sma8Arr5m.length - 1]; // SMA8 "Juez" (5m) — tambien el objetivo de salida (smaTarget mas abajo)
+    // 2026-11-24 (Guillermo: "aliniemos todo a ema 10 y 20... vamos con ema 10 y 20", y "Sí, también a EMA 10/20" para la
+    // reversión): el "Juez" pasa de SMA8 a EMA10 (5m). La variable conserva el nombre sma8 para no tocar 40 sitios
+    // (objetivo de salida, sombra, notas); lo que cambia es el cálculo.
+    const sma8Arr5m = calcEMAArray(closes5, 10);
+    const sma8 = sma8Arr5m[sma8Arr5m.length - 1]; // EMA10 "Juez" (5m) — tambien el objetivo de salida (smaTarget mas abajo)
     if (sma8 == null) {
-      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SMA8_NULL', passed: false, reason: 'SMA8 (5m) no calculable con las velas disponibles', snapshot: buildStrategySnapshot(ctx) });
+      logStrategyEvent({ strategyFamily: 'REVERSION', etTime: ctx.etTime, stage: 'SMA8_NULL', passed: false, reason: 'EMA10 (5m) no calculable con las velas disponibles', snapshot: buildStrategySnapshot(ctx) });
       return;
     }
     const price5m = closes5[closes5.length - 1];
@@ -13932,7 +13935,7 @@ async function checkAlejamientoSMA() {
     });
     signal.strategyFamily = 'REVERSION';
     signal.playbook = scoreResult;
-    signal.notes = `Alejamiento de SMA — patrón ${patronReversion.pattern || 'ninguno'}, SMA8 ${sma8}`;
+    signal.notes = `Alejamiento de EMA10 — patrón ${patronReversion.pattern || 'ninguno'}, EMA10 ${sma8}`;
 
     if (IS_PRODUCTION && cfg.tradierAutoExecute !== false) {
       try {

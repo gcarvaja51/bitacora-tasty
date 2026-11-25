@@ -771,10 +771,11 @@ function calcCompasMedias5m(closes, direction) {
   const n = closes ? closes.length : 0;
   if (n < 25) return { ok: false, trenzadas: null, crossCount: null, value: '—', reason: 'Historial 5m insuficiente para el compás de medias' };
 
-  const sma8  = calcSMAArray(closes, 8);
-  const sma20 = calcSMAArray(closes, 20);
+  // 2026-11-24 (Guillermo): EMA 10/20 en vez de SMA 8/20 (nombres de variables conservados)
+  const sma8  = calcEMAArray(closes, 10);
+  const sma20 = calcEMAArray(closes, 20);
 
-  // Cruces de SMA8/SMA20 en las ultimas 15 barras (75 min) — 2 o mas cruces en
+  // Cruces de EMA10/EMA20 en las ultimas 15 barras (75 min) — 2 o mas cruces en
   // ese tramo indica medias "trenzadas" (sin ritmo direccional confiable).
   const lookback = 15;
   let crossCount = 0, prevSign = null;
@@ -787,16 +788,16 @@ function calcCompasMedias5m(closes, direction) {
   const trenzadas = crossCount >= 2;
 
   const last8 = sma8[n - 1], last20 = sma20[n - 1];
-  if (last8 == null || last20 == null) return { ok: false, trenzadas, crossCount, value: '—', reason: 'SMA 5m sin datos suficientes' };
+  if (last8 == null || last20 == null) return { ok: false, trenzadas, crossCount, value: '—', reason: 'EMA 5m sin datos suficientes' };
 
   const alineado = direction === 'BULLISH' ? last8 > last20 : last8 < last20;
   const ok = alineado && !trenzadas;
-  const value = `SMA8${last8 > last20 ? '>' : '<'}SMA20 (5m), ${crossCount} cruces/75min`;
+  const value = `EMA10${last8 > last20 ? '>' : '<'}EMA20 (5m), ${crossCount} cruces/75min`;
   const reason = trenzadas
     ? `Medias 5m trenzadas (${crossCount} cruces en 75min) — sin ritmo direccional claro ❌`
     : alineado
       ? `Compás 5m limpio y a favor de la reversión ✅`
-      : `Compás 5m limpio pero en contra de la reversión (SMA8 ${last8 > last20 ? 'arriba' : 'abajo'} de SMA20) ❌`;
+      : `Compás 5m limpio pero en contra de la reversión (EMA10 ${last8 > last20 ? 'arriba' : 'abajo'} de EMA20) ❌`;
 
   return { ok, trenzadas, crossCount, value, reason };
 }
