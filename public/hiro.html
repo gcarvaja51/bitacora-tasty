@@ -749,7 +749,7 @@ function ordenesFlujo() {
 const fmtUsd = (v) => (v == null ? '—' : v >= 1e9 ? '$' + (v / 1e9).toFixed(2) + ' B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + ' M' : '$' + (v / 1e3).toFixed(2) + ' K');
 const segFlujo = (h) => { const m = /(\d{1,2}):(\d{2}):(\d{2})\s*([AP])M/.exec(h || ''); return m ? ((+m[1] % 12) + (m[4] === 'P' ? 12 : 0)) * 3600 + +m[2] * 60 + +m[3] : 0; };
 const COLS_FLUJO = {
-  hora: { v: (o) => segFlujo(o.hora) }, contrato: { v: (o) => (o.strike || 0) * 2 + (o.tipo === 'call' ? 1 : 0) },
+  hora: { v: (o) => segFlujo(o.hora) }, contrato: { v: (o) => o.strike || 0 }, tipo: { v: (o) => (o.tipo === 'call' ? 1 : 0) },
   qty: { v: (o) => +o.cantidad || 0 }, precio: { v: (o) => +o.precio || 0 }, lado: { v: (o) => o.lado || '' },
   prima: { v: (o) => +o.prima || 0 }, sent: { v: (o) => (o.sentimiento === 'bullish' ? 1 : 0) },
 };
@@ -798,12 +798,12 @@ function pintarFlujo() {
   caja.innerHTML = `<div class="cab"><span>Quant Data · Consolidated Order Flow${u ? ' · ' + u.at.slice(11, 16) : ''}</span>`
     + `<span>Sentiment <b style="color:${sent[1]}">${sent[0]}</b></span><span>Put/Call Ratio <b>${pcr != null ? pcr + '%' : '—'}</b></span>`
     + `<span>Put/Call Premium <b>${fmtUsd(pPut)} / ${fmtUsd(pCall)}</b></span></div>` + resumenPer
-    + `<table><tr>${th('hora', 'Time')}${th('contrato', 'Contract')}${th('qty', 'Qty')}${th('precio', 'Price')}${th('lado', '')}${th('prima', 'Premium')}${th('sent', 'Sentiment')}</tr>`
+    + `<table><tr>${th('hora', 'Time')}${th('contrato', 'Strike')}${th('tipo', 'Type')}${th('qty', 'Qty')}${th('precio', 'Price')}${th('lado', '')}${th('prima', 'Premium')}${th('sent', 'Sentiment')}</tr>`
     + (ords.length ? ords.map((o) => { const c = o.sentimiento === 'bullish' ? '#22c55e' : o.sentimiento === 'bearish' ? '#ef4444' : '#6b7280';
-        return `<tr><td>${o.hora}</td><td>$${(o.strike || 0).toLocaleString('en-US')} ${o.tipo === 'call' ? 'Call' : 'Put'}</td><td>${o.cantidad ?? '—'}</td>`
+        return `<tr><td>${o.hora}</td><td>$${(o.strike || 0).toLocaleString('en-US')}</td><td style="color:${o.tipo === 'call' ? '#5eead4' : '#f0a35e'}">${o.tipo === 'call' ? 'Call' : 'Put'}</td><td>${o.cantidad ?? '—'}</td>`
           + `<td>$${o.precio ?? '—'}</td><td style="color:#7f8db3">${o.lado || ''}</td><td><span class="p" style="background:${c}"></span>${fmtUsd(o.prima)}</td>`
           + `<td><span class="p" style="background:${c}"></span>${o.sentimiento === 'bullish' ? 'Bullish' : o.sentimiento === 'bearish' ? 'Bearish' : '—'}</td></tr>`; }).join('')
-      : `<tr><td colspan="7" style="color:#8aa0d8">${periodoFlujo ? 'Sin órdenes en los últimos ' + periodoFlujo + ' min' : 'Sin órdenes leídas todavía'}</td></tr>`) + '</table>';
+      : `<tr><td colspan="8" style="color:#8aa0d8">${periodoFlujo ? 'Sin órdenes en los últimos ' + periodoFlujo + ' min' : 'Sin órdenes leídas todavía'}</td></tr>`) + '</table>';
   caja.querySelectorAll('button[data-per]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); periodoFlujo = +b.dataset.per; guardar('hiroPeriodoFlujo', periodoFlujo); pintarFlujo(); });
   caja.querySelectorAll('th[data-col]').forEach((h) => h.onclick = (ev) => {
     ev.stopPropagation();
