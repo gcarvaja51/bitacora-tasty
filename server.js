@@ -17077,6 +17077,67 @@ app.post('/api/capas/limpiar', (req, res) => {
     res.json({ ok: true, fecha });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+// ── TTD de fases (2026-11-24, pedido de Guillermo) ─────────────────────────
+// Como el "Traders Trend Dashboard" de TradingView, pero con el criterio de fases de la mentoría (EMA 10 / EMA 20):
+//   fase 2 = EMA10 > EMA20 y cierre arriba de ambas · fase 4 = EMA10 < EMA20 y cierre debajo de ambas
+//   fase 1 = EMAs bajistas pero el cierre ya está arriba de alguna (base) · fase 3 = EMAs alcistas pero el cierre
+//   ya perdió alguna (techo). Temporalidades 2m 5m 15m 30m 1h 2h 4h D W del ^GSPC (Yahoo).
+// En vivo usa la vela en curso (como el TTD de TV); con ?hasta=<epoch s> (reproducción) solo velas CERRADAS antes de
+// esa hora, para no mirar el futuro. Solo informativo: ninguna estrategia lo usa.
+const TTD_TF = [
+  ['2m', '2m', '1mo', 120], ['5m', '5m', '1mo', 300], ['15m', '15m', '1mo', 900], ['30m', '30m', '1mo', 1800],
+  ['1h', '60m', '3mo', 3600], ['2h', '60m', '3mo', 7200], ['4h', '60m', '6mo', 14400], ['D', '1d', '2y', 86400], ['W', '1wk', '10y', 604800],
+];
+const ttdCache = new Map();   // "intervalo|rango" -> { t, velas: [{ t, c }] }
+async function ttdVelas(intervalo, rango) {
+  const k = intervalo + '|' + rango, c = ttdCache.get(k);
+  if (c && Date.now() - c.t < 60000) return c.velas;
+  const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=${intervalo}&range=${rango}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const j = await r.json(), res = j?.chart?.result?.[0];
+  const ts = res?.timestamp || [], cl = res?.indicators?.quote?.[0]?.close || [];
+  const velas = ts.map((t, i) => ({ t, c: cl[i] })).filter((v) => v.c != null && isFinite(v.c));
+  if (velas.length) ttdCache.set(k, { t: Date.now(), velas });
+  return velas.length ? velas : (c ? c.velas : []);
+}
+// 2h y 4h: se arman con las velas de 1h, agrupadas desde la apertura de cada día (9:30, como TradingView en el SPX)
+function ttdAgrupar(velas1h, horas) {
+  const out = [];
+  let dia = null, n = 0;
+  for (const v of velas1h) {
+    const d = new Date(v.t * 1000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    if (d !== dia) { dia = d; n = 0; }
+    if (n % horas === 0) out.push({ t: v.t, c: v.c }); else out[out.length - 1].c = v.c;
+    n++;
+  }
+  return out;
+}
+function ttdFase(closes) {
+  if (closes.length < 21) return null;
+  const e10 = calcEMA(closes, 10), e20 = calcEMA(closes, 20), c = closes[closes.length - 1];
+  if (e10 == null || e20 == null) return null;
+  const arriba = c > e10 && c > e20, abajo = c < e10 && c < e20;
+  const fase = e10 > e20 ? (arriba ? 2 : 3) : e10 < e20 ? (abajo ? 4 : 1) : 1;
+  return { fase, close: +c.toFixed(2), ema10: +e10.toFixed(2), ema20: +e20.toFixed(2) };
+}
+app.get('/api/ttd-fases', async (req, res) => {
+  try {
+    const hasta = Number(req.query.hasta) > 0 ? Number(req.query.hasta) : null;
+    const filas = [];
+    for (const [tf, intervalo, rango, seg] of TTD_TF) {
+      let velas = await ttdVelas(intervalo, rango);
+      if (tf === '2h') velas = ttdAgrupar(velas, 2);
+      if (tf === '4h') velas = ttdAgrupar(velas, 4);
+      // reproducción: solo velas que ya cerraron a esa hora (las diarias/semanales cierran a las 16:00 de su último día)
+      // (Yahoo sella la diaria y la semanal a las 9:30 ET de su primer día: cierran 6,5 h después, o 4 días + 6,5 h)
+      const dura = tf === 'D' ? 23400 : tf === 'W' ? 4 * 86400 + 23400 : seg;
+      if (hasta) velas = velas.filter((v) => v.t + dura <= hasta);
+      const f = ttdFase(velas.map((v) => v.c));
+      filas.push({ tf, ...(f || { fase: null }), vela: velas.length ? velas[velas.length - 1].t : null });
+    }
+    res.json({ ok: true, criterio: 'EMA10/EMA20 + cierre sobre/bajo ambas', hasta, filas });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 app.get('/api/capas', (req, res) => {
   const fecha = fechaValida(req.query.fecha) ? req.query.fecha : calendario.fechaHojaHiro();   // misma fecha por defecto que /api/hiro
   const todos = capasDelDia(fecha), desde = String(req.query.desde || '');

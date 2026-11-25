@@ -169,7 +169,7 @@ const CAPAS = [
   // 24-nov (Guillermo): la capa Confluencia muestra el "TTD de plataformas" (tabla tipo Traders Trend Dashboard: una fila
   // por plataforma, 🟢 alcista / 🔴 bajista / ⚪ lateral, antigüedad del dato y una observación corta). Las lecturas A/B
   // quedan en sombra (se siguen guardando; el recuadro solo se ve si se marca a mano).
-  { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['ttd', 'TTD de plataformas'], ['rec', 'Lecturas A/B (en sombra)']] },
+  { id: 'conf', nom: 'Confluencia', color: '#a78bfa', opciones: [['fases', 'TTD de fases (EMA 10/20, 2m a W)'], ['ttd', 'TTD de plataformas'], ['rec', 'Lecturas A/B (en sombra)']] },
   { id: 'flow', nom: 'Option flow', color: '#22c55e', opciones: [['tabla', 'Lista de órdenes (Quant Data)'], ['marcas', 'Marcas en el gráfico (▲ bullish · ▼ bearish)'], ['grandes', 'Solo órdenes ≥ $250K']] },
 ];
 const DEFECTO = {
@@ -187,9 +187,9 @@ const DEFECTO = {
   hiro: { on: true, sel: 'pc', real: true, propio: false, invertir: false },   // 23-nov: NORMAL por defecto (Guillermo: "analicemos el modo normal", igual que SpotGamma en el Discord)
   bola8: { on: false, curva: true, obj: true, rec: true },
   trad: { on: false, rec: true, rango: true },
-  conf: { on: false, ttd: true, rec: false },
+  conf: { on: false, fases: true, ttd: true, rec: false },
   flow: { on: false, tabla: true, marcas: true, grandes: false },
-  ver: 4,   // versión de los valores por defecto: si lo guardado es más viejo, se aplican los cambios de defecto (HIRO normal)
+  ver: 5,   // versión de los valores por defecto: si lo guardado es más viejo, se aplican los cambios de defecto (HIRO normal)
 };
 const copia = (o) => JSON.parse(JSON.stringify(o));
 function cargarEstado() {
@@ -198,6 +198,7 @@ function cargarEstado() {
   for (const k of Object.keys(e)) if (g[k] && typeof g[k] === 'object') Object.assign(e[k], g[k]);
   if ((g.ver || 0) < 3) e.hiro.invertir = false;   // 23-nov: todo lo guardado antes vuelve a NORMAL una vez (luego se respeta lo que elija)
   if ((g.ver || 0) < 4) { e.conf.ttd = true; e.conf.rec = false; }   // 24-nov: A/B pasa a sombra; la capa abre el TTD
+  if ((g.ver || 0) < 5) e.conf.fases = true;   // 24-nov: TTD de fases (EMA 10/20) visible por defecto en la capa
   if (!Array.isArray(e.kgs.medias) || e.kgs.medias.length !== DEFECTO.kgs.medias.length) e.kgs.medias = copia(DEFECTO.kgs.medias);
   return e;
 }
@@ -600,10 +601,40 @@ function filasTTD() {
   for (const f of F) { f.edad = f.at ? edadMin(f.at) : null; if (f.edad != null && f.edad > TTD_VIEJA) f.vota = false; else f.vota = f.c != null; }
   return { F, spx, gpos: !!(g && g.v.flip && spx && Math.abs(g.v.flip - spx) < 300 && spx >= g.v.flip), b8: b && b.v };
 }
+// ── TTD de fases por temporalidad (EMA 10 / EMA 20, 24-nov): lo calcula el servidor (/api/ttd-fases) ──
+let ttdFases = null, ttdFasesClave = '', ttdFasesPidiendo = false;
+const epochNY = (f, hm) => {   // AAAA-MM-DD + hh:mm en hora de Nueva York -> epoch en segundos (con horario de verano)
+  const guess = Date.parse(`${f}T${hm}:00Z`);
+  const ny = new Date(new Date(guess).toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const utc = new Date(new Date(guess).toLocaleString('en-US', { timeZone: 'UTC' }));
+  return Math.round((guess + (utc - ny)) / 1000);
+};
+function pedirFases() {
+  if (!(est.conf.on && est.conf.fases && fecha) || ttdFasesPidiendo) return;
+  const hasta = corte != null ? epochNY(fecha, hmDe(corte)) : null;
+  const clave = hasta ? 'h' + hasta : 'vivo' + Math.floor(Date.now() / 60000);   // en vivo: a lo sumo una vez por minuto
+  if (clave === ttdFasesClave) return;
+  ttdFasesPidiendo = true;
+  fetch('/api/ttd-fases' + (hasta ? '?hasta=' + hasta : '')).then((r) => r.json()).then((j) => {
+    if (j && j.ok) { ttdFases = j.filas; ttdFasesClave = clave; pintarTTD(); }
+  }).catch(() => {}).finally(() => { ttdFasesPidiendo = false; });
+}
+function htmlFases() {
+  if (!ttdFases) return '<table><tr><th>TTD fases</th></tr><tr><td class="ed">cargando…</td></tr></table>';
+  const col = { 2: 'V', 4: 'R', 1: 'B', 3: 'B' };
+  const nom = { 2: 'Fase 2 · alcista', 4: 'Fase 4 · bajista', 1: 'Fase 1 · base', 3: 'Fase 3 · techo' };
+  const filas = ttdFases.map((x) => `<tr title="${x.fase ? `${nom[x.fase]} · cierre ${x.close} · EMA10 ${x.ema10} · EMA20 ${x.ema20}` : 'sin datos suficientes'}">`
+    + `<td class="pl">${x.tf}</td><td><span class="pt ${col[x.fase] || 'N'}"></span></td><td class="ed">${x.fase ? 'F' + x.fase : '—'}</td></tr>`).join('');
+  return `<table><tr><th colspan="3" title="Fase 2 = EMA10 > EMA20 y precio arriba de ambas · Fase 4 = lo contrario · Fase 1/3 = transición">TTD fases · EMA 10/20</th></tr>${filas}</table>`;
+}
 function pintarTTD() {
-  const caja = $('ttd'), ver = est.conf.on && est.conf.ttd && fecha;
-  caja.style.display = ver ? 'block' : 'none';
+  const caja = $('ttd'), ver = est.conf.on && (est.conf.ttd || est.conf.fases) && fecha;
+  caja.style.display = ver ? 'flex' : 'none';
   if (!ver) return;
+  caja.style.gap = '4px'; caja.style.alignItems = 'flex-start';
+  pedirFases();
+  const fasesHtml = est.conf.fases ? `<div>${htmlFases()}</div>` : '';
+  if (!est.conf.ttd) { caja.innerHTML = fasesHtml; return; }
   const { F, spx, gpos, b8 } = filasTTD();
   const txtEdad = (e) => (e == null ? '—' : e < 1 ? 'ahora' : e >= 60 ? `hace ${Math.floor(e / 60)} h ${Math.round(e % 60)} min` : `hace ${Math.round(e)} min`);
   const votos = F.filter((f) => f.vota), V = votos.filter((f) => f.c === 'V').length, R = votos.filter((f) => f.c === 'R').length, B = votos.filter((f) => f.c === 'B').length;
@@ -623,12 +654,12 @@ function pintarTTD() {
       + (mini ? '' : `<td class="ed">${txtEdad(f.edad)}${cls === 'vieja' ? ' · no vota' : ''}</td>`) + '</tr>';
   }).join('');
   const hora = hmDe(Math.round((ahoraT() % 86400) / 60));   // la hora que se está viendo (reproducción, ahora o última lectura)
-  caja.innerHTML = `<table><tr><th colspan="2" id="ttdTit" style="cursor:pointer" title="Clic: ${mini ? 'ver la tabla completa' : 'achicar la tabla'}">TTD plataformas ${mini ? '▸' : '▾'}</th>`
+  caja.innerHTML = fasesHtml + `<div><table><tr><th colspan="2" id="ttdTit" style="cursor:pointer" title="Clic: ${mini ? 'ver la tabla completa' : 'achicar la tabla'}">TTD plataformas ${mini ? '▸' : '▾'}</th>`
     + (mini ? '' : `<th>${hora} ET</th>`) + `</tr>${filas}`
-    + (mini ? `<tr class="tot"><td colspan="2"><span style="color:${color}">${veredicto}</span></td></tr></table>`
+    + (mini ? `<tr class="tot"><td colspan="2"><span style="color:${color}">${veredicto}</span></td></tr></table></div>`
       : `<tr class="tot"><td colspan="2"><span style="color:${color}">${veredicto}</span></td>`
       + `<td><span style="color:#22c55e">${V}🟢</span> <span style="color:#ef4444">${R}🔴</span> <span>${B}⚪</span></td></tr></table>`
-      + `<div style="padding:3px 8px 6px;font-size:10px;color:#777" title="Dato de más de ${TTD_VIEJA} min = gris, no vota">${spx ? 'SPX ' + spx.toFixed(2) + ' · ' : ''}cursor sobre la fila = detalle</div>`);
+      + `<div style="padding:3px 8px 6px;font-size:10px;color:#777" title="Dato de más de ${TTD_VIEJA} min = gris, no vota">${spx ? 'SPX ' + spx.toFixed(2) + ' · ' : ''}cursor sobre la fila = detalle</div></div>`);
   $('ttdTit').onclick = () => { est.conf.mini = !mini; guardar('hiroCapas', est); pintarTTD(); };
 }
 
