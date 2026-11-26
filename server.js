@@ -17000,7 +17000,9 @@ const capasCache = { fecha: null, registros: [] };
 // fecha AAAA-MM-DD válida de verdad (auditoría 20-nov: la regex sola aceptaba 2026-02-30)
 const fechaValida = (f) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '')) return false; const d = new Date(f + 'T12:00:00Z'); return !isNaN(d) && d.toISOString().slice(0, 10) === f; };
 function capasDelDia(fecha) {
-  if (capasCache.fecha === fecha) return capasCache.registros;
+  // 26-nov: la caché vale solo para HOY. Antes, pasada la medianoche sin reinicio, el día anterior seguía saliendo de la
+  // caché vieja y lo que se agregaba después (rellenos) quedaba en el archivo pero no se veía hasta reiniciar.
+  if (capasCache.fecha === fecha && fecha === calendario.fechaET()) return capasCache.registros;
   let regs = [];
   try { regs = fs.readFileSync(path.join(CAPAS_DIR, fecha + '.jsonl'), 'utf8').split('\n').filter(Boolean)
     .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { /* sin datos */ }
