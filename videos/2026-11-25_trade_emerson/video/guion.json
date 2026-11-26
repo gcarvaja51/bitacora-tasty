@@ -1,0 +1,88 @@
+[
+ {
+  "id": "intro",
+  "kicker": "TRADE EN VIVO · MIÉRCOLES 25-NOV.",
+  "titular": "UN STOP LOSS\nY SU LECCIÓN",
+  "voz": "Análisis del trade del veinticinco de noviembre de dos mil veintiséis, donde se salió por stop. Minuto a minuto, con las herramientas del Discord de Iron Balls y la voz en vivo del profe Emerson. Y al final, qué dejó como aprendizaje."
+ },
+ {
+  "id": "apertura",
+  "kicker": "LA APERTURA",
+  "titular": "HUECO DE -140\nY REBOTE",
+  "voz": "El S&P abrió en siete mil sesenta, ciento cuarenta puntos por debajo del cierre del martes. A las nueve y cuarenta y cinco tocó seis mil novecientos setenta, y rebotó hasta siete mil sesenta y tres. GexBot marcaba el imán negativo en siete mil, y el positivo en siete mil cien."
+ },
+ {
+  "id": "manana",
+  "kicker": "LA MAÑANA",
+  "titular": "UN PISO EN 6.990\nQUE NO CEDÍA",
+  "voz": "Después del rebote, el precio quedó atrapado entre seis mil novecientos noventa y siete mil cuarenta, por debajo del cambio de gamma. Y ojo con esto: desde las diez y media, el piso de seis mil novecientos noventa y cinco se probó cuatro veces, y las cuatro veces rebotó."
+ },
+ {
+  "id": "herramientas",
+  "kicker": "11:10 · CASI TODO BAJISTA",
+  "titular": "LAS HERRAMIENTAS\nAPUNTAN ABAJO",
+  "voz": "A las once y diez, casi todo decía bajista. La Bola 8: sesgo bajista con fuerza cero coma ocho, y objetivo en seis mil novecientos cincuenta. Tradytics: casi cincuenta millones de dólares más en puts. Quant Data: la prima en puts triplicaba a la de calls. GexBot: gamma negativa, debajo del cambio de gamma. Y las fases de cinco y dos minutos, en fase cuatro."
+ },
+ {
+  "id": "hiro",
+  "kicker": "LA SEÑAL QUE FALTABA",
+  "titular": "PERO EL HIRO\nDECÍA OTRA COSA",
+  "voz": "Pero el HIRO de SpotGamma contaba otra historia. Desde la apertura, las dos curvas subieron sin parar: calls en uno coma seis mil millones, y puts también en positivo. El dinero estaba comprando, no vendiendo. El profe miró el HIRO a las once y veinticuatro, cuando el trade ya iba en contra."
+ },
+ {
+  "id": "decision",
+  "kicker": "LA DECISIÓN · 11:12",
+  "titular": "BEAR CALL\n6995 / 7000",
+  "voz": "Emerson esperó a que el precio perdiera seis mil novecientos noventa y cinco. A las once y doce, con el SPX en seis mil novecientos noventa y cuatro, vendió el call seis mil novecientos noventa y cinco y compró el siete mil. Así lo dijo en vivo."
+ },
+ {
+  "id": "clip_entrada",
+  "kicker": "EN VIVO · 11:12",
+  "titular": "«YA ENTRÉ\nCON 2,60»",
+  "clip": "entrada",
+  "cita": "«…de hecho ya entré con 2,60, ahí estoy con 2,60»"
+ },
+ {
+  "id": "espera",
+  "kicker": "DENTRO DEL TRADE · 11:12 – 11:20",
+  "titular": "CASI LLEGA:\nMÍNIMO 6.989",
+  "voz": "Al principio salió bien: a las once y diecisiete, el precio bajó a seis mil novecientos ochenta y nueve, y el trade iba ganando entre veinte y veinticinco dólares. Pero el objetivo era seis mil novecientos ochenta, y el piso volvió a aguantar. Quienes cobraron ahí, ganaron entre veinte y cincuenta dólares."
+ },
+ {
+  "id": "cierre",
+  "kicker": "EL GIRO · 11:20 – 11:26",
+  "titular": "STOP LOSS\n-75 USD",
+  "voz": "A las once y veinte, el precio recuperó siete mil y rompió siete mil diez, el acelerador de gamma de GexBot. En cinco minutos subió treinta y cinco puntos, hasta siete mil veintisiete. El stop estaba en siete mil diecisiete. A las once y veintiséis, el profe cerró."
+ },
+ {
+  "id": "clip_stop",
+  "kicker": "EN VIVO · 11:26",
+  "titular": "«SALÍ CON 75\nDE STOP LOSS»",
+  "clip": "stop",
+  "cita": "«…salí con 75 dólares de stop loss. El día de hoy no tuvo la fuerza para venir a romper»"
+ },
+ {
+  "id": "despues",
+  "kicker": "LO QUE VINO DESPUÉS",
+  "titular": "EL STOP\nLO SALVÓ",
+  "voz": "A las once y treinta y ocho, el precio volvió a seis mil novecientos noventa y tres, y muchos dudaron del stop. Pero estuvo bien puesto: en la tarde, el S&P subió hasta siete mil ciento noventa y siete. Quien se quedó, perdió el máximo: doscientos cuarenta dólares por contrato."
+ },
+ {
+  "id": "resultados",
+  "kicker": "LA COMUNIDAD",
+  "titular": "14 GANARON\n19 PERDIERON",
+  "voz": "Treinta y cuatro alumnos reportaron su resultado en el chat de Zoom y en el chat VIP. Catorce tomaron ganancia cuando el precio bajó a seis mil novecientos noventa: seiscientos treinta dólares en total, unos cuarenta y cinco por persona. Diecinueve mantuvieron la posición buscando el objetivo de seis mil novecientos ochenta, y cerraron por stop: mil cuatrocientos noventa y cinco dólares negativos, unos setenta y nueve por persona. El balance del grupo: ochocientos sesenta y cinco dólares negativos."
+ },
+ {
+  "id": "error",
+  "kicker": "EL APRENDIZAJE",
+  "titular": "TRES\nAPRENDIZAJES",
+  "voz": "El aprendizaje. Primero: el HIRO estaba en contra. El martes, el HIRO acompañaba la venta; el miércoles, no. Segundo: el call se vendió justo encima de un piso que había aguantado cuatro veces, y debajo del acelerador de gamma. Tercero: el objetivo pedía romper ese piso. Tomar ganancia en el piso pagaba, como lo mostraron los catorce que cobraron ahí. Y lo que el profe hizo bien: respetar el stop."
+ },
+ {
+  "id": "leccion",
+  "kicker": "LA LECCIÓN",
+  "titular": "CONFLUENCIA\nCOMPLETA",
+  "voz": "La lección: todas las herramientas del mismo lado, HIRO incluido. No vender pegado a un piso que aguanta. Cobrar en el nivel. Y el stop se respeta, siempre. Contenido educativo, no es consejo de inversión."
+ }
+]
