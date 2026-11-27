@@ -4,55 +4,79 @@
   "capas": 0,
   "hiro_minutos": 0,
   "velas_spx": 406,
-  "gexbot_propio": 2
+  "gexbot_propio": 2,
+  "tradytics_gexz": 0,
+  "sigma_lecturas": 543,
+  "volcado_canales": 0
  },
  "2026-11-20": {
   "ciclos_confluencia": 44,
   "capas": 46,
   "hiro_minutos": 94,
   "velas_spx": 391,
-  "gexbot_propio": 41
+  "gexbot_propio": 41,
+  "tradytics_gexz": 0,
+  "sigma_lecturas": 239,
+  "volcado_canales": 0
  },
  "2026-11-22": {
   "ciclos_confluencia": 0,
   "capas": 0,
   "hiro_minutos": 0,
   "velas_spx": 0,
-  "gexbot_propio": 0
+  "gexbot_propio": 0,
+  "tradytics_gexz": 0,
+  "sigma_lecturas": 0,
+  "volcado_canales": 0
  },
  "2026-11-23": {
   "ciclos_confluencia": 42,
   "capas": 130,
   "hiro_minutos": 393,
   "velas_spx": 393,
-  "gexbot_propio": 41
+  "gexbot_propio": 41,
+  "tradytics_gexz": 0,
+  "sigma_lecturas": 626,
+  "volcado_canales": 0
  },
  "2026-11-24": {
   "ciclos_confluencia": 57,
   "capas": 64,
   "hiro_minutos": 393,
   "velas_spx": 393,
-  "gexbot_propio": 56
+  "gexbot_propio": 56,
+  "tradytics_gexz": 0,
+  "sigma_lecturas": 568,
+  "volcado_canales": 0
  },
  "2026-11-25": {
   "ciclos_confluencia": 957,
   "capas": 457,
   "hiro_minutos": 393,
   "velas_spx": 393,
-  "gexbot_propio": 118
+  "gexbot_propio": 118,
+  "tradytics_gexz": 0,
+  "sigma_lecturas": 158,
+  "volcado_canales": 0
  },
  "2026-11-26": {
   "ciclos_confluencia": 0,
   "capas": 0,
   "hiro_minutos": 0,
   "velas_spx": 0,
-  "gexbot_propio": 0
+  "gexbot_propio": 0,
+  "tradytics_gexz": 0,
+  "sigma_lecturas": 0,
+  "volcado_canales": 0
  },
  "2026-11-27": {
   "ciclos_confluencia": 13,
   "capas": 13,
   "hiro_minutos": 213,
   "velas_spx": 213,
-  "gexbot_propio": 72
+  "gexbot_propio": 72,
+  "tradytics_gexz": 0,
+  "sigma_lecturas": 180,
+  "volcado_canales": 23
  }
 }
