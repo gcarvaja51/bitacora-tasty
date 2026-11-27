@@ -4277,3 +4277,15 @@ bloque *La Rueda manual: asignaciones*.
 
 - `npm run dev` — nodemon (recomendado). Configurado en `nodemon.json` para ignorar `*.json` y `public/*`, evitando bucle de reinicios cuando el servidor escribe datos.
 - `node server.js` — alternativa sin nodemon si hay problemas.
+
+## La cadena de rolls con ramas — NU 2026-11-27
+
+Guillermo cerró las 2 calls NU $14 11-27 a $0,01. La hoja de Reportes mostraba −$22 y la
+de la Rueda −$57,92. Las dos calls nacieron por separado (STO $12,50 06-12 el 04-jun,
+rolada el 08 y el 11-jun, +$35,37; y STO $12 06-18 el 10-jun, +$27,87) y se rolaron
+juntas como 2 contratos el 15-jun. `resolverCadena` caminaba un solo hilo y se paraba
+en la primera apertura (la del 10-jun), así que la rama del 04-jun quedaba como filas
+sueltas de junio. Total de la columna VALOR intacto; la fila de la operación mentía
+por $35,37. Arreglo: `ROLL.contracts`/`fromContracts` en `src/wheel.js` y encadenado
+por cobertura de contratos en el front. Resultado real de la cadena: −$22,56 (los
+rolls del 20-jul y 14-ago, subiendo strike, costaron −$187 entre los dos).

@@ -249,6 +249,15 @@ function buildWheelData(items = [], positions = [], wheelUnderlyings = []) {
           amount:     neto,
           gross:      bruto,
           legs:       patas.length,
+          // AJUSTE 2026-11-27: cuantos contratos cierra y cuantos abre. Sin esto el
+          // encadenado del front no sabe que un roll de 2 contratos puede venir de DOS
+          // aperturas de 1 (NU: dos covered calls de junio rolladas juntas el 15-jun).
+          // Se cuentan solo las patas del mismo tipo/strike/expiry que btc/sto, para
+          // que en el roll de un spread no se sumen las largas.
+          fromContracts: cierres.filter(e => e.type === btc.type && e.strike === btc.strike && e.expiry === btc.expiry)
+                                .reduce((s, e) => s + (e.contracts || 0), 0) || null,
+          contracts:     aperturas.filter(e => e.type === sto.type && e.strike === sto.strike && e.expiry === sto.expiry)
+                                  .reduce((s, e) => s + (e.contracts || 0), 0) || null,
           orderId:    patas[0].orderId,
         });
         continue;

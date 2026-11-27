@@ -65,7 +65,7 @@
       <span class="nav-label">SPX Señales</span>
     </div>
     <div class="nav-item" onclick="nav('hiro',this)">
-      <span class="icon">〰</span> Hiro
+      <span class="icon">〰</span> Discord data
     </div>
     <div class="nav-item" onclick="nav('demo',this)">
       <span class="icon">🧪</span> Cuenta demo SPX
@@ -4758,28 +4758,59 @@ async function loadWheel() {
       return null;
     };
 
-    // Devuelve { apertura, rolls[] } o null. Solo consume si la cadena cierra entera.
+    // Devuelve { apertura, aperturas[], rolls[] } o null. Solo consume si la cadena
+    // cierra entera. `apertura` es la mas antigua (la que fecha la operacion).
+    //
+    // AJUSTE 2026-11-27 — LA CADENA PUEDE TENER RAMAS. Antes se caminaba un solo hilo
+    // y se paraba en la primera apertura. Pero un roll de 2 contratos puede venir de
+    // DOS aperturas de 1: NU vendio una call el 04-jun y otra el 10-jun, y el 15-jun
+    // las rolo juntas. El hilo encontraba la del 10-jun y se detenia; la del 04-jun
+    // (+$35.37 con sus dos rolls) quedaba suelta en junio, y la fila del cierre del
+    // 27-nov decia -$57.92 cuando la operacion completa dio -$22.54.
+    //
+    // Ahora cada eslabon tiene que CUBRIR los contratos que se le piden: si la apertura
+    // encontrada trae menos, se sigue buscando (otra apertura o otro roll) en la misma
+    // clave. Los eventos viejos sin `contracts` cubren todo, como antes.
     const MAX_CADENA = 50;   // tope de seguridad: una cadena ciclica no puede colgar la vista
     const resolverCadena = (idxAp, idxRolls, cierre) => {
-      const directa = tomarApertura(idxAp, cierre);
-      if (directa) return { apertura: directa, rolls: [] };
-      const cadena = [];
-      let clave = claveOpt(cierre);
-      let hasta = cierre.date;
-      for (let i = 0; i < MAX_CADENA; i++) {
-        const r = buscarRoll(idxRolls, clave, hasta, cadena);
-        if (!r) break;
-        cadena.push(r);
-        hasta = r.ev.date;
-        clave = claveOrigenRoll(r.ev);
-        const ap = buscarApertura(idxAp, clave, hasta);
-        if (ap) {
-          ap.used = true;
-          for (const c of cadena) c.used = true;
-          return { apertura: ap.ev, rolls: cadena.map(c => c.ev) };
+      const aps = [], rolls = [];
+      let pasos = 0;
+      const tomados = new Set();
+      const libreAp = (idx, clave, hasta) => {
+        const lista = idx.get(clave) || [];
+        for (let i = lista.length - 1; i >= 0; i--) {
+          const it = lista[i];
+          if (!it.used && !tomados.has(it) && it.ev.date <= hasta) return it;
         }
-      }
-      return null;   // sin apertura: no se consume ni un roll
+        return null;
+      };
+      // Cubre `qty` contratos (null = todos) de la pata `clave` vigente en `hasta`.
+      const cubrir = (clave, hasta, qty) => {
+        let falta = qty;
+        while (falta == null || falta > 0) {
+          if (++pasos > MAX_CADENA) return false;
+          const ap = libreAp(idxAp, clave, hasta);
+          if (ap) {
+            tomados.add(ap); aps.push(ap);
+            falta = (falta == null || !ap.ev.contracts) ? 0 : falta - ap.ev.contracts;
+            continue;
+          }
+          const r = libreAp(idxRolls, clave, hasta);
+          if (!r) return false;
+          tomados.add(r); rolls.push(r);
+          if (!cubrir(claveOrigenRoll(r.ev), r.ev.date, r.ev.fromContracts || null)) return false;
+          falta = (falta == null || !r.ev.contracts) ? 0 : falta - r.ev.contracts;
+        }
+        return true;
+      };
+      if (!cubrir(claveOpt(cierre), cierre.date, cierre.contracts || null)) return null;   // nada se consume
+      for (const it of tomados) it.used = true;
+      const aperturas = aps.map(a => a.ev).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+      return {
+        apertura:  aperturas[0],
+        aperturas,
+        rolls:     rolls.map(r => r.ev).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)),
+      };
     };
 
     // ── UNA OPERACION = UNA FILA ────────────────────────────────────
@@ -4823,7 +4854,7 @@ async function loadWheel() {
         if (!esBtc && !esStc) continue;
         const cad = resolverCadena(esBtc ? idxSto : idxBto, idxRolls, ev);
         if (!cad) continue;
-        fundidas.add(cad.apertura);
+        for (const a of cad.aperturas) fundidas.add(a);
         for (const r of cad.rolls) fundidas.add(r);
         cadenaPorCierre.set(ev, cad);
       }
@@ -4840,7 +4871,7 @@ async function loadWheel() {
         // se perdia medio centavo por cadena y JBLU cerraba en -$444.96 en vez de
         // -$444.97: dos cadenas de tres patas (29.867+10.75-7.12 y 15.867+46.75-94.12)
         // caen las dos en .497/-.503. La vista ya redondea a dos al pintar.
-        const piezas = [cad.apertura, ...cad.rolls, ev];
+        const piezas = [...cad.aperturas, ...cad.rolls, ev];
         const brutos = piezas.every(p => p.gross != null);
         out.push({
           ...ev,
@@ -5292,12 +5323,12 @@ async function loadWheel() {
             // BTC: buscar el STO que lo originó —directo o encadenando los rolls— y
             // mostrar el neto en la semana del cierre. Si no aparece, el BTC solo.
             const cad = resolverCadena(stoIndex, rollsIndex, ev);
-            addAmt(ev.date, (cad ? (cad.apertura.amount || 0) : 0) + (ev.amount || 0));
+            addAmt(ev.date, (cad ? cad.aperturas.reduce((t, a) => t + (a.amount || 0), 0) : 0) + (ev.amount || 0));
 
           } else if (ev.type === 'STC_PUT' || ev.type === 'STC_CALL') {
             // Cierre de pata larga: netear contra su BTO, misma logica que arriba
             const cad = resolverCadena(btoIndex, rollsIndex, ev);
-            addAmt(ev.date, (cad ? (cad.apertura.amount || 0) : 0) + (ev.amount || 0));
+            addAmt(ev.date, (cad ? cad.aperturas.reduce((t, a) => t + (a.amount || 0), 0) : 0) + (ev.amount || 0));
 
           }
           // STO_*/BTO_*: se procesan al llegar su cierre o al expirar (ver abajo)

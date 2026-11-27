@@ -372,6 +372,14 @@ compra de equity separada.
     (por eso el `ROLL` guarda `fromType`/`toType`), hasta dar con la apertura original.
     Cada roll se consume una sola vez y, si la cadena no llega a ninguna apertura, **no
     se consume nada**: el cierre se queda con su flujo crudo, como antes.
+    - **La cadena puede tener ramas** (2026-11-27): un roll de 2 contratos puede venir de
+      dos aperturas de 1. El `ROLL` guarda `contracts`/`fromContracts` y cada eslabón
+      tiene que **cubrir los contratos** que se le piden; si una apertura trae menos, se
+      sigue buscando en la misma clave. Eventos sin esos campos cubren todo (como antes).
+      Caso: NU cerró las 2 calls $14 11-27 y la fila decía **−$57,92**; la call vendida
+      el 04-jun (+$35,37 con sus dos rolls) se había rolado junto con la del 10-jun el
+      15-jun y quedaba suelta. Ahora la fila da **−$22,56** con 9 rolls desde el 04-jun.
+      Primas/Semana suma todas las aperturas de la cadena (`cad.aperturas`).
     - Lo que arregló: JBLU 2026-08-18 mostraba *"Put cerrada $6 09-18 −$94.12"* en rojo.
       La operación fue STO $5.5 09-04 el 03-ago (+$15.87) → roll a $6 09-18 el 18-ago
       (+$46.75) → cierre el mismo día (−$94.12): perdió **$31.50**, no $94. Tres veces
