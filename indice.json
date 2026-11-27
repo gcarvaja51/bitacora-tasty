@@ -36,9 +36,23 @@
  },
  "2026-11-25": {
   "ciclos_confluencia": 957,
-  "capas": 453,
+  "capas": 457,
   "hiro_minutos": 393,
   "velas_spx": 393,
   "gexbot_propio": 118
+ },
+ "2026-11-26": {
+  "ciclos_confluencia": 0,
+  "capas": 0,
+  "hiro_minutos": 0,
+  "velas_spx": 0,
+  "gexbot_propio": 0
+ },
+ "2026-11-27": {
+  "ciclos_confluencia": 13,
+  "capas": 13,
+  "hiro_minutos": 213,
+  "velas_spx": 213,
+  "gexbot_propio": 72
  }
 }
