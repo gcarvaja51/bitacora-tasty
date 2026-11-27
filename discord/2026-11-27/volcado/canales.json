@@ -1,0 +1,265 @@
+{
+ "fecha": "2026-11-27",
+ "desde": "2026-11-21T00:00:00.000Z",
+ "canales": [
+  {
+   "id": "1249733531912114176",
+   "etiqueta": "rules (text channel)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1541438113564598432",
+   "etiqueta": "🎥repeticiones-en-vivo (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1569362749673443459",
+   "etiqueta": "sesiones-de-herramientas (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1572620174639763526",
+   "etiqueta": "option flow (stage channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "nota": "sin chat de texto visible"
+  },
+  {
+   "id": "1487119644769779783",
+   "etiqueta": "gexbot (stage channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "nota": "sin chat de texto visible"
+  },
+  {
+   "id": "1490706593896202291",
+   "etiqueta": "gexbot state (stage channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "nota": "sin chat de texto visible"
+  },
+  {
+   "id": "1487120529784569957",
+   "etiqueta": "Quandata (stage channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "nota": "sin chat de texto visible"
+  },
+  {
+   "id": "1487125311098458283",
+   "etiqueta": "tradytics (stage channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "nota": "sin chat de texto visible"
+  },
+  {
+   "id": "1487125390119141486",
+   "etiqueta": "Hiro (stage channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "nota": "sin chat de texto visible"
+  },
+  {
+   "id": "1487125473145131078",
+   "etiqueta": "Trace (stage channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "nota": "sin chat de texto visible"
+  },
+  {
+   "id": "1247978348697616578",
+   "etiqueta": "Canales de texto (category)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1431787116790022235",
+   "etiqueta": "bienvenida (text channel)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1249670715133788250",
+   "etiqueta": "chat-general (text channel)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1249705567535239219",
+   "etiqueta": "unread, reportes-de-mercado (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 5,
+   "hoy": 0,
+   "imagenes": 0,
+   "primero": "2026-11-23T14:15:27.410Z",
+   "ultimo": "2026-11-25T14:50:19.095Z"
+  },
+  {
+   "id": "1249695905133887561",
+   "etiqueta": "unread, magic-8-ball-spx-predicciones (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 135,
+   "hoy": 60,
+   "imagenes": 51,
+   "primero": "2026-11-25T16:16:58.653Z",
+   "ultimo": "2026-11-27T18:17:56.653Z"
+  },
+  {
+   "id": "1261321492168446034",
+   "etiqueta": "tradytics bots (category)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1247978348697616580",
+   "etiqueta": "tradytics-bot (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 122,
+   "hoy": 22,
+   "imagenes": 134,
+   "primero": "2026-11-23T14:40:01.483Z",
+   "ultimo": "2026-11-27T17:45:07.012Z"
+  },
+  {
+   "id": "1261322642682548254",
+   "etiqueta": "unread, options-sweeps (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 135,
+   "hoy": 62,
+   "imagenes": 86,
+   "primero": "2026-11-25T16:43:52.827Z",
+   "ultimo": "2026-11-27T18:04:37.312Z"
+  },
+  {
+   "id": "1261322844046889016",
+   "etiqueta": "unread, golden-sweeps (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 76,
+   "hoy": 8,
+   "imagenes": 8,
+   "primero": "2026-11-23T14:49:02.130Z",
+   "ultimo": "2026-11-27T17:25:51.714Z"
+  },
+  {
+   "id": "1261323482608701540",
+   "etiqueta": "unread, trady-flow (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 6,
+   "hoy": 0,
+   "imagenes": 0,
+   "primero": "2026-11-23T14:55:57.099Z",
+   "ultimo": "2026-11-24T20:46:33.521Z"
+  },
+  {
+   "id": "1261323792211247167",
+   "etiqueta": "unread, darkpool (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 135,
+   "hoy": 60,
+   "imagenes": 86,
+   "primero": "2026-11-26T10:57:06.797Z",
+   "ultimo": "2026-11-27T18:49:57.762Z"
+  },
+  {
+   "id": "1261323953410936934",
+   "etiqueta": "unread, bullseye (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 34,
+   "hoy": 3,
+   "imagenes": 3,
+   "primero": "2026-11-23T14:35:20.364Z",
+   "ultimo": "2026-11-27T14:50:41.358Z"
+  },
+  {
+   "id": "1261324009950285944",
+   "etiqueta": "scalps (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 2,
+   "hoy": 1,
+   "imagenes": 2,
+   "primero": "2026-11-24T17:42:11.118Z",
+   "ultimo": "2026-11-27T16:47:10.648Z"
+  },
+  {
+   "id": "1261324094209523723",
+   "etiqueta": "social-spike (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1261324171183525958",
+   "etiqueta": "unread, insider-trades (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 25,
+   "hoy": 0,
+   "imagenes": 0,
+   "primero": "2026-11-24T00:11:19.708Z",
+   "ultimo": "2026-11-26T21:34:56.033Z"
+  },
+  {
+   "id": "1261324474456739950",
+   "etiqueta": "unread, stock-breakouts (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 110,
+   "hoy": 22,
+   "imagenes": 63,
+   "primero": "2026-11-23T14:45:10.887Z",
+   "ultimo": "2026-11-27T17:52:16.798Z"
+  },
+  {
+   "id": "1261324569642401914",
+   "etiqueta": "unread, analyst-grades (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 135,
+   "hoy": 45,
+   "imagenes": 58,
+   "primero": "2026-11-25T15:56:26.015Z",
+   "ultimo": "2026-11-27T14:10:47.643Z"
+  },
+  {
+   "id": "1261324684084121680",
+   "etiqueta": "unread, important-news (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 135,
+   "hoy": 41,
+   "imagenes": 50,
+   "primero": "2026-11-24T19:31:24.242Z",
+   "ultimo": "2026-11-27T18:51:18.414Z"
+  },
+  {
+   "id": "1261324785926012948",
+   "etiqueta": "crypto-breakots (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  },
+  {
+   "id": "1261324855111061590",
+   "etiqueta": "crypto-signals (text channel), Private Channel (locked)",
+   "nombre": "Discord",
+   "mensajes": 0,
+   "hoy": 0,
+   "imagenes": 0
+  }
+ ]
+}

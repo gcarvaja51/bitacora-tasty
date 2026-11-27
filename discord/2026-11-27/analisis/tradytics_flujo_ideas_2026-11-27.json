@@ -1,0 +1,1680 @@
+{
+ "fecha": "2026-11-27",
+ "sweeps_hoy_dedup": [
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:32",
+   "hora_trade": "2026-11-27 09:30:08",
+   "sym": "APP",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 380.0,
+   "venc": "5/21/2027",
+   "prima": 343520.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:41",
+   "hora_trade": "2026-11-27 09:30:21",
+   "sym": "MU",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 632.5,
+   "venc": "11/27/2026",
+   "prima": 447200.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:41",
+   "hora_trade": "2026-11-27 09:31:03",
+   "sym": "MU",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 620.0,
+   "venc": "11/27/2026",
+   "prima": 329670.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:41",
+   "hora_trade": "2026-11-27 09:33:22",
+   "sym": "MU",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 620.0,
+   "venc": "11/27/2026",
+   "prima": 288000.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:46",
+   "hora_trade": "2026-11-27 09:31:21",
+   "sym": "NVDA",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 165.0,
+   "venc": "12/18/2026",
+   "prima": 379030.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:49",
+   "hora_trade": "2026-11-27 09:32:48",
+   "sym": "PANW",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 345.0,
+   "venc": "12/4/2026",
+   "prima": 307020.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:52",
+   "hora_trade": "2026-11-27 09:48:24",
+   "sym": "AMD",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 435.0,
+   "venc": "12/18/2026",
+   "prima": 250840.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:55",
+   "hora_trade": "2026-11-27 09:47:47",
+   "sym": "NVDA",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 125.0,
+   "venc": "6/17/2027",
+   "prima": 285860.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "09:58",
+   "hora_trade": "2026-11-27 09:47:44",
+   "sym": "SKHY",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 110.0,
+   "venc": "1/21/2028",
+   "prima": 278700.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:01",
+   "hora_trade": "2026-11-27 09:48:17",
+   "sym": "SMH",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 380.0,
+   "venc": "1/21/2028",
+   "prima": 442800.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:06",
+   "hora_trade": "2026-11-27 10:01:53",
+   "sym": "LRCX",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 155.0,
+   "venc": "1/15/2027",
+   "prima": 338880.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:08",
+   "hora_trade": "2026-11-27 10:02:16",
+   "sym": "MSTR",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 30.0,
+   "venc": "9/17/2027",
+   "prima": 379090.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:09",
+   "hora_trade": "2026-11-27 09:47:56",
+   "sym": "SOXX",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 130.0,
+   "venc": "12/18/2026",
+   "prima": 284400.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:20",
+   "hora_trade": "2026-11-27 10:08:53",
+   "sym": "META",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 620.0,
+   "venc": "12/18/2026",
+   "prima": 713730.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:21",
+   "hora_trade": "2026-11-27 10:08:53",
+   "sym": "META",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 650.0,
+   "venc": "12/18/2026",
+   "prima": 534540.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:25",
+   "hora_trade": "2026-11-27 10:07:40",
+   "sym": "META",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 600.0,
+   "venc": "3/19/2027",
+   "prima": 286020.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:28",
+   "hora_trade": "2026-11-27 10:06:13",
+   "sym": "MSTR",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 80.0,
+   "venc": "12/17/2027",
+   "prima": 265490.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:31",
+   "hora_trade": "2026-11-27 10:08:09",
+   "sym": "NVDA",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 150.0,
+   "venc": "12/18/2026",
+   "prima": 506880.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:44",
+   "hora_trade": "2026-11-27 10:07:02",
+   "sym": "VOO",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 680.0,
+   "venc": "1/15/2027",
+   "prima": 277760.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:44",
+   "hora_trade": "2026-11-27 10:07:44",
+   "sym": "VOO",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 665.0,
+   "venc": "12/11/2026",
+   "prima": 552120.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:50",
+   "hora_trade": "2026-11-27 10:46:25",
+   "sym": "CRDO",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 130.0,
+   "venc": "3/19/2027",
+   "prima": 360510.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:50",
+   "hora_trade": "2026-11-27 10:45:15",
+   "sym": "CRDO",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 130.0,
+   "venc": "3/19/2027",
+   "prima": 278160.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:54",
+   "hora_trade": "2026-11-27 10:46:36",
+   "sym": "CLS",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 250.0,
+   "venc": "2/19/2027",
+   "prima": 404700.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:59",
+   "hora_trade": "2026-11-27 10:46:39",
+   "sym": "SNDK",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 175.0,
+   "venc": "1/19/2029",
+   "prima": 352800.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "10:59",
+   "hora_trade": "2026-11-27 10:43:59",
+   "sym": "SNDK",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 85.0,
+   "venc": "12/4/2026",
+   "prima": 939420.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:04",
+   "hora_trade": "2026-11-27 10:46:13",
+   "sym": "AAPL",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 380.0,
+   "venc": "1/21/2028",
+   "prima": 298920.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:07",
+   "hora_trade": "2026-11-27 10:43:48",
+   "sym": "AMZN",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 270.0,
+   "venc": "1/15/2027",
+   "prima": 300750.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:12",
+   "hora_trade": "2026-11-27 10:45:53",
+   "sym": "META",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 650.0,
+   "venc": "12/18/2026",
+   "prima": 427000.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:12",
+   "hora_trade": "2026-11-27 10:46:08",
+   "sym": "META",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 650.0,
+   "venc": "12/18/2026",
+   "prima": 444720.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:17",
+   "hora_trade": "2026-11-27 10:43:30",
+   "sym": "TSM",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 370.0,
+   "venc": "1/15/2027",
+   "prima": 759430.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:20",
+   "hora_trade": "2026-11-27 11:17:41",
+   "sym": "ANET",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 240.0,
+   "venc": "3/19/2027",
+   "prima": 371220.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:23",
+   "hora_trade": "2026-11-27 11:16:33",
+   "sym": "MU",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 630.0,
+   "venc": "11/27/2026",
+   "prima": 319070.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:29",
+   "hora_trade": "2026-11-27 11:25:20",
+   "sym": "MU",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 640.0,
+   "venc": "11/27/2026",
+   "prima": 539260.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:29",
+   "hora_trade": "2026-11-27 11:23:29",
+   "sym": "MU",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 640.0,
+   "venc": "11/27/2026",
+   "prima": 269780.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:33",
+   "hora_trade": "2026-11-27 11:31:26",
+   "sym": "FSLR",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 120.0,
+   "venc": "6/16/2028",
+   "prima": 764400.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:36",
+   "hora_trade": "2026-11-27 11:33:33",
+   "sym": "SNOW",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 325.0,
+   "venc": "12/18/2026",
+   "prima": 294680.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:41",
+   "hora_trade": "2026-11-27 11:38:01",
+   "sym": "MU",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 1200.0,
+   "venc": "1/21/2028",
+   "prima": 360800.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:41",
+   "hora_trade": "2026-11-27 11:38:04",
+   "sym": "MU",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 1200.0,
+   "venc": "1/21/2028",
+   "prima": 312460.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:46",
+   "hora_trade": "2026-11-27 11:35:42",
+   "sym": "NVDA",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 150.0,
+   "venc": "1/15/2027",
+   "prima": 969250.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:49",
+   "hora_trade": "2026-11-27 11:37:29",
+   "sym": "ORCL",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 135.0,
+   "venc": "12/24/2026",
+   "prima": 445610.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:53",
+   "hora_trade": "2026-11-27 11:51:07",
+   "sym": "AAPL",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 370.0,
+   "venc": "1/21/2028",
+   "prima": 414000.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:56",
+   "hora_trade": "2026-11-27 11:51:32",
+   "sym": "GS",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 850.0,
+   "venc": "3/19/2027",
+   "prima": 256589.99999999997
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "11:59",
+   "hora_trade": "2026-11-27 11:56:30",
+   "sym": "AMD",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 420.0,
+   "venc": "11/27/2026",
+   "prima": 311150.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:04",
+   "hora_trade": "2026-11-27 11:56:30",
+   "sym": "CRWD",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 215.0,
+   "venc": "1/21/2028",
+   "prima": 595680.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:04",
+   "hora_trade": "2026-11-27 11:57:18",
+   "sym": "CRWD",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 215.0,
+   "venc": "1/21/2028",
+   "prima": 344260.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:09",
+   "hora_trade": "2026-11-27 11:54:25",
+   "sym": "NVDA",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 125.0,
+   "venc": "12/15/2028",
+   "prima": 328500.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:14",
+   "hora_trade": "2026-11-27 12:08:23",
+   "sym": "ANT",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 100.0,
+   "venc": "2/19/2027",
+   "prima": 303000.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:14",
+   "hora_trade": "2026-11-27 12:08:23",
+   "sym": "ANT",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 95.0,
+   "venc": "12/11/2026",
+   "prima": 265000.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:19",
+   "hora_trade": "2026-11-27 12:09:37",
+   "sym": "META",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 630.0,
+   "venc": "11/30/2026",
+   "prima": 315000.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:22",
+   "hora_trade": "2026-11-27 12:08:58",
+   "sym": "SPCX",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 130.0,
+   "venc": "6/17/2027",
+   "prima": 292800.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:29",
+   "hora_trade": "2026-11-27 12:22:55",
+   "sym": "AMZN",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 260.0,
+   "venc": "12/31/2026",
+   "prima": 308730.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:32",
+   "hora_trade": "2026-11-27 12:22:52",
+   "sym": "GDXJ",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 110.0,
+   "venc": "1/15/2027",
+   "prima": 462590.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:35",
+   "hora_trade": "2026-11-27 12:20:22",
+   "sym": "GLD",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 375.0,
+   "venc": "6/17/2027",
+   "prima": 385910.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:39",
+   "hora_trade": "2026-11-27 12:33:45",
+   "sym": "COHR",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 230.0,
+   "venc": "12/18/2026",
+   "prima": 940990.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:43",
+   "hora_trade": "2026-11-27 12:34:45",
+   "sym": "SMH",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 470.0,
+   "venc": "12/18/2026",
+   "prima": 465850.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:44",
+   "hora_trade": "2026-11-27 12:34:50",
+   "sym": "SMH",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 470.0,
+   "venc": "12/18/2026",
+   "prima": 364500.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:49",
+   "hora_trade": "2026-11-27 12:33:55",
+   "sym": "WDC",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 680.0,
+   "venc": "1/19/2029",
+   "prima": 498780.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:52",
+   "hora_trade": "2026-11-27 12:50:17",
+   "sym": "SMH",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 430.0,
+   "venc": "12/11/2026",
+   "prima": 559200.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:55",
+   "hora_trade": "2026-11-27 12:46:58",
+   "sym": "GOOG",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 265.0,
+   "venc": "1/15/2027",
+   "prima": 388930.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "12:58",
+   "hora_trade": "2026-11-27 12:49:59",
+   "sym": "MU",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 635.0,
+   "venc": "11/27/2026",
+   "prima": 598400.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "13:01",
+   "hora_trade": "2026-11-27 12:47:24",
+   "sym": "TQQQ",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 45.0,
+   "venc": "12/18/2026",
+   "prima": 465000.0
+  },
+  {
+   "canal": "options-sweeps",
+   "hora_et": "13:04",
+   "hora_trade": "2026-11-27 12:47:29",
+   "sym": "TSM",
+   "tipo": "Call",
+   "clase": "Sweep Order",
+   "strike": 385.0,
+   "venc": "12/18/2026",
+   "prima": 323860.0
+  },
+  {
+   "canal": "golden-sweeps",
+   "hora_et": "09:35",
+   "hora_trade": "2026-11-27 09:32:16",
+   "sym": "MU",
+   "tipo": "Call",
+   "clase": "Golden Sweep",
+   "strike": 800.0,
+   "venc": "1/15/2027",
+   "prima": 1140000.0
+  },
+  {
+   "canal": "golden-sweeps",
+   "hora_et": "10:14",
+   "hora_trade": "2026-11-27 10:08:18",
+   "sym": "AMD",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 300.0,
+   "venc": "1/21/2028",
+   "prima": 551290.0
+  },
+  {
+   "canal": "golden-sweeps",
+   "hora_et": "10:14",
+   "hora_trade": "2026-11-27 10:08:20",
+   "sym": "AMD",
+   "tipo": "Put",
+   "clase": "Golden Sweep",
+   "strike": 300.0,
+   "venc": "1/21/2028",
+   "prima": 1160000.0
+  },
+  {
+   "canal": "golden-sweeps",
+   "hora_et": "10:14",
+   "hora_trade": "2026-11-27 10:08:22",
+   "sym": "AMD",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 300.0,
+   "venc": "1/21/2028",
+   "prima": 759550.0
+  },
+  {
+   "canal": "golden-sweeps",
+   "hora_et": "10:36",
+   "hora_trade": "2026-11-27 10:06:20",
+   "sym": "NVDA",
+   "tipo": "Put",
+   "clase": "Golden Sweep",
+   "strike": 130.0,
+   "venc": "4/16/2027",
+   "prima": 1250000.0
+  },
+  {
+   "canal": "golden-sweeps",
+   "hora_et": "10:36",
+   "hora_trade": "2026-11-27 10:06:28",
+   "sym": "NVDA",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 143.0,
+   "venc": "12/4/2026",
+   "prima": 279910.0
+  },
+  {
+   "canal": "golden-sweeps",
+   "hora_et": "10:36",
+   "hora_trade": "2026-11-27 10:06:30",
+   "sym": "NVDA",
+   "tipo": "Put",
+   "clase": "Sweep Order",
+   "strike": 120.0,
+   "venc": "4/16/2027",
+   "prima": 252070.0
+  },
+  {
+   "canal": "golden-sweeps",
+   "hora_et": "12:25",
+   "hora_trade": "2026-11-27 12:23:59",
+   "sym": "AMD",
+   "tipo": "Call",
+   "clase": "Golden Sweep",
+   "strike": 470.0,
+   "venc": "1/15/2027",
+   "prima": 1420000.0
+  }
+ ],
+ "resumen_sweeps_hoy_M": {
+  "calls": 21.01,
+  "puts": 11.7,
+  "n_calls": 44,
+  "n_puts": 26,
+  "por_hora_trade_ET_calls_puts": {
+   "09": [
+    1.77,
+    3.01
+   ],
+   "10": [
+    7.15,
+    5.52
+   ],
+   "11": [
+    5.49,
+    1.4
+   ],
+   "12": [
+    6.59,
+    1.77
+   ]
+  }
+ },
+ "darkpool_indices": [
+  {
+   "fecha": "2026-11-27",
+   "hora_et": "11:47",
+   "sym": "QQQ",
+   "clase": "Darkpool",
+   "precio": 645.0,
+   "acciones": 625000.0,
+   "monto": 403120000.0
+  },
+  {
+   "fecha": "2026-11-27",
+   "hora_et": "12:21",
+   "sym": "SPY",
+   "clase": "Blocktrade",
+   "precio": 726.06,
+   "acciones": 330000.0,
+   "monto": 239600000.0
+  },
+  {
+   "fecha": "2026-11-27",
+   "hora_et": "13:16",
+   "sym": "SPY",
+   "clase": "Blocktrade",
+   "precio": 725.675,
+   "acciones": 483400.0,
+   "monto": 350790000.0
+  },
+  {
+   "fecha": "2026-11-27",
+   "hora_et": "13:18",
+   "sym": "QQQ",
+   "clase": "Darkpool",
+   "precio": 647.3164,
+   "acciones": 330000.0,
+   "monto": 213610000.0
+  }
+ ],
+ "ideas_scalps": [
+  {
+   "canal": "scalps",
+   "fecha": "2026-11-24",
+   "hora_et": "12:42",
+   "sym": "STNG",
+   "setup": "Bearish Continuation 1 Day",
+   "pos": "Short",
+   "entrada": 78.8,
+   "objetivo": 77.77,
+   "stop": 80.4,
+   "resultado": "24-nov sin tocar (rango 78.66-79.63); objetivo tocado 25-nov 10:00 ET (77.75) antes de cualquier stop -> GANADORA (al dia siguiente)",
+   "fuente_precio": "Yahoo 1m"
+  },
+  {
+   "canal": "scalps",
+   "fecha": "2026-11-27",
+   "hora_et": "11:47",
+   "sym": "TSLA",
+   "setup": "Bullish Continuation 30 Min",
+   "pos": "Long",
+   "entrada": 399.4,
+   "objetivo": 401.14,
+   "stop": 397.25,
+   "resultado": "STOP 12:51 ET (397.16) sin tocar objetivo -> PERDEDORA",
+   "fuente_precio": "Yahoo 1m"
+  }
+ ],
+ "flujo_indices_bullseye_tradyflow": [
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-23",
+   "hora_et": "09:31",
+   "sym": "SPY",
+   "contrato": "690C 18-dic",
+   "prima": "827K",
+   "subyacente_alerta": 721.34,
+   "subyacente_27nov": 728.32,
+   "lectura": "subyacente a favor (+0.97%); precio de la opcion no disponible"
+  },
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-23",
+   "hora_et": "10:20",
+   "sym": "QQQ",
+   "contrato": "640C 27-nov",
+   "prima": "1.2M",
+   "subyacente_alerta": 655.52,
+   "subyacente_27nov": 650.99,
+   "lectura": "vence hoy ITM (651>640) pero subyacente bajo 4.5 pts desde la alerta; el call ITM perdio valor salvo que se pagara < 11"
+  },
+  {
+   "canal": "trady-flow",
+   "fecha": "2026-11-23",
+   "hora_et": "09:59",
+   "sym": "NDX",
+   "contrato": "25200P 18-dic",
+   "prima": "51.6M",
+   "subyacente_alerta": 26688.37,
+   "subyacente_27nov": 26726.39,
+   "lectura": "subyacente plano; put muy OTM (-5.6%); sin resolucion"
+  },
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-24",
+   "hora_et": "09:32",
+   "sym": "QQQ",
+   "contrato": "620C 27-nov",
+   "prima": "182K",
+   "subyacente_alerta": 637.56,
+   "subyacente_27nov": 650.99,
+   "lectura": "a favor (+13.4 pts); vence hoy ITM 31 pts"
+  },
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-24",
+   "hora_et": "09:36",
+   "sym": "UVXY",
+   "contrato": "25C 27-nov",
+   "prima": "127K",
+   "subyacente_alerta": 26.36,
+   "subyacente_27nov": 22.92,
+   "lectura": "en contra: vence hoy OTM (22.92<25) -> perdida total"
+  },
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-24",
+   "hora_et": "10:24",
+   "sym": "SPY",
+   "contrato": "700C 18-dic",
+   "prima": "205K",
+   "subyacente_alerta": 716.18,
+   "subyacente_27nov": 728.32,
+   "lectura": "a favor (+12 pts)"
+  },
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-24",
+   "hora_et": "10:33",
+   "sym": "IWM",
+   "contrato": "267C 24-nov (0DTE)",
+   "prima": "324K",
+   "subyacente_alerta": 266.11,
+   "cierre_dia": 267.15,
+   "lectura": "vencio ITM por 0.15; casi seguro perdedor vs prima pagada (no publicada por contrato)"
+  },
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-24",
+   "hora_et": "10:55",
+   "sym": "SPY",
+   "contrato": "716C 24-nov (0DTE)",
+   "prima": "13.3M (dato incoherente con 438 contratos)",
+   "subyacente_alerta": 715.47,
+   "cierre_dia": 718.79,
+   "lectura": "subyacente a favor; vencio ITM 2.79. SPX ese tramo ~7165->7201"
+  },
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-25",
+   "hora_et": "09:35",
+   "sym": "QQQ",
+   "contrato": "645P 18-dic (idea: vender mitad +35%, objetivo +100%, 5 dias)",
+   "prima": "1.7M",
+   "subyacente_alerta": 611.98,
+   "subyacente_27nov": 650.99,
+   "lectura": "en contra: QQQ +39 pts; put paso de ITM 33 a OTM -> fuertemente perdedora"
+  },
+  {
+   "canal": "bullseye",
+   "fecha": "2026-11-27",
+   "hora_et": "09:43",
+   "sym": "QQQ",
+   "contrato": "650P 15-ene-27",
+   "prima": "231K",
+   "subyacente_alerta": 639.51,
+   "subyacente_27nov": 650.99,
+   "lectura": "en contra: QQQ +11.5 pts el mismo dia (compra en el minimo de la manana)"
+  }
+ ],
+ "niveles_tradytics_bot_hoy": {
+  "SR_SPY_0944": [
+   770.63,
+   742.21,
+   727.7,
+   712.78,
+   699.07
+  ],
+  "darkpool_levels_SPY_0945_B": {
+   "758.13": 12.89,
+   "750.62": 22.93,
+   "743.11": 12.77,
+   "735.61": 19.32,
+   "728.1": 11.08,
+   "720.59": 23.61,
+   "713.08": 30.8,
+   "705.58": 0.75,
+   "698.07": 1.72,
+   "690.56": 17.72
+  },
+  "ratio_SPX_SPY": 10.03
+ },
+ "stats_canales": {
+  "options-sweeps": {
+   "mensajes": 135,
+   "por_dia": {
+    "2026-11-25": 73,
+    "2026-11-27": 62
+   },
+   "por_hora_et": {
+    "09": 9,
+    "10": 16,
+    "11": 23,
+    "12": 31,
+    "13": 19,
+    "14": 15,
+    "15": 17,
+    "16": 5
+   },
+   "top_simbolos": [
+    [
+     "NVDA",
+     15
+    ],
+    [
+     "MU",
+     14
+    ],
+    [
+     "META",
+     7
+    ],
+    [
+     "MSTR",
+     7
+    ],
+    [
+     "SMH",
+     6
+    ],
+    [
+     "AAPL",
+     6
+    ],
+    [
+     "TSM",
+     5
+    ],
+    [
+     "SPCX",
+     5
+    ],
+    [
+     "AMD",
+     5
+    ],
+    [
+     "CRWD",
+     4
+    ],
+    [
+     "DELL",
+     3
+    ],
+    [
+     "SNDK",
+     3
+    ]
+   ],
+   "indices": {
+    "SOXL": 1,
+    "SMH": 6,
+    "TQQQ": 1
+   }
+  },
+  "golden-sweeps": {
+   "mensajes": 76,
+   "por_dia": {
+    "2026-11-23": 21,
+    "2026-11-24": 28,
+    "2026-11-25": 19,
+    "2026-11-27": 8
+   },
+   "por_hora_et": {
+    "09": 4,
+    "10": 13,
+    "11": 22,
+    "12": 15,
+    "13": 8,
+    "14": 7,
+    "15": 4,
+    "16": 3
+   },
+   "top_simbolos": [
+    [
+     "MU",
+     24
+    ],
+    [
+     "NVDA",
+     16
+    ],
+    [
+     "AMD",
+     7
+    ],
+    [
+     "ASML",
+     3
+    ],
+    [
+     "SOXX",
+     3
+    ],
+    [
+     "SMH",
+     3
+    ],
+    [
+     "SPCX",
+     3
+    ],
+    [
+     "STX",
+     2
+    ],
+    [
+     "AAPL",
+     2
+    ],
+    [
+     "FSLR",
+     2
+    ],
+    [
+     "AMAT",
+     1
+    ],
+    [
+     "SNDK",
+     1
+    ]
+   ],
+   "indices": {
+    "SMH": 3,
+    "SOXL": 1
+   }
+  },
+  "trady-flow": {
+   "mensajes": 6,
+   "por_dia": {
+    "2026-11-23": 3,
+    "2026-11-24": 3
+   },
+   "por_hora_et": {
+    "09": 2,
+    "10": 3,
+    "15": 1
+   },
+   "top_simbolos": [
+    [
+     "META",
+     1
+    ],
+    [
+     "NDX",
+     1
+    ],
+    [
+     "CIEN",
+     1
+    ],
+    [
+     "JNJ",
+     1
+    ],
+    [
+     "GM",
+     1
+    ],
+    [
+     "WRBY",
+     1
+    ]
+   ],
+   "indices": {
+    "NDX": 1
+   }
+  },
+  "darkpool": {
+   "mensajes": 135,
+   "por_dia": {
+    "2026-11-26": 75,
+    "2026-11-27": 60
+   },
+   "por_hora_et": {
+    "05": 2,
+    "06": 26,
+    "07": 25,
+    "08": 28,
+    "09": 6,
+    "10": 8,
+    "11": 9,
+    "12": 11,
+    "13": 20
+   },
+   "top_simbolos": [
+    [
+     "DV",
+     10
+    ],
+    [
+     "VRSN",
+     6
+    ],
+    [
+     "SNAP",
+     3
+    ],
+    [
+     "TLN",
+     2
+    ],
+    [
+     "STNG",
+     2
+    ],
+    [
+     "AXGN",
+     2
+    ],
+    [
+     "DD",
+     2
+    ],
+    [
+     "METC",
+     2
+    ],
+    [
+     "TNDM",
+     2
+    ],
+    [
+     "ECHO",
+     2
+    ],
+    [
+     "MMED",
+     2
+    ],
+    [
+     "PLAY",
+     2
+    ]
+   ],
+   "indices": {
+    "QQQ": 2,
+    "SPY": 2
+   }
+  },
+  "bullseye": {
+   "mensajes": 34,
+   "por_dia": {
+    "2026-11-23": 14,
+    "2026-11-24": 12,
+    "2026-11-25": 5,
+    "2026-11-27": 3
+   },
+   "por_hora_et": {
+    "09": 14,
+    "10": 7,
+    "11": 2,
+    "12": 4,
+    "14": 1,
+    "15": 6
+   },
+   "top_simbolos": [
+    [
+     "QQQ",
+     4
+    ],
+    [
+     "SPY",
+     3
+    ],
+    [
+     "SQQQ",
+     2
+    ],
+    [
+     "TLT",
+     2
+    ],
+    [
+     "IBIT",
+     2
+    ],
+    [
+     "GLD",
+     1
+    ],
+    [
+     "DRAM",
+     1
+    ],
+    [
+     "RBLX",
+     1
+    ],
+    [
+     "WMT",
+     1
+    ],
+    [
+     "SDOW",
+     1
+    ],
+    [
+     "ABBV",
+     1
+    ],
+    [
+     "COST",
+     1
+    ]
+   ],
+   "indices": {
+    "SPY": 3,
+    "SQQQ": 2,
+    "QQQ": 4,
+    "SDOW": 1,
+    "UVXY": 1,
+    "IWM": 1,
+    "SOXL": 1
+   }
+  },
+  "scalps": {
+   "mensajes": 2,
+   "por_dia": {
+    "2026-11-24": 1,
+    "2026-11-27": 1
+   },
+   "por_hora_et": {
+    "11": 1,
+    "12": 1
+   },
+   "top_simbolos": [
+    [
+     "STNG",
+     1
+    ],
+    [
+     "TSLA",
+     1
+    ]
+   ],
+   "indices": {}
+  },
+  "insider-trades": {
+   "mensajes": 25,
+   "por_dia": {
+    "2026-11-23": 3,
+    "2026-11-24": 8,
+    "2026-11-25": 10,
+    "2026-11-26": 4
+   },
+   "por_hora_et": {
+    "16": 21,
+    "19": 4
+   },
+   "top_simbolos": [
+    [
+     "PLTR",
+     10
+    ],
+    [
+     "FRMI",
+     3
+    ],
+    [
+     "ADPT",
+     3
+    ],
+    [
+     "ACGL",
+     2
+    ],
+    [
+     "BORR",
+     1
+    ],
+    [
+     "BX",
+     1
+    ],
+    [
+     "COHR",
+     1
+    ],
+    [
+     "LIND",
+     1
+    ],
+    [
+     "IESC",
+     1
+    ],
+    [
+     "GOLD",
+     1
+    ],
+    [
+     "ENVA",
+     1
+    ]
+   ],
+   "indices": {}
+  },
+  "stock-breakouts": {
+   "mensajes": 110,
+   "por_dia": {
+    "2026-11-23": 15,
+    "2026-11-24": 37,
+    "2026-11-25": 28,
+    "2026-11-26": 8,
+    "2026-11-27": 22
+   },
+   "por_hora_et": {
+    "09": 60,
+    "10": 25,
+    "11": 2,
+    "12": 4,
+    "13": 3,
+    "14": 2,
+    "15": 14
+   },
+   "top_simbolos": [
+    [
+     "KSS",
+     7
+    ],
+    [
+     "ROKU",
+     5
+    ],
+    [
+     "TSLA",
+     4
+    ],
+    [
+     "DLTR",
+     4
+    ],
+    [
+     "DIS",
+     4
+    ],
+    [
+     "VZ",
+     3
+    ],
+    [
+     "HPQ",
+     3
+    ],
+    [
+     "TME",
+     3
+    ],
+    [
+     "DKNG",
+     2
+    ],
+    [
+     "TGT",
+     2
+    ],
+    [
+     "PINS",
+     2
+    ],
+    [
+     "XRX",
+     2
+    ]
+   ],
+   "indices": {
+    "VXX": 2
+   }
+  },
+  "analyst-grades": {
+   "mensajes": 135,
+   "por_dia": {
+    "2026-11-25": 2,
+    "2026-11-26": 88,
+    "2026-11-27": 45
+   },
+   "por_hora_et": {
+    "07": 41,
+    "08": 42,
+    "09": 24,
+    "10": 22,
+    "11": 6
+   },
+   "top_simbolos": [
+    [
+     "ZM",
+     3
+    ],
+    [
+     "ZS",
+     3
+    ],
+    [
+     "ADI",
+     2
+    ],
+    [
+     "ADSK",
+     2
+    ],
+    [
+     "AGX",
+     2
+    ],
+    [
+     "AMBA",
+     2
+    ],
+    [
+     "ANF",
+     2
+    ],
+    [
+     "ATO",
+     2
+    ],
+    [
+     "BBIO",
+     2
+    ],
+    [
+     "BBY",
+     2
+    ],
+    [
+     "BILI",
+     2
+    ],
+    [
+     "BURL",
+     2
+    ]
+   ],
+   "indices": {
+    "ES": 2
+   }
+  },
+  "important-news": {
+   "mensajes": 135,
+   "por_dia": {
+    "2026-11-24": 28,
+    "2026-11-25": 66,
+    "2026-11-27": 41
+   },
+   "por_hora_et": {
+    "06": 10,
+    "07": 11,
+    "08": 12,
+    "09": 2,
+    "10": 6,
+    "11": 12,
+    "12": 11,
+    "13": 12,
+    "14": 9,
+    "15": 12,
+    "16": 6,
+    "17": 12,
+    "18": 12,
+    "19": 8
+   },
+   "top_simbolos": [
+    [
+     "SNDK",
+     4
+    ],
+    [
+     "NTNX",
+     3
+    ],
+    [
+     "URBN",
+     3
+    ],
+    [
+     "NBIS",
+     3
+    ],
+    [
+     "MU",
+     3
+    ],
+    [
+     "LRCX",
+     3
+    ],
+    [
+     "STX",
+     3
+    ],
+    [
+     "MRVL",
+     3
+    ],
+    [
+     "COHR",
+     3
+    ],
+    [
+     "COGT",
+     2
+    ],
+    [
+     "AXTI",
+     2
+    ],
+    [
+     "MTSI",
+     2
+    ]
+   ],
+   "indices": {}
+  },
+  "tradytics-bot": {
+   "mensajes": 122,
+   "por_dia": {
+    "2026-11-23": 33,
+    "2026-11-24": 30,
+    "2026-11-25": 37,
+    "2026-11-27": 22
+   },
+   "por_hora_et": {
+    "05": 2,
+    "09": 21,
+    "10": 34,
+    "11": 18,
+    "12": 21,
+    "13": 16,
+    "14": 6,
+    "15": 4
+   },
+   "top_simbolos": [
+    [
+     "SPX",
+     66
+    ],
+    [
+     "SPY",
+     39
+    ],
+    [
+     "IWM",
+     9
+    ],
+    [
+     "QQQ",
+     3
+    ],
+    [
+     "NDX",
+     1
+    ]
+   ],
+   "indices": {
+    "SPX": 66,
+    "SPY": 39,
+    "IWM": 9,
+    "NDX": 1,
+    "QQQ": 3
+   }
+  }
+ }
+}

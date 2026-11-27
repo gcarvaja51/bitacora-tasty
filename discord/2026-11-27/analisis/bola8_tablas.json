@@ -1,0 +1,6007 @@
+{
+ "nota": "Base = cierre de la vela 1m del minuto en que Discord publicó el mensaje (hora ET). Acierto direccional = signo(SPX(t+h) - base) igual al sesgo. Objetivo tocado = el máximo/mínimo de velas entre t y t+h alcanzó Target 1. Trades de ejemplo al vencimiento con el cierre oficial y relleno al precio LMT publicado, sin comisiones.",
+ "dias": {
+  "2026-11-25": {
+   "cierre": 7182.88,
+   "hora_cierre": "16:00",
+   "predicciones": [
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "11:30:32",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7000.0,
+     "rango_lo": 7000.0,
+     "rango_hi": 7050.0,
+     "precio": 7009.27,
+     "trend": "Down",
+     "pred_close": 7002.88,
+     "strength": 0.8,
+     "st": 7000.0,
+     "st_bias": "Bearish",
+     "lt": 6998.7,
+     "lt_bias": "Bearish",
+     "calls": 7000.0,
+     "puts": 7000.0,
+     "center": 7000.0,
+     "range": 50.0,
+     "t1": 7000.0,
+     "t2": 7050.0,
+     "delta": 7000.0,
+     "gamma": 7000.0,
+     "interest": 7082.87,
+     "sonar": 7000.0,
+     "volume": 7055.01,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7045.0,
+        7005.0,
+        6965.0
+       ],
+       "clase": "PUT",
+       "precio": 9.4,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7125.0,
+        7130.0,
+        6895.0,
+        6890.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.43,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7090.0,
+        7095.0,
+        6920.0,
+        6915.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.95,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7065.0,
+        7070.0
+       ],
+       "clase": "CALL",
+       "precio": 0.95,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "11:32:00",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.77,
+      "objetivo1": 7000,
+      "objetivo2": 7050,
+      "calls": null,
+      "puts": null,
+      "precio": 7009.27
+     },
+     "spx_base": 7004.9,
+     "dirs": {
+      "trend": -1,
+      "st_bias": -1,
+      "lt_bias": -1,
+      "sonar_bias": -1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7004.24,
+       "mov": -0.66,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7044.96,
+       "mov": 40.06,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7092.84,
+       "mov": 87.94,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 177.98,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 180.0,
+      "cierre_cerca": 182.88,
+      "st": 182.88,
+      "lt": 184.18,
+      "t1": 182.88,
+      "t2": 132.88,
+      "center": 182.88,
+      "delta": 182.88,
+      "gamma": 182.88,
+      "interest": 100.01,
+      "sonar": 182.88,
+      "volume": 127.87,
+      "ingenuo_precio_actual": 177.98
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -9.4,
+      "IC ancho": -4.57,
+      "IC Sonar": -4.05,
+      "Vertical": -4.05
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "11:45:35",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7000.0,
+     "rango_lo": 7000.0,
+     "rango_hi": 7050.0,
+     "precio": 7001.88,
+     "trend": "Down",
+     "pred_close": 7002.12,
+     "strength": 0.82,
+     "st": 7000.0,
+     "st_bias": "Bearish",
+     "lt": 6998.19,
+     "lt_bias": "Bearish",
+     "calls": 7000.0,
+     "puts": 7000.0,
+     "center": 7000.0,
+     "range": 50.0,
+     "t1": 7000.0,
+     "t2": 7050.0,
+     "delta": 7000.0,
+     "gamma": 7000.0,
+     "interest": 7081.02,
+     "sonar": 7000.0,
+     "volume": 7054.97,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7045.0,
+        7005.0,
+        6965.0
+       ],
+       "clase": "CALL",
+       "precio": 10.25,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7110.0,
+        7115.0,
+        6885.0,
+        6880.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7080.0,
+        7085.0,
+        6925.0,
+        6920.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.05,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7055.0,
+        7060.0
+       ],
+       "clase": "CALL",
+       "precio": 0.95,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "11:47:00",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.79,
+      "objetivo1": 7000,
+      "objetivo2": 7050,
+      "calls": null,
+      "puts": null,
+      "precio": 7001.88
+     },
+     "spx_base": 7004.24,
+     "dirs": {
+      "trend": -1,
+      "st_bias": -1,
+      "lt_bias": -1,
+      "sonar_bias": -1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7044.96,
+       "mov": 40.72,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7112.62,
+       "mov": 108.38,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7120.68,
+       "mov": 116.44,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 178.64,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 180.76,
+      "cierre_cerca": 182.88,
+      "st": 182.88,
+      "lt": 184.69,
+      "t1": 182.88,
+      "t2": 132.88,
+      "center": 182.88,
+      "delta": 182.88,
+      "gamma": 182.88,
+      "interest": 101.86,
+      "sonar": 182.88,
+      "volume": 127.91,
+      "ingenuo_precio_actual": 178.64
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -10.25,
+      "IC ancho": -4.6,
+      "IC Sonar": -3.95,
+      "Vertical": -4.05
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "12:00:38",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7000.0,
+     "rango_lo": 7000.0,
+     "rango_hi": 7050.0,
+     "precio": 7027.89,
+     "trend": "Up",
+     "pred_close": 7011.25,
+     "strength": 0.79,
+     "st": 7000.0,
+     "st_bias": "Bearish",
+     "lt": 6997.9,
+     "lt_bias": "Bullish",
+     "calls": 7000.0,
+     "puts": 7000.0,
+     "center": 7000.0,
+     "range": 50.0,
+     "t1": 7000.0,
+     "t2": 7050.0,
+     "delta": 7000.0,
+     "gamma": 7000.0,
+     "interest": 7079.74,
+     "sonar": 7000.0,
+     "volume": 7055.52,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7045.0,
+        7005.0,
+        6965.0
+       ],
+       "clase": "PUT",
+       "precio": 9.5,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7135.0,
+        7140.0,
+        6915.0,
+        6910.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.38,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7105.0,
+        7110.0,
+        6950.0,
+        6945.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.0,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        6970.0,
+        6965.0
+       ],
+       "clase": "PUT",
+       "precio": 0.8,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "12:02:04",
+     "despues_cierre": false,
+     "sonar_bitacora": null,
+     "spx_base": 7044.96,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": null,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7112.62,
+       "mov": 67.66,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": null,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7092.84,
+       "mov": 47.88,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": null,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7137.07,
+       "mov": 92.11,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": null,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 137.92,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": null,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 171.63,
+      "cierre_cerca": 182.88,
+      "st": 182.88,
+      "lt": 184.98,
+      "t1": 182.88,
+      "t2": 132.88,
+      "center": 182.88,
+      "delta": 182.88,
+      "gamma": 182.88,
+      "interest": 103.14,
+      "sonar": 182.88,
+      "volume": 127.36,
+      "ingenuo_precio_actual": 137.92
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -9.5,
+      "IC ancho": -4.62,
+      "IC Sonar": -4.0,
+      "Vertical": 0.8
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "12:15:41",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7100.0,
+     "rango_lo": 7000.0,
+     "rango_hi": 7100.0,
+     "precio": 7096.76,
+     "trend": "Up",
+     "pred_close": 7064.25,
+     "strength": 0.68,
+     "st": 7108.07,
+     "st_bias": "Bearish",
+     "lt": 7002.98,
+     "lt_bias": "Bullish",
+     "calls": 7150.0,
+     "puts": 7100.0,
+     "center": 7125.0,
+     "range": 100.0,
+     "t1": 7100.0,
+     "t2": 7000.0,
+     "delta": 7089.02,
+     "gamma": 7108.07,
+     "interest": 7081.33,
+     "sonar": 7027.05,
+     "volume": 7057.92,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7135.0,
+        7095.0,
+        7055.0
+       ],
+       "clase": "PUT",
+       "precio": 9.2,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7230.0,
+        7235.0,
+        6970.0,
+        6965.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.44,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7185.0,
+        7190.0,
+        7005.0,
+        7000.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.0,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7035.0,
+        7030.0
+       ],
+       "clase": "PUT",
+       "precio": 0.9,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "12:17:05",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.46,
+      "objetivo1": 7100,
+      "objetivo2": 7000,
+      "calls": null,
+      "puts": null,
+      "precio": 7096.76
+     },
+     "spx_base": 7112.62,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": -1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7092.84,
+       "mov": -19.78,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7120.68,
+       "mov": 8.06,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7154.56,
+       "mov": 41.94,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 70.26,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 118.63,
+      "cierre_cerca": 82.88,
+      "st": 74.81,
+      "lt": 179.9,
+      "t1": 82.88,
+      "t2": 182.88,
+      "center": 57.88,
+      "delta": 93.86,
+      "gamma": 74.81,
+      "interest": 101.55,
+      "sonar": 155.83,
+      "volume": 124.96,
+      "ingenuo_precio_actual": 70.26
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -9.2,
+      "IC ancho": 0.44,
+      "IC Sonar": 1.0,
+      "Vertical": 0.9
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "12:30:44",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7100.0,
+     "rango_lo": 7000.0,
+     "rango_hi": 7100.0,
+     "precio": 7091.32,
+     "trend": "Up",
+     "pred_close": 7069.0,
+     "strength": 0.7,
+     "st": 7107.59,
+     "st_bias": "Bearish",
+     "lt": 7029.74,
+     "lt_bias": "Bullish",
+     "calls": 7150.0,
+     "puts": 7100.0,
+     "center": 7125.0,
+     "range": 100.0,
+     "t1": 7100.0,
+     "t2": 7000.0,
+     "delta": 7086.95,
+     "gamma": 7107.59,
+     "interest": 7084.83,
+     "sonar": 7025.57,
+     "volume": 7058.85,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7135.0,
+        7095.0,
+        7055.0
+       ],
+       "clase": "PUT",
+       "precio": 10.2,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7200.0,
+        7205.0,
+        6970.0,
+        6965.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.42,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7170.0,
+        7175.0,
+        7005.0,
+        7000.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.9,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7035.0,
+        7030.0
+       ],
+       "clase": "PUT",
+       "precio": 0.8,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "12:32:15",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.49,
+      "objetivo1": 7100,
+      "objetivo2": 7000,
+      "calls": null,
+      "puts": null,
+      "precio": 7091.32
+     },
+     "spx_base": 7092.84,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": -1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7120.68,
+       "mov": 27.84,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7137.07,
+       "mov": 44.23,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7147.23,
+       "mov": 54.39,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 90.04,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 113.88,
+      "cierre_cerca": 82.88,
+      "st": 75.29,
+      "lt": 153.14,
+      "t1": 82.88,
+      "t2": 182.88,
+      "center": 57.88,
+      "delta": 95.93,
+      "gamma": 75.29,
+      "interest": 98.05,
+      "sonar": 157.31,
+      "volume": 124.03,
+      "ingenuo_precio_actual": 90.04
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -10.2,
+      "IC ancho": 0.42,
+      "IC Sonar": -4.1,
+      "Vertical": 0.8
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "12:45:47",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7100.0,
+     "rango_lo": 7000.0,
+     "rango_hi": 7100.0,
+     "precio": 7116.22,
+     "trend": "Up",
+     "pred_close": 7070.62,
+     "strength": 0.62,
+     "st": 7109.6,
+     "st_bias": "Bearish",
+     "lt": 7051.59,
+     "lt_bias": "Bullish",
+     "calls": 7150.0,
+     "puts": 7100.0,
+     "center": 7125.0,
+     "range": 100.0,
+     "t1": 7100.0,
+     "t2": 7000.0,
+     "delta": 7100.0,
+     "gamma": 7109.6,
+     "interest": 7085.77,
+     "sonar": 7116.26,
+     "volume": 7058.9,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7135.0,
+        7095.0,
+        7055.0
+       ],
+       "clase": "PUT",
+       "precio": 9.55,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7230.0,
+        7235.0,
+        7000.0,
+        6995.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.42,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7190.0,
+        7195.0,
+        7040.0,
+        7035.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.1,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7060.0,
+        7055.0
+       ],
+       "clase": "PUT",
+       "precio": 0.85,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "12:47:14",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.35,
+      "objetivo1": 7100,
+      "objetivo2": 7000,
+      "calls": null,
+      "puts": null,
+      "precio": 7116.22
+     },
+     "spx_base": 7120.68,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": -1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7137.07,
+       "mov": 16.39,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7154.56,
+       "mov": 33.88,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7188.83,
+       "mov": 68.15,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 62.2,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 112.26,
+      "cierre_cerca": 82.88,
+      "st": 73.28,
+      "lt": 131.29,
+      "t1": 82.88,
+      "t2": 182.88,
+      "center": 57.88,
+      "delta": 82.88,
+      "gamma": 73.28,
+      "interest": 97.11,
+      "sonar": 66.62,
+      "volume": 123.98,
+      "ingenuo_precio_actual": 62.2
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -9.55,
+      "IC ancho": 0.42,
+      "IC Sonar": 1.1,
+      "Vertical": 0.85
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "13:00:51",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7100.0,
+     "rango_lo": 7100.0,
+     "rango_hi": 7150.0,
+     "precio": 7123.04,
+     "trend": "Up",
+     "pred_close": 7103.0,
+     "strength": 0.64,
+     "st": 7108.97,
+     "st_bias": "Bearish",
+     "lt": 7069.18,
+     "lt_bias": "Bullish",
+     "calls": 7150.0,
+     "puts": 7100.0,
+     "center": 7125.0,
+     "range": 50.0,
+     "t1": 7100.0,
+     "t2": 7150.0,
+     "delta": 7100.0,
+     "gamma": 7108.97,
+     "interest": 7086.06,
+     "sonar": 7116.49,
+     "volume": 7058.67,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7140.0,
+        7105.0,
+        7070.0
+       ],
+       "clase": "PUT",
+       "precio": 7.65,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7235.0,
+        7240.0,
+        7020.0,
+        7015.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7195.0,
+        7200.0,
+        7050.0,
+        7045.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.05,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7070.0,
+        7065.0
+       ],
+       "clase": "PUT",
+       "precio": 0.85,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "13:02:26",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.34,
+      "objetivo1": 7100,
+      "objetivo2": 7150,
+      "calls": null,
+      "puts": null,
+      "precio": 7123.04
+     },
+     "spx_base": 7137.07,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": -1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7154.56,
+       "mov": 17.49,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7147.23,
+       "mov": 10.16,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7181.28,
+       "mov": 44.21,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 45.81,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 79.88,
+      "cierre_cerca": 82.88,
+      "st": 73.91,
+      "lt": 113.7,
+      "t1": 82.88,
+      "t2": 32.88,
+      "center": 57.88,
+      "delta": 82.88,
+      "gamma": 73.91,
+      "interest": 96.82,
+      "sonar": 66.39,
+      "volume": 124.21,
+      "ingenuo_precio_actual": 45.81
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -7.65,
+      "IC ancho": 0.4,
+      "IC Sonar": 1.05,
+      "Vertical": 0.85
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "13:15:53",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7100.0,
+     "rango_lo": 7100.0,
+     "rango_hi": 7150.0,
+     "precio": 7136.56,
+     "trend": "Up",
+     "pred_close": 7105.5,
+     "strength": 0.59,
+     "st": 7110.16,
+     "st_bias": "Bearish",
+     "lt": 7082.62,
+     "lt_bias": "Bullish",
+     "calls": 7150.0,
+     "puts": 7100.0,
+     "center": 7125.0,
+     "range": 50.0,
+     "t1": 7100.0,
+     "t2": 7150.0,
+     "delta": 7100.0,
+     "gamma": 7110.16,
+     "interest": 7057.57,
+     "sonar": 7118.82,
+     "volume": 7058.12,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7140.0,
+        7105.0,
+        7070.0
+       ],
+       "clase": "PUT",
+       "precio": 7.5,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7235.0,
+        7240.0,
+        7040.0,
+        7035.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.45,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7205.0,
+        7210.0,
+        7065.0,
+        7060.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.9,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7085.0,
+        7080.0
+       ],
+       "clase": "PUT",
+       "precio": 0.75,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "13:17:28",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.25,
+      "objetivo1": 7100,
+      "objetivo2": null,
+      "calls": null,
+      "puts": null,
+      "precio": 7136.56
+     },
+     "spx_base": 7154.56,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": -1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7147.23,
+       "mov": -7.33,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7188.83,
+       "mov": 34.27,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7186.6,
+       "mov": 32.04,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 28.32,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 77.38,
+      "cierre_cerca": 82.88,
+      "st": 72.72,
+      "lt": 100.26,
+      "t1": 82.88,
+      "t2": 32.88,
+      "center": 57.88,
+      "delta": 82.88,
+      "gamma": 72.72,
+      "interest": 125.31,
+      "sonar": 64.06,
+      "volume": 124.76,
+      "ingenuo_precio_actual": 28.32
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -7.5,
+      "IC ancho": 0.45,
+      "IC Sonar": 0.9,
+      "Vertical": 0.75
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "13:30:57",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7150.0,
+     "rango_lo": 7100.0,
+     "rango_hi": 7150.0,
+     "precio": 7158.44,
+     "trend": "Up",
+     "pred_close": 7143.62,
+     "strength": 0.41,
+     "st": 7150.0,
+     "st_bias": "Bearish",
+     "lt": 7093.02,
+     "lt_bias": "Bullish",
+     "calls": 7150.0,
+     "puts": 7150.0,
+     "center": 7150.0,
+     "range": 50.0,
+     "t1": 7150.0,
+     "t2": 7100.0,
+     "delta": 7100.0,
+     "gamma": 7150.0,
+     "interest": 7059.71,
+     "sonar": 7150.0,
+     "volume": 7087.54,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7180.0,
+        7145.0,
+        7110.0
+       ],
+       "clase": "PUT",
+       "precio": 8.3,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7260.0,
+        7265.0,
+        7055.0,
+        7050.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.42,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7230.0,
+        7235.0,
+        7090.0,
+        7085.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.05,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7110.0,
+        7105.0
+       ],
+       "clase": "PUT",
+       "precio": 0.9,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "13:32:36",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.07,
+      "objetivo1": 7150,
+      "objetivo2": 7100,
+      "calls": null,
+      "puts": null,
+      "precio": 7158.44
+     },
+     "spx_base": 7147.23,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7188.83,
+       "mov": 41.6,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7181.28,
+       "mov": 34.05,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7188.34,
+       "mov": 41.11,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 35.65,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 39.26,
+      "cierre_cerca": 32.88,
+      "st": 32.88,
+      "lt": 89.86,
+      "t1": 32.88,
+      "t2": 82.88,
+      "center": 32.88,
+      "delta": 82.88,
+      "gamma": 32.88,
+      "interest": 123.17,
+      "sonar": 32.88,
+      "volume": 95.34,
+      "ingenuo_precio_actual": 35.65
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -8.3,
+      "IC ancho": 0.42,
+      "IC Sonar": 1.05,
+      "Vertical": 0.9
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "13:46:00",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7200.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7200.0,
+     "precio": 7183.23,
+     "trend": "Up",
+     "pred_close": 7151.12,
+     "strength": 0.23,
+     "st": 7184.63,
+     "st_bias": "Bearish",
+     "lt": 7101.14,
+     "lt_bias": "Bullish",
+     "calls": 7200.0,
+     "puts": 7175.0,
+     "center": 7187.5,
+     "range": 50.0,
+     "t1": 7200.0,
+     "t2": 7150.0,
+     "delta": 7148.57,
+     "gamma": 7184.63,
+     "interest": 7060.57,
+     "sonar": 7191.32,
+     "volume": 7086.86,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7230.0,
+        7195.0,
+        7160.0
+       ],
+       "clase": "PUT",
+       "precio": 8.45,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7285.0,
+        7290.0,
+        7085.0,
+        7080.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.35,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7250.0,
+        7255.0,
+        7120.0,
+        7115.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.0,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7140.0,
+        7135.0
+       ],
+       "clase": "PUT",
+       "precio": 0.95,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "13:47:36",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.31,
+      "objetivo1": 7200,
+      "objetivo2": 7150,
+      "calls": null,
+      "puts": null,
+      "precio": 7183.23
+     },
+     "spx_base": 7188.83,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7181.28,
+       "mov": -7.55,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7186.6,
+       "mov": -2.23,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7169.8,
+       "mov": -19.03,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": -5.95,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 31.76,
+      "cierre_cerca": 17.12,
+      "st": 1.75,
+      "lt": 81.74,
+      "t1": 17.12,
+      "t2": 32.88,
+      "center": 4.62,
+      "delta": 34.31,
+      "gamma": 1.75,
+      "interest": 122.31,
+      "sonar": 8.44,
+      "volume": 96.02,
+      "ingenuo_precio_actual": 5.95
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": 14.43,
+      "IC ancho": 0.35,
+      "IC Sonar": 1.0,
+      "Vertical": 0.95
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "14:01:04",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7150.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7200.0,
+     "precio": 7177.52,
+     "trend": "Up",
+     "pred_close": 7149.25,
+     "strength": 0.3,
+     "st": 7167.46,
+     "st_bias": "Bearish",
+     "lt": 7117.91,
+     "lt_bias": "Bullish",
+     "calls": 7200.0,
+     "puts": 7150.0,
+     "center": 7175.0,
+     "range": 50.0,
+     "t1": 7150.0,
+     "t2": 7200.0,
+     "delta": 7147.78,
+     "gamma": 7167.46,
+     "interest": 7063.53,
+     "sonar": 7180.74,
+     "volume": 7116.39,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7185.0,
+        7155.0,
+        7125.0
+       ],
+       "clase": "PUT",
+       "precio": 6.4,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7275.0,
+        7280.0,
+        7085.0,
+        7080.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7240.0,
+        7245.0,
+        7115.0,
+        7110.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.0,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7135.0,
+        7130.0
+       ],
+       "clase": "PUT",
+       "precio": 0.9,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "14:02:36",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.23,
+      "objetivo1": 7150,
+      "objetivo2": null,
+      "calls": null,
+      "puts": null,
+      "precio": 7177.52
+     },
+     "spx_base": 7181.28,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7186.6,
+       "mov": 5.32,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7188.34,
+       "mov": 7.06,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7180.21,
+       "mov": -1.07,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 1.6,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 33.63,
+      "cierre_cerca": 32.88,
+      "st": 15.42,
+      "lt": 64.97,
+      "t1": 32.88,
+      "t2": 17.12,
+      "center": 7.88,
+      "delta": 35.1,
+      "gamma": 15.42,
+      "interest": 119.35,
+      "sonar": 2.14,
+      "volume": 66.49,
+      "ingenuo_precio_actual": 1.6
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -4.28,
+      "IC ancho": 0.4,
+      "IC Sonar": 1.0,
+      "Vertical": 0.9
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "14:16:07",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7200.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7200.0,
+     "precio": 7186.37,
+     "trend": "Up",
+     "pred_close": 7153.25,
+     "strength": 0.19,
+     "st": 7185.07,
+     "st_bias": "Bearish",
+     "lt": 7131.44,
+     "lt_bias": "Bullish",
+     "calls": 7200.0,
+     "puts": 7175.0,
+     "center": 7187.5,
+     "range": 50.0,
+     "t1": 7200.0,
+     "t2": 7150.0,
+     "delta": 7148.26,
+     "gamma": 7185.07,
+     "interest": 7064.33,
+     "sonar": 7191.76,
+     "volume": 7115.69,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7225.0,
+        7195.0,
+        7165.0
+       ],
+       "clase": "PUT",
+       "precio": 7.7,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7275.0,
+        7280.0,
+        7100.0,
+        7095.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.38,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7250.0,
+        7255.0,
+        7130.0,
+        7125.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.94,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7145.0,
+        7140.0
+       ],
+       "clase": "PUT",
+       "precio": 0.8,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "14:17:28",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.34,
+      "objetivo1": 7200,
+      "objetivo2": 7150,
+      "calls": null,
+      "puts": null,
+      "precio": 7186.37
+     },
+     "spx_base": 7186.6,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7188.34,
+       "mov": 1.74,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7169.8,
+       "mov": -16.8,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7177.16,
+       "mov": -9.44,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": -3.72,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 29.63,
+      "cierre_cerca": 17.12,
+      "st": 2.19,
+      "lt": 51.44,
+      "t1": 17.12,
+      "t2": 32.88,
+      "center": 4.62,
+      "delta": 34.62,
+      "gamma": 2.19,
+      "interest": 118.55,
+      "sonar": 8.88,
+      "volume": 67.19,
+      "ingenuo_precio_actual": 3.72
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": 10.18,
+      "IC ancho": 0.38,
+      "IC Sonar": 0.94,
+      "Vertical": 0.8
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "14:31:11",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7200.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7200.0,
+     "precio": 7189.07,
+     "trend": "Up",
+     "pred_close": 7154.62,
+     "strength": 0.17,
+     "st": 7185.34,
+     "st_bias": "Bearish",
+     "lt": 7142.43,
+     "lt_bias": "Bullish",
+     "calls": 7200.0,
+     "puts": 7175.0,
+     "center": 7187.5,
+     "range": 50.0,
+     "t1": 7200.0,
+     "t2": 7150.0,
+     "delta": 7148.33,
+     "gamma": 7185.34,
+     "interest": 7064.82,
+     "sonar": 7192.05,
+     "volume": 7114.54,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7000.0,
+       "dir": "Down"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7225.0,
+        7195.0,
+        7165.0
+       ],
+       "clase": "PUT",
+       "precio": 8.35,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7265.0,
+        7270.0,
+        7120.0,
+        7115.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.42,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7245.0,
+        7250.0,
+        7135.0,
+        7130.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.86,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7155.0,
+        7150.0
+       ],
+       "clase": "PUT",
+       "precio": 0.9,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "14:32:33",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.36,
+      "objetivo1": 7200,
+      "objetivo2": 7150,
+      "calls": null,
+      "puts": null,
+      "precio": 7189.07
+     },
+     "spx_base": 7188.34,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7169.8,
+       "mov": -18.54,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7180.21,
+       "mov": -8.13,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7158.39,
+       "mov": -29.95,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": -5.46,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 28.26,
+      "cierre_cerca": 17.12,
+      "st": 2.46,
+      "lt": 40.45,
+      "t1": 17.12,
+      "t2": 32.88,
+      "center": 4.62,
+      "delta": 34.55,
+      "gamma": 2.46,
+      "interest": 118.06,
+      "sonar": 9.17,
+      "volume": 68.34,
+      "ingenuo_precio_actual": 5.46
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": 9.53,
+      "IC ancho": 0.42,
+      "IC Sonar": 0.86,
+      "Vertical": 0.9
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "14:46:14",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7150.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7200.0,
+     "precio": 7174.34,
+     "trend": "Up",
+     "pred_close": 7150.38,
+     "strength": 0.31,
+     "st": 7183.58,
+     "st_bias": "Bearish",
+     "lt": 7153.29,
+     "lt_bias": "Bullish",
+     "calls": 7200.0,
+     "puts": 7175.0,
+     "center": 7187.5,
+     "range": 50.0,
+     "t1": 7150.0,
+     "t2": 7200.0,
+     "delta": 7147.17,
+     "gamma": 7183.58,
+     "interest": 7065.73,
+     "sonar": 7190.41,
+     "volume": 7114.0,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7250.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7185.0,
+        7155.0,
+        7125.0
+       ],
+       "clase": "PUT",
+       "precio": 7.83,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7245.0,
+        7250.0,
+        7105.0,
+        7100.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7225.0,
+        7230.0,
+        7125.0,
+        7120.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.9,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7140.0,
+        7135.0
+       ],
+       "clase": "PUT",
+       "precio": 0.8,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "14:47:34",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.23,
+      "objetivo1": 7150,
+      "objetivo2": null,
+      "calls": null,
+      "puts": null,
+      "precio": 7174.34
+     },
+     "spx_base": 7169.8,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7180.21,
+       "mov": 10.41,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7177.16,
+       "mov": 7.36,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7178.81,
+       "mov": 9.01,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 13.08,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 32.5,
+      "cierre_cerca": 32.88,
+      "st": 0.7,
+      "lt": 29.59,
+      "t1": 32.88,
+      "t2": 17.12,
+      "center": 4.62,
+      "delta": 35.71,
+      "gamma": 0.7,
+      "interest": 117.15,
+      "sonar": 7.53,
+      "volume": 68.88,
+      "ingenuo_precio_actual": 13.08
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -5.71,
+      "IC ancho": 0.4,
+      "IC Sonar": 0.9,
+      "Vertical": 0.8
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "15:01:18",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7150.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7200.0,
+     "precio": 7179.03,
+     "trend": "Up",
+     "pred_close": 7149.25,
+     "strength": 0.34,
+     "st": 7183.24,
+     "st_bias": "Bearish",
+     "lt": 7162.1,
+     "lt_bias": "Bullish",
+     "calls": 7200.0,
+     "puts": 7175.0,
+     "center": 7187.5,
+     "range": 50.0,
+     "t1": 7150.0,
+     "t2": 7200.0,
+     "delta": 7174.99,
+     "gamma": 7183.24,
+     "interest": 7066.34,
+     "sonar": 7165.21,
+     "volume": 7113.5,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7250.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7175.0,
+        7155.0,
+        7135.0
+       ],
+       "clase": "PUT",
+       "precio": 3.53,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7240.0,
+        7245.0,
+        7120.0,
+        7115.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7220.0,
+        7225.0,
+        7135.0,
+        7130.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.95,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7150.0,
+        7145.0
+       ],
+       "clase": "PUT",
+       "precio": 0.9,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "15:02:45",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.22,
+      "objetivo1": 7150,
+      "objetivo2": 7200,
+      "calls": null,
+      "puts": null,
+      "precio": 7179.03
+     },
+     "spx_base": 7180.21,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7177.16,
+       "mov": -3.05,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7158.39,
+       "mov": -21.82,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": null,
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 2.67,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 33.63,
+      "cierre_cerca": 32.88,
+      "st": 0.36,
+      "lt": 20.78,
+      "t1": 32.88,
+      "t2": 17.12,
+      "center": 4.62,
+      "delta": 7.89,
+      "gamma": 0.36,
+      "interest": 116.54,
+      "sonar": 17.67,
+      "volume": 69.38,
+      "ingenuo_precio_actual": 2.67
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -3.53,
+      "IC ancho": 0.4,
+      "IC Sonar": 0.95,
+      "Vertical": 0.9
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "15:16:20",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7200.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7200.0,
+     "precio": 7177.36,
+     "trend": "Up",
+     "pred_close": 7152.75,
+     "strength": 0.29,
+     "st": 7183.83,
+     "st_bias": "Bearish",
+     "lt": 7172.45,
+     "lt_bias": "Bullish",
+     "calls": 7200.0,
+     "puts": 7175.0,
+     "center": 7187.5,
+     "range": 50.0,
+     "t1": 7200.0,
+     "t2": 7150.0,
+     "delta": 7175.62,
+     "gamma": 7183.83,
+     "interest": 7066.5,
+     "sonar": 7190.86,
+     "volume": 7113.03,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7250.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7215.0,
+        7195.0,
+        7175.0
+       ],
+       "clase": "PUT",
+       "precio": 4.6,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7230.0,
+        7235.0,
+        7130.0,
+        7125.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.38,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7215.0,
+        7220.0,
+        7145.0,
+        7140.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.9,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7155.0,
+        7150.0
+       ],
+       "clase": "PUT",
+       "precio": 0.9,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "15:17:55",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.27,
+      "objetivo1": 7200,
+      "objetivo2": 7150,
+      "calls": null,
+      "puts": null,
+      "precio": 7177.36
+     },
+     "spx_base": 7177.16,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7158.39,
+       "mov": -18.77,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7178.81,
+       "mov": 1.65,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": null,
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 5.72,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 30.13,
+      "cierre_cerca": 17.12,
+      "st": 0.95,
+      "lt": 10.43,
+      "t1": 17.12,
+      "t2": 32.88,
+      "center": 4.62,
+      "delta": 7.26,
+      "gamma": 0.95,
+      "interest": 116.38,
+      "sonar": 7.98,
+      "volume": 69.85,
+      "ingenuo_precio_actual": 5.72
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": 3.28,
+      "IC ancho": 0.38,
+      "IC Sonar": 0.9,
+      "Vertical": 0.9
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "15:31:23",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7150.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7175.0,
+     "precio": 7160.08,
+     "trend": "Up",
+     "pred_close": 7140.81,
+     "strength": 0.52,
+     "st": 7150.0,
+     "st_bias": "Bearish",
+     "lt": 7181.17,
+     "lt_bias": "Bullish",
+     "calls": 7150.0,
+     "puts": 7150.0,
+     "center": 7150.0,
+     "range": 25.0,
+     "t1": 7150.0,
+     "t2": 7175.0,
+     "delta": 7165.78,
+     "gamma": 7150.0,
+     "interest": 7066.99,
+     "sonar": 7150.0,
+     "volume": 7112.53,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7250.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7175.0,
+        7155.0,
+        7135.0
+       ],
+       "clase": "PUT",
+       "precio": 6.25,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7200.0,
+        7205.0,
+        7115.0,
+        7110.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.37,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7190.0,
+        7195.0,
+        7130.0,
+        7125.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.9,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7140.0,
+        7135.0
+       ],
+       "clase": "PUT",
+       "precio": 0.8,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "15:32:52",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.09,
+      "objetivo1": 7150,
+      "objetivo2": 7175,
+      "calls": null,
+      "puts": null,
+      "precio": 7160.08
+     },
+     "spx_base": 7158.39,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": -1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7178.81,
+       "mov": 20.42,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": null,
+      "60": null,
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 24.49,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 42.07,
+      "cierre_cerca": 32.88,
+      "st": 32.88,
+      "lt": 1.71,
+      "t1": 32.88,
+      "t2": 7.88,
+      "center": 32.88,
+      "delta": 17.1,
+      "gamma": 32.88,
+      "interest": 115.89,
+      "sonar": 32.88,
+      "volume": 70.35,
+      "ingenuo_precio_actual": 24.49
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -6.25,
+      "IC ancho": 0.37,
+      "IC Sonar": 0.9,
+      "Vertical": 0.8
+     }
+    },
+    {
+     "fecha_txt": "11-25-2026",
+     "hora_txt": "15:46:26",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7150.0,
+     "rango_lo": 7150.0,
+     "rango_hi": 7175.0,
+     "precio": 7170.9,
+     "trend": "Up",
+     "pred_close": 7145.93,
+     "strength": 0.4,
+     "st": 7157.55,
+     "st_bias": "Bearish",
+     "lt": 7187.13,
+     "lt_bias": "Bullish",
+     "calls": 7150.0,
+     "puts": 7175.0,
+     "center": 7162.5,
+     "range": 25.0,
+     "t1": 7150.0,
+     "t2": 7175.0,
+     "delta": 7177.79,
+     "gamma": 7157.55,
+     "interest": 7066.84,
+     "sonar": 7164.4,
+     "volume": 7111.75,
+     "forecasts": [
+      {
+       "fecha": "11-27-2026",
+       "target": 7250.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7175.0,
+        7155.0,
+        7135.0
+       ],
+       "clase": "PUT",
+       "precio": 5.55,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7205.0,
+        7210.0,
+        7135.0,
+        7130.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.37,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7195.0,
+        7200.0,
+        7145.0,
+        7140.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.78,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7155.0,
+        7150.0
+       ],
+       "clase": "PUT",
+       "precio": 0.85,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "15:48:01",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.15,
+      "objetivo1": 7150,
+      "objetivo2": 7175,
+      "calls": null,
+      "puts": null,
+      "precio": 7170.9
+     },
+     "spx_base": 7177.14,
+     "dirs": {
+      "trend": 1,
+      "st_bias": -1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": null,
+      "30": null,
+      "60": null,
+      "cierre": {
+       "spx": 7182.88,
+       "mov": 5.74,
+       "ok_trend": true,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 36.95,
+      "cierre_cerca": 32.88,
+      "st": 25.33,
+      "lt": 4.25,
+      "t1": 32.88,
+      "t2": 7.88,
+      "center": 20.38,
+      "delta": 5.09,
+      "gamma": 25.33,
+      "interest": 116.04,
+      "sonar": 18.48,
+      "volume": 71.13,
+      "ingenuo_precio_actual": 5.74
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -5.55,
+      "IC ancho": 0.37,
+      "IC Sonar": 0.78,
+      "Vertical": 0.85
+     }
+    }
+   ]
+  },
+  "2026-11-27": {
+   "cierre": 7297.5,
+   "hora_cierre": "13:00",
+   "predicciones": [
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "09:45:50",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7200.0,
+     "rango_hi": 7250.0,
+     "precio": 7239.93,
+     "trend": "Up",
+     "pred_close": 7233.75,
+     "strength": 0.31,
+     "st": 7250.0,
+     "st_bias": "Bullish",
+     "lt": 7258.56,
+     "lt_bias": "Bearish",
+     "calls": 7250.0,
+     "puts": 7250.0,
+     "center": 7250.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7200.0,
+     "delta": 7260.96,
+     "gamma": 7250.0,
+     "interest": 7192.72,
+     "sonar": 7250.0,
+     "volume": 7256.31,
+     "forecasts": [],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7295.0,
+        7245.0,
+        7195.0
+       ],
+       "clase": "PUT",
+       "precio": 17.25,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7340.0,
+        7345.0,
+        7130.0,
+        7125.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.43,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7305.0,
+        7310.0,
+        7170.0,
+        7165.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.0,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7195.0,
+        7190.0
+       ],
+       "clase": "PUT",
+       "precio": 0.95,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "09:47:20",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.31,
+      "objetivo1": 7250,
+      "objetivo2": 7200,
+      "calls": 7250,
+      "puts": 7250,
+      "precio": 7239.93
+     },
+     "spx_base": 7227.08,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": -1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": 1
+     },
+     "res": {
+      "15": {
+       "spx": 7218.42,
+       "mov": -8.66,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7243.57,
+       "mov": 16.49,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7271.72,
+       "mov": 44.64,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 70.42,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 63.75,
+      "cierre_cerca": 47.5,
+      "st": 47.5,
+      "lt": 38.94,
+      "t1": 47.5,
+      "t2": 97.5,
+      "center": 47.5,
+      "delta": 36.54,
+      "gamma": 47.5,
+      "interest": 104.78,
+      "sonar": 47.5,
+      "volume": 41.19,
+      "ingenuo_precio_actual": 70.42
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -17.25,
+      "IC ancho": 0.43,
+      "IC Sonar": 1.0,
+      "Vertical": 0.95
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "10:00:53",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7200.0,
+     "rango_hi": 7250.0,
+     "precio": 7218.7,
+     "trend": "Down",
+     "pred_close": 7227.12,
+     "strength": 0.2,
+     "st": 7250.0,
+     "st_bias": "Bullish",
+     "lt": 7250.54,
+     "lt_bias": "Bearish",
+     "calls": 7250.0,
+     "puts": 7250.0,
+     "center": 7250.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7200.0,
+     "delta": 7207.3,
+     "gamma": 7250.0,
+     "interest": 7163.15,
+     "sonar": 7250.0,
+     "volume": 7239.13,
+     "forecasts": [],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7295.0,
+        7245.0,
+        7195.0
+       ],
+       "clase": "CALL",
+       "precio": 17.47,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7310.0,
+        7315.0,
+        7110.0,
+        7105.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.42,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7280.0,
+        7285.0,
+        7150.0,
+        7145.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.1,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7270.0,
+        7275.0
+       ],
+       "clase": "CALL",
+       "precio": 0.8,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "10:02:24",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bearish",
+      "fuerza": 0.2,
+      "objetivo1": 7250,
+      "objetivo2": 7200,
+      "calls": 7250,
+      "puts": 7250,
+      "precio": 7218.7
+     },
+     "spx_base": 7218.42,
+     "dirs": {
+      "trend": -1,
+      "st_bias": 1,
+      "lt_bias": -1,
+      "sonar_bias": -1,
+      "hacia_t1": 1,
+      "hacia_pred_close": 1
+     },
+     "res": {
+      "15": {
+       "spx": 7243.57,
+       "mov": 25.15,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7244.62,
+       "mov": 26.2,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7267.61,
+       "mov": 49.19,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 79.08,
+       "ok_trend": false,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 70.38,
+      "cierre_cerca": 47.5,
+      "st": 47.5,
+      "lt": 46.96,
+      "t1": 47.5,
+      "t2": 97.5,
+      "center": 47.5,
+      "delta": 90.2,
+      "gamma": 47.5,
+      "interest": 134.35,
+      "sonar": 47.5,
+      "volume": 58.37,
+      "ingenuo_precio_actual": 79.08
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -17.47,
+      "IC ancho": 0.42,
+      "IC Sonar": -3.9,
+      "Vertical": -4.2
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "10:15:56",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7200.0,
+     "rango_hi": 7250.0,
+     "precio": 7240.91,
+     "trend": "Up",
+     "pred_close": 7239.55,
+     "strength": 0.35,
+     "st": 7250.0,
+     "st_bias": "Bullish",
+     "lt": 7222.95,
+     "lt_bias": "Bearish",
+     "calls": 7250.0,
+     "puts": 7250.0,
+     "center": 7250.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7200.0,
+     "delta": 7250.0,
+     "gamma": 7250.0,
+     "interest": 7161.42,
+     "sonar": 7250.0,
+     "volume": 7241.93,
+     "forecasts": [],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7295.0,
+        7245.0,
+        7195.0
+       ],
+       "clase": "PUT",
+       "precio": 21.35,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7320.0,
+        7325.0,
+        7150.0,
+        7145.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7295.0,
+        7300.0,
+        7190.0,
+        7185.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 1.0,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7205.0,
+        7200.0
+       ],
+       "clase": "PUT",
+       "precio": 0.85,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "10:17:26",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.33,
+      "objetivo1": 7250,
+      "objetivo2": 7200,
+      "calls": null,
+      "puts": null,
+      "precio": 7240.91
+     },
+     "spx_base": 7243.57,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": -1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7244.62,
+       "mov": 1.05,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7271.72,
+       "mov": 28.15,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7261.51,
+       "mov": 17.94,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 53.93,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 57.95,
+      "cierre_cerca": 47.5,
+      "st": 47.5,
+      "lt": 74.55,
+      "t1": 47.5,
+      "t2": 97.5,
+      "center": 47.5,
+      "delta": 47.5,
+      "gamma": 47.5,
+      "interest": 136.08,
+      "sonar": 47.5,
+      "volume": 55.57,
+      "ingenuo_precio_actual": 53.93
+     },
+     "cierre_en_rango": false,
+     "pnl_trades": {
+      "Butterfly": -21.35,
+      "IC ancho": 0.4,
+      "IC Sonar": -1.5,
+      "Vertical": 0.85
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "10:30:58",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7247.63,
+     "trend": "Up",
+     "pred_close": 7254.23,
+     "strength": 0.37,
+     "st": 7250.0,
+     "st_bias": "Bullish",
+     "lt": 7237.87,
+     "lt_bias": "Bullish",
+     "calls": 7250.0,
+     "puts": 7250.0,
+     "center": 7250.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7300.0,
+     "delta": 7250.0,
+     "gamma": 7250.0,
+     "interest": 7165.47,
+     "sonar": 7250.0,
+     "volume": 7243.37,
+     "forecasts": [],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7305.0,
+        7255.0,
+        7205.0
+       ],
+       "clase": "CALL",
+       "precio": 23.58,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7315.0,
+        7320.0,
+        7175.0,
+        7170.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.42,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7295.0,
+        7300.0,
+        7200.0,
+        7195.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.95,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7215.0,
+        7210.0
+       ],
+       "clase": "PUT",
+       "precio": 0.85,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "10:32:24",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.36,
+      "objetivo1": 7250,
+      "objetivo2": 7300,
+      "calls": null,
+      "puts": null,
+      "precio": 7247.63
+     },
+     "spx_base": 7244.62,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": 1
+     },
+     "res": {
+      "15": {
+       "spx": 7271.72,
+       "mov": 27.1,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7267.61,
+       "mov": 22.99,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7271.64,
+       "mov": 27.02,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 52.88,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 43.27,
+      "cierre_cerca": 47.5,
+      "st": 47.5,
+      "lt": 59.63,
+      "t1": 47.5,
+      "t2": 2.5,
+      "center": 47.5,
+      "delta": 47.5,
+      "gamma": 47.5,
+      "interest": 132.03,
+      "sonar": 47.5,
+      "volume": 54.13,
+      "ingenuo_precio_actual": 52.88
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -16.08,
+      "IC ancho": 0.42,
+      "IC Sonar": -1.55,
+      "Vertical": 0.85
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "10:46:02",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7277.14,
+     "trend": "Up",
+     "pred_close": 7271.88,
+     "strength": 0.45,
+     "st": 7286.16,
+     "st_bias": "Bullish",
+     "lt": 7244.03,
+     "lt_bias": "Bullish",
+     "calls": 7300.0,
+     "puts": 7250.0,
+     "center": 7275.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7300.0,
+     "delta": 7250.0,
+     "gamma": 7286.16,
+     "interest": 7176.07,
+     "sonar": 7286.51,
+     "volume": 7247.05,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7305.0,
+        7255.0,
+        7205.0
+       ],
+       "clase": "PUT",
+       "precio": 21.02,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7345.0,
+        7350.0,
+        7215.0,
+        7210.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7325.0,
+        7330.0,
+        7230.0,
+        7225.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.8,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7250.0,
+        7245.0
+       ],
+       "clase": "PUT",
+       "precio": 0.9,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "10:47:27",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.46,
+      "objetivo1": 7250,
+      "objetivo2": 7300,
+      "calls": null,
+      "puts": null,
+      "precio": 7277.14
+     },
+     "spx_base": 7271.72,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": null
+     },
+     "res": {
+      "15": {
+       "spx": 7267.61,
+       "mov": -4.11,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": null,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7261.51,
+       "mov": -10.21,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": null,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7280.66,
+       "mov": 8.94,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": null,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 25.78,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": null,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 25.62,
+      "cierre_cerca": 47.5,
+      "st": 11.34,
+      "lt": 53.47,
+      "t1": 47.5,
+      "t2": 2.5,
+      "center": 22.5,
+      "delta": 47.5,
+      "gamma": 11.34,
+      "interest": 121.43,
+      "sonar": 10.99,
+      "volume": 50.45,
+      "ingenuo_precio_actual": 25.78
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -13.52,
+      "IC ancho": 0.4,
+      "IC Sonar": 0.8,
+      "Vertical": 0.9
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "11:01:05",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7268.54,
+     "trend": "Up",
+     "pred_close": 7257.2,
+     "strength": 0.43,
+     "st": 7250.0,
+     "st_bias": "Bullish",
+     "lt": 7247.04,
+     "lt_bias": "Bullish",
+     "calls": 7250.0,
+     "puts": 7250.0,
+     "center": 7250.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7300.0,
+     "delta": 7250.0,
+     "gamma": 7250.0,
+     "interest": 7182.67,
+     "sonar": 7250.0,
+     "volume": 7248.58,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7295.0,
+        7255.0,
+        7215.0
+       ],
+       "clase": "PUT",
+       "precio": 17.13,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7325.0,
+        7330.0,
+        7215.0,
+        7210.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.42,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7305.0,
+        7310.0,
+        7230.0,
+        7225.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.97,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7245.0,
+        7240.0
+       ],
+       "clase": "PUT",
+       "precio": 0.9,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "11:02:33",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.43,
+      "objetivo1": 7250,
+      "objetivo2": 7300,
+      "calls": null,
+      "puts": null,
+      "precio": 7268.54
+     },
+     "spx_base": 7267.61,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7261.51,
+       "mov": -6.1,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7271.64,
+       "mov": 4.03,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7276.41,
+       "mov": 8.8,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 29.89,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 40.3,
+      "cierre_cerca": 47.5,
+      "st": 47.5,
+      "lt": 50.46,
+      "t1": 47.5,
+      "t2": 2.5,
+      "center": 47.5,
+      "delta": 47.5,
+      "gamma": 47.5,
+      "interest": 114.83,
+      "sonar": 47.5,
+      "volume": 48.92,
+      "ingenuo_precio_actual": 29.89
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -17.13,
+      "IC ancho": 0.42,
+      "IC Sonar": 0.97,
+      "Vertical": 0.9
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "11:16:07",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7259.11,
+     "trend": "Up",
+     "pred_close": 7256.65,
+     "strength": 0.41,
+     "st": 7250.0,
+     "st_bias": "Bullish",
+     "lt": 7248.67,
+     "lt_bias": "Bullish",
+     "calls": 7250.0,
+     "puts": 7250.0,
+     "center": 7250.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7300.0,
+     "delta": 7250.0,
+     "gamma": 7250.0,
+     "interest": 7185.09,
+     "sonar": 7250.0,
+     "volume": 7249.08,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7295.0,
+        7255.0,
+        7215.0
+       ],
+       "clase": "PUT",
+       "precio": 20.13,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7310.0,
+        7315.0,
+        7205.0,
+        7200.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.35,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7295.0,
+        7300.0,
+        7225.0,
+        7220.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.91,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7235.0,
+        7230.0
+       ],
+       "clase": "PUT",
+       "precio": 0.8,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "11:17:41",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.4,
+      "objetivo1": 7250,
+      "objetivo2": 7300,
+      "calls": null,
+      "puts": null,
+      "precio": 7259.11
+     },
+     "spx_base": 7261.51,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7271.64,
+       "mov": 10.13,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7280.66,
+       "mov": 19.15,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7278.52,
+       "mov": 17.01,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 35.99,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 40.85,
+      "cierre_cerca": 47.5,
+      "st": 47.5,
+      "lt": 48.83,
+      "t1": 47.5,
+      "t2": 2.5,
+      "center": 47.5,
+      "delta": 47.5,
+      "gamma": 47.5,
+      "interest": 112.41,
+      "sonar": 47.5,
+      "volume": 48.42,
+      "ingenuo_precio_actual": 35.99
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -20.13,
+      "IC ancho": 0.35,
+      "IC Sonar": -1.59,
+      "Vertical": 0.8
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "11:31:10",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7273.28,
+     "trend": "Up",
+     "pred_close": 7265.93,
+     "strength": 0.45,
+     "st": 7250.0,
+     "st_bias": "Bullish",
+     "lt": 7249.61,
+     "lt_bias": "Bullish",
+     "calls": 7250.0,
+     "puts": 7250.0,
+     "center": 7250.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7300.0,
+     "delta": 7250.0,
+     "gamma": 7250.0,
+     "interest": 7185.65,
+     "sonar": 7250.0,
+     "volume": 7248.65,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7295.0,
+        7255.0,
+        7215.0
+       ],
+       "clase": "PUT",
+       "precio": 17.98,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7315.0,
+        7320.0,
+        7230.0,
+        7225.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7305.0,
+        7310.0,
+        7240.0,
+        7235.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.8,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7255.0,
+        7250.0
+       ],
+       "clase": "PUT",
+       "precio": 0.93,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "11:32:42",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.47,
+      "objetivo1": 7250,
+      "objetivo2": 7300,
+      "calls": null,
+      "puts": null,
+      "precio": 7273.28
+     },
+     "spx_base": 7271.64,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7280.66,
+       "mov": 9.02,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7276.41,
+       "mov": 4.77,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7285.36,
+       "mov": 13.72,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 25.86,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 31.57,
+      "cierre_cerca": 47.5,
+      "st": 47.5,
+      "lt": 47.89,
+      "t1": 47.5,
+      "t2": 2.5,
+      "center": 47.5,
+      "delta": 47.5,
+      "gamma": 47.5,
+      "interest": 111.85,
+      "sonar": 47.5,
+      "volume": 48.85,
+      "ingenuo_precio_actual": 25.86
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -17.98,
+      "IC ancho": 0.4,
+      "IC Sonar": 0.8,
+      "Vertical": 0.93
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "11:46:15",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7300.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7281.63,
+     "trend": "Up",
+     "pred_close": 7279.57,
+     "strength": 0.49,
+     "st": 7300.0,
+     "st_bias": "Bullish",
+     "lt": 7258.87,
+     "lt_bias": "Bullish",
+     "calls": 7300.0,
+     "puts": 7300.0,
+     "center": 7300.0,
+     "range": 50.0,
+     "t1": 7300.0,
+     "t2": 7250.0,
+     "delta": 7270.0,
+     "gamma": 7300.0,
+     "interest": 7189.6,
+     "sonar": 7300.0,
+     "volume": 7249.55,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7335.0,
+        7295.0,
+        7255.0
+       ],
+       "clase": "PUT",
+       "precio": 20.23,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7325.0,
+        7330.0,
+        7240.0,
+        7235.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.37,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7310.0,
+        7315.0,
+        7255.0,
+        7250.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.93,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7260.0,
+        7255.0
+       ],
+       "clase": "PUT",
+       "precio": 0.67,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "11:47:45",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.52,
+      "objetivo1": 7300,
+      "objetivo2": 7250,
+      "calls": null,
+      "puts": null,
+      "precio": 7281.63
+     },
+     "spx_base": 7280.66,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7276.41,
+       "mov": -4.25,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7278.52,
+       "mov": -2.14,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": {
+       "spx": 7276.04,
+       "mov": -4.62,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 16.84,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 17.93,
+      "cierre_cerca": 2.5,
+      "st": 2.5,
+      "lt": 38.63,
+      "t1": 2.5,
+      "t2": 47.5,
+      "center": 2.5,
+      "delta": 27.5,
+      "gamma": 2.5,
+      "interest": 107.9,
+      "sonar": 2.5,
+      "volume": 47.95,
+      "ingenuo_precio_actual": 16.84
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": 17.27,
+      "IC ancho": 0.37,
+      "IC Sonar": 0.93,
+      "Vertical": 0.67
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "12:01:17",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7300.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7282.43,
+     "trend": "Up",
+     "pred_close": 7279.6,
+     "strength": 0.47,
+     "st": 7300.0,
+     "st_bias": "Bullish",
+     "lt": 7271.65,
+     "lt_bias": "Bullish",
+     "calls": 7300.0,
+     "puts": 7300.0,
+     "center": 7300.0,
+     "range": 50.0,
+     "t1": 7300.0,
+     "t2": 7250.0,
+     "delta": 7274.3,
+     "gamma": 7300.0,
+     "interest": 7193.94,
+     "sonar": 7300.0,
+     "volume": 7250.49,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7335.0,
+        7295.0,
+        7255.0
+       ],
+       "clase": "PUT",
+       "precio": 21.32,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7325.0,
+        7330.0,
+        7245.0,
+        7240.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.4,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7310.0,
+        7315.0,
+        7255.0,
+        7250.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.9,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7265.0,
+        7260.0
+       ],
+       "clase": "PUT",
+       "precio": 0.83,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "12:03:01",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.47,
+      "objetivo1": 7300,
+      "objetivo2": 7250,
+      "calls": 7300,
+      "puts": 7300,
+      "precio": 7282.43
+     },
+     "spx_base": 7276.68,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": 1
+     },
+     "res": {
+      "15": {
+       "spx": 7276.19,
+       "mov": -0.49,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7285.43,
+       "mov": 8.75,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": null,
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 20.82,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 17.9,
+      "cierre_cerca": 2.5,
+      "st": 2.5,
+      "lt": 25.85,
+      "t1": 2.5,
+      "t2": 47.5,
+      "center": 2.5,
+      "delta": 23.2,
+      "gamma": 2.5,
+      "interest": 103.56,
+      "sonar": 2.5,
+      "volume": 47.01,
+      "ingenuo_precio_actual": 20.82
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": 16.18,
+      "IC ancho": 0.4,
+      "IC Sonar": 0.9,
+      "Vertical": 0.83
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "12:16:20",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7300.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7278.97,
+     "trend": "Up",
+     "pred_close": 7279.03,
+     "strength": 0.46,
+     "st": 7300.0,
+     "st_bias": "Bullish",
+     "lt": 7274.43,
+     "lt_bias": "Bullish",
+     "calls": 7300.0,
+     "puts": 7300.0,
+     "center": 7300.0,
+     "range": 50.0,
+     "t1": 7300.0,
+     "t2": 7250.0,
+     "delta": 7279.17,
+     "gamma": 7300.0,
+     "interest": 7196.04,
+     "sonar": 7300.0,
+     "volume": 7250.06,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7335.0,
+        7295.0,
+        7255.0
+       ],
+       "clase": "CALL",
+       "precio": 20.51,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7315.0,
+        7320.0,
+        7245.0,
+        7240.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.33,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7300.0,
+        7305.0,
+        7255.0,
+        7250.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.9,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7265.0,
+        7260.0
+       ],
+       "clase": "PUT",
+       "precio": 0.85,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "12:17:42",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.46,
+      "objetivo1": 7300,
+      "objetivo2": 7250,
+      "calls": 7300,
+      "puts": 7300,
+      "precio": 7278.97
+     },
+     "spx_base": 7278.52,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": null
+     },
+     "res": {
+      "15": {
+       "spx": 7285.36,
+       "mov": 6.84,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": null,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": {
+       "spx": 7276.04,
+       "mov": -2.48,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": null,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "60": null,
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 18.98,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": null,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 18.47,
+      "cierre_cerca": 2.5,
+      "st": 2.5,
+      "lt": 23.07,
+      "t1": 2.5,
+      "t2": 47.5,
+      "center": 2.5,
+      "delta": 18.33,
+      "gamma": 2.5,
+      "interest": 101.46,
+      "sonar": 2.5,
+      "volume": 47.44,
+      "ingenuo_precio_actual": 18.98
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": 16.99,
+      "IC ancho": 0.33,
+      "IC Sonar": 0.9,
+      "Vertical": 0.85
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "12:31:22",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7300.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7279.74,
+     "trend": "Up",
+     "pred_close": 7280.06,
+     "strength": 0.46,
+     "st": 7300.0,
+     "st_bias": "Bullish",
+     "lt": 7278.81,
+     "lt_bias": "Bullish",
+     "calls": 7300.0,
+     "puts": 7300.0,
+     "center": 7300.0,
+     "range": 50.0,
+     "t1": 7300.0,
+     "t2": 7250.0,
+     "delta": 7279.1,
+     "gamma": 7300.0,
+     "interest": 7198.81,
+     "sonar": 7300.0,
+     "volume": 7275.35,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7335.0,
+        7295.0,
+        7255.0
+       ],
+       "clase": "CALL",
+       "precio": 21.88,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7310.0,
+        7315.0,
+        7250.0,
+        7245.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.35,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7300.0,
+        7305.0,
+        7260.0,
+        7255.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.95,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7265.0,
+        7260.0
+       ],
+       "clase": "PUT",
+       "precio": 0.75,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "12:32:42",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.48,
+      "objetivo1": 7300,
+      "objetivo2": 7250,
+      "calls": null,
+      "puts": null,
+      "precio": 7279.74
+     },
+     "spx_base": 7285.36,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": 1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": {
+       "spx": 7276.04,
+       "mov": -9.32,
+       "ok_trend": false,
+       "ok_st_bias": false,
+       "ok_lt_bias": false,
+       "ok_sonar_bias": false,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": true,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      },
+      "30": null,
+      "60": null,
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 12.14,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": true,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": true,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 17.44,
+      "cierre_cerca": 2.5,
+      "st": 2.5,
+      "lt": 18.69,
+      "t1": 2.5,
+      "t2": 47.5,
+      "center": 2.5,
+      "delta": 18.4,
+      "gamma": 2.5,
+      "interest": 98.69,
+      "sonar": 2.5,
+      "volume": 22.15,
+      "ingenuo_precio_actual": 12.14
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": 15.62,
+      "IC ancho": 0.35,
+      "IC Sonar": 0.95,
+      "Vertical": 0.75
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "12:46:26",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7250.0,
+     "rango_lo": 7250.0,
+     "rango_hi": 7300.0,
+     "precio": 7273.79,
+     "trend": "Up",
+     "pred_close": 7273.91,
+     "strength": 0.43,
+     "st": 7285.65,
+     "st_bias": "Bullish",
+     "lt": 7281.72,
+     "lt_bias": "Bullish",
+     "calls": 7300.0,
+     "puts": 7250.0,
+     "center": 7275.0,
+     "range": 50.0,
+     "t1": 7250.0,
+     "t2": 7300.0,
+     "delta": 7277.21,
+     "gamma": 7285.65,
+     "interest": 7200.74,
+     "sonar": 7250.0,
+     "volume": 7275.39,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7295.0,
+        7255.0,
+        7215.0
+       ],
+       "clase": "CALL",
+       "precio": 20.37,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7300.0,
+        7305.0,
+        7250.0,
+        7245.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.35,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7290.0,
+        7295.0,
+        7255.0,
+        7250.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.75,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7265.0,
+        7260.0
+       ],
+       "clase": "PUT",
+       "precio": 0.95,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "12:47:54",
+     "despues_cierre": false,
+     "sonar_bitacora": {
+      "sesgo": "bullish",
+      "fuerza": 0.43,
+      "objetivo1": 7250,
+      "objetivo2": 7300,
+      "calls": null,
+      "puts": null,
+      "precio": 7273.79
+     },
+     "spx_base": 7276.04,
+     "dirs": {
+      "trend": 1,
+      "st_bias": 1,
+      "lt_bias": 1,
+      "sonar_bias": 1,
+      "hacia_t1": -1,
+      "hacia_pred_close": -1
+     },
+     "res": {
+      "15": null,
+      "30": null,
+      "60": null,
+      "cierre": {
+       "spx": 7297.5,
+       "mov": 21.46,
+       "ok_trend": true,
+       "ok_st_bias": true,
+       "ok_lt_bias": true,
+       "ok_sonar_bias": true,
+       "ok_hacia_t1": false,
+       "ok_hacia_pred_close": false,
+       "t1_tocado": false,
+       "max_fav_t1": null
+      }
+     },
+     "err_cierre": {
+      "pred_close": 23.59,
+      "cierre_cerca": 47.5,
+      "st": 11.85,
+      "lt": 15.78,
+      "t1": 47.5,
+      "t2": 2.5,
+      "center": 22.5,
+      "delta": 20.29,
+      "gamma": 11.85,
+      "interest": 96.76,
+      "sonar": 47.5,
+      "volume": 22.11,
+      "ingenuo_precio_actual": 21.46
+     },
+     "cierre_en_rango": true,
+     "pnl_trades": {
+      "Butterfly": -20.37,
+      "IC ancho": 0.35,
+      "IC Sonar": -4.25,
+      "Vertical": 0.95
+     }
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "13:01:29",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7300.0,
+     "rango_lo": 7295.0,
+     "rango_hi": 7300.0,
+     "precio": 7298.16,
+     "trend": "Up",
+     "pred_close": 7293.43,
+     "strength": 0.5,
+     "st": 7300.0,
+     "st_bias": "Bullish",
+     "lt": 7282.99,
+     "lt_bias": "Bullish",
+     "calls": 7300.0,
+     "puts": 7300.0,
+     "center": 7300.0,
+     "range": 5.0,
+     "t1": 7300.0,
+     "t2": 7295.0,
+     "delta": 7299.58,
+     "gamma": 7300.0,
+     "interest": 7204.05,
+     "sonar": 7300.0,
+     "volume": 7285.44,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7330.0,
+        7295.0,
+        7260.0
+       ],
+       "clase": "PUT",
+       "precio": 25.97,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7305.0,
+        7310.0,
+        7290.0,
+        7285.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.2,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7300.0,
+        7305.0,
+        7290.0,
+        7285.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.63,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7290.0,
+        7285.0
+       ],
+       "clase": "PUT",
+       "precio": 0.08,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "13:03:00",
+     "despues_cierre": true,
+     "sonar_bitacora": null
+    },
+    {
+     "fecha_txt": "11-27-2026",
+     "hora_txt": "13:16:32",
+     "version": "1.0.37 Build 8",
+     "cierre_cerca": 7300.0,
+     "rango_lo": 7295.0,
+     "rango_hi": 7300.0,
+     "precio": 7297.49,
+     "trend": "Up",
+     "pred_close": 7293.29,
+     "strength": 0.47,
+     "st": 7300.0,
+     "st_bias": "Bullish",
+     "lt": 7289.99,
+     "lt_bias": "Bullish",
+     "calls": 7300.0,
+     "puts": 7300.0,
+     "center": 7300.0,
+     "range": 5.0,
+     "t1": 7300.0,
+     "t2": 7295.0,
+     "delta": 7299.56,
+     "gamma": 7300.0,
+     "interest": 7204.05,
+     "sonar": 7300.0,
+     "volume": 7285.44,
+     "forecasts": [
+      {
+       "fecha": "11-30-2026",
+       "target": 7300.0,
+       "dir": "Up"
+      }
+     ],
+     "trades": [
+      {
+       "tipo": "Butterfly",
+       "strikes": [
+        7330.0,
+        7295.0,
+        7260.0
+       ],
+       "clase": "PUT",
+       "precio": 25.97,
+       "nombre": "Butterfly"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7305.0,
+        7310.0,
+        7290.0,
+        7285.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.2,
+       "nombre": "IC ancho"
+      },
+      {
+       "tipo": "Iron Condor",
+       "strikes": [
+        7300.0,
+        7305.0,
+        7290.0,
+        7285.0
+       ],
+       "clase": "CALL/PUT",
+       "precio": 0.63,
+       "nombre": "IC Sonar"
+      },
+      {
+       "tipo": "Vertical",
+       "strikes": [
+        7290.0,
+        7285.0
+       ],
+       "clase": "PUT",
+       "precio": 0.08,
+       "nombre": "Vertical"
+      }
+     ],
+     "post_et": "13:17:53",
+     "despues_cierre": true,
+     "sonar_bitacora": null
+    }
+   ]
+  }
+ },
+ "aciertos": {
+  "cierre_en_rango||2026-11-25": {
+   "n": 18,
+   "aciertos": 7,
+   "pct": 38.9
+  },
+  "cierre_en_rango||2026-11-27": {
+   "n": 13,
+   "aciertos": 10,
+   "pct": 76.9
+  },
+  "cierre_en_rango||ambos": {
+   "n": 31,
+   "aciertos": 17,
+   "pct": 54.8
+  },
+  "hacia_pred_close|15|2026-11-25": {
+   "n": 17,
+   "aciertos": 7,
+   "pct": 41.2
+  },
+  "hacia_pred_close|15|2026-11-27": {
+   "n": 10,
+   "aciertos": 5,
+   "pct": 50.0
+  },
+  "hacia_pred_close|15|ambos": {
+   "n": 27,
+   "aciertos": 12,
+   "pct": 44.4
+  },
+  "hacia_pred_close|30|2026-11-25": {
+   "n": 16,
+   "aciertos": 4,
+   "pct": 25.0
+  },
+  "hacia_pred_close|30|2026-11-27": {
+   "n": 9,
+   "aciertos": 5,
+   "pct": 55.6
+  },
+  "hacia_pred_close|30|ambos": {
+   "n": 25,
+   "aciertos": 9,
+   "pct": 36.0
+  },
+  "hacia_pred_close|60|2026-11-25": {
+   "n": 14,
+   "aciertos": 4,
+   "pct": 28.6
+  },
+  "hacia_pred_close|60|2026-11-27": {
+   "n": 8,
+   "aciertos": 4,
+   "pct": 50.0
+  },
+  "hacia_pred_close|60|ambos": {
+   "n": 22,
+   "aciertos": 8,
+   "pct": 36.4
+  },
+  "hacia_pred_close|cierre|2026-11-25": {
+   "n": 18,
+   "aciertos": 3,
+   "pct": 16.7
+  },
+  "hacia_pred_close|cierre|2026-11-27": {
+   "n": 11,
+   "aciertos": 4,
+   "pct": 36.4
+  },
+  "hacia_pred_close|cierre|ambos": {
+   "n": 29,
+   "aciertos": 7,
+   "pct": 24.1
+  },
+  "hacia_t1|15|2026-11-25": {
+   "n": 17,
+   "aciertos": 7,
+   "pct": 41.2
+  },
+  "hacia_t1|15|2026-11-27": {
+   "n": 12,
+   "aciertos": 6,
+   "pct": 50.0
+  },
+  "hacia_t1|15|ambos": {
+   "n": 29,
+   "aciertos": 13,
+   "pct": 44.8
+  },
+  "hacia_t1|30|2026-11-25": {
+   "n": 16,
+   "aciertos": 4,
+   "pct": 25.0
+  },
+  "hacia_t1|30|2026-11-27": {
+   "n": 11,
+   "aciertos": 6,
+   "pct": 54.5
+  },
+  "hacia_t1|30|ambos": {
+   "n": 27,
+   "aciertos": 10,
+   "pct": 37.0
+  },
+  "hacia_t1|60|2026-11-25": {
+   "n": 14,
+   "aciertos": 3,
+   "pct": 21.4
+  },
+  "hacia_t1|60|2026-11-27": {
+   "n": 9,
+   "aciertos": 4,
+   "pct": 44.4
+  },
+  "hacia_t1|60|ambos": {
+   "n": 23,
+   "aciertos": 7,
+   "pct": 30.4
+  },
+  "hacia_t1|cierre|2026-11-25": {
+   "n": 18,
+   "aciertos": 3,
+   "pct": 16.7
+  },
+  "hacia_t1|cierre|2026-11-27": {
+   "n": 13,
+   "aciertos": 8,
+   "pct": 61.5
+  },
+  "hacia_t1|cierre|ambos": {
+   "n": 31,
+   "aciertos": 11,
+   "pct": 35.5
+  },
+  "lt_bias|15|2026-11-25": {
+   "n": 17,
+   "aciertos": 10,
+   "pct": 58.8
+  },
+  "lt_bias|15|2026-11-27": {
+   "n": 12,
+   "aciertos": 5,
+   "pct": 41.7
+  },
+  "lt_bias|15|ambos": {
+   "n": 29,
+   "aciertos": 15,
+   "pct": 51.7
+  },
+  "lt_bias|30|2026-11-25": {
+   "n": 16,
+   "aciertos": 10,
+   "pct": 62.5
+  },
+  "lt_bias|30|2026-11-27": {
+   "n": 11,
+   "aciertos": 5,
+   "pct": 45.5
+  },
+  "lt_bias|30|ambos": {
+   "n": 27,
+   "aciertos": 15,
+   "pct": 55.6
+  },
+  "lt_bias|60|2026-11-25": {
+   "n": 14,
+   "aciertos": 8,
+   "pct": 57.1
+  },
+  "lt_bias|60|2026-11-27": {
+   "n": 9,
+   "aciertos": 5,
+   "pct": 55.6
+  },
+  "lt_bias|60|ambos": {
+   "n": 23,
+   "aciertos": 13,
+   "pct": 56.5
+  },
+  "lt_bias|cierre|2026-11-25": {
+   "n": 18,
+   "aciertos": 13,
+   "pct": 72.2
+  },
+  "lt_bias|cierre|2026-11-27": {
+   "n": 13,
+   "aciertos": 10,
+   "pct": 76.9
+  },
+  "lt_bias|cierre|ambos": {
+   "n": 31,
+   "aciertos": 23,
+   "pct": 74.2
+  },
+  "sonar_bias|15|2026-11-25": {
+   "n": 16,
+   "aciertos": 7,
+   "pct": 43.8
+  },
+  "sonar_bias|15|2026-11-27": {
+   "n": 12,
+   "aciertos": 5,
+   "pct": 41.7
+  },
+  "sonar_bias|15|ambos": {
+   "n": 28,
+   "aciertos": 12,
+   "pct": 42.9
+  },
+  "sonar_bias|30|2026-11-25": {
+   "n": 15,
+   "aciertos": 4,
+   "pct": 26.7
+  },
+  "sonar_bias|30|2026-11-27": {
+   "n": 11,
+   "aciertos": 7,
+   "pct": 63.6
+  },
+  "sonar_bias|30|ambos": {
+   "n": 26,
+   "aciertos": 11,
+   "pct": 42.3
+  },
+  "sonar_bias|60|2026-11-25": {
+   "n": 13,
+   "aciertos": 2,
+   "pct": 15.4
+  },
+  "sonar_bias|60|2026-11-27": {
+   "n": 9,
+   "aciertos": 7,
+   "pct": 77.8
+  },
+  "sonar_bias|60|ambos": {
+   "n": 22,
+   "aciertos": 9,
+   "pct": 40.9
+  },
+  "sonar_bias|cierre|2026-11-25": {
+   "n": 17,
+   "aciertos": 6,
+   "pct": 35.3
+  },
+  "sonar_bias|cierre|2026-11-27": {
+   "n": 13,
+   "aciertos": 12,
+   "pct": 92.3
+  },
+  "sonar_bias|cierre|ambos": {
+   "n": 30,
+   "aciertos": 18,
+   "pct": 60.0
+  },
+  "st_bias|15|2026-11-25": {
+   "n": 17,
+   "aciertos": 7,
+   "pct": 41.2
+  },
+  "st_bias|15|2026-11-27": {
+   "n": 12,
+   "aciertos": 6,
+   "pct": 50.0
+  },
+  "st_bias|15|ambos": {
+   "n": 29,
+   "aciertos": 13,
+   "pct": 44.8
+  },
+  "st_bias|30|2026-11-25": {
+   "n": 16,
+   "aciertos": 4,
+   "pct": 25.0
+  },
+  "st_bias|30|2026-11-27": {
+   "n": 11,
+   "aciertos": 8,
+   "pct": 72.7
+  },
+  "st_bias|30|ambos": {
+   "n": 27,
+   "aciertos": 12,
+   "pct": 44.4
+  },
+  "st_bias|60|2026-11-25": {
+   "n": 14,
+   "aciertos": 4,
+   "pct": 28.6
+  },
+  "st_bias|60|2026-11-27": {
+   "n": 9,
+   "aciertos": 8,
+   "pct": 88.9
+  },
+  "st_bias|60|ambos": {
+   "n": 23,
+   "aciertos": 12,
+   "pct": 52.2
+  },
+  "st_bias|cierre|2026-11-25": {
+   "n": 18,
+   "aciertos": 3,
+   "pct": 16.7
+  },
+  "st_bias|cierre|2026-11-27": {
+   "n": 13,
+   "aciertos": 13,
+   "pct": 100.0
+  },
+  "st_bias|cierre|ambos": {
+   "n": 31,
+   "aciertos": 16,
+   "pct": 51.6
+  },
+  "t1_tocado|15|2026-11-25": {
+   "n": 17,
+   "aciertos": 5,
+   "pct": 29.4
+  },
+  "t1_tocado|15|2026-11-27": {
+   "n": 12,
+   "aciertos": 2,
+   "pct": 16.7
+  },
+  "t1_tocado|15|ambos": {
+   "n": 29,
+   "aciertos": 7,
+   "pct": 24.1
+  },
+  "t1_tocado|30|2026-11-25": {
+   "n": 16,
+   "aciertos": 5,
+   "pct": 31.2
+  },
+  "t1_tocado|30|2026-11-27": {
+   "n": 11,
+   "aciertos": 3,
+   "pct": 27.3
+  },
+  "t1_tocado|30|ambos": {
+   "n": 27,
+   "aciertos": 8,
+   "pct": 29.6
+  },
+  "t1_tocado|60|2026-11-25": {
+   "n": 14,
+   "aciertos": 5,
+   "pct": 35.7
+  },
+  "t1_tocado|60|2026-11-27": {
+   "n": 9,
+   "aciertos": 4,
+   "pct": 44.4
+  },
+  "t1_tocado|60|ambos": {
+   "n": 23,
+   "aciertos": 9,
+   "pct": 39.1
+  },
+  "t1_tocado|cierre|2026-11-25": {
+   "n": 18,
+   "aciertos": 5,
+   "pct": 27.8
+  },
+  "t1_tocado|cierre|2026-11-27": {
+   "n": 13,
+   "aciertos": 8,
+   "pct": 61.5
+  },
+  "t1_tocado|cierre|ambos": {
+   "n": 31,
+   "aciertos": 13,
+   "pct": 41.9
+  },
+  "trend|15|2026-11-25": {
+   "n": 17,
+   "aciertos": 10,
+   "pct": 58.8
+  },
+  "trend|15|2026-11-27": {
+   "n": 12,
+   "aciertos": 5,
+   "pct": 41.7
+  },
+  "trend|15|ambos": {
+   "n": 29,
+   "aciertos": 15,
+   "pct": 51.7
+  },
+  "trend|30|2026-11-25": {
+   "n": 16,
+   "aciertos": 10,
+   "pct": 62.5
+  },
+  "trend|30|2026-11-27": {
+   "n": 11,
+   "aciertos": 7,
+   "pct": 63.6
+  },
+  "trend|30|ambos": {
+   "n": 27,
+   "aciertos": 17,
+   "pct": 63.0
+  },
+  "trend|60|2026-11-25": {
+   "n": 14,
+   "aciertos": 8,
+   "pct": 57.1
+  },
+  "trend|60|2026-11-27": {
+   "n": 9,
+   "aciertos": 7,
+   "pct": 77.8
+  },
+  "trend|60|ambos": {
+   "n": 23,
+   "aciertos": 15,
+   "pct": 65.2
+  },
+  "trend|cierre|2026-11-25": {
+   "n": 18,
+   "aciertos": 13,
+   "pct": 72.2
+  },
+  "trend|cierre|2026-11-27": {
+   "n": 13,
+   "aciertos": 12,
+   "pct": 92.3
+  },
+  "trend|cierre|ambos": {
+   "n": 31,
+   "aciertos": 25,
+   "pct": 80.6
+  }
+ },
+ "error_medio_vs_cierre": {
+  "2026-11-25|center": {
+   "n": 18,
+   "mae": 53.32
+  },
+  "2026-11-25|cierre_cerca": {
+   "n": 18,
+   "mae": 68.27
+  },
+  "2026-11-25|delta": {
+   "n": 18,
+   "mae": 71.2
+  },
+  "2026-11-25|gamma": {
+   "n": 18,
+   "mae": 57.42
+  },
+  "2026-11-25|ingenuo_precio_actual": {
+   "n": 18,
+   "mae": 49.74
+  },
+  "2026-11-25|interest": {
+   "n": 18,
+   "mae": 111.52
+  },
+  "2026-11-25|lt": {
+   "n": 18,
+   "mae": 90.41
+  },
+  "2026-11-25|pred_close": {
+   "n": 18,
+   "mae": 76.24
+  },
+  "2026-11-25|sonar": {
+   "n": 18,
+   "mae": 66.94
+  },
+  "2026-11-25|st": {
+   "n": 18,
+   "mae": 57.42
+  },
+  "2026-11-25|t1": {
+   "n": 18,
+   "mae": 68.27
+  },
+  "2026-11-25|t2": {
+   "n": 18,
+   "mae": 71.92
+  },
+  "2026-11-25|volume": {
+   "n": 18,
+   "mae": 97.11
+  },
+  "2026-11-27|center": {
+   "n": 13,
+   "mae": 29.81
+  },
+  "2026-11-27|cierre_cerca": {
+   "n": 13,
+   "mae": 33.65
+  },
+  "2026-11-27|delta": {
+   "n": 13,
+   "mae": 39.96
+  },
+  "2026-11-27|gamma": {
+   "n": 13,
+   "mae": 28.13
+  },
+  "2026-11-27|ingenuo_precio_actual": {
+   "n": 13,
+   "mae": 35.7
+  },
+  "2026-11-27|interest": {
+   "n": 13,
+   "mae": 113.55
+  },
+  "2026-11-27|lt": {
+   "n": 13,
+   "mae": 41.75
+  },
+  "2026-11-27|pred_close": {
+   "n": 13,
+   "mae": 36.08
+  },
+  "2026-11-27|sonar": {
+   "n": 13,
+   "mae": 30.85
+  },
+  "2026-11-27|st": {
+   "n": 13,
+   "mae": 28.13
+  },
+  "2026-11-27|t1": {
+   "n": 13,
+   "mae": 33.65
+  },
+  "2026-11-27|t2": {
+   "n": 13,
+   "mae": 38.27
+  },
+  "2026-11-27|volume": {
+   "n": 13,
+   "mae": 45.58
+  },
+  "ambos|center": {
+   "n": 31,
+   "mae": 43.46
+  },
+  "ambos|cierre_cerca": {
+   "n": 31,
+   "mae": 53.75
+  },
+  "ambos|delta": {
+   "n": 31,
+   "mae": 58.1
+  },
+  "ambos|gamma": {
+   "n": 31,
+   "mae": 45.14
+  },
+  "ambos|ingenuo_precio_actual": {
+   "n": 31,
+   "mae": 43.85
+  },
+  "ambos|interest": {
+   "n": 31,
+   "mae": 112.37
+  },
+  "ambos|lt": {
+   "n": 31,
+   "mae": 70.0
+  },
+  "ambos|pred_close": {
+   "n": 31,
+   "mae": 59.4
+  },
+  "ambos|sonar": {
+   "n": 31,
+   "mae": 51.8
+  },
+  "ambos|st": {
+   "n": 31,
+   "mae": 45.14
+  },
+  "ambos|t1": {
+   "n": 31,
+   "mae": 53.75
+  },
+  "ambos|t2": {
+   "n": 31,
+   "mae": 57.81
+  },
+  "ambos|volume": {
+   "n": 31,
+   "mae": 75.5
+  }
+ },
+ "trades_ejemplo": {
+  "2026-11-25|Butterfly": {
+   "n": 18,
+   "ganadores": 4,
+   "pnl_total_pts": -69.45,
+   "pnl_medio_pts": -3.86
+  },
+  "2026-11-25|IC Sonar": {
+   "n": 18,
+   "ganadores": 14,
+   "pnl_total_pts": -2.77,
+   "pnl_medio_pts": -0.15
+  },
+  "2026-11-25|IC ancho": {
+   "n": 18,
+   "ganadores": 15,
+   "pnl_total_pts": -7.77,
+   "pnl_medio_pts": -0.43
+  },
+  "2026-11-25|Vertical": {
+   "n": 18,
+   "ganadores": 16,
+   "pnl_total_pts": 5.55,
+   "pnl_medio_pts": 0.31
+  },
+  "2026-11-27|Butterfly": {
+   "n": 13,
+   "ganadores": 4,
+   "pnl_total_pts": -95.22,
+   "pnl_medio_pts": -7.32
+  },
+  "2026-11-27|IC Sonar": {
+   "n": 13,
+   "ganadores": 8,
+   "pnl_total_pts": -5.54,
+   "pnl_medio_pts": -0.43
+  },
+  "2026-11-27|IC ancho": {
+   "n": 13,
+   "ganadores": 13,
+   "pnl_total_pts": 5.04,
+   "pnl_medio_pts": 0.39
+  },
+  "2026-11-27|Vertical": {
+   "n": 13,
+   "ganadores": 12,
+   "pnl_total_pts": 6.03,
+   "pnl_medio_pts": 0.46
+  }
+ }
+}
